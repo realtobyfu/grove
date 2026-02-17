@@ -12,6 +12,7 @@ struct SidebarView: View {
     @State private var showNewCourseSheet = false
     @State private var boardToEdit: Board?
     @State private var boardToDelete: Board?
+    @State private var boardToExport: Board?
     @State private var courseToDelete: Course?
 
     private var inboxCount: Int {
@@ -70,6 +71,10 @@ struct SidebarView: View {
                     .contextMenu {
                         Button("Edit Board...") {
                             boardToEdit = board
+                        }
+                        Divider()
+                        Button("Export Board...") {
+                            boardToExport = board
                         }
                         Divider()
                         Button("Delete Board", role: .destructive) {
@@ -216,6 +221,9 @@ struct SidebarView: View {
             if let course = courseToDelete {
                 Text("Are you sure you want to delete \"\(course.title)\"? Lectures will not be deleted.")
             }
+        }
+        .sheet(item: $boardToExport) { board in
+            BoardExportSheet(board: board, items: board.items)
         }
     }
 }

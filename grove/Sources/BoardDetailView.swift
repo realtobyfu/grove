@@ -40,6 +40,7 @@ struct BoardDetailView: View {
     @State private var selectedFilterTags: Set<UUID> = []
     @State private var collapsedSections: Set<String> = []
     @State private var showSynthesisSheet = false
+    @State private var showExportSheet = false
 
     /// The effective items for this board — smart boards compute from tag rules, regular boards use direct membership
     private var effectiveItems: [Item] {
@@ -115,6 +116,7 @@ struct BoardDetailView: View {
                 }
 
                 synthesisButton
+                exportButton
 
                 Spacer()
 
@@ -139,6 +141,9 @@ struct BoardDetailView: View {
                     openedItem = item
                 }
             )
+        }
+        .sheet(isPresented: $showExportSheet) {
+            BoardExportSheet(board: board, items: effectiveItems)
         }
         .background(boardKeyboardHandlers)
     }
@@ -470,6 +475,16 @@ struct BoardDetailView: View {
         }
         .help("Generate an AI synthesis note from items in this board")
         .disabled(effectiveItems.count < 2)
+    }
+
+    private var exportButton: some View {
+        Button {
+            showExportSheet = true
+        } label: {
+            Label("Export", systemImage: "square.and.arrow.up")
+        }
+        .help("Export this board")
+        .disabled(effectiveItems.isEmpty)
     }
 
     private var addNoteButton: some View {

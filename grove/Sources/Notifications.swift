@@ -8,4 +8,6 @@ extension Notification.Name {
     static let groveGoToInbox = Notification.Name("groveGoToInbox")
     static let groveGoToBoard = Notification.Name("groveGoToBoard")
     static let groveGoToTags = Notification.Name("groveGoToTags")
+    static let groveExportBoard = Notification.Name("groveExportBoard")
+    static let groveExportItem = Notification.Name("groveExportItem")
 }

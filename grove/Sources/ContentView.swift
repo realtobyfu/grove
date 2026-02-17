@@ -20,6 +20,8 @@ struct ContentView: View {
     @State private var showNewNoteSheet = false
     @State private var showSearch = false
     @State private var nudgeEngine: NudgeEngine?
+    @State private var showBoardExportSheet = false
+    @State private var showItemExportSheet = false
 
     /// The board scope for search — set when searching within a board context
     private var searchScopeBoard: Board? {
@@ -150,6 +152,29 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .groveGoToTags)) { _ in
             selection = .tags
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .groveExportBoard)) { _ in
+            if searchScopeBoard != nil {
+                showBoardExportSheet = true
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .groveExportItem)) { _ in
+            if selectedItem != nil {
+                showItemExportSheet = true
+            }
+        }
+        .sheet(isPresented: $showBoardExportSheet) {
+            if let board = searchScopeBoard {
+                let items = board.isSmart
+                    ? BoardViewModel.smartBoardItems(for: board, from: boards.flatMap(\.items))
+                    : board.items
+                BoardExportSheet(board: board, items: items)
+            }
+        }
+        .sheet(isPresented: $showItemExportSheet) {
+            if let item = selectedItem {
+                ItemExportSheet(items: [item])
+            }
         }
         .onAppear {
             guard nudgeEngine == nil else { return }

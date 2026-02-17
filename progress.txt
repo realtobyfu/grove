@@ -333,3 +333,24 @@ Started: Tue Feb 17 00:14:01 HST 2026
 - InspectorPanelView: added "Resurfacing" section showing queue status, interval, next date, pause toggle
 - Per-item pause: toggle in inspector to pause/unpause resurfacing for individual items
 - Items not eligible (no annotations/connections) show helpful hint text in inspector
+
+## S24: Export and Sharing — DONE
+- ExportService.swift: static service with exporters for Markdown (.md), PDF, OPML, and static HTML formats
+- Markdown export: board-level export includes all items with titles, source URLs, annotations, connections, tags; item-level export includes full metadata
+- PDF export: renders markdown text via NSAttributedString + CGContext PDF generation with header styling, US Letter size, proper pagination
+- OPML export: standard XML outline format with items as top-level outlines and annotations as sub-outlines
+- HTML export: clean dark-themed static page with board title, item cards, tags, annotations, connections — ready for self-hosting
+- ExportSheet.swift: BoardExportSheet with format picker (radio group), Send to Obsidian button, and save panel integration
+- ItemExportSheet: single/batch item export with Markdown and ZIP options
+- Send to Obsidian: exports items as individual .md files to user-configured vault folder path; board exports create a subfolder
+- ExportSettings: UserDefaults-backed obsidian folder path with Browse... button in settings
+- ExportSettingsView: added as third tab in Settings (Nudges | AI | Export) with Obsidian vault path config and format info
+- Batch export: multiple items exportable as single combined markdown or as ZIP archive (uses ditto for zip creation)
+- File menu: added Export Board... and Export Selected Item... commands via CommandGroup(replacing: .importExport)
+- Board context menu: added "Export Board..." option in SidebarView right-click menu
+- BoardDetailView toolbar: added Export button (square.and.arrow.up icon) next to Synthesize
+- ItemReaderView header: added Export button for individual item export
+- Notifications.swift: added groveExportBoard and groveExportItem notification names for menu command bridging
+- ContentView: wired export sheet presentations for board and item export via notification handlers
+- NSSavePanel used for file save dialogs; NSOpenPanel for Obsidian folder selection
+- sanitizeFilename helper strips invalid path characters for safe file naming

@@ -56,6 +56,10 @@ struct GroveApp: App {
                     .tabItem {
                         Label("AI", systemImage: "sparkles")
                     }
+                ExportSettingsView()
+                    .tabItem {
+                        Label("Export", systemImage: "square.and.arrow.up")
+                    }
             }
             .frame(width: 500, height: 450)
         }
@@ -78,6 +82,15 @@ struct GroveMenuCommands: Commands {
                 NotificationCenter.default.post(name: .groveQuickCapture, object: nil)
             }
             .keyboardShortcut("k", modifiers: [.command, .shift])
+        }
+
+        CommandGroup(replacing: .importExport) {
+            Button("Export Board...") {
+                NotificationCenter.default.post(name: .groveExportBoard, object: nil)
+            }
+            Button("Export Selected Item...") {
+                NotificationCenter.default.post(name: .groveExportItem, object: nil)
+            }
         }
 
         CommandMenu("Navigate") {

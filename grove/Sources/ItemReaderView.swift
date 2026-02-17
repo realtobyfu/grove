@@ -11,6 +11,7 @@ struct ItemReaderView: View {
     @State private var isEditingContent = false
     @State private var connectionSuggestions: [ConnectionSuggestion] = []
     @State private var showSuggestions = false
+    @State private var showItemExportSheet = false
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -68,6 +69,9 @@ struct ItemReaderView: View {
             showSuggestions = false
             connectionSuggestions = []
         }
+        .sheet(isPresented: $showItemExportSheet) {
+            ItemExportSheet(items: [item])
+        }
     }
 
     // MARK: - Header
@@ -96,6 +100,15 @@ struct ItemReaderView: View {
                 }
 
                 Spacer()
+
+                Button {
+                    showItemExportSheet = true
+                } label: {
+                    Label("Export", systemImage: "square.and.arrow.up")
+                        .font(.caption)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
 
                 if item.type == .note {
                     Button {

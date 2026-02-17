@@ -406,7 +406,7 @@
       "id": "S24",
       "title": "[v2] Export and Sharing",
       "priority": 24,
-      "passes": false,
+      "passes": true,
       "description": "Export boards and items in various formats for sharing and interop.",
       "acceptanceCriteria": [
         "Export a board as: markdown document (.md), PDF, OPML",
