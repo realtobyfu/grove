@@ -148,7 +148,7 @@
       "id": "S9",
       "title": "Tag System and Manual Tagging",
       "priority": 9,
-      "passes": false,
+      "passes": true,
       "description": "Full tag management — create, assign, remove, browse tags.",
       "acceptanceCriteria": [
         "Tags can be created inline when tagging an item (type a new name, press Enter)",
@@ -164,7 +164,7 @@
       "id": "S10",
       "title": "Tag Clustering in Board View",
       "priority": 10,
-      "passes": false,
+      "passes": true,
       "description": "Auto-group items within a board by shared tag overlap.",
       "acceptanceCriteria": [
         "Items in a board are grouped into sections based on shared tags",
