@@ -39,6 +39,7 @@ struct BoardDetailView: View {
     @State private var showNewNoteSheet = false
     @State private var selectedFilterTags: Set<UUID> = []
     @State private var collapsedSections: Set<String> = []
+    @State private var showSynthesisSheet = false
 
     /// The effective items for this board — smart boards compute from tag rules, regular boards use direct membership
     private var effectiveItems: [Item] {
@@ -113,6 +114,8 @@ struct BoardDetailView: View {
                     addNoteButton
                 }
 
+                synthesisButton
+
                 Spacer()
 
                 if board.isSmart && !board.smartRuleTags.isEmpty {
@@ -125,6 +128,17 @@ struct BoardDetailView: View {
         }
         .sheet(isPresented: $showNewNoteSheet) {
             newNoteSheet
+        }
+        .sheet(isPresented: $showSynthesisSheet) {
+            SynthesisSheet(
+                items: filteredItems,
+                scopeTitle: board.title,
+                board: board,
+                onCreated: { item in
+                    selectedItem = item
+                    openedItem = item
+                }
+            )
         }
         .background(boardKeyboardHandlers)
     }
@@ -446,6 +460,16 @@ struct BoardDetailView: View {
         .background(.quaternary)
         .clipShape(Capsule())
         .help("Smart board rules: \(board.smartRuleLogic == .and ? "AND" : "OR") logic")
+    }
+
+    private var synthesisButton: some View {
+        Button {
+            showSynthesisSheet = true
+        } label: {
+            Label("Synthesize", systemImage: "sparkles")
+        }
+        .help("Generate an AI synthesis note from items in this board")
+        .disabled(effectiveItems.count < 2)
     }
 
     private var addNoteButton: some View {

@@ -373,7 +373,7 @@
       "id": "S22",
       "title": "[v2] AI Synthesis Notes",
       "priority": 22,
-      "passes": false,
+      "passes": true,
       "description": "AI-generated summary notes that synthesize knowledge across items in a board or tag cluster.",
       "acceptanceCriteria": [
         "'Generate Synthesis' action available on boards and tag clusters",

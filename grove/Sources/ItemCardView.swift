@@ -12,10 +12,22 @@ struct ItemCardView: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 20, height: 20)
 
-                Text(item.title)
-                    .font(.headline)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.title)
+                        .font(.headline)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if item.metadata["isAIGenerated"] == "true" {
+                        HStack(spacing: 3) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 8))
+                            Text("AI Synthesis")
+                                .font(.caption2)
+                        }
+                        .foregroundStyle(.purple)
+                    }
+                }
             }
 
             Spacer(minLength: 0)

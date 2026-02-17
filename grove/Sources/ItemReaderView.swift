@@ -81,6 +81,20 @@ struct ItemReaderView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
+                if item.metadata["isAIGenerated"] == "true" {
+                    HStack(spacing: 3) {
+                        Image(systemName: "sparkles")
+                            .font(.caption2)
+                        Text("AI-Generated Synthesis")
+                            .font(.caption)
+                    }
+                    .foregroundStyle(.purple)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(.purple.opacity(0.1))
+                    .clipShape(Capsule())
+                }
+
                 Spacer()
 
                 if item.type == .note {

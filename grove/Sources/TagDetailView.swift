@@ -10,6 +10,7 @@ struct TagDetailView: View {
     @State private var isEditingCategory = false
     @State private var showDeleteConfirmation = false
     @State private var sortOrder: TagItemSort = .dateAdded
+    @State private var showSynthesisSheet = false
 
     enum TagItemSort: String, CaseIterable {
         case dateAdded = "Date Added"
@@ -39,6 +40,16 @@ struct TagDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .sheet(isPresented: $showSynthesisSheet) {
+            SynthesisSheet(
+                items: tag.items,
+                scopeTitle: "Tag: \(tag.name)",
+                board: nil,
+                onCreated: { item in
+                    selectedItem = item
+                }
+            )
+        }
         .alert("Delete Tag", isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
@@ -75,6 +86,14 @@ struct TagDetailView: View {
                     }
                 }
                 .frame(width: 130)
+
+                Button {
+                    showSynthesisSheet = true
+                } label: {
+                    Label("Synthesize", systemImage: "sparkles")
+                }
+                .help("Generate AI synthesis from items with this tag")
+                .disabled(tag.items.count < 2)
 
                 Button(role: .destructive) {
                     showDeleteConfirmation = true

@@ -47,7 +47,17 @@ struct GroveApp: App {
         .keyboardShortcut("k", modifiers: [.command, .shift])
 
         Settings {
-            NudgeSettingsView()
+            TabView {
+                NudgeSettingsView()
+                    .tabItem {
+                        Label("Nudges", systemImage: "bell")
+                    }
+                AISettingsView()
+                    .tabItem {
+                        Label("AI", systemImage: "sparkles")
+                    }
+            }
+            .frame(width: 500, height: 450)
         }
     }
 }
