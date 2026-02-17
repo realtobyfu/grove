@@ -286,7 +286,7 @@
       "id": "S17",
       "title": "[v1.5] Smart Boards",
       "priority": 17,
-      "passes": false,
+      "passes": true,
       "description": "Boards that auto-populate based on tag rules.",
       "acceptanceCriteria": [
         "Board model has isSmart flag and smartRuleTags relationship",

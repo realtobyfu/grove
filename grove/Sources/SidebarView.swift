@@ -53,9 +53,15 @@ struct SidebarView: View {
                                     .frame(width: 8, height: 8)
                             }
                             Text(board.title)
+                            if board.isSmart {
+                                Image(systemName: "gearshape.2")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .help("Smart Board — auto-populates by tag rules")
+                            }
                         }
                     } icon: {
-                        Image(systemName: board.icon ?? "folder")
+                        Image(systemName: board.isSmart ? "sparkles.rectangle.stack" : (board.icon ?? "folder"))
                     }
                     .tag(SidebarItem.board(board.id))
                     .contextMenu {
@@ -94,14 +100,25 @@ struct SidebarView: View {
         .listStyle(.sidebar)
         .navigationTitle("Grove")
         .sheet(isPresented: $showNewBoardSheet) {
-            BoardEditorSheet { title, icon, color in
-                viewModel.createBoard(title: title, icon: icon, color: color)
-            }
+            BoardEditorSheet(
+                onSave: { title, icon, color in
+                    viewModel.createBoard(title: title, icon: icon, color: color)
+                },
+                onSaveSmart: { title, icon, color, tags, logic in
+                    viewModel.createSmartBoard(title: title, icon: icon, color: color, ruleTags: tags, logic: logic)
+                }
+            )
         }
         .sheet(item: $boardToEdit) { board in
-            BoardEditorSheet(board: board) { title, icon, color in
-                viewModel.updateBoard(board, title: title, icon: icon, color: color)
-            }
+            BoardEditorSheet(
+                board: board,
+                onSave: { title, icon, color in
+                    viewModel.updateBoard(board, title: title, icon: icon, color: color)
+                },
+                onSaveSmart: { title, icon, color, tags, logic in
+                    viewModel.updateSmartBoard(board, title: title, icon: icon, color: color, ruleTags: tags, logic: logic)
+                }
+            )
         }
         .alert(
             "Delete Board",

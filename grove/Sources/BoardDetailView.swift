@@ -33,11 +33,20 @@ struct BoardDetailView: View {
     @Binding var selectedItem: Item?
     @Binding var openedItem: Item?
     @Environment(\.modelContext) private var modelContext
+    @Query private var allItems: [Item]
     @State private var viewMode: BoardViewMode = .grid
     @State private var sortOption: BoardSortOption = .dateAdded
     @State private var showNewNoteSheet = false
     @State private var selectedFilterTags: Set<UUID> = []
     @State private var collapsedSections: Set<String> = []
+
+    /// The effective items for this board — smart boards compute from tag rules, regular boards use direct membership
+    private var effectiveItems: [Item] {
+        if board.isSmart {
+            return BoardViewModel.smartBoardItems(for: board, from: allItems)
+        }
+        return board.items
+    }
 
     /// Flat ordered list of all visible items for J/K navigation
     private var flatVisibleItems: [Item] {
@@ -53,7 +62,7 @@ struct BoardDetailView: View {
 
     private var allBoardTags: [Tag] {
         var tagSet: [UUID: Tag] = [:]
-        for item in board.items {
+        for item in effectiveItems {
             for tag in item.tags {
                 tagSet[tag.id] = tag
             }
@@ -62,8 +71,8 @@ struct BoardDetailView: View {
     }
 
     private var filteredItems: [Item] {
-        guard !selectedFilterTags.isEmpty else { return board.items }
-        return board.items.filter { item in
+        guard !selectedFilterTags.isEmpty else { return effectiveItems }
+        return effectiveItems.filter { item in
             let itemTagIDs = Set(item.tags.map(\.id))
             return selectedFilterTags.isSubset(of: itemTagIDs)
         }
@@ -79,7 +88,7 @@ struct BoardDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if board.items.isEmpty {
+            if effectiveItems.isEmpty {
                 emptyState
             } else {
                 // Tag filter bar
@@ -100,9 +109,15 @@ struct BoardDetailView: View {
         .navigationTitle(board.title)
         .toolbar {
             ToolbarItemGroup(placement: .automatic) {
-                addNoteButton
+                if !board.isSmart {
+                    addNoteButton
+                }
 
                 Spacer()
+
+                if board.isSmart && !board.smartRuleTags.isEmpty {
+                    smartBoardRuleIndicator
+                }
 
                 sortPicker
                 viewModePicker
@@ -213,15 +228,34 @@ struct BoardDetailView: View {
 
     private var emptyState: some View {
         VStack(spacing: 12) {
-            Image(systemName: board.icon ?? "square.grid.2x2")
+            Image(systemName: board.isSmart ? "sparkles.rectangle.stack" : (board.icon ?? "square.grid.2x2"))
                 .font(.system(size: 48))
                 .foregroundStyle(.secondary)
             Text(board.title)
                 .font(.title2)
                 .fontWeight(.semibold)
-            Text("No items yet. Add items to this board to get started.")
-                .font(.body)
-                .foregroundStyle(.secondary)
+            if board.isSmart {
+                Text("No items match the tag rules yet. Tag items to see them appear here automatically.")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+
+                if !board.smartRuleTags.isEmpty {
+                    HStack(spacing: 4) {
+                        Text("Rules:")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                        Text(board.smartRuleTags.map(\.name).joined(separator: board.smartRuleLogic == .and ? " AND " : " OR "))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                Text("No items yet. Add items to this board to get started.")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -396,6 +430,23 @@ struct BoardDetailView: View {
     }
 
     // MARK: - Toolbar Items
+
+    private var smartBoardRuleIndicator: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "gearshape.2")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(board.smartRuleTags.map(\.name).joined(separator: board.smartRuleLogic == .and ? " & " : " | "))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(.quaternary)
+        .clipShape(Capsule())
+        .help("Smart board rules: \(board.smartRuleLogic == .and ? "AND" : "OR") logic")
+    }
 
     private var addNoteButton: some View {
         Button {
