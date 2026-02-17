@@ -354,3 +354,48 @@ Started: Tue Feb 17 00:14:01 HST 2026
 - ContentView: wired export sheet presentations for board and item export via notification handlers
 - NSSavePanel used for file save dialogs; NSOpenPanel for Obsidian folder selection
 - sanitizeFilename helper strips invalid path characters for safe file naming
+
+## S25: Local Video Support — DONE
+- VideoPlayerView.swift: NSViewRepresentable wrapping AVPlayerView with periodic time observer for playback tracking
+- VideoPlayerView.Coordinator holds AVPlayer reference and time observer; dismantleNSView cleans up properly
+- seekToTime binding allows annotation timestamp clicks to seek the video
+- Double.formattedTimestamp extension formats seconds as MM:SS or HH:MM:SS
+- VideoThumbnailGenerator: async utility with generateThumbnail (AVAssetImageGenerator at midpoint) and extractMetadata (duration, dimensions)
+- Thumbnail stored as JPEG Data in Item.thumbnail field; metadata in Item.metadata dict
+- ItemViewModel.createVideoItem: creates .video Item with file:// sourceURL, stores originalPath in metadata, async extracts thumbnail+metadata
+- isSupportedVideoFile static helper checks extension against mp4/mov/mkv/m4v/avi set
+- ItemReaderView: video player embedded for local .video items; shows playback time bar, file path, optional description below
+- localVideoURL computed property resolves video from metadata["originalPath"] or sourceURL file:// URL
+- isVideoItem helper checks type + local file availability
+- Annotation creation captures current playback time as Int in annotation.position for video items
+- Annotation cards show clickable timestamp (play.circle.fill + MM:SS) that seeks video when tapped
+- New annotation editor shows "Timestamp: MM:SS" hint for video items
+- Header shows folder icon + file path for local videos instead of web link
+- ItemCardView: shows video thumbnail with play overlay, duration badge from metadata
+- BoardDetailView: .onDrop(of: [.fileURL]) accepts video files, creates items via createVideoItem
+- InboxTriageView: same drag-and-drop support for inbox
+- NSItemProvider.loadObject(ofClass: URL.self) used for drop handling
+- Build succeeds with no errors or warnings in modified files
+
+## S26: CloudKit Sync — DONE
+- SyncService.swift: @Observable service managing CloudKit sync state and monitoring
+- SyncStatus enum: .disabled, .synced, .syncing, .error(String) with iconName and label computed properties
+- SyncSettings struct: UserDefaults-backed syncEnabled toggle (default false = local-only)
+- GroveApp.swift: ModelContainer now uses explicit Schema + ModelConfiguration
+- When sync enabled: ModelConfiguration with cloudKitDatabase: .automatic for CloudKit backing
+- When sync disabled: ModelConfiguration with cloudKitDatabase: .none for local-only (default)
+- All 7 model types registered in Schema: Item, Board, Tag, Connection, Annotation, Nudge, Course
+- SwiftData + CloudKit handles sync automatically — no manual CKRecord management needed
+- Conflict resolution: SwiftData/CloudKit uses last-write-wins for scalar fields; many-to-many relationships merge at record level
+- SyncService monitors: CKAccountChanged notifications, NSPersistentCloudKitContainer.eventChangedNotification for import/export events
+- Periodic account status check every 60 seconds via Timer
+- SyncStatusView.swift: Toolbar indicator with .symbolEffect(.pulse) animation during syncing
+- Shows green checkmark.icloud when synced, blue animated arrow when syncing, orange exclamationmark when error
+- Only visible when sync is enabled (hidden in local-only mode)
+- SyncSettingsView.swift: New "Sync" tab in Settings with enable toggle, account status check, and info section
+- Restart alert shown when toggling sync (ModelContainer configuration is set at app launch)
+- ContentView: accepts syncService parameter, displays SyncStatusView in toolbar at .status placement
+- Settings TabView now has 4 tabs: Nudges, AI, Export, Sync (frame height increased to 500)
+- Works offline by design — SwiftData queues changes and syncs when connection returns
+- Architecture supports future iOS companion app reading the same CloudKit container
+- No entitlements file needed for development builds; App Store submission would need iCloud entitlement

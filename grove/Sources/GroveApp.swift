@@ -4,18 +4,37 @@ import SwiftData
 @main
 struct GroveApp: App {
     let modelContainer: ModelContainer
+    @State private var syncService = SyncService()
 
     init() {
+        let schema = Schema([
+            Item.self,
+            Board.self,
+            Tag.self,
+            Connection.self,
+            Annotation.self,
+            Nudge.self,
+            Course.self,
+        ])
+
         do {
-            modelContainer = try ModelContainer(for:
-                Item.self,
-                Board.self,
-                Tag.self,
-                Connection.self,
-                Annotation.self,
-                Nudge.self,
-                Course.self
-            )
+            if SyncSettings.syncEnabled {
+                // CloudKit-backed configuration for sync
+                let config = ModelConfiguration(
+                    "Grove",
+                    schema: schema,
+                    cloudKitDatabase: .automatic
+                )
+                modelContainer = try ModelContainer(for: schema, configurations: [config])
+            } else {
+                // Local-only configuration (default)
+                let config = ModelConfiguration(
+                    "Grove",
+                    schema: schema,
+                    cloudKitDatabase: .none
+                )
+                modelContainer = try ModelContainer(for: schema, configurations: [config])
+            }
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
         }
@@ -23,7 +42,7 @@ struct GroveApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(syncService: syncService)
         }
         .modelContainer(modelContainer)
         .defaultSize(width: 1200, height: 800)
@@ -60,8 +79,12 @@ struct GroveApp: App {
                     .tabItem {
                         Label("Export", systemImage: "square.and.arrow.up")
                     }
+                SyncSettingsView()
+                    .tabItem {
+                        Label("Sync", systemImage: "icloud")
+                    }
             }
-            .frame(width: 500, height: 450)
+            .frame(width: 500, height: 500)
         }
     }
 }

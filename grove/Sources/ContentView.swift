@@ -23,6 +23,8 @@ struct ContentView: View {
     @State private var showBoardExportSheet = false
     @State private var showItemExportSheet = false
 
+    var syncService: SyncService
+
     /// The board scope for search — set when searching within a board context
     private var searchScopeBoard: Board? {
         if case .board(let boardID) = selection {
@@ -67,6 +69,9 @@ struct ContentView: View {
                     }
                 }
                 .toolbar {
+                    ToolbarItem(placement: .status) {
+                        SyncStatusView(syncService: syncService)
+                    }
                     ToolbarItem(placement: .primaryAction) {
                         Button {
                             withAnimation {

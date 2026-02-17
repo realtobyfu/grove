@@ -423,7 +423,7 @@
       "id": "S25",
       "title": "[v2] Local Video Support",
       "priority": 25,
-      "passes": false,
+      "passes": true,
       "description": "Import and annotate local video files with timestamp-linked notes.",
       "acceptanceCriteria": [
         "Import local video files (.mp4, .mov, .mkv) as Item type .video",
@@ -439,7 +439,7 @@
       "id": "S26",
       "title": "[v2] CloudKit Sync",
       "priority": 26,
-      "passes": false,
+      "passes": true,
       "description": "Sync all data across devices via CloudKit.",
       "acceptanceCriteria": [
         "SwiftData models backed by CloudKit container",
