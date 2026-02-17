@@ -15,37 +15,77 @@ struct ContentView: View {
     @State private var selectedItem: Item?
     @State private var openedItem: Item?
     @State private var showNewNoteSheet = false
+    @State private var showSearch = false
+
+    /// The board scope for search — set when searching within a board context
+    private var searchScopeBoard: Board? {
+        if case .board(let boardID) = selection {
+            return boards.first(where: { $0.id == boardID })
+        }
+        return nil
+    }
 
     var body: some View {
         NavigationSplitView {
             SidebarView(selection: $selection)
         } detail: {
-            HStack(spacing: 0) {
-                detailContent
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ZStack {
+                HStack(spacing: 0) {
+                    detailContent
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                if showInspector {
-                    Divider()
-                    if let selectedItem {
-                        InspectorPanelView(item: selectedItem)
-                            .frame(width: 280)
-                    } else {
-                        InspectorEmptyView()
-                            .frame(width: 280)
+                    if showInspector {
+                        Divider()
+                        if let selectedItem {
+                            InspectorPanelView(item: selectedItem)
+                                .frame(width: 280)
+                        } else {
+                            InspectorEmptyView()
+                                .frame(width: 280)
+                        }
                     }
                 }
-            }
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        withAnimation {
-                            showInspector.toggle()
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            withAnimation {
+                                showInspector.toggle()
+                            }
+                        } label: {
+                            Image(systemName: "sidebar.trailing")
                         }
-                    } label: {
-                        Image(systemName: "sidebar.trailing")
+                        .help(showInspector ? "Hide Inspector" : "Show Inspector")
+                        .keyboardShortcut("]", modifiers: .command)
                     }
-                    .help(showInspector ? "Hide Inspector" : "Show Inspector")
-                    .keyboardShortcut("]", modifiers: .command)
+                }
+
+                // Search overlay
+                if showSearch {
+                    Color.black.opacity(0.2)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            showSearch = false
+                        }
+
+                    VStack {
+                        SearchOverlayView(
+                            isPresented: $showSearch,
+                            scopeBoard: searchScopeBoard,
+                            onSelectItem: { item in
+                                selectedItem = item
+                                openedItem = item
+                            },
+                            onSelectBoard: { board in
+                                selection = .board(board.id)
+                            },
+                            onSelectTag: { _ in
+                                selection = .tags
+                            }
+                        )
+                        .padding(.top, 80)
+                        Spacer()
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
         }
@@ -70,6 +110,16 @@ struct ContentView: View {
         .keyboardShortcut(for: .newNote) {
             showNewNoteSheet = true
         }
+        .background(
+            Button("") {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    showSearch.toggle()
+                }
+            }
+            .keyboardShortcut("f", modifiers: .command)
+            .opacity(0)
+            .frame(width: 0, height: 0)
+        )
     }
 
     @ViewBuilder

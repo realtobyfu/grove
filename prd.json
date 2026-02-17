@@ -212,7 +212,7 @@
       "id": "S13",
       "title": "Global Search",
       "priority": 13,
-      "passes": false,
+      "passes": true,
       "description": "Search across all items, annotations, tags, and boards.",
       "acceptanceCriteria": [
         "⌘+F opens a search bar overlay (similar to Spotlight)",
