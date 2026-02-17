@@ -31,6 +31,7 @@ struct TagCluster: Identifiable {
 struct BoardDetailView: View {
     let board: Board
     @Binding var selectedItem: Item?
+    @Binding var openedItem: Item?
     @Environment(\.modelContext) private var modelContext
     @State private var viewMode: BoardViewMode = .grid
     @State private var sortOption: BoardSortOption = .dateAdded
@@ -260,7 +261,11 @@ struct BoardDetailView: View {
                     ) {
                         ForEach(sortedItems) { item in
                             ItemCardView(item: item)
-                                .onTapGesture {
+                                .onTapGesture(count: 2) {
+                                    openedItem = item
+                                    selectedItem = item
+                                }
+                                .onTapGesture(count: 1) {
                                     selectedItem = item
                                 }
                                 .overlay(
@@ -276,7 +281,11 @@ struct BoardDetailView: View {
                         ForEach(sortedItems) { item in
                             listRow(item: item)
                                 .contentShape(Rectangle())
-                                .onTapGesture {
+                                .onTapGesture(count: 2) {
+                                    openedItem = item
+                                    selectedItem = item
+                                }
+                                .onTapGesture(count: 1) {
                                     selectedItem = item
                                 }
                                 .background(selectedItem?.id == item.id ? Color.accentColor.opacity(0.1) : Color.clear)

@@ -13,6 +13,7 @@ struct ContentView: View {
     @State private var selection: SidebarItem? = .inbox
     @State private var showInspector = true
     @State private var selectedItem: Item?
+    @State private var openedItem: Item?
     @State private var showNewNoteSheet = false
 
     var body: some View {
@@ -51,6 +52,7 @@ struct ContentView: View {
         .frame(minWidth: 1200, minHeight: 800)
         .onChange(of: selection) {
             selectedItem = nil
+            openedItem = nil
         }
         .sheet(isPresented: $showNewNoteSheet) {
             NewNoteSheet { title, content in
@@ -72,27 +74,41 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detailContent: some View {
-        switch selection {
-        case .inbox:
-            InboxTriageView(selectedItem: $selectedItem)
-        case .board(let boardID):
-            if let board = boards.first(where: { $0.id == boardID }) {
-                BoardDetailView(board: board, selectedItem: $selectedItem)
-            } else {
+        if let openedItem {
+            ItemReaderView(item: openedItem)
+                .toolbar {
+                    ToolbarItem(placement: .navigation) {
+                        Button {
+                            self.openedItem = nil
+                        } label: {
+                            Label("Back", systemImage: "chevron.left")
+                        }
+                        .help("Back to list")
+                    }
+                }
+        } else {
+            switch selection {
+            case .inbox:
+                InboxTriageView(selectedItem: $selectedItem)
+            case .board(let boardID):
+                if let board = boards.first(where: { $0.id == boardID }) {
+                    BoardDetailView(board: board, selectedItem: $selectedItem, openedItem: $openedItem)
+                } else {
+                    PlaceholderView(
+                        icon: "square.grid.2x2",
+                        title: "Board",
+                        message: "Board not found."
+                    )
+                }
+            case .tags:
+                TagBrowserView(selectedItem: $selectedItem)
+            case nil:
                 PlaceholderView(
-                    icon: "square.grid.2x2",
-                    title: "Board",
-                    message: "Board not found."
+                    icon: "leaf",
+                    title: "Grove",
+                    message: "Select an item from the sidebar to get started."
                 )
             }
-        case .tags:
-            TagBrowserView(selectedItem: $selectedItem)
-        case nil:
-            PlaceholderView(
-                icon: "leaf",
-                title: "Grove",
-                message: "Select an item from the sidebar to get started."
-            )
         }
     }
 }

@@ -179,7 +179,7 @@
       "id": "S11",
       "title": "Annotations and Markdown Notes",
       "priority": 11,
-      "passes": false,
+      "passes": true,
       "description": "Inline annotations on items with markdown support.",
       "acceptanceCriteria": [
         "Item reader view shows article content or note content",
