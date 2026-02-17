@@ -8,9 +8,12 @@ enum SidebarItem: Hashable {
 }
 
 struct ContentView: View {
+    @Environment(\.modelContext) private var modelContext
     @Query(sort: \Board.sortOrder) private var boards: [Board]
     @State private var selection: SidebarItem? = .inbox
     @State private var showInspector = true
+    @State private var selectedItem: Item?
+    @State private var showNewNoteSheet = false
 
     var body: some View {
         NavigationSplitView {
@@ -22,7 +25,7 @@ struct ContentView: View {
 
                 if showInspector {
                     Divider()
-                    InspectorPanelView()
+                    InspectorPanelView(item: selectedItem)
                         .frame(width: 280)
                 }
             }
@@ -41,6 +44,22 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 1200, minHeight: 800)
+        .sheet(isPresented: $showNewNoteSheet) {
+            NewNoteSheet { title, content in
+                let viewModel = ItemViewModel(modelContext: modelContext)
+                let note = viewModel.createNote(title: title)
+                note.content = content
+                // If a board is selected, assign to it
+                if case .board(let boardID) = selection,
+                   let board = boards.first(where: { $0.id == boardID }) {
+                    viewModel.assignToBoard(note, board: board)
+                }
+                selectedItem = note
+            }
+        }
+        .keyboardShortcut(for: .newNote) {
+            showNewNoteSheet = true
+        }
     }
 
     @ViewBuilder
@@ -100,6 +119,8 @@ struct PlaceholderView: View {
 }
 
 struct InspectorPanelView: View {
+    let item: Item?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Inspector")
@@ -107,14 +128,92 @@ struct InspectorPanelView: View {
                 .padding(.horizontal)
                 .padding(.top)
 
-            Text("Select an item to see details.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal)
+            if let item {
+                inspectorContent(for: item)
+            } else {
+                Text("Select an item to see details.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal)
+            }
 
             Spacer()
         }
         .frame(maxHeight: .infinity)
         .background(.ultraThinMaterial)
+    }
+
+    @ViewBuilder
+    private func inspectorContent(for item: Item) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Type
+            HStack {
+                Image(systemName: item.type.iconName)
+                    .foregroundStyle(.secondary)
+                Text(item.type.rawValue.capitalized)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal)
+
+            // Title
+            Text(item.title)
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .padding(.horizontal)
+
+            Divider()
+                .padding(.horizontal)
+
+            // Dates
+            VStack(alignment: .leading, spacing: 4) {
+                Label(item.createdAt.formatted(date: .abbreviated, time: .shortened), systemImage: "calendar")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal)
+
+            // Boards
+            if !item.boards.isEmpty {
+                Divider()
+                    .padding(.horizontal)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Boards")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.secondary)
+                    ForEach(item.boards) { board in
+                        HStack(spacing: 4) {
+                            if let hex = board.color {
+                                Circle()
+                                    .fill(Color(hex: hex))
+                                    .frame(width: 6, height: 6)
+                            }
+                            Text(board.title)
+                                .font(.caption)
+                        }
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+}
+
+// MARK: - Keyboard Shortcut Modifier
+
+enum GroveShortcut {
+    case newNote
+}
+
+extension View {
+    func keyboardShortcut(for shortcut: GroveShortcut, action: @escaping () -> Void) -> some View {
+        self.background(
+            Button("") { action() }
+                .keyboardShortcut("n", modifiers: .command)
+                .opacity(0)
+                .frame(width: 0, height: 0)
+        )
     }
 }
