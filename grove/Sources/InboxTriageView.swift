@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
 
 struct InboxTriageView: View {
     @Binding var selectedItem: Item?
@@ -32,6 +33,9 @@ struct InboxTriageView: View {
                     itemToAssign = nil
                 }
             }
+        }
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            handleVideoDrop(providers: providers)
         }
         .background(keyboardHandlers)
     }
@@ -205,6 +209,25 @@ struct InboxTriageView: View {
             focusedIndex = min(focusedIndex, items.count - 1)
             selectedItem = items[focusedIndex]
         }
+    }
+
+    // MARK: - Video Drag-and-Drop
+
+    private func handleVideoDrop(providers: [NSItemProvider]) -> Bool {
+        var handled = false
+        for provider in providers {
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                guard let url = url else { return }
+                let path = url.path
+                guard ItemViewModel.isSupportedVideoFile(path) else { return }
+                DispatchQueue.main.async {
+                    let viewModel = ItemViewModel(modelContext: modelContext)
+                    _ = viewModel.createVideoItem(filePath: path)
+                }
+            }
+            handled = true
+        }
+        return handled
     }
 }
 

@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
 
 enum BoardViewMode: String, CaseIterable {
     case grid
@@ -108,6 +109,9 @@ struct BoardDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            handleVideoDrop(providers: providers)
+        }
         .navigationTitle(board.title)
         .toolbar {
             ToolbarItemGroup(placement: .automatic) {
@@ -537,6 +541,26 @@ struct BoardDetailView: View {
             note.content = content
             viewModel.assignToBoard(note, board: board)
         }
+    }
+
+    // MARK: - Video Drag-and-Drop
+
+    private func handleVideoDrop(providers: [NSItemProvider]) -> Bool {
+        var handled = false
+        for provider in providers {
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                guard let url = url else { return }
+                let path = url.path
+                guard ItemViewModel.isSupportedVideoFile(path) else { return }
+                DispatchQueue.main.async {
+                    let viewModel = ItemViewModel(modelContext: modelContext)
+                    let item = viewModel.createVideoItem(filePath: path, board: board.isSmart ? nil : board)
+                    selectedItem = item
+                }
+            }
+            handled = true
+        }
+        return handled
     }
 
     // MARK: - Clustering

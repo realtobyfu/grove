@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import AVKit
 
 struct ItemReaderView: View {
     @Bindable var item: Item
@@ -12,6 +13,10 @@ struct ItemReaderView: View {
     @State private var connectionSuggestions: [ConnectionSuggestion] = []
     @State private var showSuggestions = false
     @State private var showItemExportSheet = false
+    // Video playback state
+    @State private var videoCurrentTime: Double = 0
+    @State private var videoDuration: Double = 0
+    @State private var videoSeekTarget: Double? = nil
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -133,16 +138,29 @@ struct ItemReaderView: View {
                 .textSelection(.enabled)
 
             if let sourceURL = item.sourceURL, !sourceURL.isEmpty {
-                Link(destination: URL(string: sourceURL) ?? URL(string: "about:blank")!) {
+                if item.metadata["videoLocalFile"] == "true", let path = item.metadata["originalPath"] {
+                    // Local video file — show path with folder icon
                     HStack(spacing: 4) {
-                        Image(systemName: "link")
+                        Image(systemName: "folder")
                             .font(.caption)
-                        Text(sourceURL)
+                        Text(path)
                             .font(.caption)
                             .lineLimit(1)
-                            .truncationMode(.middle)
+                            .truncationMode(.head)
                     }
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(.secondary)
+                } else {
+                    Link(destination: URL(string: sourceURL) ?? URL(string: "about:blank")!) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "link")
+                                .font(.caption)
+                            Text(sourceURL)
+                                .font(.caption)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        .foregroundStyle(.blue)
+                    }
                 }
             }
 
@@ -162,7 +180,48 @@ struct ItemReaderView: View {
 
     @ViewBuilder
     private var itemContent: some View {
-        if isEditingContent && item.type == .note {
+        if item.type == .video, let videoURL = localVideoURL {
+            // Video player for local video items
+            VStack(spacing: 8) {
+                VideoPlayerView(
+                    url: videoURL,
+                    currentTime: $videoCurrentTime,
+                    duration: $videoDuration,
+                    seekToTime: videoSeekTarget
+                )
+                .frame(minHeight: 360)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                // Playback info bar
+                HStack {
+                    Text(videoCurrentTime.formattedTimestamp)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    Text("/")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Text(videoDuration.formattedTimestamp)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    if let path = item.metadata["originalPath"] {
+                        Text(URL(fileURLWithPath: path).lastPathComponent)
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
+                }
+
+                // Description/notes below video
+                if let content = item.content, !content.isEmpty {
+                    Divider()
+                    MarkdownTextView(markdown: content)
+                        .textSelection(.enabled)
+                }
+            }
+        } else if isEditingContent && item.type == .note {
             WikiLinkTextEditor(
                 text: Binding(
                     get: { item.content ?? "" },
@@ -183,6 +242,25 @@ struct ItemReaderView: View {
                 .foregroundStyle(.tertiary)
                 .italic()
         }
+    }
+
+    /// Resolve the local video file URL for this item
+    private var localVideoURL: URL? {
+        guard item.type == .video else { return nil }
+        // Check for local file path
+        if let path = item.metadata["originalPath"] {
+            let url = URL(fileURLWithPath: path)
+            if FileManager.default.fileExists(atPath: path) {
+                return url
+            }
+        }
+        // Fall back to sourceURL if it's a file URL
+        if let urlString = item.sourceURL, urlString.hasPrefix("file://"),
+           let url = URL(string: urlString),
+           FileManager.default.fileExists(atPath: url.path) {
+            return url
+        }
+        return nil
     }
 
     // MARK: - Annotations
@@ -211,8 +289,13 @@ struct ItemReaderView: View {
                     isAddingAnnotation = true
                     newAnnotationText = ""
                 } label: {
-                    Label("Add Annotation", systemImage: "plus.circle")
-                        .font(.caption)
+                    if isVideoItem {
+                        Label("Annotate at \(videoCurrentTime.formattedTimestamp)", systemImage: "plus.circle")
+                            .font(.caption)
+                    } else {
+                        Label("Add Annotation", systemImage: "plus.circle")
+                            .font(.caption)
+                    }
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -249,6 +332,16 @@ struct ItemReaderView: View {
                 minHeight: 80
             )
 
+            if isVideoItem {
+                HStack(spacing: 4) {
+                    Image(systemName: "clock.badge.checkmark")
+                        .font(.caption2)
+                    Text("Timestamp: \(videoCurrentTime.formattedTimestamp)")
+                        .font(.caption2)
+                }
+                .foregroundStyle(.blue.opacity(0.7))
+            }
+
             Text("Supports markdown: **bold**, *italic*, `code`, # headings, [links](url), [[wiki-links]]")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
@@ -275,13 +368,35 @@ struct ItemReaderView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
+    /// Whether the current item is a local video
+    private var isVideoItem: Bool {
+        item.type == .video && localVideoURL != nil
+    }
+
     private func annotationCard(_ annotation: Annotation) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Header with date and actions
+            // Header with date/timestamp and actions
             HStack {
-                Label(annotation.createdAt.formatted(date: .abbreviated, time: .shortened), systemImage: "clock")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+                if isVideoItem, let position = annotation.position {
+                    // Clickable video timestamp
+                    Button {
+                        videoSeekTarget = Double(position)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "play.circle.fill")
+                                .font(.caption)
+                            Text(Double(position).formattedTimestamp)
+                                .font(.caption.monospacedDigit())
+                        }
+                        .foregroundStyle(.blue)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Jump to \(Double(position).formattedTimestamp) in video")
+                } else {
+                    Label(annotation.createdAt.formatted(date: .abbreviated, time: .shortened), systemImage: "clock")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
 
                 Spacer()
 
@@ -351,7 +466,9 @@ struct ItemReaderView: View {
         let content = newAnnotationText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty else { return }
 
-        let annotation = Annotation(item: item, content: content)
+        // For video items, record the current playback timestamp
+        let timestamp: Int? = isVideoItem ? Int(videoCurrentTime) : nil
+        let annotation = Annotation(item: item, content: content, position: timestamp)
         modelContext.insert(annotation)
         item.annotations.append(annotation)
         item.updatedAt = .now

@@ -1,6 +1,8 @@
 import Foundation
 import SwiftData
 import SwiftUI
+import AVFoundation
+import UniformTypeIdentifiers
 
 @Observable
 final class ItemViewModel {
@@ -138,6 +140,67 @@ final class ItemViewModel {
             return item.title.localizedCaseInsensitiveContains(query)
         }
         return Array(filtered.prefix(20))
+    }
+
+    // MARK: - Local Video Import
+
+    /// Supported video file extensions
+    static let supportedVideoExtensions: Set<String> = ["mp4", "mov", "mkv", "m4v", "avi"]
+
+    /// Supported UTTypes for video drag-and-drop
+    static var supportedVideoUTTypes: [UTType] {
+        [.mpeg4Movie, .quickTimeMovie, .movie, .video, .avi]
+    }
+
+    /// Create a video item from a local file path. The file is referenced, not copied.
+    func createVideoItem(filePath: String, board: Board? = nil) -> Item {
+        let url = URL(fileURLWithPath: filePath)
+        let filename = url.deletingPathExtension().lastPathComponent
+        let item = Item(title: filename, type: .video)
+        item.status = .inbox
+        item.sourceURL = url.absoluteString // file:// URL
+        item.metadata["videoLocalFile"] = "true"
+        item.metadata["originalPath"] = filePath
+        modelContext.insert(item)
+        if let board = board {
+            item.boards.append(board)
+        }
+        try? modelContext.save()
+
+        // Extract metadata and thumbnail asynchronously
+        let itemID = item.id
+        let context = self.modelContext
+        Task.detached {
+            let fileURL = URL(fileURLWithPath: filePath)
+
+            // Extract metadata
+            let meta = await VideoThumbnailGenerator.extractMetadata(for: fileURL)
+
+            // Generate thumbnail
+            let thumbnailData = await VideoThumbnailGenerator.generateThumbnail(for: fileURL)
+
+            await MainActor.run {
+                let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
+                guard let fetchedItem = try? context.fetch(descriptor).first else { return }
+
+                for (key, value) in meta {
+                    fetchedItem.metadata[key] = value
+                }
+                if let thumbnailData = thumbnailData {
+                    fetchedItem.thumbnail = thumbnailData
+                }
+                fetchedItem.updatedAt = .now
+                try? context.save()
+            }
+        }
+
+        return item
+    }
+
+    /// Check if a file path points to a supported video file
+    static func isSupportedVideoFile(_ path: String) -> Bool {
+        let ext = URL(fileURLWithPath: path).pathExtension.lowercased()
+        return supportedVideoExtensions.contains(ext)
     }
 
     private static func isVideoURL(_ urlString: String) -> Bool {

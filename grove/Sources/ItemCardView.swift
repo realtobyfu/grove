@@ -5,6 +5,23 @@ struct ItemCardView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            // Video thumbnail
+            if item.type == .video, let thumbnailData = item.thumbnail,
+               let nsImage = NSImage(data: thumbnailData) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(height: 100)
+                    .clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .overlay(
+                        Image(systemName: "play.circle.fill")
+                            .font(.title)
+                            .foregroundStyle(.white.opacity(0.9))
+                            .shadow(radius: 2)
+                    )
+            }
+
             // Type icon and title
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: item.type.iconName)
@@ -26,6 +43,18 @@ struct ItemCardView: View {
                                 .font(.caption2)
                         }
                         .foregroundStyle(.purple)
+                    }
+
+                    // Video duration badge
+                    if item.type == .video, let durationStr = item.metadata["videoDuration"],
+                       let duration = Double(durationStr) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "clock")
+                                .font(.system(size: 8))
+                            Text(duration.formattedTimestamp)
+                                .font(.caption2)
+                        }
+                        .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -50,7 +79,11 @@ struct ItemCardView: View {
 
                 Spacer()
 
-                if let url = item.sourceURL {
+                if item.metadata["videoLocalFile"] == "true" {
+                    Text("Local Video")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                } else if let url = item.sourceURL {
                     Text(domainFrom(url))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
