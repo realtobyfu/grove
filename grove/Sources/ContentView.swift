@@ -17,7 +17,7 @@ struct ContentView: View {
     @State private var openedItem: Item?
     @State private var showNewNoteSheet = false
     @State private var showSearch = false
-    @State private var hasGeneratedNudges = false
+    @State private var nudgeEngine: NudgeEngine?
 
     /// The board scope for search — set when searching within a board context
     private var searchScopeBoard: Board? {
@@ -149,10 +149,14 @@ struct ContentView: View {
             selection = .tags
         }
         .onAppear {
-            guard !hasGeneratedNudges else { return }
-            hasGeneratedNudges = true
+            guard nudgeEngine == nil else { return }
             let engine = NudgeEngine(modelContext: modelContext)
-            engine.generateNudges()
+            engine.startSchedule()
+            nudgeEngine = engine
+        }
+        .onDisappear {
+            nudgeEngine?.stopSchedule()
+            nudgeEngine = nil
         }
     }
 

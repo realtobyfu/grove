@@ -103,22 +103,22 @@ struct SidebarView: View {
         .navigationTitle("Grove")
         .sheet(isPresented: $showNewBoardSheet) {
             BoardEditorSheet(
-                onSave: { title, icon, color in
-                    viewModel.createBoard(title: title, icon: icon, color: color)
+                onSave: { title, icon, color, nudgeFreq in
+                    viewModel.createBoard(title: title, icon: icon, color: color, nudgeFrequencyHours: nudgeFreq)
                 },
-                onSaveSmart: { title, icon, color, tags, logic in
-                    viewModel.createSmartBoard(title: title, icon: icon, color: color, ruleTags: tags, logic: logic)
+                onSaveSmart: { title, icon, color, tags, logic, nudgeFreq in
+                    viewModel.createSmartBoard(title: title, icon: icon, color: color, ruleTags: tags, logic: logic, nudgeFrequencyHours: nudgeFreq)
                 }
             )
         }
         .sheet(item: $boardToEdit) { board in
             BoardEditorSheet(
                 board: board,
-                onSave: { title, icon, color in
-                    viewModel.updateBoard(board, title: title, icon: icon, color: color)
+                onSave: { title, icon, color, nudgeFreq in
+                    viewModel.updateBoard(board, title: title, icon: icon, color: color, nudgeFrequencyHours: nudgeFreq)
                 },
-                onSaveSmart: { title, icon, color, tags, logic in
-                    viewModel.updateSmartBoard(board, title: title, icon: icon, color: color, ruleTags: tags, logic: logic)
+                onSaveSmart: { title, icon, color, tags, logic, nudgeFreq in
+                    viewModel.updateSmartBoard(board, title: title, icon: icon, color: color, ruleTags: tags, logic: logic, nudgeFrequencyHours: nudgeFreq)
                 }
             )
         }

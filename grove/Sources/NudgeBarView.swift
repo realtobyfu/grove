@@ -61,6 +61,7 @@ struct NudgeBarView: View {
     private func actOnNudge(_ nudge: Nudge) {
         withAnimation(.easeOut(duration: 0.25)) {
             nudge.status = .actedOn
+            NudgeSettings.recordAction(type: nudge.type, actedOn: true)
             try? modelContext.save()
         }
 
@@ -79,6 +80,7 @@ struct NudgeBarView: View {
     private func dismissNudge(_ nudge: Nudge) {
         withAnimation(.easeOut(duration: 0.25)) {
             nudge.status = .dismissed
+            NudgeSettings.recordAction(type: nudge.type, actedOn: false)
             try? modelContext.save()
         }
     }

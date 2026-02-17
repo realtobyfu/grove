@@ -44,6 +44,10 @@ struct GroveApp: App {
         .windowResizability(.contentSize)
         .defaultPosition(.center)
         .keyboardShortcut("k", modifiers: [.command, .shift])
+
+        Settings {
+            NudgeSettingsView()
+        }
     }
 }
 

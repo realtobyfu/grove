@@ -12,17 +12,29 @@ struct BoardEditorSheet: View {
     @State var smartRuleLogic: SmartRuleLogic
     @State var selectedRuleTagIDs: Set<UUID>
     @State var tagSearchText: String = ""
+    @State var nudgeFrequencyHours: Int
 
     let isEditing: Bool
-    let onSave: (String, String?, String?) -> Void
-    let onSaveSmart: ((String, String?, String?, [Tag], SmartRuleLogic) -> Void)?
+    let onSave: (String, String?, String?, Int) -> Void
+    let onSaveSmart: ((String, String?, String?, [Tag], SmartRuleLogic, Int) -> Void)?
 
     private static let defaultIcon = "folder"
     private static let defaultColor = "007AFF"
 
+    /// Nudge frequency options: 0 = global default, -1 = disabled, or custom hours
+    private static let nudgeFrequencyOptions: [(label: String, value: Int)] = [
+        ("Use Global Default", 0),
+        ("Every 2 Hours", 2),
+        ("Every 4 Hours", 4),
+        ("Every 8 Hours", 8),
+        ("Every 12 Hours", 12),
+        ("Once a Day", 24),
+        ("Disabled", -1)
+    ]
+
     init(board: Board? = nil,
-         onSave: @escaping (String, String?, String?) -> Void,
-         onSaveSmart: ((String, String?, String?, [Tag], SmartRuleLogic) -> Void)? = nil) {
+         onSave: @escaping (String, String?, String?, Int) -> Void,
+         onSaveSmart: ((String, String?, String?, [Tag], SmartRuleLogic, Int) -> Void)? = nil) {
         if let board {
             self.isEditing = true
             _title = State(initialValue: board.title)
@@ -31,6 +43,7 @@ struct BoardEditorSheet: View {
             _isSmart = State(initialValue: board.isSmart)
             _smartRuleLogic = State(initialValue: board.smartRuleLogic)
             _selectedRuleTagIDs = State(initialValue: Set(board.smartRuleTags.map(\.id)))
+            _nudgeFrequencyHours = State(initialValue: board.nudgeFrequencyHours)
         } else {
             self.isEditing = false
             _title = State(initialValue: "")
@@ -39,6 +52,7 @@ struct BoardEditorSheet: View {
             _isSmart = State(initialValue: false)
             _smartRuleLogic = State(initialValue: .or)
             _selectedRuleTagIDs = State(initialValue: [])
+            _nudgeFrequencyHours = State(initialValue: 0)
         }
         self.onSave = onSave
         self.onSaveSmart = onSaveSmart
@@ -78,6 +92,21 @@ struct BoardEditorSheet: View {
                         smartBoardRules
                     }
                 }
+
+                Section("Nudges") {
+                    Picker("Nudge Frequency", selection: $nudgeFrequencyHours) {
+                        ForEach(Self.nudgeFrequencyOptions, id: \.value) { option in
+                            Text(option.label).tag(option.value)
+                        }
+                    }
+                    .help("How often nudges can be generated for items in this board")
+
+                    if nudgeFrequencyHours == -1 {
+                        Text("Nudges are disabled for this board. Items in this board won't trigger resurfacing or streak nudges.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
             .formStyle(.grouped)
             .scrollContentBackground(.hidden)
@@ -85,7 +114,7 @@ struct BoardEditorSheet: View {
             Divider()
             footer
         }
-        .frame(width: 420, height: isSmart ? 680 : 480)
+        .frame(width: 420, height: isSmart ? 740 : 540)
         .animation(.easeInOut(duration: 0.2), value: isSmart)
     }
 
@@ -112,9 +141,9 @@ struct BoardEditorSheet: View {
                 let color = selectedColorHex.isEmpty ? nil : selectedColorHex
                 if isSmart, let onSaveSmart {
                     let selectedTags = allTags.filter { selectedRuleTagIDs.contains($0.id) }
-                    onSaveSmart(title, icon, color, selectedTags, smartRuleLogic)
+                    onSaveSmart(title, icon, color, selectedTags, smartRuleLogic, nudgeFrequencyHours)
                 } else {
-                    onSave(title, icon, color)
+                    onSave(title, icon, color, nudgeFrequencyHours)
                 }
                 dismiss()
             }

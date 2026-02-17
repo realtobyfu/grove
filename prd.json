@@ -303,7 +303,7 @@
       "id": "S18",
       "title": "[v1.5] Graph Visualization",
       "priority": 18,
-      "passes": false,
+      "passes": true,
       "description": "Interactive knowledge graph showing items as nodes and connections as edges.",
       "acceptanceCriteria": [
         "Graph View entry point in sidebar opens a full-width visualization",
@@ -321,7 +321,7 @@
       "id": "S19",
       "title": "[v1.5] Advanced Nudges",
       "priority": 19,
-      "passes": false,
+      "passes": true,
       "description": "Connection prompts and streak nudges beyond basic resurfacing.",
       "acceptanceCriteria": [
         "Connection prompt nudge: 'You added 3 articles on [topic] this week. Want to write a synthesis note?' — triggered when 3+ items share a tag within 7 days",

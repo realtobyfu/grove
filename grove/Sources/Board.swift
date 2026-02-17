@@ -31,6 +31,8 @@ final class Board {
     var sortOrder: Int
     var isSmart: Bool
     var smartRuleLogic: SmartRuleLogic
+    /// Per-board nudge frequency in hours. 0 = use global default, -1 = disabled for this board.
+    var nudgeFrequencyHours: Int
 
     var items: [Item]
     var smartRuleTags: [Tag]
@@ -45,6 +47,7 @@ final class Board {
         self.sortOrder = 0
         self.isSmart = false
         self.smartRuleLogic = .or
+        self.nudgeFrequencyHours = 0
         self.items = []
         self.smartRuleTags = []
     }

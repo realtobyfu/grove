@@ -10,39 +10,43 @@ final class BoardViewModel {
         self.modelContext = modelContext
     }
 
-    func createBoard(title: String, icon: String?, color: String?) {
+    func createBoard(title: String, icon: String?, color: String?, nudgeFrequencyHours: Int = 0) {
         let maxSortOrder = fetchMaxSortOrder()
         let board = Board(title: title, icon: icon, color: color)
         board.sortOrder = maxSortOrder + 1
+        board.nudgeFrequencyHours = nudgeFrequencyHours
         modelContext.insert(board)
         try? modelContext.save()
     }
 
-    func createSmartBoard(title: String, icon: String?, color: String?, ruleTags: [Tag], logic: SmartRuleLogic) {
+    func createSmartBoard(title: String, icon: String?, color: String?, ruleTags: [Tag], logic: SmartRuleLogic, nudgeFrequencyHours: Int = 0) {
         let maxSortOrder = fetchMaxSortOrder()
         let board = Board(title: title, icon: icon, color: color)
         board.sortOrder = maxSortOrder + 1
         board.isSmart = true
         board.smartRuleLogic = logic
         board.smartRuleTags = ruleTags
+        board.nudgeFrequencyHours = nudgeFrequencyHours
         modelContext.insert(board)
         try? modelContext.save()
     }
 
-    func updateBoard(_ board: Board, title: String, icon: String?, color: String?) {
+    func updateBoard(_ board: Board, title: String, icon: String?, color: String?, nudgeFrequencyHours: Int = 0) {
         board.title = title
         board.icon = icon
         board.color = color
+        board.nudgeFrequencyHours = nudgeFrequencyHours
         try? modelContext.save()
     }
 
-    func updateSmartBoard(_ board: Board, title: String, icon: String?, color: String?, ruleTags: [Tag], logic: SmartRuleLogic) {
+    func updateSmartBoard(_ board: Board, title: String, icon: String?, color: String?, ruleTags: [Tag], logic: SmartRuleLogic, nudgeFrequencyHours: Int = 0) {
         board.title = title
         board.icon = icon
         board.color = color
         board.isSmart = true
         board.smartRuleLogic = logic
         board.smartRuleTags = ruleTags
+        board.nudgeFrequencyHours = nudgeFrequencyHours
         try? modelContext.save()
     }
 
