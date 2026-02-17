@@ -139,9 +139,13 @@ struct InspectorPanelView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var allTags: [Tag]
     @Query(sort: \Board.sortOrder) private var allBoards: [Board]
+    @Query private var allItems: [Item]
     @State private var tagSearchText = ""
     @State private var isAddingTag = false
     @State private var newTagCategory: TagCategory = .custom
+    @State private var isAddingConnection = false
+    @State private var connectionSearchText = ""
+    @State private var selectedConnectionType: ConnectionType = .related
 
     private var filteredTags: [Tag] {
         let existingIDs = Set(item.tags.map(\.id))
@@ -361,16 +365,41 @@ struct InspectorPanelView: View {
 
     // MARK: - Connections Section
 
+    private var connectionSearchResults: [Item] {
+        let existingIDs = Set(
+            item.outgoingConnections.compactMap(\.targetItem?.id) +
+            item.incomingConnections.compactMap(\.sourceItem?.id)
+        )
+        return allItems.filter { candidate in
+            guard candidate.id != item.id else { return false }
+            guard !existingIDs.contains(candidate.id) else { return false }
+            if connectionSearchText.isEmpty { return true }
+            return candidate.title.localizedCaseInsensitiveContains(connectionSearchText)
+        }.prefix(12).map { $0 }
+    }
+
     private var connectionsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Connections")
-                .font(.caption)
-                .fontWeight(.semibold)
+            HStack {
+                Text("Connections")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    isAddingConnection.toggle()
+                    connectionSearchText = ""
+                } label: {
+                    Image(systemName: "plus.circle")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .padding(.horizontal)
+            }
+            .padding(.horizontal)
 
             let allConnections = item.outgoingConnections + item.incomingConnections
-            if allConnections.isEmpty {
+            if allConnections.isEmpty && !isAddingConnection {
                 Text("No connections yet")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
@@ -380,13 +409,82 @@ struct InspectorPanelView: View {
                     connectionRow(connection)
                 }
             }
+
+            if isAddingConnection {
+                addConnectionPanel
+            }
         }
+    }
+
+    private var addConnectionPanel: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Connection type picker
+            Picker("Type", selection: $selectedConnectionType) {
+                ForEach(ConnectionType.allCases, id: \.self) { type in
+                    Text(type.displayLabel).tag(type)
+                }
+            }
+            .pickerStyle(.segmented)
+            .controlSize(.small)
+
+            // Search field
+            TextField("Search items...", text: $connectionSearchText)
+                .textFieldStyle(.roundedBorder)
+                .font(.caption)
+
+            // Results
+            if !connectionSearchResults.isEmpty {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(connectionSearchResults) { candidate in
+                            Button {
+                                createConnectionTo(candidate)
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: candidate.type.iconName)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 14)
+                                    Text(candidate.title)
+                                        .font(.caption)
+                                        .lineLimit(1)
+                                    Spacer()
+                                }
+                                .padding(.vertical, 4)
+                                .padding(.horizontal, 6)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .frame(maxHeight: 150)
+                .background(.quaternary.opacity(0.5))
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+            } else if !connectionSearchText.isEmpty {
+                Text("No matching items")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
+            Button("Cancel") {
+                isAddingConnection = false
+                connectionSearchText = ""
+            }
+            .font(.caption)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .padding(8)
+        .background(.blue.opacity(0.05))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .padding(.horizontal)
     }
 
     private func connectionRow(_ connection: Connection) -> some View {
         let isOutgoing = connection.sourceItem?.id == item.id
         let linkedItem = isOutgoing ? connection.targetItem : connection.sourceItem
-        let typeLabel = connection.type.rawValue
+        let typeLabel = connection.type.displayLabel
 
         return HStack(spacing: 6) {
             Image(systemName: isOutgoing ? "arrow.right.circle" : "arrow.left.circle")
@@ -401,8 +499,29 @@ struct InspectorPanelView: View {
                     .foregroundStyle(.tertiary)
             }
             Spacer()
+            Button {
+                deleteConnection(connection)
+            } label: {
+                Image(systemName: "xmark.circle")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal)
+    }
+
+    private func createConnectionTo(_ target: Item) {
+        let viewModel = ItemViewModel(modelContext: modelContext)
+        _ = viewModel.createConnection(source: item, target: target, type: selectedConnectionType)
+        isAddingConnection = false
+        connectionSearchText = ""
+        selectedConnectionType = .related
+    }
+
+    private func deleteConnection(_ connection: Connection) {
+        let viewModel = ItemViewModel(modelContext: modelContext)
+        viewModel.deleteConnection(connection)
     }
 
     // MARK: - Actions

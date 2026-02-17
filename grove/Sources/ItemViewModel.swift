@@ -102,6 +102,44 @@ final class ItemViewModel {
         }
     }
 
+    // MARK: - Connections
+
+    func createConnection(source: Item, target: Item, type: ConnectionType) -> Connection {
+        let connection = Connection(sourceItem: source, targetItem: target, type: type)
+        modelContext.insert(connection)
+        source.outgoingConnections.append(connection)
+        target.incomingConnections.append(connection)
+        source.updatedAt = .now
+        target.updatedAt = .now
+        try? modelContext.save()
+        return connection
+    }
+
+    func deleteConnection(_ connection: Connection) {
+        if let source = connection.sourceItem {
+            source.outgoingConnections.removeAll { $0.id == connection.id }
+            source.updatedAt = .now
+        }
+        if let target = connection.targetItem {
+            target.incomingConnections.removeAll { $0.id == connection.id }
+            target.updatedAt = .now
+        }
+        modelContext.delete(connection)
+        try? modelContext.save()
+    }
+
+    /// Find items matching a search query (for fuzzy-search in connection/wiki-link pickers)
+    func searchItems(query: String, excluding: Item? = nil) -> [Item] {
+        let descriptor = FetchDescriptor<Item>()
+        guard let allItems = try? modelContext.fetch(descriptor) else { return [] }
+        let filtered = allItems.filter { item in
+            if let excluding, item.id == excluding.id { return false }
+            if query.isEmpty { return true }
+            return item.title.localizedCaseInsensitiveContains(query)
+        }
+        return Array(filtered.prefix(20))
+    }
+
     private static func isVideoURL(_ urlString: String) -> Bool {
         let lower = urlString.lowercased()
         return lower.contains("youtube.com/watch")

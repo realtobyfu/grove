@@ -28,13 +28,15 @@ struct NoteEditorView: View {
             Divider()
                 .padding(.horizontal)
 
-            // Markdown content area
-            TextEditor(text: Binding(
-                get: { item.content ?? "" },
-                set: { item.content = $0.isEmpty ? nil : $0 }
-            ))
-            .font(.body)
-            .scrollContentBackground(.hidden)
+            // Markdown content area with wiki-link support
+            WikiLinkTextEditor(
+                text: Binding(
+                    get: { item.content ?? "" },
+                    set: { item.content = $0.isEmpty ? nil : $0 }
+                ),
+                sourceItem: item,
+                minHeight: 200
+            )
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity)

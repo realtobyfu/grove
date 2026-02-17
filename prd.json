@@ -196,7 +196,7 @@
       "id": "S12",
       "title": "Connections and Wiki-Links",
       "priority": 12,
-      "passes": false,
+      "passes": true,
       "description": "Create item-to-item connections manually and via [[ ]] wiki-link syntax.",
       "acceptanceCriteria": [
         "Add Connection button in inspector opens a fuzzy-search popover of all items",

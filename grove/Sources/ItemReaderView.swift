@@ -95,19 +95,17 @@ struct ItemReaderView: View {
     @ViewBuilder
     private var itemContent: some View {
         if isEditingContent && item.type == .note {
-            TextEditor(text: Binding(
-                get: { item.content ?? "" },
-                set: {
-                    item.content = $0.isEmpty ? nil : $0
-                    item.updatedAt = .now
-                }
-            ))
-            .font(.body)
-            .scrollContentBackground(.hidden)
-            .frame(minHeight: 200)
-            .padding(8)
-            .background(.quaternary.opacity(0.3))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            WikiLinkTextEditor(
+                text: Binding(
+                    get: { item.content ?? "" },
+                    set: {
+                        item.content = $0.isEmpty ? nil : $0
+                        item.updatedAt = .now
+                    }
+                ),
+                sourceItem: item,
+                minHeight: 200
+            )
         } else if let content = item.content, !content.isEmpty {
             MarkdownTextView(markdown: content)
                 .textSelection(.enabled)
@@ -177,19 +175,13 @@ struct ItemReaderView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            TextEditor(text: $newAnnotationText)
-                .font(.body)
-                .scrollContentBackground(.hidden)
-                .frame(minHeight: 80)
-                .padding(8)
-                .background(.quaternary.opacity(0.3))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(.blue.opacity(0.5), lineWidth: 1)
-                )
+            WikiLinkTextEditor(
+                text: $newAnnotationText,
+                sourceItem: item,
+                minHeight: 80
+            )
 
-            Text("Supports markdown: **bold**, *italic*, `code`, # headings, [links](url)")
+            Text("Supports markdown: **bold**, *italic*, `code`, # headings, [links](url), [[wiki-links]]")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
 
@@ -261,17 +253,11 @@ struct ItemReaderView: View {
 
     private func editAnnotationEditor(_ annotation: Annotation) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            TextEditor(text: $editAnnotationText)
-                .font(.body)
-                .scrollContentBackground(.hidden)
-                .frame(minHeight: 60)
-                .padding(8)
-                .background(.background)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(.blue.opacity(0.5), lineWidth: 1)
-                )
+            WikiLinkTextEditor(
+                text: $editAnnotationText,
+                sourceItem: item,
+                minHeight: 60
+            )
 
             HStack {
                 Button("Cancel") {
@@ -331,6 +317,7 @@ struct ItemReaderView: View {
 
 struct MarkdownTextView: View {
     let markdown: String
+    var onWikiLinkTap: ((String) -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -422,6 +409,39 @@ struct MarkdownTextView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 
         case .paragraph(let text):
+            renderParagraphWithWikiLinks(text)
+        }
+    }
+
+    @ViewBuilder
+    private func renderParagraphWithWikiLinks(_ text: String) -> some View {
+        let segments = parseWikiLinks(in: text)
+        if segments.contains(where: { $0.isWikiLink }) {
+            // Has wiki-links — build composite text
+            segments.reduce(Text("")) { result, segment in
+                if segment.isWikiLink {
+                    let linkText = Text(segment.text)
+                        .foregroundColor(.blue)
+                        .underline()
+                    return result + linkText
+                } else {
+                    if let attributed = try? AttributedString(markdown: segment.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
+                        return result + Text(attributed)
+                    }
+                    return result + Text(segment.text)
+                }
+            }
+            .font(.body)
+            .tint(.blue)
+            .environment(\.openURL, OpenURLAction { url in
+                if url.scheme == "grove-wikilink" {
+                    let title = url.host(percentEncoded: false) ?? ""
+                    onWikiLinkTap?(title)
+                    return .handled
+                }
+                return .systemAction
+            })
+        } else {
             if let attributed = try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
                 Text(attributed)
                     .font(.body)
@@ -431,6 +451,41 @@ struct MarkdownTextView: View {
                     .font(.body)
             }
         }
+    }
+
+    private struct TextSegment {
+        let text: String
+        let isWikiLink: Bool
+    }
+
+    private func parseWikiLinks(in text: String) -> [TextSegment] {
+        var segments: [TextSegment] = []
+        var remaining = text[text.startIndex...]
+
+        while let openRange = remaining.range(of: "[[") {
+            // Text before the wiki-link
+            let before = remaining[remaining.startIndex..<openRange.lowerBound]
+            if !before.isEmpty {
+                segments.append(TextSegment(text: String(before), isWikiLink: false))
+            }
+
+            let afterOpen = remaining[openRange.upperBound...]
+            if let closeRange = afterOpen.range(of: "]]") {
+                let linkTitle = String(afterOpen[afterOpen.startIndex..<closeRange.lowerBound])
+                segments.append(TextSegment(text: linkTitle, isWikiLink: true))
+                remaining = afterOpen[closeRange.upperBound...]
+            } else {
+                // No closing ]] found — treat rest as plain text
+                segments.append(TextSegment(text: String(remaining[openRange.lowerBound...]), isWikiLink: false))
+                remaining = remaining[remaining.endIndex...]
+            }
+        }
+
+        if !remaining.isEmpty {
+            segments.append(TextSegment(text: String(remaining), isWikiLink: false))
+        }
+
+        return segments
     }
 
     @ViewBuilder

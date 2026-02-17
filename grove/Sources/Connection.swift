@@ -1,12 +1,22 @@
 import Foundation
 import SwiftData
 
-enum ConnectionType: String, Codable {
+enum ConnectionType: String, Codable, CaseIterable {
     case related
     case contradicts
     case buildsOn
     case inspiredBy
     case sameTopic
+
+    var displayLabel: String {
+        switch self {
+        case .related: "Related"
+        case .contradicts: "Contradicts"
+        case .buildsOn: "Builds On"
+        case .inspiredBy: "Inspired By"
+        case .sameTopic: "Same Topic"
+        }
+    }
 }
 
 @Model
