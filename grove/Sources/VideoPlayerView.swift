@@ -31,10 +31,13 @@ struct VideoPlayerView: NSViewRepresentable {
 
         // Periodic time observer for tracking playback position
         let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
+        let currentTimeBinding = _currentTime
         let observer = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
-            let secs = CMTimeGetSeconds(time)
-            if secs.isFinite {
-                currentTime = secs
+            MainActor.assumeIsolated {
+                let secs = CMTimeGetSeconds(time)
+                if secs.isFinite {
+                    currentTimeBinding.wrappedValue = secs
+                }
             }
         }
         context.coordinator.timeObserver = observer

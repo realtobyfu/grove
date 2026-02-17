@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
 
-enum BoardViewMode: String, CaseIterable {
+enum BoardViewMode: String, CaseIterable, Sendable {
     case grid
     case list
 
@@ -14,7 +14,7 @@ enum BoardViewMode: String, CaseIterable {
     }
 }
 
-enum BoardSortOption: String, CaseIterable {
+enum BoardSortOption: String, CaseIterable, Sendable {
     case dateAdded = "Date Added"
     case title = "Title"
     case engagementScore = "Engagement"
@@ -552,9 +552,11 @@ struct BoardDetailView: View {
                 guard let url = url else { return }
                 let path = url.path
                 guard ItemViewModel.isSupportedVideoFile(path) else { return }
-                DispatchQueue.main.async {
-                    let viewModel = ItemViewModel(modelContext: modelContext)
-                    let item = viewModel.createVideoItem(filePath: path, board: board.isSmart ? nil : board)
+                nonisolated(unsafe) let context = modelContext
+                nonisolated(unsafe) let boardRef = board
+                Task { @MainActor in
+                    let viewModel = ItemViewModel(modelContext: context)
+                    let item = viewModel.createVideoItem(filePath: path, board: boardRef.isSmart ? nil : boardRef)
                     selectedItem = item
                 }
             }

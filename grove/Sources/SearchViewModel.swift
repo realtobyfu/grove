@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 
 /// Represents a single search result with its source type and relevance score.
-enum SearchResultType: String {
+enum SearchResultType: String, Sendable {
     case item = "Items"
     case annotation = "Annotations"
     case tag = "Tags"
@@ -31,6 +31,7 @@ struct SearchResult: Identifiable {
     let annotation: Annotation?
 }
 
+@MainActor
 @Observable
 final class SearchViewModel {
     var query = ""

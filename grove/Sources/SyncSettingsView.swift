@@ -89,12 +89,9 @@ struct SyncSettingsView: View {
         }
 
         accountStatusText = "Checking..."
-        CKContainer.default().accountStatus { status, error in
-            DispatchQueue.main.async {
-                if let error {
-                    accountStatusText = "Error: \(error.localizedDescription)"
-                    return
-                }
+        Task {
+            do {
+                let status = try await CKContainer.default().accountStatus()
                 switch status {
                 case .available:
                     accountStatusText = "iCloud account available"
@@ -109,6 +106,8 @@ struct SyncSettingsView: View {
                 @unknown default:
                     accountStatusText = "Unknown status"
                 }
+            } catch {
+                accountStatusText = "Error: \(error.localizedDescription)"
             }
         }
     }

@@ -2,8 +2,8 @@ import Foundation
 
 /// Global nudge settings stored in UserDefaults.
 /// Controls which nudge categories are enabled, frequency, and daily limits.
-struct NudgeSettings {
-    private static let defaults = UserDefaults.standard
+struct NudgeSettings: Sendable {
+    private static nonisolated(unsafe) let defaults = UserDefaults.standard
 
     // MARK: - Keys
 

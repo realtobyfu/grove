@@ -8,12 +8,18 @@ let project = Project(
             destinations: .macOS,
             product: .app,
             bundleId: "dev.tuist.grove",
-            infoPlist: .default,
+            infoPlist: .extendingDefault(with: [
+                "CFBundleIconName": "AppIcon",
+            ]),
             buildableFolders: [
                 "grove/Sources",
                 "grove/Resources",
             ],
-            dependencies: []
+            dependencies: [],
+            settings: .settings(base: [
+                "SWIFT_STRICT_CONCURRENCY": "complete",
+                "SWIFT_VERSION": "6.0",
+            ])
         ),
         .target(
             name: "groveTests",
@@ -24,7 +30,11 @@ let project = Project(
             buildableFolders: [
                 "grove/Tests"
             ],
-            dependencies: [.target(name: "grove")]
+            dependencies: [.target(name: "grove")],
+            settings: .settings(base: [
+                "SWIFT_STRICT_CONCURRENCY": "complete",
+                "SWIFT_VERSION": "6.0",
+            ])
         ),
     ]
 )

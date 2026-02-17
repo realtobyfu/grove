@@ -220,8 +220,9 @@ struct InboxTriageView: View {
                 guard let url = url else { return }
                 let path = url.path
                 guard ItemViewModel.isSupportedVideoFile(path) else { return }
-                DispatchQueue.main.async {
-                    let viewModel = ItemViewModel(modelContext: modelContext)
+                nonisolated(unsafe) let context = modelContext
+                Task { @MainActor in
+                    let viewModel = ItemViewModel(modelContext: context)
                     _ = viewModel.createVideoItem(filePath: path)
                 }
             }

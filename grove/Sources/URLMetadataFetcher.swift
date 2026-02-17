@@ -1,13 +1,13 @@
 import Foundation
 
-struct URLMetadata {
+struct URLMetadata: Sendable {
     var title: String?
     var description: String?
     var imageURL: String?
 }
 
 /// Fetches OpenGraph and HTML meta tags from a URL to populate Item metadata.
-final class URLMetadataFetcher {
+final class URLMetadataFetcher: Sendable {
 
     static let shared = URLMetadataFetcher()
 

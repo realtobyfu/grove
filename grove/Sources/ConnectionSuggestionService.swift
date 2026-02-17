@@ -12,6 +12,7 @@ struct ConnectionSuggestion: Identifiable {
 
 /// Analyzes items to suggest connections based on text similarity (title + content + tags).
 /// Uses keyword/tag overlap heuristics. Respects dismissed suggestions per item pair.
+@MainActor
 @Observable
 final class ConnectionSuggestionService {
     private var modelContext: ModelContext

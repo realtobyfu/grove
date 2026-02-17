@@ -2,6 +2,7 @@ import Foundation
 import SwiftData
 import SwiftUI
 
+@MainActor
 @Observable
 final class BoardViewModel {
     private var modelContext: ModelContext
@@ -72,7 +73,7 @@ final class BoardViewModel {
     }
 
     /// Returns items matching the smart board's tag rules
-    static func smartBoardItems(for board: Board, from allItems: [Item]) -> [Item] {
+    nonisolated static func smartBoardItems(for board: Board, from allItems: [Item]) -> [Item] {
         guard board.isSmart, !board.smartRuleTags.isEmpty else { return [] }
 
         let ruleTagIDs = Set(board.smartRuleTags.map(\.id))

@@ -4,7 +4,7 @@ import PDFKit
 
 // MARK: - Export Format
 
-enum ExportFormat: String, CaseIterable {
+enum ExportFormat: String, CaseIterable, Sendable {
     case markdown = "Markdown (.md)"
     case pdf = "PDF (.pdf)"
     case opml = "OPML (.opml)"
@@ -42,6 +42,7 @@ struct ExportSettings {
 
 // MARK: - Export Service
 
+@MainActor
 final class ExportService {
 
     // MARK: - Board Export

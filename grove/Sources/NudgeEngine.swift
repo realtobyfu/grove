@@ -4,6 +4,7 @@ import SwiftData
 /// Generates nudges based on item status, engagement patterns, and user settings.
 /// Supports four nudge types: resurface, staleInbox, connectionPrompt, and streak.
 /// Runs on a configurable schedule (default every 4 hours) and respects daily limits.
+@MainActor
 @Observable
 final class NudgeEngine {
     private var modelContext: ModelContext
@@ -22,7 +23,9 @@ final class NudgeEngine {
         generateNudges()
         let intervalSeconds = TimeInterval(NudgeSettings.scheduleIntervalHours) * 3600
         timer = Timer.scheduledTimer(withTimeInterval: intervalSeconds, repeats: true) { [weak self] _ in
-            self?.generateNudges()
+            Task { @MainActor in
+                self?.generateNudges()
+            }
         }
     }
 

@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 
 /// Configuration for how synthesis should be generated.
-enum SynthesisProvider: String, Codable, CaseIterable {
+enum SynthesisProvider: String, Codable, CaseIterable, Sendable {
     case local = "Local (Keyword Extraction)"
     case api = "API (OpenAI-compatible)"
 }
@@ -40,13 +40,14 @@ struct SynthesisSettings {
 }
 
 /// Result of a synthesis generation.
-struct SynthesisResult {
+struct SynthesisResult: Sendable {
     let markdownContent: String
     let sourceItemIDs: [UUID]
     let provider: SynthesisProvider
 }
 
 /// Service that generates AI synthesis notes from a collection of items.
+@MainActor
 @Observable
 final class SynthesisService {
     private let modelContext: ModelContext
@@ -78,11 +79,9 @@ final class SynthesisService {
 
     /// Generate a synthesis note from the given items.
     func generateSynthesis(items: [Item], scopeTitle: String) async -> SynthesisResult? {
-        await MainActor.run {
-            isGenerating = true
-            progress = "Collecting content..."
-            lastError = nil
-        }
+        isGenerating = true
+        progress = "Collecting content..."
+        lastError = nil
 
         let provider = SynthesisSettings.provider
 
@@ -94,16 +93,13 @@ final class SynthesisService {
             result = await generateAPISynthesis(items: items, scopeTitle: scopeTitle)
         }
 
-        await MainActor.run {
-            isGenerating = false
-            progress = ""
-        }
+        isGenerating = false
+        progress = ""
 
         return result
     }
 
     /// Create a synthesis Item from the result, link it to source items via Connections.
-    @MainActor
     func createSynthesisItem(from result: SynthesisResult, title: String, inBoard: Board?) -> Item {
         let item = Item(title: title, type: .note)
         item.status = .active
@@ -149,7 +145,7 @@ final class SynthesisService {
     // MARK: - Local Synthesis (Heuristic)
 
     private func generateLocalSynthesis(items: [Item], scopeTitle: String) async -> SynthesisResult? {
-        await MainActor.run { progress = "Analyzing \(items.count) items..." }
+        progress = "Analyzing \(items.count) items..."
 
         // Extract content from each item
         let itemSummaries = items.map { item -> (item: Item, keywords: Set<String>, contentPreview: String) in
@@ -162,7 +158,7 @@ final class SynthesisService {
         // Gather all annotations
         let allAnnotations = items.flatMap { $0.annotations }
 
-        await MainActor.run { progress = "Finding themes..." }
+        progress = "Finding themes..."
 
         // Find key themes (frequent keywords across items)
         var keywordFrequency: [String: Int] = [:]
@@ -181,7 +177,7 @@ final class SynthesisService {
         let tagCounts = countTags(items: items)
         let commonTags = tagCounts.filter { $0.count >= 2 }.sorted { $0.count > $1.count }
 
-        await MainActor.run { progress = "Finding contradictions..." }
+        progress = "Finding contradictions..."
 
         // Look for contradictions (items connected via .contradicts)
         var contradictions: [(Item, Item)] = []
@@ -203,7 +199,7 @@ final class SynthesisService {
             }
         }
 
-        await MainActor.run { progress = "Generating synthesis..." }
+        progress = "Generating synthesis..."
 
         // Build markdown
         var md = "# Synthesis: \(scopeTitle)\n\n"
@@ -305,18 +301,16 @@ final class SynthesisService {
         let model = SynthesisSettings.apiModel
 
         guard !apiKey.isEmpty else {
-            await MainActor.run {
-                lastError = "API key not configured. Go to Settings > AI to set it up."
-            }
+            lastError = "API key not configured. Go to Settings > AI to set it up."
             return nil
         }
 
         guard let url = URL(string: endpoint) else {
-            await MainActor.run { lastError = "Invalid API endpoint URL." }
+            lastError = "Invalid API endpoint URL."
             return nil
         }
 
-        await MainActor.run { progress = "Preparing content for API..." }
+        progress = "Preparing content for API..."
 
         // Build prompt
         var itemDescriptions: [String] = []
@@ -353,7 +347,7 @@ final class SynthesisService {
         Generate a comprehensive synthesis note with sections for: Key Themes, Contradictions (if any), Progression/Connections, and Open Questions.
         """
 
-        await MainActor.run { progress = "Calling API..." }
+        progress = "Calling API..."
 
         // Make API call
         var request = URLRequest(url: url)
@@ -375,7 +369,7 @@ final class SynthesisService {
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         } catch {
-            await MainActor.run { lastError = "Failed to encode request: \(error.localizedDescription)" }
+            lastError = "Failed to encode request: \(error.localizedDescription)"
             return nil
         }
 
@@ -383,13 +377,13 @@ final class SynthesisService {
             let (data, response) = try await URLSession.shared.data(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse else {
-                await MainActor.run { lastError = "Invalid response from API." }
+                lastError = "Invalid response from API."
                 return nil
             }
 
             guard httpResponse.statusCode == 200 else {
                 let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
-                await MainActor.run { lastError = "API error (\(httpResponse.statusCode)): \(String(errorBody.prefix(200)))" }
+                lastError = "API error (\(httpResponse.statusCode)): \(String(errorBody.prefix(200)))"
                 return nil
             }
 
@@ -398,7 +392,7 @@ final class SynthesisService {
                   let first = choices.first,
                   let message = first["message"] as? [String: Any],
                   let content = message["content"] as? String else {
-                await MainActor.run { lastError = "Failed to parse API response." }
+                lastError = "Failed to parse API response."
                 return nil
             }
 
@@ -411,7 +405,7 @@ final class SynthesisService {
                 provider: .api
             )
         } catch {
-            await MainActor.run { lastError = "Network error: \(error.localizedDescription)" }
+            lastError = "Network error: \(error.localizedDescription)"
             return nil
         }
     }

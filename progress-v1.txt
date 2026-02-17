@@ -1,0 +1,401 @@
+# Ralph Progress Log
+Started: Tue Feb 17 00:14:01 HST 2026
+---
+
+## S1: SwiftData Models — DONE
+- Created 6 model files: Item, Board, Tag, Connection, Annotation, Nudge
+- Created 6 enums: ItemType, ItemStatus, TagCategory, ConnectionType, NudgeType, NudgeStatus (all String, Codable)
+- Connection.sourceItem and .targetItem are optional (Item?) to satisfy SwiftData relationship requirements
+- Annotation.item is optional (Item?) for the same reason
+- Used @Relationship with explicit inverse and deleteRule: .cascade on Item's annotations/connections
+- Board and Tag have many-to-many with Item via inverse relationships
+- Tuist buildableFolders means all .swift files under grove/Sources are auto-included — no manual file references needed
+- Scheme name is lowercase "grove" not "Grove"
+- Build command: xcodebuild -scheme grove -destination 'platform=macOS' build
+
+## S2: App Shell with NavigationSplitView — DONE
+- GroveApp.swift: added .modelContainer(for:) with all 6 model types, .defaultSize(width: 1200, height: 800)
+- ContentView.swift: NavigationSplitView with sidebar + detail (detail has content area + collapsible inspector panel)
+- SidebarView.swift: Inbox row with badge count, Boards section with color dots and SF Symbol icons, Tags browser row
+- Inspector panel is collapsible via toolbar button with ⌘+] shortcut
+- Used SidebarItem enum (inbox/board(UUID)/tags) for sidebar selection state
+- Color+Hex.swift: extension for Color(hex:) to render board colors
+- SwiftData #Predicate does not support enum comparison — used in-memory filtering (.filter { $0.status == .inbox }) instead
+- Frame minimum is 1200x800; default window size set via .defaultSize on WindowGroup
+
+## S3: Board CRUD — DONE
+- BoardViewModel.swift: @Observable class with createBoard, updateBoard, deleteBoard, moveBoard, reorderBoards methods
+- BoardEditorSheet.swift: Sheet with title field, SF Symbol icon grid picker (32 icons), hex color picker (12 colors)
+- BoardDetailView.swift: Shows board items or empty state with board icon/title
+- SidebarView updated: + button in Boards section header, right-click context menu (Edit/Delete), .onMove for drag-reordering
+- Delete uses alert confirmation, preserves items (only deletes the Board entity)
+- Added ItemType.iconName computed property for SF Symbol per item type
+- BoardViewModel instantiated as a computed property from modelContext — avoids storing @Observable in view state
+- Board model doesn't have updatedAt field (unlike Item) — removed that reference from updateBoard
+
+## S4: Item Creation and Board Detail View — DONE
+- ItemViewModel.swift: @Observable class with createNote, assignToBoard, removeFromBoard, updateItem, deleteItem
+- NoteEditorView.swift: Inline editor with @Bindable item, title field, TextEditor for markdown content, board picker popover
+- ItemCardView.swift: Card component showing type icon, title, connection/annotation count badges, source domain
+- BoardDetailView.swift: Completely rewritten with grid (LazyVGrid) and list views, sort picker (date/title/engagement), view mode segmented control
+- NewNoteSheet: Reusable sheet for creating notes with title and content fields
+- ContentView: Added ⌘+N shortcut via hidden button technique, InspectorPanelView now accepts optional Item for preview
+- ⌘+N creates a new note and auto-assigns to current board if one is selected
+- Used @Bindable for direct model binding in NoteEditorView — SwiftData models work directly with SwiftUI bindings
+- Grid uses adaptive columns (200-300pt) for responsive layout
+
+## S5: Inspector Panel — DONE
+- Rewrote InspectorPanelView to accept @Bindable Item (non-optional) for direct two-way binding
+- Created InspectorEmptyView for the no-selection state
+- Lifted selectedItem state: BoardDetailView now takes @Binding var selectedItem from ContentView, so selection flows to inspector
+- Editable title via TextField with @Bindable binding — saves immediately through SwiftData
+- Shows source URL (read-only display), item type with icon, created/updated dates
+- Tag section: shows current tags as removable chips (TagChipView with x button)
+- Tag add: plus button toggles search field with fuzzy autocomplete from all existing tags
+- Press Enter on tag search to create a new tag if no match (case-insensitive dedup)
+- Board membership section shows all boards the item belongs to with color dot and icon
+- Connections section shows all outgoing/incoming connections with direction arrows and type labels
+- Created FlowLayout (custom Layout) for tag chips wrapping
+- Added .onChange(of: selection) to clear selectedItem when switching sidebar sections
+- Inspector collapsible via ⌘+] (already wired from S2)
+
+## S6: Quick Capture — Menu Bar — DONE
+- MenuBarExtra added to GroveApp with .menuBarExtraStyle(.window) for popover-style menu bar item
+- Leaf icon in menu bar; shows Quick Capture button, inbox count, and Quit
+- Quick Capture uses a separate Window scene (id: "quick-capture") with .hiddenTitleBar and .contentSize resizability
+- ⌘+Shift+K keyboard shortcut registered on the Window scene via .keyboardShortcut()
+- QuickCapturePanel.swift: Single text field, auto-detects URL vs plain text
+- URL detection: checks for http/https scheme + host; video detection for YouTube/Vimeo/Twitch
+- URLs → .article or .video item (with sourceURL set), plain text → .note item
+- All captured items get status .inbox automatically
+- Panel dismisses on submit (Enter key) via .onSubmit → dismiss()
+- Shared ModelContainer created in GroveApp.init() and passed to all three scenes
+- ContentView.swift had corrupted first bytes ("a lo" prepended) — fixed
+
+## S7: URL Metadata Fetching — DONE
+(previously completed)
+
+## S8: Inbox View and Triage Flow — DONE
+- InboxTriageView.swift: Dedicated inbox view replacing placeholder in ContentView's .inbox case
+- Shows all items with status == .inbox, sorted newest first (using @Query + in-memory filter)
+- InboxCard.swift: Card component with title, type icon, source domain, capture date (relative), content preview, auto-tags
+- Three action buttons: Keep (→ .active + board picker sheet), Later (no-op), Drop (→ .dismissed with animation)
+- BoardPickerSheet: Modal sheet listing all boards to assign an item after Keep
+- Keyboard shortcuts: J/K navigate cards, 1/2/3 for Keep/Later/Drop (using hidden Button technique)
+- focusedIndex state tracks selection; ScrollViewReader scrolls to focused card
+- selectedItem binding wired to parent ContentView for inspector integration
+- Empty state when inbox is clear with encouraging message and ⌘+Shift+K hint
+- Badge count in sidebar already updates reactively (no changes needed to SidebarView)
+- ShapeStyle gotcha: .quaternary is ShapeStyle not Color — cannot use in ternary with Color.blue; used AnyShapeStyle wrapper or separate foregroundStyle
+
+## S9: Tag System and Manual Tagging — DONE
+- TagBrowserView.swift: Full tag browser accessible from sidebar "Tags" row
+- Tags grouped by TagCategory (topic, concept, technology, person, custom) with collapsible sections
+- TagCategory extended with CaseIterable, displayName, iconName (SF Symbol), color (SwiftUI Color)
+- Each category has a distinct color: topic=blue, concept=purple, technology=orange, person=green, custom=gray
+- TagPillView: Colored pill button showing tag name, category dot, and item count — clickable to navigate to tag detail
+- TagDetailView.swift: Shows all items tagged with a specific tag, with sort (date/title), category editing via inline Picker
+- Tags removable from items via tag.slash button in detail view; tag deletable with confirmation alert
+- Back navigation via "chevron.left All Tags" button at top
+- ContentView updated: .tags sidebar case now routes to TagBrowserView instead of placeholder
+- TagChipView enhanced: now shows category color dot and uses category-colored background (opacity 0.12)
+- Inspector tag autocomplete enhanced: category picker next to search field, "Press Enter to create" hint when no match
+- createAndAddTag uses selected category when creating new tags inline
+- InboxCard tags updated to show category colors (dots + colored pill backgrounds)
+- Duplicate tag prevention: case-insensitive check in both TagBrowserView.createTag and InspectorPanelView.createAndAddTag
+- FlowLayout reused from ContentView for tag pill wrapping in browser
+
+## S10: Tag Clustering in Board View — DONE
+- BoardDetailView.swift rewritten with tag clustering algorithm
+- TagCluster struct: groups items by shared tags with auto-generated label (tag names joined by " & ")
+- Clustering algorithm: iteratively picks most popular tag among remaining items, groups all items with that tag, removes them, repeats
+- Items with no tags go to "Uncategorized" section at the bottom
+- Collapsible sections using collapsedSections: Set<String> state + chevron toggle
+- Section headers show: chevron, label, item count badge, and up to 3 category color dots
+- Tag filter bar at top of board: horizontal scroll of all tags used in the board as capsule buttons
+- Filter is AND logic: selecting multiple tags shows only items with ALL selected tags
+- Clear button appears when filters are active
+- Both grid and list views now render through tagClusters, each with collapsible sections
+- List view uses custom listRow instead of native List (to support sections within ScrollView)
+- File path is lowercase grove/Sources/ not Grove/Sources/ — filesystem is case-sensitive for git staging
+
+## S11: Annotations and Markdown Notes — DONE
+- ItemReaderView.swift: Full item reader with header (type, title, source URL, dates), content area, and annotations section
+- MarkdownTextView: Custom markdown renderer that parses blocks (headings, code blocks, paragraphs) and renders inline markdown via AttributedString
+- Used SwiftUI's built-in AttributedString(markdown:) for inline formatting (bold, italic, code, links) — no external swift-markdown dependency needed
+- Code blocks rendered with monospace font and colored background
+- Headings rendered at appropriate font sizes (title, title2, title3, headline)
+- Annotation CRUD: Add new annotation with TextEditor, edit existing via menu, delete with destructive confirmation
+- Annotations sorted chronologically (oldest first) and displayed as cards with date, content, and action menu
+- Notes can toggle between rendered markdown and edit mode via Edit/Done button
+- Double-click items in BoardDetailView to open ItemReaderView (uses openedItem state in ContentView)
+- Back navigation via chevron.left toolbar button returns to board list
+- Gesture ordering: .onTapGesture(count: 2) placed before .onTapGesture(count: 1) for correct SwiftUI gesture priority
+- openedItem cleared when sidebar selection changes to prevent stale reader view
+
+## S12: Connections and Wiki-Links — DONE
+- ItemViewModel: added createConnection, deleteConnection, searchItems methods for connection CRUD
+- ConnectionType: added CaseIterable conformance and displayLabel computed property for human-readable labels
+- Inspector connectionsSection: added "+" button to open Add Connection panel with connection type picker (segmented) and fuzzy-search item list
+- connectionSearchResults filters out current item and already-connected items, shows up to 12 matches
+- Connection rows now show delete (xmark.circle) button for removal
+- WikiLinkTextEditor.swift: Reusable TextEditor wrapper that detects [[ and shows autocomplete dropdown of all items
+- Wiki-link detection: onChange monitors text changes, triggers when [[ typed, updates search from text after last [[
+- Selecting from dropdown inserts [[Item Title]] and auto-creates a .related Connection (if not already connected)
+- WikiLinkTextEditor used in: annotation new/edit editors, note content editor in ItemReaderView, NoteEditorView
+- MarkdownTextView: added onWikiLinkTap callback and wiki-link rendering — [[links]] shown as blue underlined text
+- parseWikiLinks splits text into TextSegment array (plain text vs wiki-link), rendered via Text concatenation
+- Hint text updated to include [[wiki-links]] in supported markdown features
+
+## S13: Global Search — DONE
+- SearchViewModel.swift: @Observable class with fuzzy search across Items, Annotations, Tags, and Boards
+- Fuzzy scoring algorithm: exact match (1.0), prefix match (0.95), contains with word boundary bonus (0.85), substring (0.4-0.6), multi-word matching (0.55), subsequence matching (scaled 0.5)
+- Results grouped by SearchResultType enum (.item, .annotation, .tag, .board) with ordered sections
+- Optional scopeBoard property restricts item/annotation results to a specific board context
+- SearchOverlayView.swift: Spotlight-like overlay with search field, grouped results, keyboard navigation (up/down arrows, Enter to select, Escape to dismiss)
+- Overlay uses .ultraThickMaterial background with rounded corners and drop shadow
+- Each result shows type-specific icon, title, subtitle, and "return" hint on selected row
+- Empty state for no results with helpful message
+- ContentView integration: ⌘+F toggles search overlay via hidden Button keyboard shortcut technique
+- Search scoped to current board when a board is selected in sidebar (searchScopeBoard computed property)
+- Navigation callbacks: onSelectItem opens item reader, onSelectBoard switches sidebar selection, onSelectTag switches to tags view
+- Background dimming overlay dismisses search on tap
+- .frame(width:maxHeight:) doesn't exist as a single modifier — split into .frame(width:) + .frame(maxHeight:) to compile
+
+## S14: Basic Nudge System — DONE
+- NudgeEngine.swift: @Observable service that generates nudges on app launch
+- Resurface nudge: finds random .active item not updated in 14+ days, creates nudge with "You saved X days ago. Still relevant?"
+- Stale inbox nudge: if inbox has 5+ items older than 14 days, creates nudge "You have X items waiting in your inbox"
+- 30-day cooldown: dismissed nudges for same item/type won't recur within 30 days
+- Dedup: won't create pending nudge if one already exists for same item/type
+- NudgeBarView.swift: Non-blocking bar at top of content area, shows one nudge at a time
+- Uses @Query to fetch all nudges, filters in-memory for pending/shown status
+- Action button ("Open" for resurface, "Triage" for stale inbox) sets status to .actedOn and triggers navigation
+- Dismiss button sets status to .dismissed (animates away)
+- NudgeType extended with iconName, actionLabel, accentColor for UI rendering
+- ContentView wired: NudgeBarView in VStack above detailContent, onAppear triggers NudgeEngine.generateNudges()
+- hasGeneratedNudges flag prevents duplicate generation
+- SwiftData #Predicate cannot handle enum comparisons — used FetchDescriptor<T>() + in-memory .filter() pattern (consistent with S2 learning)
+- @Query sort order uses .reverse not .descending on macOS
+
+## S15: Keyboard Shortcuts and Polish — DONE
+- Added GroveMenuCommands struct with CommandGroup and CommandMenu for discoverable menu bar items
+- File > New Note (⌘N), File > Quick Capture (⌘⇧K) via CommandGroup(after: .newItem)
+- Navigate menu: Search (⌘F), Go to Inbox (⌘0), Go to Board 1-9 (⌘1-⌘9), Go to Tags
+- View menu: Toggle Inspector (⌘])
+- Used NotificationCenter to bridge between menu commands (App-level) and ContentView state
+- Created Notifications.swift with static Notification.Name extensions for all grove-specific notifications
+- Replaced old hidden Button keyboard shortcut technique (for ⌘N, ⌘F) with .onReceive(NotificationCenter.default.publisher(for:))
+- Removed GroveShortcut enum and keyboardShortcut(for:action:) extension — no longer needed
+- BoardDetailView: added J/K navigation and Enter to open — uses flatVisibleItems computed property for ordered item list
+- InboxTriageView: added Enter key handler to open focused item (uses optional openedItem binding)
+- InboxCard: added .transition(.asymmetric(insertion:removal:)) for smooth card animations when triaging
+- BoardDetailView grid/list: added .transition and .animation(value:) for smooth item add/remove
+- ContentView inspector: added .transition(.move(edge: .trailing)) for smooth slide in/out
+- Search overlay dismiss: wrapped in withAnimation for smooth fade out
+- Toolbar inspector button shows keyboard hint in help text (⌘])
+
+## S16: Connection Suggestions — DONE
+- ConnectionSuggestionService.swift: @Observable service using keyword/tag overlap heuristics
+- Scoring algorithm: tag overlap (0.3 per shared tag, max 0.9), title Jaccard similarity (0.4 weight), content keyword Jaccard (0.3 weight), board overlap bonus (0.1)
+- Keyword extraction: tokenize text, remove stop words, compute Jaccard similarity on word sets
+- Connection type inference: 3+ shared tags → .sameTopic, newer candidate → .buildsOn, default → .related
+- Dismissed suggestions stored in UserDefaults as [String: Date] keyed by sorted UUID pair
+- ConnectionSuggestionPopover.swift: Non-blocking overlay in top-right of ItemReaderView
+- Shows up to 3 suggestions with target item title, suggested type pill, reason text, Connect and dismiss buttons
+- Dismiss all via X button on header
+- Suggestions triggered in ItemReaderView: (1) after annotation save, (2) on appear for recently created items (<30s old), (3) after finishing note content edit
+- Accept creates Connection via ItemViewModel.createConnection and removes suggestion from list
+- Dismiss records pair in UserDefaults and removes suggestion from list
+- No SwiftData model changes needed — dismissed pairs stored in UserDefaults, suggestions are ephemeral structs
+
+## S17: Smart Boards — DONE
+- Board model: added SmartRuleLogic enum (and/or), smartRuleLogic property, and smartRuleTags relationship ([Tag])
+- Tag model: added inverse smartRuleBoards relationship for the many-to-many with Board.smartRuleTags
+- BoardViewModel: added createSmartBoard, updateSmartBoard methods; static smartBoardItems(for:from:) for computing matching items
+- Smart board logic: AND mode = items must have ALL rule tags, OR mode = items must have ANY rule tag
+- BoardEditorSheet: added Smart Board toggle, tag selection UI with checkmark list, AND/OR picker with descriptions
+- Sheet dynamically resizes (480 → 680) when smart mode enabled; Create disabled if smart + no tags selected
+- SidebarView: smart boards show "sparkles.rectangle.stack" icon and gear indicator badge
+- SidebarView passes onSaveSmart callback for both create and edit flows
+- BoardDetailView: effectiveItems computed property uses BoardViewModel.smartBoardItems for smart boards, board.items for regular
+- Empty state customized for smart boards with rule display
+- Toolbar shows rule indicator pill for smart boards, hides "New Note" button (smart boards auto-populate)
+- Items appear/disappear from smart boards dynamically as tags are added/removed (SwiftUI reactivity via @Query)
+
+## S18: Graph Visualization — DONE
+- GraphVisualizationView.swift: Full SpriteKit-based force-directed knowledge graph
+- SpriteKit SKScene (GraphScene) with custom force-directed layout: repulsion between all nodes, spring attraction along edges, center gravity
+- GraphNodeSprite: SKNode subclass with circle sized by engagementScore (14-36pt radius), colored by first board color (fallback to type color)
+- Type icon (emoji) inside each circle, title label below
+- Edges styled by ConnectionType: solid green (buildsOn), solid red (contradicts), dashed gray (related), solid purple (inspiredBy), dashed blue (sameTopic)
+- Dashed edges implemented via manual dash pattern path generation (SpriteKit doesn't have native dash support)
+- Smooth pan (mouse drag on empty space moves camera), zoom (scroll wheel/trackpad via SKCameraNode scale), drag (grab nodes to reposition)
+- Dragging a node temporarily resets simulation to let graph re-settle
+- Click node → onNodeSelected callback → sets selectedItem in parent for inspector integration
+- Filter toolbar: Board picker and Tag picker to scope visible nodes/edges
+- Reset Layout button rebuilds the scene from scratch
+- Empty state when no items match filters
+- SidebarItem.graph case added to sidebar navigation enum
+- Sidebar shows "Graph" row with "point.3.connected.trianglepath.dotted" SF Symbol
+- ContentView routes .graph case to GraphVisualizationView
+- Performance: simulation caps at 600 steps then freezes (prevents indefinite CPU usage); damping factor 0.85 ensures convergence
+- NSViewRepresentable (GraphSceneView) wraps SKView for SwiftUI integration with allowsTransparency for proper dark mode background
+
+## S19: Advanced Nudges — DONE
+- NudgeEngine already had connection prompt and streak nudge logic from S14 foundations + earlier work
+- Connection prompt: triggers when 3+ items share a tag within 7 days, suggests synthesis note, 30-day cooldown per tag cluster
+- Streak nudge: tracks consecutive engagement days per board using item.updatedAt, triggers at 3+ days, one at a time
+- Per-board nudge frequency: Board.nudgeFrequencyHours property (0=global default, -1=disabled, N=custom hours)
+- BoardEditorSheet: added Picker for nudge frequency with 7 options (global default, 2h, 4h, 8h, 12h, 24h, disabled)
+- Updated save callbacks to 4-param (regular) and 6-param (smart) signatures to pass nudgeFrequencyHours through
+- BoardViewModel: createBoard, createSmartBoard, updateBoard, updateSmartBoard all accept nudgeFrequencyHours param
+- NudgeSettingsView.swift: Settings view with category toggles, schedule interval picker, max-per-day stepper, analytics display
+- NudgeSettings stores all config in UserDefaults: type toggles (resurface/staleInbox/connectionPrompt/streak), scheduleIntervalHours, maxNudgesPerDay
+- Analytics: NudgeSettings.recordAction/analyticsCount track acted-on vs dismissed counts per nudge type
+- NudgeBarView: wired recordAction calls on act and dismiss for analytics tracking
+- NudgeEngine schedule: ContentView now calls startSchedule() (Timer-based) instead of single generateNudges()
+- Daily limit: default 2 nudges/day, high engagement users (3+ acted on in 7 days) can see more
+- Settings window: Added Settings { NudgeSettingsView() } scene to GroveApp for native macOS Preferences access
+
+## S20: Tag Clustering Improvements — DONE
+- Tag model: added parentTag/childTags @Relationship for informational hierarchy, previousItemCount and trendCalculatedAt for trend tracking, computed trend property
+- TagTrend enum (increasing/stable/decreasing) based on current vs previous item count
+- TagService.swift: new service with merge detection, hierarchy suggestions, merge action, trend updates, and improved clustering
+- Near-duplicate detection: Levenshtein edit distance with normalized comparison, threshold 0.75 similarity; normalize strips separators (-, _, /, space) before comparing
+- Merge action: transfers all items, child tags, and smart board rules from removed tag to kept tag, then deletes removed tag
+- Hierarchy detection: checks name prefix (e.g., "SwiftUI" starts with "Swift"), word containment, and co-occurrence subset patterns
+- Hierarchy is informational only — shown as indented children in TagBrowserView, not enforced as a constraint
+- Improved clustering algorithm: uses co-occurrence matrix (shared items between tags) to group related tags, then assigns items to tag groups
+- Co-occurrence ratio threshold 0.4 for grouping tags together (40% overlap of smaller tag's items)
+- TagBrowserView: added merge suggestions banner, wand.and.stars menu for merge and hierarchy analysis
+- TagPillView: now shows usage count and trend indicator (green arrow up, red arrow down, nothing for stable)
+- TagBrowserView groups by category showing only root-level tags (no parent), with children indented beneath
+- Merge suggestions sheet: side-by-side comparison with similarity %, keep buttons for each tag
+- Hierarchy suggestions sheet: shows parent→child relationship with reason text and apply button
+- Trend tracking updates on TagBrowserView appear via onAppear calling tagService.updateTrends()
+- .accentColor is not a valid ShapeStyle member — use Color.accentColor instead for foregroundStyle
+
+## S21: Course Tracking — DONE
+- Course.swift: new @Model with title, sourceURL, courseDescription, lectures relationship ([Item]), lectureOrder ([UUID]) for sequence
+- lectureOrder maintains ordering separately since SwiftData relationships are unordered
+- Computed helpers: orderedLectures, completedCount, totalCount, progress (fraction), nextLecture
+- Lectures are Items with type .courseLecture; completion tracked via metadata["completed"] = "true"/"false"
+- CourseDetailView.swift: header with progress bar, ordered lecture list with completion checkboxes, supplementary materials
+- Supplementary items auto-detected via shared tags between lectures and other items
+- AddLectureSheet: creates .courseLecture Items with courseID metadata and appends to lectureOrder
+- CourseEditorSheet: edit course title, description, source URL
+- NewCourseSheet: create course flow from sidebar
+- SidebarView: added Courses section with + button, progress badge (completed/total), context menu delete
+- ContentView: added .course(UUID) to SidebarItem enum, routes to CourseDetailView
+- NudgeType: added .continueCourse case for course continuation nudges
+- NudgeEngine: generateContinueCourseNudge() creates "Lecture N of [Course] is next" with related material count
+- NudgeSettings: added continueCourseEnabled toggle and isEnabled case
+- NudgeSettingsView: added toggle and analytics row for course nudges
+- GroveApp: added Course.self to ModelContainer registration
+- buildableFolders pattern means new .swift files auto-included — just need tuist generate
+
+## S22: AI Synthesis Notes — DONE
+- SynthesisService.swift: @Observable service supporting local (heuristic) and API (OpenAI-compatible) synthesis providers
+- Local synthesis: keyword extraction, theme detection (cross-item keyword frequency), tag overlap analysis, contradiction/buildsOn chain detection
+- API synthesis: sends item content/annotations/tags to configurable OpenAI-compatible endpoint with system+user prompt
+- SynthesisSettings: UserDefaults-backed config for provider, apiEndpoint, apiKey, apiModel
+- SynthesisSheet.swift: Full sheet UI with scope overview, generation progress, markdown preview, edit mode, and save
+- Generated notes are Item(type: .note) with metadata["isAIGenerated"] = "true" and metadata["synthesisProvider"]
+- Auto-creates Connection(.related, isAutoGenerated: true) from each source item to the synthesis note
+- Common tags (appearing in 2+ source items) auto-copied to synthesis note
+- Scope validation: minimum 2 items, warning at 15+, max 30
+- BoardDetailView: added "Synthesize" toolbar button (sparkles icon), disabled when <2 items
+- TagDetailView: added "Synthesize" button in header for tag cluster synthesis
+- ItemCardView: shows purple "AI Synthesis" badge when isAIGenerated metadata is set
+- ItemReaderView: shows purple "AI-Generated Synthesis" pill badge in header
+- AISettingsView.swift: Settings tab for provider selection, API config (endpoint, key, model)
+- GroveApp Settings: converted to TabView with "Nudges" and "AI" tabs
+- countTags helper returns [(tag: Tag, count: Int)] named tuples — use .count not .value for sorting/filtering
+
+## S23: Spaced Resurfacing — DONE
+- Item model: added lastResurfacedAt, resurfaceIntervalDays (default 7), resurfaceCount, lastEngagedAt, isResurfacingPaused fields
+- Item computed properties: isResurfacingEligible (has annotations or connections), nextResurfaceDate, isResurfacingOverdue
+- ResurfacingService.swift: new @Observable service handling interval algorithm and queue management
+- Interval algorithm: base 7 days, doubles after each engagement (up to 120 days cap), resets to 7 after 60 days of no engagement
+- recordEngagement(): called when user acts on a resurface nudge or submits a reflection — doubles interval
+- resetStaleIntervals(): runs on each nudge generation cycle, resets items with 60+ days inactivity back to 7 days
+- nextResurfaceCandidate(): returns most overdue item from the queue, excludes paused and recently dismissed
+- resurfaceContext(): provides annotation snippet or connection title as context in the nudge message
+- QueueStats struct with totalInQueue, upcoming, overdue, paused counts for settings dashboard
+- NudgeEngine: replaced generateResurfaceNudge() with generateSpacedResurfaceNudge() using ResurfacingService
+- Legacy fallback: items without annotations/connections still use the old 14-day stale threshold
+- Global pause: NudgeSettings.spacedResurfacingGlobalPause checked before generating spaced resurface nudges
+- NudgeBarView: added reflection prompt UI — text.bubble button toggles text field below nudge
+- Reflection submits create an Annotation on the target item and call recordEngagement()
+- NudgeSettingsView: added "Spaced Resurfacing" section with enable toggle, global pause, and queue dashboard
+- Queue dashboard shows 4 stat badges: In Queue, Upcoming, Overdue, Paused
+- InspectorPanelView: added "Resurfacing" section showing queue status, interval, next date, pause toggle
+- Per-item pause: toggle in inspector to pause/unpause resurfacing for individual items
+- Items not eligible (no annotations/connections) show helpful hint text in inspector
+
+## S24: Export and Sharing — DONE
+- ExportService.swift: static service with exporters for Markdown (.md), PDF, OPML, and static HTML formats
+- Markdown export: board-level export includes all items with titles, source URLs, annotations, connections, tags; item-level export includes full metadata
+- PDF export: renders markdown text via NSAttributedString + CGContext PDF generation with header styling, US Letter size, proper pagination
+- OPML export: standard XML outline format with items as top-level outlines and annotations as sub-outlines
+- HTML export: clean dark-themed static page with board title, item cards, tags, annotations, connections — ready for self-hosting
+- ExportSheet.swift: BoardExportSheet with format picker (radio group), Send to Obsidian button, and save panel integration
+- ItemExportSheet: single/batch item export with Markdown and ZIP options
+- Send to Obsidian: exports items as individual .md files to user-configured vault folder path; board exports create a subfolder
+- ExportSettings: UserDefaults-backed obsidian folder path with Browse... button in settings
+- ExportSettingsView: added as third tab in Settings (Nudges | AI | Export) with Obsidian vault path config and format info
+- Batch export: multiple items exportable as single combined markdown or as ZIP archive (uses ditto for zip creation)
+- File menu: added Export Board... and Export Selected Item... commands via CommandGroup(replacing: .importExport)
+- Board context menu: added "Export Board..." option in SidebarView right-click menu
+- BoardDetailView toolbar: added Export button (square.and.arrow.up icon) next to Synthesize
+- ItemReaderView header: added Export button for individual item export
+- Notifications.swift: added groveExportBoard and groveExportItem notification names for menu command bridging
+- ContentView: wired export sheet presentations for board and item export via notification handlers
+- NSSavePanel used for file save dialogs; NSOpenPanel for Obsidian folder selection
+- sanitizeFilename helper strips invalid path characters for safe file naming
+
+## S25: Local Video Support — DONE
+- VideoPlayerView.swift: NSViewRepresentable wrapping AVPlayerView with periodic time observer for playback tracking
+- VideoPlayerView.Coordinator holds AVPlayer reference and time observer; dismantleNSView cleans up properly
+- seekToTime binding allows annotation timestamp clicks to seek the video
+- Double.formattedTimestamp extension formats seconds as MM:SS or HH:MM:SS
+- VideoThumbnailGenerator: async utility with generateThumbnail (AVAssetImageGenerator at midpoint) and extractMetadata (duration, dimensions)
+- Thumbnail stored as JPEG Data in Item.thumbnail field; metadata in Item.metadata dict
+- ItemViewModel.createVideoItem: creates .video Item with file:// sourceURL, stores originalPath in metadata, async extracts thumbnail+metadata
+- isSupportedVideoFile static helper checks extension against mp4/mov/mkv/m4v/avi set
+- ItemReaderView: video player embedded for local .video items; shows playback time bar, file path, optional description below
+- localVideoURL computed property resolves video from metadata["originalPath"] or sourceURL file:// URL
+- isVideoItem helper checks type + local file availability
+- Annotation creation captures current playback time as Int in annotation.position for video items
+- Annotation cards show clickable timestamp (play.circle.fill + MM:SS) that seeks video when tapped
+- New annotation editor shows "Timestamp: MM:SS" hint for video items
+- Header shows folder icon + file path for local videos instead of web link
+- ItemCardView: shows video thumbnail with play overlay, duration badge from metadata
+- BoardDetailView: .onDrop(of: [.fileURL]) accepts video files, creates items via createVideoItem
+- InboxTriageView: same drag-and-drop support for inbox
+- NSItemProvider.loadObject(ofClass: URL.self) used for drop handling
+- Build succeeds with no errors or warnings in modified files
+
+## S26: CloudKit Sync — DONE
+- SyncService.swift: @Observable service managing CloudKit sync state and monitoring
+- SyncStatus enum: .disabled, .synced, .syncing, .error(String) with iconName and label computed properties
+- SyncSettings struct: UserDefaults-backed syncEnabled toggle (default false = local-only)
+- GroveApp.swift: ModelContainer now uses explicit Schema + ModelConfiguration
+- When sync enabled: ModelConfiguration with cloudKitDatabase: .automatic for CloudKit backing
+- When sync disabled: ModelConfiguration with cloudKitDatabase: .none for local-only (default)
+- All 7 model types registered in Schema: Item, Board, Tag, Connection, Annotation, Nudge, Course
+- SwiftData + CloudKit handles sync automatically — no manual CKRecord management needed
+- Conflict resolution: SwiftData/CloudKit uses last-write-wins for scalar fields; many-to-many relationships merge at record level
+- SyncService monitors: CKAccountChanged notifications, NSPersistentCloudKitContainer.eventChangedNotification for import/export events
+- Periodic account status check every 60 seconds via Timer
+- SyncStatusView.swift: Toolbar indicator with .symbolEffect(.pulse) animation during syncing
+- Shows green checkmark.icloud when synced, blue animated arrow when syncing, orange exclamationmark when error
+- Only visible when sync is enabled (hidden in local-only mode)
+- SyncSettingsView.swift: New "Sync" tab in Settings with enable toggle, account status check, and info section
+- Restart alert shown when toggling sync (ModelContainer configuration is set at app launch)
+- ContentView: accepts syncService parameter, displays SyncStatusView in toolbar at .status placement
+- Settings TabView now has 4 tabs: Nudges, AI, Export, Sync (frame height increased to 500)
+- Works offline by design — SwiftData queues changes and syncs when connection returns
+- Architecture supports future iOS companion app reading the same CloudKit container
+- No entitlements file needed for development builds; App Store submission would need iCloud entitlement

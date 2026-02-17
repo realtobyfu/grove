@@ -4,6 +4,7 @@ import SwiftData
 /// Manages spaced resurfacing of items based on engagement patterns.
 /// Items enter the queue when they have annotations or connections.
 /// Interval adapts: doubles after engagement, resets after 60 days of inactivity.
+@MainActor
 @Observable
 final class ResurfacingService {
     private var modelContext: ModelContext

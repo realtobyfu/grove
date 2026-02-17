@@ -113,9 +113,7 @@ struct BoardExportSheet: View {
         do {
             try data.write(to: url)
             exportResult = "Exported to \(url.lastPathComponent)"
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                dismiss()
-            }
+            Task { try? await Task.sleep(for: .seconds(1)); dismiss() }
         } catch {
             exportResult = "Error: \(error.localizedDescription)"
         }
@@ -242,7 +240,7 @@ struct ItemExportSheet: View {
         do {
             try data.write(to: url)
             exportResult = "Exported to \(url.lastPathComponent)"
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { dismiss() }
+            Task { try? await Task.sleep(for: .seconds(1)); dismiss() }
         } catch {
             exportResult = "Error: \(error.localizedDescription)"
         }
@@ -252,7 +250,7 @@ struct ItemExportSheet: View {
         guard let url = ExportService.showSavePanelForZip(filename: "grove-export") else { return }
         if ExportService.exportItemsAsZip(items, to: url) {
             exportResult = "Exported \(items.count) items to \(url.lastPathComponent)"
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { dismiss() }
+            Task { try? await Task.sleep(for: .seconds(1)); dismiss() }
         } else {
             exportResult = "ZIP export failed."
         }

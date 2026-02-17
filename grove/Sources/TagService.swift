@@ -19,6 +19,7 @@ struct TagHierarchySuggestion: Identifiable {
 }
 
 /// Service for tag analysis: duplicate detection, merging, hierarchy suggestions, and improved clustering
+@MainActor
 @Observable
 final class TagService {
     private var modelContext: ModelContext
@@ -65,7 +66,7 @@ final class TagService {
     }
 
     /// Compute string similarity between two tag names using normalized edit distance
-    static func nameSimilarity(_ a: String, _ b: String) -> Double {
+    nonisolated static func nameSimilarity(_ a: String, _ b: String) -> Double {
         let s1 = normalize(a)
         let s2 = normalize(b)
 
@@ -78,7 +79,7 @@ final class TagService {
     }
 
     /// Normalize a tag name for comparison: lowercase, strip separators
-    static func normalize(_ name: String) -> String {
+    nonisolated static func normalize(_ name: String) -> String {
         name.lowercased()
             .replacingOccurrences(of: "-", with: "")
             .replacingOccurrences(of: "_", with: "")
@@ -87,7 +88,7 @@ final class TagService {
     }
 
     /// Levenshtein edit distance
-    static func levenshteinDistance(_ s1: String, _ s2: String) -> Int {
+    nonisolated static func levenshteinDistance(_ s1: String, _ s2: String) -> Int {
         let a = Array(s1)
         let b = Array(s2)
         let m = a.count
@@ -271,7 +272,7 @@ final class TagService {
     // MARK: - Improved Clustering (co-occurrence based)
 
     /// Compute co-occurrence matrix for tags based on shared items
-    static func tagCooccurrence(tags: [Tag]) -> [UUID: [UUID: Int]] {
+    nonisolated static func tagCooccurrence(tags: [Tag]) -> [UUID: [UUID: Int]] {
         var matrix: [UUID: [UUID: Int]] = [:]
         for tag in tags {
             let itemIDs = Set(tag.items.map(\.id))
@@ -287,7 +288,7 @@ final class TagService {
     }
 
     /// Improved clustering: groups items by co-occurrence weighted tag similarity rather than just most-popular tag
-    static func improvedClusters(from items: [Item], allBoardTags: [Tag]) -> [TagCluster] {
+    nonisolated static func improvedClusters(from items: [Item], allBoardTags: [Tag]) -> [TagCluster] {
         guard !items.isEmpty else { return [] }
 
         // Separate untagged items
