@@ -74,11 +74,7 @@ struct ContentView: View {
     private var detailContent: some View {
         switch selection {
         case .inbox:
-            PlaceholderView(
-                icon: "tray",
-                title: "Inbox",
-                message: "Captured items will appear here for triage."
-            )
+            InboxTriageView(selectedItem: $selectedItem)
         case .board(let boardID):
             if let board = boards.first(where: { $0.id == boardID }) {
                 BoardDetailView(board: board, selectedItem: $selectedItem)

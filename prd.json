@@ -129,7 +129,7 @@
       "id": "S8",
       "title": "Inbox View and Triage Flow",
       "priority": 8,
-      "passes": false,
+      "passes": true,
       "description": "Dedicated inbox view with card-based triage for captured items.",
       "acceptanceCriteria": [
         "Selecting Inbox in sidebar shows InboxTriageView",
