@@ -83,7 +83,7 @@ struct BoardDetailView: View {
     }
 
     private var tagClusters: [TagCluster] {
-        computeClusters(from: filteredItems)
+        TagService.improvedClusters(from: filteredItems, allBoardTags: allBoardTags)
     }
 
     var body: some View {
@@ -500,117 +500,8 @@ struct BoardDetailView: View {
         }
     }
 
-    // MARK: - Clustering Algorithm
-
-    private func computeClusters(from items: [Item]) -> [TagCluster] {
-        guard !items.isEmpty else { return [] }
-
-        // Build a map: for each item, get its tag IDs
-        var itemTagSets: [(item: Item, tagIDs: Set<UUID>)] = items.map { item in
-            (item, Set(item.tags.map(\.id)))
-        }
-
-        // Separate items with no tags
-        let untaggedItems = itemTagSets.filter { $0.tagIDs.isEmpty }.map(\.item)
-        itemTagSets = itemTagSets.filter { !$0.tagIDs.isEmpty }
-
-        // Find tag groups by overlap: group items that share at least one tag
-        var clusters: [TagCluster] = []
-        var assigned: Set<UUID> = [] // item IDs already assigned
-
-        // Build tag-to-items index
-        var tagToItems: [UUID: [Item]] = [:]
-        for entry in itemTagSets {
-            for tagID in entry.tagIDs {
-                tagToItems[tagID, default: []].append(entry.item)
-            }
-        }
-
-        // Find the most shared tags and group items by them
-        // Strategy: repeatedly pick the most popular tag combination, group items, remove them
-        var remaining = itemTagSets
-
-        while !remaining.isEmpty {
-            // Count tag frequency among remaining items
-            var tagFreq: [UUID: Int] = [:]
-            for entry in remaining {
-                for tagID in entry.tagIDs {
-                    tagFreq[tagID, default: 0] += 1
-                }
-            }
-
-            // Find the most common tag
-            guard let topTagID = tagFreq.max(by: { $0.value < $1.value })?.key else { break }
-
-            // Find all remaining items with this tag
-            let matchingEntries = remaining.filter { $0.tagIDs.contains(topTagID) }
-            let matchingItems = matchingEntries.map(\.item)
-
-            guard !matchingItems.isEmpty else { break }
-
-            // Find common tags across these items for the label
-            let matchingTagSets = matchingEntries.map(\.tagIDs)
-            let commonTagIDs: Set<UUID>
-            if let first = matchingTagSets.first {
-                commonTagIDs = matchingTagSets.dropFirst().reduce(first) { $0.intersection($1) }
-            } else {
-                commonTagIDs = []
-            }
-
-            // At minimum, include the top tag; also include any other tags shared by most items (>50%)
-            var clusterTagIDs: Set<UUID> = [topTagID]
-            for (tagID, count) in tagFreq {
-                if tagID != topTagID && count > matchingItems.count / 2 {
-                    // Check if this tag is shared by most of the matched items
-                    let shareCount = matchingEntries.filter { $0.tagIDs.contains(tagID) }.count
-                    if shareCount > matchingItems.count / 2 {
-                        clusterTagIDs.insert(tagID)
-                    }
-                }
-            }
-
-            // Also add common tags
-            clusterTagIDs = clusterTagIDs.union(commonTagIDs)
-
-            // Resolve tag objects for the label
-            let allTagObjects = allBoardTags
-            let clusterTags = clusterTagIDs.compactMap { id in allTagObjects.first(where: { $0.id == id }) }
-                .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
-
-            // Generate label from tag names
-            let label = clusterTags.map(\.name).joined(separator: " & ")
-
-            clusters.append(TagCluster(
-                label: label.isEmpty ? "Uncategorized" : label,
-                tags: clusterTags,
-                items: matchingItems
-            ))
-
-            // Remove assigned items
-            let matchingIDs = Set(matchingItems.map(\.id))
-            remaining = remaining.filter { !matchingIDs.contains($0.item.id) }
-        }
-
-        // Add uncategorized section for untagged items
-        if !untaggedItems.isEmpty {
-            clusters.append(TagCluster(
-                label: "Uncategorized",
-                tags: [],
-                items: untaggedItems
-            ))
-        }
-
-        // If there are no tags at all, just show everything in one flat group
-        if clusters.isEmpty {
-            clusters.append(TagCluster(
-                label: "All Items",
-                tags: [],
-                items: items
-            ))
-        }
-
-        return clusters
-    }
+    // MARK: - Clustering
+    // Clustering now uses TagService.improvedClusters() which groups by co-occurrence + similarity
 
     private func sortItems(_ items: [Item]) -> [Item] {
         switch sortOption {

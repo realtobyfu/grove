@@ -337,7 +337,7 @@
       "id": "S20",
       "title": "[v1.5] Tag Clustering Improvements",
       "priority": 20,
-      "passes": false,
+      "passes": true,
       "description": "Smarter tag management with merge suggestions and hierarchy detection.",
       "acceptanceCriteria": [
         "Detect near-duplicate tags and suggest merges (e.g., 'async-await' and 'async/await')",
