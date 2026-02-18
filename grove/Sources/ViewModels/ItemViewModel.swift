@@ -103,6 +103,12 @@ final class ItemViewModel {
                 // Auto-tag after metadata is available (better LLM input)
                 await self.autoTagItem(itemID: itemID, context: context)
 
+                // Set summary review flag if auto-tag generated a summary
+                if fetchedItem.metadata["summary"] != nil {
+                    fetchedItem.metadata["summaryReviewPending"] = "true"
+                    try? context.save()
+                }
+
                 // Generate LLM overview for articles
                 if itemType == .article {
                     await self.generateOverview(
@@ -194,8 +200,13 @@ final class ItemViewModel {
         let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
         guard let item = try? context.fetch(descriptor).first else { return }
 
+        // Save original description before replacing with overview
+        if let original = item.content, !original.isEmpty {
+            item.metadata["originalDescription"] = original
+        }
         item.content = overview
         item.metadata["hasLLMOverview"] = "true"
+        item.metadata["overviewReviewPending"] = "true"
         item.updatedAt = .now
         try? context.save()
     }

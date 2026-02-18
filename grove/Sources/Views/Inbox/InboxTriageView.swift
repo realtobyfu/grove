@@ -102,7 +102,7 @@ struct InboxTriageView: View {
         let visibleItems = Array(inboxItems.prefix(8))
         return VStack(spacing: 8) {
             LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 200, maximum: 300), spacing: 12)],
+                columns: [GridItem(.adaptive(minimum: 200, maximum: 400), spacing: 12)],
                 spacing: 12
             ) {
                 ForEach(Array(visibleItems.enumerated()), id: \.element.id) { index, item in

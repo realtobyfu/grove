@@ -11,6 +11,7 @@ struct RichMarkdownEditor: View {
     @Binding var text: String
     var sourceItem: Item?
     var minHeight: CGFloat = 80
+    var proseMode: Bool = false
 
     @Environment(\.modelContext) private var modelContext
     @Query private var allItems: [Item]
@@ -27,45 +28,74 @@ struct RichMarkdownEditor: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Formatting toolbar
-            formattingToolbar
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+        if proseMode {
+            VStack(spacing: 0) {
+                MarkdownNSTextView(
+                    text: $text,
+                    minHeight: minHeight,
+                    fontSize: 18,
+                    textInset: NSSize(width: 40, height: 24),
+                    onWikiTrigger: { searchText in
+                        if let searchText {
+                            wikiSearchText = searchText
+                            showWikiPopover = true
+                        } else {
+                            showWikiPopover = false
+                            wikiSearchText = ""
+                        }
+                    },
+                    onInsertFormatting: nil
+                )
+                .frame(minHeight: minHeight)
+
+                if showWikiPopover {
+                    wikiLinkDropdown
+                        .padding(.horizontal, 40)
+                }
+
+                proseToolbar
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 0) {
+                // Formatting toolbar
+                formattingToolbar
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.bgCard)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(Color.borderInput, lineWidth: 1)
+                    )
+                    .padding(.bottom, 4)
+
+                // Editor
+                MarkdownNSTextView(
+                    text: $text,
+                    minHeight: minHeight,
+                    onWikiTrigger: { searchText in
+                        if let searchText {
+                            wikiSearchText = searchText
+                            showWikiPopover = true
+                        } else {
+                            showWikiPopover = false
+                            wikiSearchText = ""
+                        }
+                    },
+                    onInsertFormatting: nil
+                )
+                .frame(minHeight: minHeight)
                 .background(Color.bgCard)
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    RoundedRectangle(cornerRadius: 6)
                         .stroke(Color.borderInput, lineWidth: 1)
                 )
-                .padding(.bottom, 4)
 
-            // Editor
-            MarkdownNSTextView(
-                text: $text,
-                minHeight: minHeight,
-                onWikiTrigger: { searchText in
-                    if let searchText {
-                        wikiSearchText = searchText
-                        showWikiPopover = true
-                    } else {
-                        showWikiPopover = false
-                        wikiSearchText = ""
-                    }
-                },
-                onInsertFormatting: nil
-            )
-            .frame(minHeight: minHeight)
-            .background(Color.bgCard)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(Color.borderInput, lineWidth: 1)
-            )
-
-            // Wiki-link dropdown
-            if showWikiPopover {
-                wikiLinkDropdown
+                // Wiki-link dropdown
+                if showWikiPopover {
+                    wikiLinkDropdown
+                }
             }
         }
     }
@@ -109,6 +139,31 @@ struct RichMarkdownEditor: View {
         .buttonStyle(.plain)
         .foregroundStyle(Color.textSecondary)
         .help(shortcut != nil ? "\(label) (\u{2318}\(shortcut!))" : label)
+    }
+
+    // MARK: - Prose Toolbar
+
+    private var proseToolbar: some View {
+        HStack(spacing: 16) {
+            toolbarButton("Bold", icon: "bold", shortcut: "B") {
+                wrapSelection(prefix: "**", suffix: "**")
+            }
+            toolbarButton("Italic", icon: "italic", shortcut: "I") {
+                wrapSelection(prefix: "*", suffix: "*")
+            }
+            toolbarButton("Code", icon: "chevron.left.forwardslash.chevron.right", shortcut: "E") {
+                wrapSelection(prefix: "`", suffix: "`")
+            }
+            toolbarButton("Link", icon: "link", shortcut: "K") {
+                wrapSelection(prefix: "[", suffix: "](url)")
+            }
+            toolbarButton("Wiki Link", icon: "link.badge.plus", shortcut: nil) {
+                insertText("[[]]", cursorOffset: -2)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 40)
+        .padding(.vertical, 8)
     }
 
     // MARK: - Toolbar Actions
@@ -225,6 +280,8 @@ struct RichMarkdownEditor: View {
 struct MarkdownNSTextView: NSViewRepresentable {
     @Binding var text: String
     var minHeight: CGFloat
+    var fontSize: CGFloat = 15
+    var textInset: NSSize = NSSize(width: 8, height: 8)
     var onWikiTrigger: ((String?) -> Void)?
     var onInsertFormatting: ((String, String) -> Void)?
 
@@ -250,7 +307,7 @@ struct MarkdownNSTextView: NSViewRepresentable {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
-        textView.textContainerInset = NSSize(width: 8, height: 8)
+        textView.textContainerInset = textInset
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
@@ -258,12 +315,22 @@ struct MarkdownNSTextView: NSViewRepresentable {
         textView.textContainer?.widthTracksTextView = true
 
         // Set default font
-        let defaultFont = NSFont(name: "IBMPlexSans-Regular", size: 15) ?? NSFont.systemFont(ofSize: 15)
-        textView.font = defaultFont
-        textView.typingAttributes = [
+        let defaultFont = NSFont(name: "IBMPlexSans-Regular", size: fontSize) ?? NSFont.systemFont(ofSize: fontSize)
+
+        // Build typing attributes — add generous line spacing for prose mode
+        var typingAttrs: [NSAttributedString.Key: Any] = [
             .font: defaultFont,
             .foregroundColor: NSColor.labelColor
         ]
+        if fontSize >= 17 {
+            let paragraphStyle = NSMutableParagraphStyle()
+            paragraphStyle.lineSpacing = 8
+            paragraphStyle.paragraphSpacing = 12
+            typingAttrs[.paragraphStyle] = paragraphStyle
+        }
+
+        textView.font = defaultFont
+        textView.typingAttributes = typingAttrs
 
         textView.delegate = context.coordinator
         context.coordinator.textView = textView
@@ -344,24 +411,38 @@ struct MarkdownNSTextView: NSViewRepresentable {
             let fullRange = NSRange(location: 0, length: storage.length)
             let text = storage.string
 
-            let defaultFont = NSFont(name: "IBMPlexSans-Regular", size: 15) ?? NSFont.systemFont(ofSize: 15)
-            let monoFont = NSFont(name: "IBMPlexMono-Regular", size: 13) ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-            let boldFont = NSFont(name: "IBMPlexSans-Medium", size: 15) ?? NSFont.boldSystemFont(ofSize: 15)
-            let headingFont = NSFont(name: "Newsreader-Medium", size: 18) ?? NSFont.systemFont(ofSize: 18, weight: .medium)
-            let headingSmallFont = NSFont(name: "Newsreader-Medium", size: 15) ?? NSFont.systemFont(ofSize: 15, weight: .medium)
+            let size = parent.fontSize
+            let defaultFont = NSFont(name: "IBMPlexSans-Regular", size: size) ?? NSFont.systemFont(ofSize: size)
+            let monoFont = NSFont(name: "IBMPlexMono-Regular", size: size - 2) ?? NSFont.monospacedSystemFont(ofSize: size - 2, weight: .regular)
+            let boldFont = NSFont(name: "IBMPlexSans-Medium", size: size) ?? NSFont.boldSystemFont(ofSize: size)
+            let headingFont = NSFont(name: "Newsreader-Medium", size: round(size * 1.55)) ?? NSFont.systemFont(ofSize: round(size * 1.55), weight: .medium)
+            let headingSmallFont = NSFont(name: "Newsreader-Medium", size: round(size * 1.22)) ?? NSFont.systemFont(ofSize: round(size * 1.22), weight: .medium)
 
             let primaryColor = NSColor.labelColor
             let secondaryColor = NSColor.secondaryLabelColor
             let tertiaryColor = NSColor.tertiaryLabelColor
             let codeBackground = NSColor.quaternaryLabelColor.withAlphaComponent(0.15)
 
+            // Build paragraph style for prose mode (generous line spacing)
+            let proseParagraph: NSParagraphStyle? = {
+                guard size >= 17 else { return nil }
+                let style = NSMutableParagraphStyle()
+                style.lineSpacing = 8
+                style.paragraphSpacing = 12
+                return style
+            }()
+
             storage.beginEditing()
 
             // Reset to default
-            storage.addAttributes([
+            var defaultAttrs: [NSAttributedString.Key: Any] = [
                 .font: defaultFont,
                 .foregroundColor: primaryColor
-            ], range: fullRange)
+            ]
+            if let proseParagraph {
+                defaultAttrs[.paragraphStyle] = proseParagraph
+            }
+            storage.addAttributes(defaultAttrs, range: fullRange)
 
             // Bold: **text**
             applyPattern(

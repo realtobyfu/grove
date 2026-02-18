@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // MARK: - Growth Stage Indicator
@@ -80,6 +81,15 @@ struct ItemCardView: View {
                 }
             }
 
+            // One-line summary
+            if let summary = item.metadata["summary"], !summary.isEmpty {
+                Text(summary)
+                    .font(.groveBodySecondary)
+                    .foregroundStyle(Color.textSecondary)
+                    .lineLimit(2)
+                    .padding(.leading, 28)
+            }
+
             // Tags row (auto-generated tags have dashed border)
             if !item.tags.isEmpty {
                 HStack(spacing: 4) {
@@ -135,11 +145,20 @@ struct ItemCardView: View {
                     Text("Local Video")
                         .font(.groveBadge)
                         .foregroundStyle(Color.textTertiary)
-                } else if let url = item.sourceURL {
-                    Text(domainFrom(url))
-                        .font(.groveBadge)
+                } else if let urlString = item.sourceURL, let url = URL(string: urlString) {
+                    Button {
+                        NSWorkspace.shared.open(url)
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 8))
+                            Text(domainFrom(urlString))
+                                .font(.groveBadge)
+                                .lineLimit(1)
+                        }
                         .foregroundStyle(Color.textTertiary)
-                        .lineLimit(1)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }

@@ -172,6 +172,7 @@ struct HomeView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.bgPrimary)
+        .navigationTitle("")
     }
 
     // MARK: - Inbox Section
@@ -205,8 +206,13 @@ struct HomeView: View {
             )
 
             if !isSuggestionsCollapsed {
-                ForEach(suggestions) { suggestion in
-                    suggestionCard(suggestion)
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 250, maximum: 400), spacing: Spacing.md)],
+                    spacing: Spacing.md
+                ) {
+                    ForEach(suggestions) { suggestion in
+                        suggestionCard(suggestion)
+                    }
                 }
             }
         }
@@ -251,7 +257,7 @@ struct HomeView: View {
                 .padding(.horizontal, Spacing.md)
                 .padding(.vertical, Spacing.sm)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 80, alignment: .leading)
             .background(Color.bgCard)
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .overlay(
@@ -274,8 +280,13 @@ struct HomeView: View {
             )
 
             if !isPathsCollapsed {
-                ForEach(learningPaths) { path in
-                    learningPathCard(path)
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 250, maximum: 400), spacing: Spacing.md)],
+                    spacing: Spacing.md
+                ) {
+                    ForEach(learningPaths) { path in
+                        learningPathCard(path)
+                    }
                 }
             }
         }

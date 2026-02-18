@@ -184,7 +184,6 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
-        .navigationTitle("Grove")
         .sheet(isPresented: $showNewBoardSheet) {
             BoardEditorSheet(
                 onSave: { title, icon, color, nudgeFreq in

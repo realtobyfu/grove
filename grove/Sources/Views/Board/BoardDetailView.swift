@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
@@ -653,6 +654,14 @@ struct BoardDetailView: View {
             selectedItem = item
         } label: {
             Label("Open", systemImage: "doc.text")
+        }
+
+        if let urlString = item.sourceURL, let url = URL(string: urlString) {
+            Button {
+                NSWorkspace.shared.open(url)
+            } label: {
+                Label("Open in Browser", systemImage: "safari")
+            }
         }
 
         Divider()

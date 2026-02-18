@@ -35,6 +35,9 @@ struct ItemReaderView: View {
     @State private var dismissedPromptIDs: Set<UUID> = []
     // Inline new-reflection editor focus
     @FocusState private var isNewReflectionFocused: Bool
+    // Summary editing
+    @State private var isEditingSummary = false
+    @State private var editableSummary = ""
 
     private var sortedReflections: [ReflectionBlock] {
         item.reflections.sorted { $0.position < $1.position }
@@ -148,6 +151,8 @@ struct ItemReaderView: View {
             aiPrompts = []
             dismissedPromptIDs = []
             isLoadingPrompts = false
+            isEditingSummary = false
+            editableSummary = ""
             loadAIPrompts()
         }
         .sheet(isPresented: $showItemExportSheet) {
@@ -215,7 +220,7 @@ struct ItemReaderView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
 
-                if item.type == .note {
+                if item.type == .note || (item.type == .article && item.metadata["hasLLMOverview"] == "true") {
                     Button {
                         let wasEditing = isEditingContent
                         isEditingContent.toggle()
@@ -252,6 +257,16 @@ struct ItemReaderView: View {
                 .padding(.vertical, 3)
                 .background(Color.accentBadge)
                 .clipShape(Capsule())
+            }
+
+            // Review banner (shown when LLM summary/overview is pending review)
+            if item.metadata["summaryReviewPending"] == "true" || item.metadata["overviewReviewPending"] == "true" {
+                reviewBanner
+            }
+
+            // One-line summary display/edit
+            if let summary = item.metadata["summary"], !summary.isEmpty {
+                summaryField(summary: summary)
             }
 
             if let sourceURL = item.sourceURL, !sourceURL.isEmpty {
@@ -305,6 +320,153 @@ struct ItemReaderView: View {
         .padding()
     }
 
+    // MARK: - Summary Field
+
+    private func summaryField(summary: String) -> some View {
+        Group {
+            if isEditingSummary {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "text.quote")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.textTertiary)
+                        TextField("One-line summary", text: $editableSummary)
+                            .font(.groveBodySecondary)
+                            .textFieldStyle(.plain)
+                    }
+                    HStack {
+                        Text("\(editableSummary.count)/120")
+                            .font(.groveMeta)
+                            .foregroundStyle(editableSummary.count > 120 ? Color.textPrimary : Color.textTertiary)
+                        Spacer()
+                        Button("Done") {
+                            let trimmed = editableSummary.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !trimmed.isEmpty {
+                                item.metadata["summary"] = String(trimmed.prefix(120))
+                            }
+                            isEditingSummary = false
+                            try? modelContext.save()
+                        }
+                        .font(.groveBodySecondary)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                }
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: "text.quote")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Color.textTertiary)
+                    Text(summary)
+                        .font(.groveBodySecondary)
+                        .foregroundStyle(Color.textSecondary)
+                        .lineLimit(2)
+                    Spacer()
+                    Button {
+                        editableSummary = summary
+                        isEditingSummary = true
+                    } label: {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Edit summary")
+                }
+            }
+        }
+    }
+
+    // MARK: - Review Banner
+
+    private var reviewBanner: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.textSecondary)
+                Text("AI-generated summary ready for review")
+                    .font(.groveBodySecondary)
+                    .foregroundStyle(Color.textSecondary)
+            }
+
+            if let summary = item.metadata["summary"], !summary.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "text.quote")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.textTertiary)
+                        TextField("One-line summary", text: Binding(
+                            get: { item.metadata["summary"] ?? "" },
+                            set: { item.metadata["summary"] = $0 }
+                        ))
+                        .font(.groveBodySecondary)
+                        .textFieldStyle(.plain)
+                    }
+                }
+            }
+
+            if item.metadata["hasLLMOverview"] == "true" {
+                Text("AI overview is shown below — you can edit it with the Edit button.")
+                    .font(.groveMeta)
+                    .foregroundStyle(Color.textTertiary)
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    // Accept: clear review flags, keep content
+                    item.metadata["summaryReviewPending"] = nil
+                    item.metadata["overviewReviewPending"] = nil
+                    try? modelContext.save()
+                } label: {
+                    Label("Accept", systemImage: "checkmark")
+                        .font(.groveBodySecondary)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                if item.metadata["overviewReviewPending"] == "true",
+                   let original = item.metadata["originalDescription"], !original.isEmpty {
+                    Button {
+                        // Revert overview to original OG description
+                        item.content = original
+                        item.metadata["hasLLMOverview"] = nil
+                        item.metadata["overviewReviewPending"] = nil
+                        item.metadata["originalDescription"] = nil
+                        try? modelContext.save()
+                    } label: {
+                        Label("Revert Overview", systemImage: "arrow.uturn.backward")
+                            .font(.groveBodySecondary)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+
+                Button {
+                    // Dismiss: clear flags without changes
+                    item.metadata["summaryReviewPending"] = nil
+                    item.metadata["overviewReviewPending"] = nil
+                    try? modelContext.save()
+                } label: {
+                    Text("Dismiss")
+                        .font(.groveBodySecondary)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.textTertiary)
+            }
+        }
+        .padding(12)
+        .background(Color.bgCard)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .strokeBorder(
+                    Color.borderTagDashed,
+                    style: StrokeStyle(lineWidth: 1, dash: [4, 3])
+                )
+        )
+    }
+
     // MARK: - Source Content
 
     @ViewBuilder
@@ -351,7 +513,7 @@ struct ItemReaderView: View {
                     )
                 }
             }
-        } else if isEditingContent && item.type == .note {
+        } else if isEditingContent && (item.type == .note || (item.type == .article && item.metadata["hasLLMOverview"] == "true")) {
             RichMarkdownEditor(
                 text: Binding(
                     get: { item.content ?? "" },
@@ -364,6 +526,18 @@ struct ItemReaderView: View {
                 minHeight: 200
             )
         } else if let content = item.content, !content.isEmpty {
+            // AI Overview label
+            if item.metadata["hasLLMOverview"] == "true" {
+                HStack(spacing: 4) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 10))
+                    Text("AI Overview")
+                        .font(.groveBadge)
+                }
+                .foregroundStyle(Color.textSecondary)
+                .padding(.bottom, 4)
+            }
+
             SelectableMarkdownView(
                 markdown: content,
                 onSelectText: { text in
@@ -739,30 +913,8 @@ struct ItemReaderView: View {
 
     private var reflectionEditorPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header bar
+            // Subtle top bar: type badge (left) + close button (right)
             HStack {
-                Text("REFLECT")
-                    .sectionHeaderStyle()
-                Spacer()
-                Button { cancelReflectionEditor() } label: {
-                    Image(systemName: "xmark")
-                        .font(.groveBody)
-                        .foregroundStyle(Color.textMuted)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, Spacing.lg)
-            .padding(.top, Spacing.lg)
-            .padding(.bottom, Spacing.sm)
-
-            Divider()
-
-            // Type selector row
-            HStack(spacing: 6) {
-                Text(editorBlockType.displayName)
-                    .font(.groveBadge)
-                    .tracking(0.5)
-                    .foregroundStyle(Color.textSecondary)
                 Menu {
                     ForEach(ReflectionBlockType.allCases, id: \.self) { type in
                         Button {
@@ -772,60 +924,66 @@ struct ItemReaderView: View {
                         }
                     }
                 } label: {
-                    Image(systemName: editorBlockType.systemImage)
-                        .font(.groveMeta)
-                        .foregroundStyle(Color.textSecondary)
+                    HStack(spacing: 4) {
+                        Image(systemName: editorBlockType.systemImage)
+                        Text(editorBlockType.displayName)
+                    }
+                    .font(.groveMeta)
+                    .foregroundStyle(Color.textTertiary)
                 }
                 .menuStyle(.borderlessButton)
-                .frame(width: 20)
-                Spacer()
-            }
-            .padding(.horizontal, Spacing.lg)
-            .padding(.vertical, Spacing.sm)
+                .fixedSize()
 
-            // Highlight preview (if reflecting on selection)
+                Spacer()
+
+                Button { cancelReflectionEditor() } label: {
+                    Image(systemName: "xmark")
+                        .font(.groveBody)
+                        .foregroundStyle(Color.textMuted)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 40)
+            .padding(.top, 20)
+            .padding(.bottom, 8)
+
+            // Highlight preview (if reflecting on selection) — subtle quote
             if let highlight = editorHighlight, !highlight.isEmpty {
                 HStack(spacing: 0) {
                     Rectangle()
-                        .fill(Color.textPrimary)
+                        .fill(Color.borderPrimary)
                         .frame(width: 2)
                     Text(highlight)
                         .font(.groveGhostText)
-                        .foregroundStyle(Color.textSecondary)
+                        .foregroundStyle(Color.textTertiary)
                         .lineLimit(3)
-                        .padding(.leading, 8)
-                        .padding(.vertical, 4)
+                        .padding(.leading, 10)
                 }
-                .padding(.leading, Spacing.lg)
-                .padding(.trailing, Spacing.lg)
-                .padding(.bottom, Spacing.sm)
+                .padding(.horizontal, 40)
+                .padding(.bottom, 12)
             }
 
-            Divider()
-
-            // Editor — fills remaining space
-            RichMarkdownEditor(text: $editorContent, sourceItem: item, minHeight: 120)
+            // Editor — fills remaining space, prose mode
+            RichMarkdownEditor(text: $editorContent, sourceItem: item, minHeight: 200, proseMode: true)
                 .focused($isNewReflectionFocused)
-                .padding(Spacing.lg)
+                .frame(maxHeight: .infinity)
 
-            Spacer()
-
-            // Footer: Cancel / Save
-            Divider()
+            // Save bar at very bottom — minimal
             HStack {
                 Spacer()
                 Button("Cancel") { cancelReflectionEditor() }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .buttonStyle(.plain)
+                    .font(.groveBody)
+                    .foregroundStyle(Color.textSecondary)
                 Button("Save") { saveNewReflection() }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .tint(Color.textPrimary)
+                    .buttonStyle(.plain)
+                    .font(.groveBodyMedium)
+                    .foregroundStyle(Color.textPrimary)
                     .keyboardShortcut(.return, modifiers: .command)
                     .disabled(editorContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            .padding(.horizontal, Spacing.lg)
-            .padding(.vertical, Spacing.md)
+            .padding(.horizontal, 40)
+            .padding(.vertical, 12)
         }
     }
 

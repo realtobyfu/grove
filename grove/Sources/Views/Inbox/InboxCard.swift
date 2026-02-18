@@ -51,7 +51,7 @@ struct InboxCard: View {
                         Text(item.title)
                             .font(.groveItemTitle)
                             .foregroundStyle(Color.textPrimary)
-                            .lineLimit(2)
+                            .lineLimit(3)
                     }
 
                     // Source domain and capture date
@@ -77,13 +77,13 @@ struct InboxCard: View {
                 Text(summary)
                     .font(.groveBodySecondary)
                     .foregroundStyle(Color.textSecondary)
-                    .lineLimit(2)
+                    .lineLimit(3)
             } else if let content = item.content, !content.isEmpty {
                 // Fall back to content preview
                 Text(content)
                     .font(.groveBodySecondary)
                     .foregroundStyle(Color.textSecondary)
-                    .lineLimit(2)
+                    .lineLimit(3)
             }
 
             // Auto-tags with confirm/dismiss actions

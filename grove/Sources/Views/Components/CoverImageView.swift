@@ -14,6 +14,7 @@ struct CoverImageView: View {
                 Image(nsImage: nsImage)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
+                    .frame(maxWidth: .infinity)
                     .frame(height: height)
                     .clipped()
                     .saturation(0.0)
@@ -37,6 +38,9 @@ struct CoverImageView: View {
                         .shadow(radius: 2)
                 }
             }
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
+            .clipped()
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         }
     }

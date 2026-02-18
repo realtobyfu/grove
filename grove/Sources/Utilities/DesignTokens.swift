@@ -37,56 +37,56 @@ extension Color {
 // MARK: - Typography
 
 extension Font {
-    /// Newsreader 28pt, weight 500 — Board titles
-    static let groveTitle = Font.custom("Newsreader-Medium", size: 28)
+    /// Newsreader 30pt, weight 500 — Board titles
+    static let groveTitle = Font.custom("Newsreader-Medium", size: 30)
 
-    /// Newsreader 18pt, weight 500 — Item titles in inspector
-    static let groveItemTitle = Font.custom("Newsreader-Medium", size: 18)
+    /// Newsreader 20pt, weight 500 — Item titles in inspector
+    static let groveItemTitle = Font.custom("Newsreader-Medium", size: 20)
 
-    /// IBM Plex Mono 10pt, weight 500 — Section headers (apply .textCase(.uppercase) and .tracking(1.2) separately)
-    static let groveSectionHeader = Font.custom("IBMPlexMono-Medium", size: 10)
+    /// IBM Plex Mono 11pt, weight 500 — Section headers (apply .textCase(.uppercase) and .tracking(1.2) separately)
+    static let groveSectionHeader = Font.custom("IBMPlexMono-Medium", size: 11)
 
-    /// IBM Plex Sans 13pt, weight 400 — Primary body text
-    static let groveBody = Font.custom("IBMPlexSans-Regular", size: 13)
+    /// IBM Plex Sans 14pt, weight 400 — Primary body text
+    static let groveBody = Font.custom("IBMPlexSans-Regular", size: 14)
 
-    /// IBM Plex Sans 12pt, weight 400 — Secondary body text
-    static let groveBodySecondary = Font.custom("IBMPlexSans-Regular", size: 12)
+    /// IBM Plex Sans 13pt, weight 400 — Secondary body text
+    static let groveBodySecondary = Font.custom("IBMPlexSans-Regular", size: 13)
 
-    /// IBM Plex Sans 11pt, weight 400 — Small body text
-    static let groveBodySmall = Font.custom("IBMPlexSans-Regular", size: 11)
+    /// IBM Plex Sans 12pt, weight 400 — Small body text
+    static let groveBodySmall = Font.custom("IBMPlexSans-Regular", size: 12)
 
-    /// IBM Plex Mono 11pt, weight 400 — Tags
-    static let groveTag = Font.custom("IBMPlexMono-Regular", size: 11)
+    /// IBM Plex Mono 12pt, weight 400 — Tags
+    static let groveTag = Font.custom("IBMPlexMono-Regular", size: 12)
 
-    /// IBM Plex Mono 11pt, weight 400 — Metadata (timestamps, source URLs, counts)
-    static let groveMeta = Font.custom("IBMPlexMono-Regular", size: 11)
+    /// IBM Plex Mono 12pt, weight 400 — Metadata (timestamps, source URLs, counts)
+    static let groveMeta = Font.custom("IBMPlexMono-Regular", size: 12)
 
-    /// IBM Plex Mono 10pt, weight 600 — Badges
-    static let groveBadge = Font.custom("IBMPlexMono-SemiBold", size: 10)
+    /// IBM Plex Mono 11pt, weight 600 — Badges
+    static let groveBadge = Font.custom("IBMPlexMono-SemiBold", size: 11)
 
-    /// IBM Plex Mono 12pt, weight 400 — Keyboard shortcuts
-    static let groveShortcut = Font.custom("IBMPlexMono-Regular", size: 12)
+    /// IBM Plex Mono 13pt, weight 400 — Keyboard shortcuts
+    static let groveShortcut = Font.custom("IBMPlexMono-Regular", size: 13)
 
-    /// Newsreader 13pt italic — Ghost text / placeholder prompts
-    static let groveGhostText = Font.custom("Newsreader-Italic", size: 13)
+    /// Newsreader 14pt italic — Ghost text / placeholder prompts
+    static let groveGhostText = Font.custom("Newsreader-Italic", size: 14)
 
-    /// IBM Plex Sans 14pt — Slightly larger body
-    static let groveBodyLarge = Font.custom("IBMPlexSans-Regular", size: 14)
+    /// IBM Plex Sans 15pt — Slightly larger body
+    static let groveBodyLarge = Font.custom("IBMPlexSans-Regular", size: 15)
 
-    /// IBM Plex Sans Medium 13pt — Emphasized body
-    static let groveBodyMedium = Font.custom("IBMPlexSans-Medium", size: 13)
+    /// IBM Plex Sans Medium 14pt — Emphasized body
+    static let groveBodyMedium = Font.custom("IBMPlexSans-Medium", size: 14)
 
-    /// IBM Plex Sans Light 13pt — Light body
-    static let groveBodyLight = Font.custom("IBMPlexSans-Light", size: 13)
+    /// IBM Plex Sans Light 14pt — Light body
+    static let groveBodyLight = Font.custom("IBMPlexSans-Light", size: 14)
 
-    /// Newsreader 22pt — Large titles
-    static let groveTitleLarge = Font.custom("Newsreader-Medium", size: 22)
+    /// Newsreader 24pt — Large titles
+    static let groveTitleLarge = Font.custom("Newsreader-Medium", size: 24)
 
-    /// Newsreader 13pt — Inline serif text
-    static let groveSerif = Font.custom("Newsreader-Regular", size: 13)
+    /// Newsreader 14pt — Inline serif text
+    static let groveSerif = Font.custom("Newsreader-Regular", size: 14)
 
-    /// Newsreader SemiBold 18pt — Emphasized item title
-    static let groveItemTitleBold = Font.custom("Newsreader-SemiBold", size: 18)
+    /// Newsreader SemiBold 20pt — Emphasized item title
+    static let groveItemTitleBold = Font.custom("Newsreader-SemiBold", size: 20)
 }
 
 // MARK: - Spacing
