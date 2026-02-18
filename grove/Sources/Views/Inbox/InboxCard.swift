@@ -10,6 +10,10 @@ struct InboxCard: View {
     var onConfirmTag: ((Tag) -> Void)?
     var onDismissTag: ((Tag) -> Void)?
 
+    private var isFetchingMetadata: Bool {
+        item.metadata["fetchingMetadata"] != nil
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
             // Header row: type icon + title
@@ -20,10 +24,25 @@ struct InboxCard: View {
                     .frame(width: 24, height: 24)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(item.title)
-                        .font(.groveItemTitle)
-                        .foregroundStyle(Color.textPrimary)
-                        .lineLimit(2)
+                    if isFetchingMetadata {
+                        // URL title not yet resolved — show raw URL in mono
+                        Text(item.title)
+                            .font(.groveMeta)
+                            .foregroundStyle(Color.textSecondary)
+                            .lineLimit(2)
+                        HStack(spacing: 4) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Fetching title…")
+                                .font(.groveMeta)
+                                .foregroundStyle(Color.textTertiary)
+                        }
+                    } else {
+                        Text(item.title)
+                            .font(.groveItemTitle)
+                            .foregroundStyle(Color.textPrimary)
+                            .lineLimit(2)
+                    }
 
                     // Source domain and capture date
                     HStack(spacing: 8) {

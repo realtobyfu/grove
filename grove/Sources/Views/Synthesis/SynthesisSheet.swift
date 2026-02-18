@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 
 /// Sheet for generating and previewing an AI synthesis note.
+/// Auto-starts generation on appear — no extra click needed.
 struct SynthesisSheet: View {
     let items: [Item]
     let scopeTitle: String
@@ -10,41 +11,12 @@ struct SynthesisSheet: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.colorScheme) private var colorScheme
     @State private var synthesisService: SynthesisService?
     @State private var result: SynthesisResult?
     @State private var draftTitle: String = ""
     @State private var draftContent: String = ""
     @State private var isEditing = false
     @State private var hasGenerated = false
-
-    private var itemCountWarning: Bool {
-        items.count > 15
-    }
-
-    // MARK: - DESIGN.md Color Tokens
-
-    private var cardBackground: Color {
-        Color(hex: colorScheme == .dark ? "1A1A1A" : "FFFFFF")
-    }
-    private var borderColor: Color {
-        Color(hex: colorScheme == .dark ? "222222" : "EBEBEB")
-    }
-    private var textPrimary: Color {
-        Color(hex: colorScheme == .dark ? "E8E8E8" : "1A1A1A")
-    }
-    private var textSecondary: Color {
-        Color(hex: colorScheme == .dark ? "888888" : "777777")
-    }
-    private var textMuted: Color {
-        Color(hex: colorScheme == .dark ? "444444" : "BBBBBB")
-    }
-    private var badgeBackground: Color {
-        Color(hex: colorScheme == .dark ? "2A2A2A" : "E8E8E8")
-    }
-    private var backgroundPrimary: Color {
-        Color(hex: colorScheme == .dark ? "111111" : "FAFAFA")
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -58,17 +30,19 @@ struct SynthesisSheet: View {
             } else if let service = synthesisService, let error = service.lastError {
                 errorView(error: error)
             } else {
-                scopeOverview
+                // Brief generating placeholder while service initializes
+                generatingPlaceholder
             }
 
             Divider()
             footer
         }
         .frame(width: 600, height: 550)
-        .background(backgroundPrimary)
+        .background(Color.bgPrimary)
         .onAppear {
             synthesisService = SynthesisService(modelContext: modelContext)
             draftTitle = "Synthesis: \(scopeTitle)"
+            startGeneration()
         }
     }
 
@@ -77,10 +51,9 @@ struct SynthesisSheet: View {
     private var header: some View {
         HStack {
             Text("SYNTHESIS")
-                .font(.custom("IBMPlexMono", size: 10))
-                .fontWeight(.medium)
+                .font(.groveSectionHeader)
                 .tracking(1.2)
-                .foregroundStyle(textMuted)
+                .foregroundStyle(Color.textMuted)
 
             Spacer()
 
@@ -89,119 +62,40 @@ struct SynthesisSheet: View {
                     Image(systemName: result.isLLMGenerated ? "sparkles" : "cpu")
                         .font(.system(size: 9))
                     Text(result.isLLMGenerated ? "AI Draft" : "Local")
-                        .font(.custom("IBMPlexMono", size: 10))
+                        .font(.groveBadge)
                         .fontWeight(.semibold)
                 }
-                .foregroundStyle(textSecondary)
+                .foregroundStyle(Color.textSecondary)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
-                .background(badgeBackground)
+                .background(Color.accentBadge)
                 .clipShape(Capsule())
             }
 
             Text("\(items.count) items")
-                .font(.custom("IBMPlexMono", size: 10))
-                .foregroundStyle(textSecondary)
+                .font(.groveBadge)
+                .foregroundStyle(Color.textSecondary)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
-                .background(badgeBackground)
+                .background(Color.accentBadge)
                 .clipShape(Capsule())
         }
         .padding()
     }
 
-    // MARK: - Scope Overview (before generation)
+    // MARK: - Generating Placeholder (before service initializes)
 
-    private var scopeOverview: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("SCOPE")
-                        .font(.custom("IBMPlexMono", size: 10))
-                        .fontWeight(.medium)
-                        .tracking(1.2)
-                        .foregroundStyle(textMuted)
-
-                    HStack {
-                        Text(scopeTitle)
-                            .font(.custom("IBMPlexSans-Regular", size: 13))
-                            .fontWeight(.medium)
-                            .foregroundStyle(textPrimary)
-                        Spacer()
-                    }
-                }
-
-                if itemCountWarning {
-                    HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.caption)
-                        Text("Large scope (\(items.count) items). Synthesis works best with 3-15 items.")
-                            .font(.custom("IBMPlexSans-Regular", size: 11))
-                    }
-                    .foregroundStyle(textSecondary)
-                    .padding(10)
-                    .background(badgeBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                }
-
-                Text("ITEMS")
-                    .font(.custom("IBMPlexMono", size: 10))
-                    .fontWeight(.medium)
-                    .tracking(1.2)
-                    .foregroundStyle(textMuted)
-
-                ForEach(items.prefix(20)) { item in
-                    HStack(spacing: 8) {
-                        Image(systemName: item.type.iconName)
-                            .font(.caption)
-                            .foregroundStyle(textSecondary)
-                            .frame(width: 16)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(item.title)
-                                .font(.custom("IBMPlexSans-Regular", size: 12))
-                                .foregroundStyle(textPrimary)
-                                .lineLimit(1)
-                            if !item.tags.isEmpty {
-                                Text(item.tags.prefix(3).map(\.name).joined(separator: ", "))
-                                    .font(.custom("IBMPlexMono", size: 10))
-                                    .foregroundStyle(textMuted)
-                            }
-                        }
-                        Spacer()
-                        if !item.reflections.isEmpty {
-                            Text("\(item.reflections.count) reflections")
-                                .font(.custom("IBMPlexMono", size: 10))
-                                .foregroundStyle(textMuted)
-                        }
-                    }
-                }
-
-                if items.count > 20 {
-                    Text("...and \(items.count - 20) more")
-                        .font(.custom("IBMPlexSans-Regular", size: 11))
-                        .foregroundStyle(textMuted)
-                }
-
-                if LLMServiceConfig.isConfigured {
-                    HStack(spacing: 6) {
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 10))
-                        Text("AI synthesis enabled — will use your reflections and wiki-links")
-                            .font(.custom("IBMPlexSans-Regular", size: 11))
-                    }
-                    .foregroundStyle(textSecondary)
-                } else {
-                    HStack(spacing: 6) {
-                        Image(systemName: "cpu")
-                            .font(.system(size: 10))
-                        Text("Local synthesis — configure AI in Settings for richer results")
-                            .font(.custom("IBMPlexSans-Regular", size: 11))
-                    }
-                    .foregroundStyle(textMuted)
-                }
-            }
-            .padding()
+    private var generatingPlaceholder: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            ProgressView()
+                .scaleEffect(1.2)
+            Text("Preparing synthesis...")
+                .font(.groveBody)
+                .foregroundStyle(Color.textSecondary)
+            Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Generating
@@ -212,8 +106,20 @@ struct SynthesisSheet: View {
             ProgressView()
                 .scaleEffect(1.2)
             Text(service.progress)
-                .font(.custom("IBMPlexSans-Regular", size: 12))
-                .foregroundStyle(textSecondary)
+                .font(.groveBody)
+                .foregroundStyle(Color.textSecondary)
+
+            // Show scope summary while generating
+            VStack(spacing: 4) {
+                Text(scopeTitle)
+                    .font(.groveBodySecondary)
+                    .foregroundStyle(Color.textPrimary)
+                Text("\(items.count) items")
+                    .font(.groveMeta)
+                    .foregroundStyle(Color.textMuted)
+            }
+            .padding(.top, 8)
+
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -226,14 +132,14 @@ struct SynthesisSheet: View {
             Spacer()
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 36))
-                .foregroundStyle(textSecondary)
+                .foregroundStyle(Color.textSecondary)
             Text("Synthesis Failed")
-                .font(.custom("IBMPlexSans-Regular", size: 13))
+                .font(.groveBody)
                 .fontWeight(.medium)
-                .foregroundStyle(textPrimary)
+                .foregroundStyle(Color.textPrimary)
             Text(error)
-                .font(.custom("IBMPlexSans-Regular", size: 12))
-                .foregroundStyle(textSecondary)
+                .font(.groveBodySecondary)
+                .foregroundStyle(Color.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
 
@@ -242,7 +148,6 @@ struct SynthesisSheet: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.regular)
-            .tint(Color(hex: "1A1A1A"))
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -256,20 +161,20 @@ struct SynthesisSheet: View {
             HStack(spacing: 8) {
                 TextField("Synthesis title", text: $draftTitle)
                     .textFieldStyle(.plain)
-                    .font(.custom("Newsreader", size: 18).weight(.medium))
-                    .foregroundStyle(textPrimary)
+                    .font(.groveTitleLarge)
+                    .foregroundStyle(Color.textPrimary)
                 Spacer()
                 Button {
                     isEditing.toggle()
                 } label: {
                     Text(isEditing ? "Preview" : "Edit")
-                        .font(.custom("IBMPlexMono", size: 10))
+                        .font(.groveBadge)
                         .fontWeight(.semibold)
                 }
-                .foregroundStyle(textSecondary)
+                .foregroundStyle(Color.textSecondary)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
-                .background(badgeBackground)
+                .background(Color.accentBadge)
                 .clipShape(Capsule())
                 .buttonStyle(.plain)
             }
@@ -303,7 +208,6 @@ struct SynthesisSheet: View {
                 dismiss()
             }
             .keyboardShortcut(.cancelAction)
-            .foregroundStyle(textSecondary)
 
             Spacer()
 
@@ -319,17 +223,8 @@ struct SynthesisSheet: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.regular)
-                .tint(Color(hex: "1A1A1A"))
+                .tint(Color.textPrimary)
                 .keyboardShortcut(.defaultAction)
-            } else {
-                Button("Generate Synthesis") {
-                    startGeneration()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.regular)
-                .tint(Color(hex: "1A1A1A"))
-                .keyboardShortcut(.defaultAction)
-                .disabled(synthesisService?.isGenerating == true)
             }
         }
         .padding()

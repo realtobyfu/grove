@@ -40,15 +40,17 @@ final class ReflectionBlock {
     var content: String
     var highlight: String?
     var position: Int
+    var videoTimestamp: Int?
     var createdAt: Date
 
-    init(item: Item, blockType: ReflectionBlockType, content: String = "", highlight: String? = nil, position: Int = 0) {
+    init(item: Item, blockType: ReflectionBlockType, content: String = "", highlight: String? = nil, position: Int = 0, videoTimestamp: Int? = nil) {
         self.id = UUID()
         self.item = item
         self.blockType = blockType
         self.content = content
         self.highlight = highlight
         self.position = position
+        self.videoTimestamp = videoTimestamp
         self.createdAt = .now
     }
 }

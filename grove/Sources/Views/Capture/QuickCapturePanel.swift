@@ -8,19 +8,19 @@ struct QuickCapturePanel: View {
     @FocusState private var isFocused: Bool
 
     var body: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 8) {
+        VStack(spacing: Spacing.md) {
+            HStack(spacing: Spacing.sm) {
                 Image(systemName: "leaf")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
+                    .font(.groveItemTitle)
+                    .foregroundStyle(Color.textSecondary)
                 Text("Quick Capture")
-                    .font(.headline)
+                    .font(.groveBodyMedium)
                 Spacer()
                 Button {
                     dismiss()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.textSecondary)
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.escape, modifiers: [])
@@ -28,10 +28,14 @@ struct QuickCapturePanel: View {
 
             TextField("Paste a URL or type a note…", text: $inputText)
                 .textFieldStyle(.plain)
-                .font(.body)
-                .padding(8)
-                .background(.quaternary.opacity(0.5))
+                .font(.groveBody)
+                .padding(Spacing.sm)
+                .background(Color.bgInput)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.borderInput, lineWidth: 1)
+                )
                 .focused($isFocused)
                 .onSubmit {
                     capture()
@@ -41,19 +45,19 @@ struct QuickCapturePanel: View {
                 if !inputText.isEmpty {
                     let isURL = detectIsURL(inputText)
                     Image(systemName: isURL ? "link" : "note.text")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.groveMeta)
+                        .foregroundStyle(Color.textSecondary)
                     Text(isURL ? "Will save as \(isVideoURL(inputText) ? "video" : "article")" : "Will save as note")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.groveMeta)
+                        .foregroundStyle(Color.textSecondary)
                 }
                 Spacer()
                 Text("⏎ to capture")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .font(.groveMeta)
+                    .foregroundStyle(Color.textTertiary)
             }
         }
-        .padding(16)
+        .padding(Spacing.lg)
         .frame(width: 400)
         .onAppear {
             isFocused = true

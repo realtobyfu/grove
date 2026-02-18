@@ -25,6 +25,14 @@ struct ContentView: View {
 
     var syncService: SyncService
 
+    /// The current board ID for the capture bar
+    private var currentBoardID: UUID? {
+        if case .board(let boardID) = selection {
+            return boardID
+        }
+        return nil
+    }
+
     /// The board scope for search — set when searching within a board context
     private var searchScopeBoard: Board? {
         if case .board(let boardID) = selection {
@@ -50,6 +58,8 @@ struct ContentView: View {
                             },
                             resurfacingService: nudgeEngine?.resurfacingService
                         )
+
+                        CaptureBarView(currentBoardID: currentBoardID)
 
                         detailContent
                             .frame(maxWidth: .infinity, maxHeight: .infinity)

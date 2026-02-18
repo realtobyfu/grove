@@ -62,6 +62,7 @@ final class ItemViewModel {
             let item = Item(title: trimmed, type: itemType)
             item.status = .inbox
             item.sourceURL = trimmed
+            item.metadata["fetchingMetadata"] = "true"
             modelContext.insert(item)
             try? modelContext.save()
 
@@ -70,6 +71,12 @@ final class ItemViewModel {
             let context = self.modelContext
             Task {
                 guard let metadata = await URLMetadataFetcher.shared.fetch(urlString: trimmed) else {
+                    // Clear loading flag even on failure
+                    let desc = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
+                    if let fetchedItem = try? context.fetch(desc).first {
+                        fetchedItem.metadata["fetchingMetadata"] = nil
+                        try? context.save()
+                    }
                     return
                 }
                 // Re-fetch the item from context by ID
@@ -83,10 +90,9 @@ final class ItemViewModel {
                     fetchedItem.content = description
                 }
                 if let imageURLString = metadata.imageURL {
-                    // Store the thumbnail URL in metadata for now;
-                    // actual image data download can be added later
                     fetchedItem.metadata["thumbnailURL"] = imageURLString
                 }
+                fetchedItem.metadata["fetchingMetadata"] = nil
                 fetchedItem.updatedAt = .now
                 try? context.save()
 
@@ -131,7 +137,8 @@ final class ItemViewModel {
 
     // MARK: - Connections
 
-    func createConnection(source: Item, target: Item, type: ConnectionType) -> Connection {
+    func createConnection(source: Item, target: Item, type: ConnectionType) -> Connection? {
+        guard source.id != target.id else { return nil }
         let connection = Connection(sourceItem: source, targetItem: target, type: type)
         modelContext.insert(connection)
         source.outgoingConnections.append(connection)

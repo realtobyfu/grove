@@ -15,20 +15,19 @@ struct ConnectionSuggestionPopover: View {
             // Header
             HStack {
                 Image(systemName: "link.badge.plus")
-                    .font(.caption)
-                    .foregroundStyle(Color(hex: "777777"))
+                    .font(.groveBadge)
+                    .foregroundStyle(Color.textSecondary)
                 Text("SUGGESTED CONNECTIONS")
-                    .font(.custom("IBMPlexMono", size: 10))
-                    .fontWeight(.medium)
+                    .font(.groveSectionHeader)
                     .tracking(1.2)
-                    .foregroundStyle(Color(hex: "777777"))
+                    .foregroundStyle(Color.textMuted)
                 Spacer()
                 Button {
                     onDismissAll()
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.caption2)
-                        .foregroundStyle(Color(hex: "AAAAAA"))
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(Color.textTertiary)
                 }
                 .buttonStyle(.plain)
             }
@@ -39,11 +38,11 @@ struct ConnectionSuggestionPopover: View {
         }
         .padding(10)
         .frame(width: 300)
-        .background(Color(hex: "FFFFFF"))
+        .background(Color.bgCard)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(Color(hex: "EBEBEB"), lineWidth: 1)
+                .strokeBorder(Color.borderPrimary, lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.1), radius: 8, y: 4)
     }
@@ -52,29 +51,28 @@ struct ConnectionSuggestionPopover: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Image(systemName: suggestion.targetItem.type.iconName)
-                    .font(.caption2)
-                    .foregroundStyle(Color(hex: "777777"))
+                    .font(.groveBadge)
+                    .foregroundStyle(Color.textSecondary)
                     .frame(width: 12)
                 Text(suggestion.targetItem.title)
-                    .font(.custom("IBMPlexSans-Regular", size: 12))
-                    .foregroundStyle(Color(hex: "1A1A1A"))
+                    .font(.groveBodySecondary)
+                    .foregroundStyle(Color.textPrimary)
                     .lineLimit(1)
                 Spacer()
             }
 
             HStack(spacing: 4) {
                 Text(suggestion.suggestedType.displayLabel)
-                    .font(.custom("IBMPlexMono", size: 10))
-                    .fontWeight(.semibold)
-                    .foregroundStyle(Color(hex: "1A1A1A"))
+                    .font(.groveBadge)
+                    .foregroundStyle(Color.textPrimary)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
-                    .background(Color(hex: "E8E8E8"))
+                    .background(Color.accentBadge)
                     .clipShape(Capsule())
 
                 Text(suggestion.reason)
-                    .font(.custom("IBMPlexSans-Regular", size: 11))
-                    .foregroundStyle(Color(hex: "AAAAAA"))
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textTertiary)
                     .lineLimit(1)
 
                 Spacer()
@@ -83,11 +81,11 @@ struct ConnectionSuggestionPopover: View {
                     onAccept(suggestion)
                 } label: {
                     Text("Connect")
-                        .font(.custom("IBMPlexSans-Regular", size: 11))
+                        .font(.groveBodySmall)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.mini)
-                .tint(Color(hex: "1A1A1A"))
+                .tint(Color.textPrimary)
 
                 Button {
                     onDismiss(suggestion)
@@ -96,15 +94,15 @@ struct ConnectionSuggestionPopover: View {
                         .font(.system(size: 8, weight: .bold))
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(Color(hex: "AAAAAA"))
+                .foregroundStyle(Color.textTertiary)
             }
         }
         .padding(6)
-        .background(Color(hex: "F7F7F7"))
+        .background(Color.bgInput)
         .clipShape(RoundedRectangle(cornerRadius: 4))
         .overlay(
             RoundedRectangle(cornerRadius: 4)
-                .strokeBorder(Color(hex: "EBEBEB"), lineWidth: 1)
+                .strokeBorder(Color.borderPrimary, lineWidth: 1)
         )
     }
 }

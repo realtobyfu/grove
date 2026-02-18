@@ -111,7 +111,7 @@ struct LearningPathSheet: View {
                 ForEach(items.prefix(20)) { item in
                     HStack(spacing: 8) {
                         Image(systemName: item.type.iconName)
-                            .font(.caption)
+                            .font(.groveBadge)
                             .foregroundStyle(textSecondary)
                             .frame(width: 16)
                         VStack(alignment: .leading, spacing: 1) {
@@ -228,7 +228,7 @@ struct LearningPathSheet: View {
                 } else if let item = step.item {
                     HStack(spacing: 6) {
                         Image(systemName: item.type.iconName)
-                            .font(.caption)
+                            .font(.groveBadge)
                             .foregroundStyle(textSecondary)
                         Text(item.title)
                             .font(.custom("IBMPlexSans-Regular", size: 13))
@@ -528,7 +528,7 @@ struct LearningPathDetailView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             HStack(spacing: 6) {
                                 Image(systemName: item.type.iconName)
-                                    .font(.caption)
+                                    .font(.groveBadge)
                                     .foregroundStyle(textSecondary)
                                 Text(item.title)
                                     .font(.custom("IBMPlexSans-Regular", size: 14))

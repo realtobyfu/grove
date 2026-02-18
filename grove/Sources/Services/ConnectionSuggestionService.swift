@@ -147,7 +147,8 @@ final class ConnectionSuggestionService: ConnectionSuggestionServiceProtocol {
         var suggestions: [ConnectionSuggestion] = []
         for entry in parsed.suggestions.prefix(maxResults) {
             let normalizedTitle = entry.target_title.lowercased()
-            guard let targetItem = candidatesByTitle[normalizedTitle] else { continue }
+            guard let targetItem = candidatesByTitle[normalizedTitle],
+                  targetItem.id != sourceItem.id else { continue }
 
             let connectionType = ConnectionType(rawValue: entry.connection_type) ?? .related
             let reason = String(entry.reason.prefix(80))

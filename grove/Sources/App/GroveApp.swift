@@ -192,7 +192,7 @@ struct InboxCountView: View {
 
     var body: some View {
         Label("\(inboxCount) items in Inbox", systemImage: "tray")
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            .font(.groveMeta)
+            .foregroundStyle(Color.textSecondary)
     }
 }

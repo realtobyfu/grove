@@ -42,9 +42,9 @@ struct GraphVisualizationView: View {
             // Toolbar
             HStack(spacing: 12) {
                 Image(systemName: "point.3.connected.trianglepath.dotted")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.textSecondary)
                 Text("Knowledge Graph")
-                    .font(.headline)
+                    .font(.groveBodyMedium)
 
                 Spacer()
 
@@ -112,13 +112,12 @@ struct GraphVisualizationView: View {
         VStack(spacing: 12) {
             Image(systemName: "point.3.connected.trianglepath.dotted")
                 .font(.system(size: 48))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.textSecondary)
             Text("No Items to Graph")
-                .font(.title2)
-                .fontWeight(.semibold)
+                .font(.groveTitleLarge)
             Text("Add items and create connections to see your knowledge graph.")
-                .font(.body)
-                .foregroundStyle(.secondary)
+                .font(.groveBody)
+                .foregroundStyle(Color.textSecondary)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -191,7 +190,7 @@ class GraphScene: SKScene {
     private var velocities: [UUID: CGVector] = [:]
     private var isSimulating = true
     private var simulationSteps = 0
-    private let maxSimulationSteps = 600
+    private let maxSimulationSteps = 300
 
     // Connections data for drawing edges
     private var connectionData: [(sourceID: UUID, targetID: UUID, type: ConnectionType)] = []
@@ -354,20 +353,20 @@ class GraphScene: SKScene {
 
             switch conn.type {
             case .buildsOn:
-                edgeShape.strokeColor = NSColor.systemGreen.withAlphaComponent(0.6)
+                edgeShape.strokeColor = NSColor.labelColor.withAlphaComponent(0.6)
                 edgeShape.lineWidth = 2
             case .contradicts:
-                edgeShape.strokeColor = NSColor.systemRed.withAlphaComponent(0.7)
+                edgeShape.strokeColor = NSColor.labelColor.withAlphaComponent(0.8)
                 edgeShape.lineWidth = 2
             case .related:
-                edgeShape.strokeColor = NSColor.systemGray.withAlphaComponent(0.4)
+                edgeShape.strokeColor = NSColor.labelColor.withAlphaComponent(0.3)
                 edgeShape.lineWidth = 1
                 edgeShape.path = dashedPath(from: sourceNode.position, to: targetNode.position)
             case .inspiredBy:
-                edgeShape.strokeColor = NSColor.systemPurple.withAlphaComponent(0.5)
+                edgeShape.strokeColor = NSColor.labelColor.withAlphaComponent(0.4)
                 edgeShape.lineWidth = 1.5
             case .sameTopic:
-                edgeShape.strokeColor = NSColor.systemBlue.withAlphaComponent(0.4)
+                edgeShape.strokeColor = NSColor.labelColor.withAlphaComponent(0.3)
                 edgeShape.lineWidth = 1
                 edgeShape.path = dashedPath(from: sourceNode.position, to: targetNode.position)
             }
@@ -484,29 +483,20 @@ class GraphNodeSprite: SKNode {
         let score = CGFloat(item.depthScore)
         baseRadius = 14 + min(score / 6.0, 10) * 2.2
 
-        // Color based on first board, fallback to type-based color
-        let color: NSColor
-        if let firstBoard = item.boards.first, let boardColor = boardColors[firstBoard.id] {
-            color = boardColor
-        } else {
-            switch item.type {
-            case .article: color = NSColor.systemBlue
-            case .video: color = NSColor.systemRed
-            case .note: color = NSColor.systemGreen
-            case .courseLecture: color = NSColor.systemOrange
-            }
-        }
+        // Monochromatic: opacity varies by depth score for visual hierarchy
+        let depthOpacity = 0.5 + min(score / 10.0, 0.4)
+        let fillColor = NSColor.labelColor.withAlphaComponent(depthOpacity)
+        let strokeColor = NSColor.labelColor.withAlphaComponent(min(depthOpacity + 0.2, 1.0))
 
         circle = SKShapeNode(circleOfRadius: baseRadius)
-        circle.fillColor = color.withAlphaComponent(0.8)
-        circle.strokeColor = color
+        circle.fillColor = fillColor
+        circle.strokeColor = strokeColor
         circle.lineWidth = 2
-        circle.glowWidth = 1
+        circle.glowWidth = 0
 
         label = SKLabelNode(text: String(item.title.prefix(20)))
         label.fontSize = 10
-        label.fontColor = .white
-        label.fontName = ".AppleSystemUIFont"
+        label.fontName = "IBMPlexMono-Regular"
         label.verticalAlignmentMode = .center
         label.horizontalAlignmentMode = .center
         label.preferredMaxLayoutWidth = baseRadius * 2.5
@@ -521,10 +511,11 @@ class GraphNodeSprite: SKNode {
         label.fontColor = NSColor.labelColor
         addChild(label)
 
-        // Type icon inside the circle
+        // Type icon inside the circle (monospace text symbols)
         let icon = SKLabelNode(text: iconChar(for: item.type))
         icon.fontSize = baseRadius * 0.7
-        icon.fontColor = .white.withAlphaComponent(0.9)
+        icon.fontName = "IBMPlexMono-Regular"
+        icon.fontColor = .white
         icon.verticalAlignmentMode = .center
         icon.horizontalAlignmentMode = .center
         icon.position = .zero
@@ -539,12 +530,12 @@ class GraphNodeSprite: SKNode {
     func setHighlighted(_ highlighted: Bool) {
         if highlighted {
             circle.lineWidth = 4
-            circle.glowWidth = 4
+            circle.glowWidth = 0
             let scaleUp = SKAction.scale(to: 1.15, duration: 0.1)
             circle.run(scaleUp)
         } else {
             circle.lineWidth = 2
-            circle.glowWidth = 1
+            circle.glowWidth = 0
             let scaleDown = SKAction.scale(to: 1.0, duration: 0.1)
             circle.run(scaleDown)
         }
@@ -558,10 +549,10 @@ class GraphNodeSprite: SKNode {
 
     private func iconChar(for type: ItemType) -> String {
         switch type {
-        case .article: return "📄"
-        case .video: return "▶"
-        case .note: return "📝"
-        case .courseLecture: return "🎓"
+        case .article: return "◇"
+        case .video: return "▷"
+        case .note: return "∎"
+        case .courseLecture: return "◈"
         }
     }
 }

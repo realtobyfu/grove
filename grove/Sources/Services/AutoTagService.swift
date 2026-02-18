@@ -46,7 +46,9 @@ final class AutoTagService: AutoTagServiceProtocol {
           "category" (one of: topic, concept, technology, person, custom), and \
           "confidence" (0.0-1.0).
         - "one_line_summary": a single sentence summarizing the item (max 120 characters).
-        - "suggested_board": the name of the most fitting board from the user's existing boards, or null if none fit.
+        - "suggested_board": the best board name for this item. Prefer an existing board if one fits. \
+          If none fit, suggest a concise, reusable topic name (2-4 words) that could group related items. \
+          Avoid one-off labels; think in terms of durable categories.
         Return 3-7 tags. Only return valid JSON, no extra text.
         """
 
@@ -96,9 +98,27 @@ final class AutoTagService: AutoTagServiceProtocol {
             item.metadata["summary"] = String(summary.prefix(120))
         }
 
-        // Apply suggested board
+        // Apply suggested board — auto-create if it doesn't exist
         if let suggestedBoard = parsed.suggested_board, !suggestedBoard.isEmpty {
             item.metadata["suggestedBoard"] = suggestedBoard
+
+            let boardDescriptorAll = FetchDescriptor<Board>()
+            let allBoards = (try? context.fetch(boardDescriptorAll)) ?? []
+            let matchedBoard = allBoards.first(where: {
+                $0.title.localizedCaseInsensitiveCompare(suggestedBoard) == .orderedSame
+            })
+
+            if let board = matchedBoard {
+                // Existing board — assign directly
+                if !item.boards.contains(where: { $0.id == board.id }) {
+                    item.boards.append(board)
+                }
+            } else {
+                // No match — create a new board and assign
+                let newBoard = Board(title: suggestedBoard)
+                context.insert(newBoard)
+                item.boards.append(newBoard)
+            }
         }
 
         try? context.save()

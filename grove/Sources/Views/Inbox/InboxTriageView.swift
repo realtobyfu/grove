@@ -176,19 +176,20 @@ struct InboxTriageView: View {
         item.status = .active
         item.updatedAt = .now
 
-        // If there's a suggested board, auto-assign to it
-        if let suggestedName = item.metadata["suggestedBoard"],
+        // If there's a suggested board and item has no board yet, auto-assign
+        if item.boards.isEmpty,
+           let suggestedName = item.metadata["suggestedBoard"],
            let matchedBoard = boards.first(where: { $0.title.localizedCaseInsensitiveCompare(suggestedName) == .orderedSame }) {
-            if !item.boards.contains(where: { $0.id == matchedBoard.id }) {
-                item.boards.append(matchedBoard)
-            }
+            item.boards.append(matchedBoard)
         }
 
         try? modelContext.save()
 
-        // Show board picker so user can confirm or change board
-        itemToAssign = item
-        showBoardPicker = true
+        // Only show board picker if the item still has no board assigned
+        if item.boards.isEmpty {
+            itemToAssign = item
+            showBoardPicker = true
+        }
 
         adjustFocusAfterRemoval()
     }

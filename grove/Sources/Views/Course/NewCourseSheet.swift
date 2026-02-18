@@ -15,7 +15,7 @@ struct NewCourseSheet: View {
         VStack(spacing: 0) {
             HStack {
                 Text("New Course")
-                    .font(.headline)
+                    .font(.groveItemTitle)
                 Spacer()
             }
             .padding()
