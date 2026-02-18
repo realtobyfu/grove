@@ -375,7 +375,7 @@ struct DialecticalChatPanel: View {
             Text("Dialectical Chat")
                 .font(.groveItemTitle)
                 .foregroundStyle(Color.textPrimary)
-            Text("Start a conversation to explore your ideas through Socratic questioning and dialectical reasoning.")
+            Text("Start a conversation to explore your ideas through dialectical reasoning.")
                 .font(.groveBody)
                 .foregroundStyle(Color.textSecondary)
                 .multilineTextAlignment(.center)

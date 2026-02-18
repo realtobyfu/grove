@@ -120,3 +120,15 @@ Implementation:
 - SynthesisService unchanged: still works from Library multi-select path and now also from Dialectics via create_synthesis tool
 - createSynthesis returns item title + UUID so the LLM can embed [[Synthesis Title]] in its subsequent assistant message
 - Build passes with zero errors
+
+## US-012 — Update Dialectics system prompt for multi-mode dialectical approach
+Status: PASS
+Date: 2026-02-18
+
+Implementation:
+- DialecticsService.systemPrompt rewritten to describe three explicit dialectical modes: Socratic (probing assumptions), Hegelian (surfacing and synthesizing contradictions), Nietzschean (perspectivism without premature synthesis)
+- Each mode includes specific behavioral instructions and is selected by the LLM based on context signals (contradicts connections → Hegelian; single item/position → Socratic; many perspectives without throughline → Nietzschean)
+- Mode selection is implicit — the LLM does not announce which mode it is using
+- Removed "blends Socratic questioning with Hegelian dialectics" framing; replaced with full three-mode spec
+- DialecticalChatPanel empty state subtitle updated: removed "Socratic questioning and" — now reads "explore your ideas through dialectical reasoning"
+- Build passes with zero errors
