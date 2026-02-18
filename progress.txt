@@ -169,3 +169,18 @@ Implementation:
 - WeeklyDigestService.swift kept in codebase (protocol + implementation unchanged) — can be called manually or via Dialectics in a future story
 - NudgeSettings digestEnabled / digestLastGeneratedAt keys remain in NudgeSettings.swift and NudgeSettingsView.swift (settings UI toggle still present for future on-demand use)
 - Build passes with zero errors
+
+## US-016 — Remove standalone ReflectionPromptService UI from InspectorView
+Status: PASS
+Date: 2026-02-18
+
+Implementation:
+- Removed @State vars: aiPrompts: [ReflectionPrompt], isLoadingPrompts: Bool, dismissedPromptIDs: Set<UUID> from ItemReaderView
+- Removed loadAIPrompts() private method and its // MARK: - AI Reflection Prompts section
+- Removed aiPromptRows() private method and its // MARK: - AI Prompt Rows section
+- Removed loadAIPrompts() calls from .onAppear and .onChange(of: item.id)
+- Removed aiPrompts/dismissedPromptIDs/isLoadingPrompts reset lines from .onChange(of: item.id)
+- Removed the loading indicator ("Generating prompts...") and the AI-prompt/ghost-prompt conditional block; replaced with a simple conditional: show ghostPrompts when sortedReflections.isEmpty
+- ghostPrompts (static "Key claim?", "Connections?", "Challenge?" chips) are kept — they are UI shortcuts to open the reflection editor, not AI-generated
+- ReflectionPromptService.swift kept in codebase, not auto-invoked from any view
+- Build passes with zero errors

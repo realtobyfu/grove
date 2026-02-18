@@ -29,10 +29,6 @@ struct ItemReaderView: View {
     @State private var editorBlockType: ReflectionBlockType = .keyInsight
     @State private var editorContent = ""
     @State private var editorHighlight: String?
-    // AI reflection prompts
-    @State private var aiPrompts: [ReflectionPrompt] = []
-    @State private var isLoadingPrompts = false
-    @State private var dismissedPromptIDs: Set<UUID> = []
     // Inline new-reflection editor focus
     @FocusState private var isNewReflectionFocused: Bool
     // Summary editing
@@ -168,7 +164,6 @@ struct ItemReaderView: View {
             if recency < 30 {
                 triggerSuggestions()
             }
-            loadAIPrompts()
             backfillThumbnailIfNeeded()
         }
         .onChange(of: item.id) {
@@ -179,12 +174,8 @@ struct ItemReaderView: View {
             showReflectionEditor = false
             editorContent = ""
             editorHighlight = nil
-            aiPrompts = []
-            dismissedPromptIDs = []
-            isLoadingPrompts = false
             isEditingSummary = false
             editableSummary = ""
-            loadAIPrompts()
         }
         .sheet(isPresented: $showItemExportSheet) {
             ItemExportSheet(items: [item])
@@ -666,22 +657,8 @@ struct ItemReaderView: View {
 
             Divider()
 
-            // Always show ghost prompt buttons or AI prompts at top
-            if isLoadingPrompts && sortedReflections.isEmpty {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Generating prompts...")
-                        .font(.groveBodySecondary)
-                        .foregroundStyle(Color.textTertiary)
-                }
-                .padding(.top, 4)
-            }
-
-            let visiblePrompts = aiPrompts.filter { !dismissedPromptIDs.contains($0.id) }
-            if !visiblePrompts.isEmpty {
-                aiPromptRows(visiblePrompts)
-            } else if !isLoadingPrompts {
+            // Quick-add chips when no reflections exist yet
+            if sortedReflections.isEmpty {
                 ghostPrompts
             }
 
@@ -730,53 +707,6 @@ struct ItemReaderView: View {
                 icon: ReflectionBlockType.disagreement.systemImage,
                 blockType: .disagreement
             )
-        }
-    }
-
-    // MARK: - AI Prompt Rows
-
-    private func aiPromptRows(_ prompts: [ReflectionPrompt]) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ForEach(prompts) { prompt in
-                HStack(spacing: 8) {
-                    Image(systemName: prompt.suggestedBlockType.systemImage)
-                        .font(.groveMeta)
-                        .foregroundStyle(Color.textTertiary)
-                        .frame(width: 16)
-
-                    Text(prompt.text.replacingOccurrences(of: "[[", with: "").replacingOccurrences(of: "]]", with: ""))
-                        .font(.groveGhostText)
-                        .foregroundStyle(Color.textTertiary)
-
-                    Spacer()
-
-                    Button {
-                        withAnimation(.easeOut(duration: 0.15)) {
-                            _ = dismissedPromptIDs.insert(prompt.id)
-                        }
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.caption2)
-                            .foregroundStyle(Color.textTertiary)
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(12)
-                .background(Color.bgCard)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .strokeBorder(
-                            Color.borderTagDashed,
-                            style: StrokeStyle(lineWidth: 1, dash: [4, 3])
-                        )
-                )
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    openReflectionEditor(type: prompt.suggestedBlockType, content: prompt.text, highlight: nil)
-                    _ = dismissedPromptIDs.insert(prompt.id)
-                }
-            }
         }
     }
 
@@ -1117,25 +1047,6 @@ struct ItemReaderView: View {
         modelContext.delete(block)
         item.updatedAt = .now
         try? modelContext.save()
-    }
-
-    // MARK: - AI Reflection Prompts
-
-    private func loadAIPrompts() {
-        guard item.reflections.isEmpty else { return }
-        guard LLMServiceConfig.isConfigured else { return }
-
-        isLoadingPrompts = true
-        Task {
-            let service = ReflectionPromptService()
-            let prompts = await service.generatePrompts(for: item, in: modelContext)
-            isLoadingPrompts = false
-            if !prompts.isEmpty {
-                withAnimation(.easeOut(duration: 0.2)) {
-                    aiPrompts = prompts
-                }
-            }
-        }
     }
 
     // MARK: - Thumbnail Backfill
