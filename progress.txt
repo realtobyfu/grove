@@ -59,3 +59,24 @@ Implementation:
 - HomeView: openConversation() now accepts seedItemIDs: [UUID]; ORGANIZE bubbles pass bubble.clusterItemIDs; notification userInfo["seedItemIDs"] carries the IDs
 - ContentView: groveStartConversationWithPrompt handler reads seedItemIDs from userInfo; startConversation(withPrompt:seedItemIDs:) fetches matching Item entities and seeds the conversation context via DialecticsService.startConversation(seedItems:)
 - Build passes with zero errors
+
+## US-005 — Full-text search bar in Library view
+Status: PASS
+Date: 2026-02-18
+
+Implementation:
+- Added `.library` case to `SidebarItem` enum in ContentView.swift
+- Added "Library" entry in SidebarView (below Home, in the same section)
+- Created grove/Sources/Views/Library/LibraryView.swift — new primary Library view
+- LibraryView features:
+  - Persistent search bar at top (always visible, never hidden behind a button)
+  - @Query fetches all items sorted by updatedAt descending (reverse-chronological default)
+  - Debounced search (~300ms) via Task.sleep + cancellable searchTask
+  - Search covers: item title, content, tag names, and ReflectionBlock content (fetched from SwiftData)
+  - Board filter chips below search bar — "All" chip resets filter; board chips narrow scope; chips use design tokens (bgTagActive / borderTag)
+  - List rows show: type icon, title, board + tags (first 2), relative date, growth stage indicator, connection count, reflection count
+  - Empty state for both zero items and zero search results
+  - selectedItemStyle / double-tap-to-open patterns match BoardDetailView
+- ContentView.detailContent wires .library to LibraryView(selectedItem:openedItem:)
+- Ran tuist generate --no-open after adding new file
+- Build passes with zero errors

@@ -3,6 +3,7 @@ import SwiftData
 
 enum SidebarItem: Hashable {
     case home
+    case library
     case board(UUID)
     case graph
     case course(UUID)
@@ -278,6 +279,8 @@ struct ContentView: View {
             switch selection {
             case .home:
                 HomeView(selectedItem: $selectedItem, openedItem: $openedItem)
+            case .library:
+                LibraryView(selectedItem: $selectedItem, openedItem: $openedItem)
             case .board(let boardID):
                 if let board = boards.first(where: { $0.id == boardID }) {
                     BoardDetailView(board: board, selectedItem: $selectedItem, openedItem: $openedItem)

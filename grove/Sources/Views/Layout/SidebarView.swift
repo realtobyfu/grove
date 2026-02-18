@@ -49,6 +49,9 @@ struct SidebarView: View {
                     Image(systemName: "envelope")
                 }
                 .tag(SidebarItem.home)
+
+                Label("Library", systemImage: "books.vertical")
+                    .tag(SidebarItem.library)
             }
 
             Section {
