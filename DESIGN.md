@@ -1,246 +1,151 @@
-# Grove Design System
+# Grove — Design Document
 
-Grove uses a monochromatic, typographically-driven design with two modes. The aesthetic is "research terminal meets literary journal" — information-dense but elegant. Think Linear, not Notion.
+## What Grove Is
 
-## Color Tokens
+Grove is a macOS knowledge-management app where you capture ideas, build a personal knowledge base, and think through your material in conversation with an AI agent that has real access to your knowledge graph.
 
-### Light Mode (default)
-```
-background.primary:    #FAFAFA
-background.sidebar:    #F5F5F5
-background.inspector:  #F7F7F7
-background.card:       #FFFFFF
-background.cardHover:  #FFFFFF (with shadow lift)
-background.input:      #FFFFFF
-background.tagActive:  #1A1A1A
+The core differentiator is **Dialectics**: a conversational interface where the AI can search your items, read your reflections, traverse your connections, and now create synthesis notes — all mid-conversation via an agentic tool-calling loop. This is not "notes + ChatGPT." The agent operates *inside* your knowledge base.
 
-text.primary:          #1A1A1A
-text.secondary:        #777777
-text.tertiary:         #AAAAAA
-text.muted:            #BBBBBB
-text.inverse:          #FFFFFF
+## Design Philosophy
 
-border.primary:        #EBEBEB
-border.input:          #E5E5E5
-border.tag:            #E5E5E5
-border.tagDashed:      #E0E0E0
+**Three beliefs that shape every decision:**
 
-accent.selection:      #1A1A1A  (left border on selected items)
-accent.badge:          #E8E8E8
-accent.barFill.high:   #1A1A1A
-accent.barFill.mid:    #999999
-accent.barFill.low:    #CCCCCC
-accent.bar.track:      #EBEBEB
-```
+1. **The blank-canvas problem is the #1 UX failure of knowledge apps.** You open the app, you see your stuff, you think "...now what?" Grove solves this by making the home screen a conversation surface — not a dashboard, not a list of nudge banners, not a stats panel. The app greets you with 2-3 contextual prompt bubbles that are one tap away from a full Dialectics session.
 
-### Dark Mode
-```
-background.primary:    #111111
-background.sidebar:    #0D0D0D
-background.inspector:  #141414
-background.card:       #1A1A1A
-background.cardHover:  #1E1E1E
-background.input:      #1A1A1A
-background.tagActive:  #FFFFFF
+2. **Proactivity through invitation, not notification.** Nudges are notifications (the app tells you something). Prompt bubbles are invitations (the app asks you something). One feels like a to-do list. The other feels like a thinking partner who noticed something interesting. Grove uses invitations.
 
-text.primary:          #E8E8E8
-text.secondary:        #888888
-text.tertiary:         #555555
-text.muted:            #444444
-text.inverse:          #111111
+3. **Conversations produce artifacts, not just text.** A Dialectics conversation should leave traces in the knowledge graph — new items, reflections on existing items, connections between items. Chat transcripts that disappear are waste. Every insight should be one tap away from becoming persistent, searchable knowledge.
 
-border.primary:        #222222
-border.input:          #2A2A2A
-border.tag:            #2A2A2A
-border.tagDashed:      #333333
+## Three Modes
 
-accent.selection:      #E8E8E8  (left border on selected items)
-accent.badge:          #2A2A2A
-accent.barFill.high:   #E8E8E8
-accent.barFill.mid:    #666666
-accent.barFill.low:    #333333
-accent.bar.track:      #222222
-```
+The app has three interaction modes. Not twelve views with a sidebar — three actual modes.
 
-## Typography
+### Capture
 
-Three font families, each with a specific role:
+Fast, minimal input. One text field, one action. The user types, pastes, or drops content. AutoTagService runs silently on save (tags, one-line summary, board suggestion). No reflection prompts, no connection suggestions, no friction. The capture field should feel like Apple Notes speed, not Notion's template picker.
 
-| Role | Font | Usage |
-|------|------|-------|
-| **Titles & headings** | Newsreader (serif) | Board names, item titles in inspector, section headers. Weight 400-600. |
-| **Body & UI** | IBM Plex Sans | Button labels, descriptions, block content, most UI text. Weight 300-500. |
-| **Data & metadata** | IBM Plex Mono | Tags, timestamps, source URLs, counts, keyboard shortcuts, section labels. Weight 400-500. |
+Global keyboard shortcut to invoke from anywhere. Auto-dismiss after save.
 
-### Type Scale
-```
-title.board:     Newsreader 28pt, weight 500, tracking -0.03em
-title.item:      Newsreader 18pt, weight 500, tracking -0.02em
-title.section:   IBM Plex Mono 10pt, weight 500, tracking 0.12em, uppercase
-body.primary:    IBM Plex Sans 13pt, weight 400
-body.secondary:  IBM Plex Sans 12pt, weight 400
-body.small:      IBM Plex Sans 11pt, weight 400
-data.tag:        IBM Plex Mono 11pt, weight 400
-data.meta:       IBM Plex Mono 11pt, weight 400
-data.badge:      IBM Plex Mono 10pt, weight 600
-data.shortcut:   IBM Plex Mono 12pt, weight 400
-```
+**Auto-board suggestion:** When AutoTagService can't confidently assign an item to an existing board, a non-blocking inline suggestion appears post-save: "This doesn't fit your existing boards. Create 'Phenomenology'?" One tap to accept, one tap to dismiss, or it auto-dismisses after 5 seconds. On cold start (zero boards), always suggest. The user should never have to manually create boards from scratch — the system proposes, the user approves.
 
-### Font Loading (SwiftUI)
-```swift
-// Register custom fonts in Info.plist or use .custom()
-Font.custom("Newsreader", size: 28).weight(.medium)
-Font.custom("IBMPlexSans-Regular", size: 13)
-Font.custom("IBMPlexMono", size: 11)
-```
+**Board emergence over time:** When unboarded items cluster (4-5+ items sharing tags), this is surfaced as a home screen prompt bubble: "You have 6 items about continental philosophy floating around. Want to organize them?" Tapping opens a Dialectics conversation where the agent lists the items, suggests a board name, and the user confirms. A `create_board` write tool in KnowledgeBaseTools handles the creation. Boards should feel like *your* structure, even when the system suggests them — never silently auto-created.
 
-Bundle Newsreader, IBM Plex Sans, and IBM Plex Mono in the app resources. Do NOT use system fonts as fallback for any visible text — the typography is the identity.
+### Library
 
-## Spacing
+Browse, search, organize. The hero element is a **full-text search bar** — always visible, queries across titles, content, tags, and reflections. This is the #1 retrieval mechanism in every successful knowledge tool and it must be prominent.
 
-4px base unit. Use multiples.
+Boards are filters, not containers. The library defaults to showing everything reverse-chronologically. Boards narrow the view. Items show title, summary, tags, last-touched date, and a subtle depth indicator.
 
-```
-spacing.xs:   4px
-spacing.sm:   8px
-spacing.md:   12px
-spacing.lg:   16px
-spacing.xl:   20px
-spacing.xxl:  24px
-spacing.xxxl: 28px
-```
+The Inspector is read-only detail + manual editing. No auto-generated reflection prompts, no auto-generated connection suggestions. Those features now live in Dialectics where they're better: interactive, steerable, contextual. The inspector keeps: full content view, tag editing, manual connection management, and display of existing reflections.
 
-### Layout Dimensions
-```
-sidebar.width:     220px
-inspector.width:   280px
-sidebar.padding:   20px horizontal, 28px top
-content.padding:   28px horizontal, 24px top
-inspector.padding: 16px horizontal, 24px top
-```
+A "Discuss" button on every item bridges Library → Dialectics. One tap to start a conversation anchored to that item.
 
-## Components
+### Dialectics
 
-### Selected Item / Selected Board
-- Background: card color with subtle shadow
-- Left border: 2px solid accent.selection
-- Transition: all 0.15s ease
+The primary AI surface. This is where thinking happens. The home screen *is* Dialectics in its resting state.
 
-```swift
-// SwiftUI pattern
-.background(isSelected ? Color.card : Color.clear)
-.overlay(alignment: .leading) {
-    if isSelected {
-        Rectangle()
-            .fill(Color.accentSelection)
-            .frame(width: 2)
-    }
-}
-.shadow(color: isSelected ? .black.opacity(0.04) : .clear, radius: 2, y: 1)
-```
+**Home screen state:** 2-3 prompt bubbles generated on app launch from recent activity, stale items, and contradictions. Below: compressed recent items, capture button, search. Tap a bubble → full conversation. Tap an item → inspector. Tap capture → quick entry.
 
-### Tags
-- Default: card background, border.tag border, data.tag font, border-radius 3px, padding 3px 8px
-- Active/filter: tagActive background, inverse text, no border
-- Auto-generated (AI): dashed border (border.tagDashed), slightly dimmed text
-- Add button: dashed border, muted text, "+" label
+**Conversation state:** Full multi-turn Dialectics with the agentic tool-calling loop. The agent can search items, read details, get reflections, get connections, search by tag, get board items, and now create synthesis notes.
 
-### Section Headers
-- IBM Plex Mono 10pt, uppercase, tracking 0.12em, text.muted color
-- Often followed by a thin horizontal rule (border.primary)
+**Actionable outputs:** Every assistant message has subtle action buttons:
+- "Save as note" → creates a new Item(.note) in the knowledge base
+- Wiki-links in responses are tappable → "View item" or "Add reflection"
+- When two items are referenced → "Create connection" with type picker
 
-### Connection Cards (inspector)
-- Card background, border.primary border, border-radius 4px
-- Title in body.primary, relationship type in a small badge (accent.badge background, data.badge font)
+**History:** Past conversations are browsable and searchable. They're knowledge artifacts too.
 
-### Annotation/Reflection Blocks
-- Card background, border.primary border, border-radius 4px
-- Left border: 2px solid accent.selection (for emphasis)
-- Content in Newsreader italic for quotes, IBM Plex Sans for body
-- Timestamp in data.meta style below content
+## Dialectics: Philosophical Approach
 
-### Nudge Bar
-- Card background, border.primary border, border-radius 6px
-- Horizontal layout: message (body.secondary) with inline emphasis (text.primary)
-- Action button: small pill, accent.badge background
-- Dismiss: muted "✕"
+The feature is called **Dialectics** — no qualifier. Not "Socratic Dialectics." The word carries enough weight on its own, and the system modulates between modes based on what the user's knowledge base suggests:
 
-### Engagement / Growth Indicator (v3)
-- Replace percentage bars with plant stages
-- seed: SF Symbol `leaf` at 8pt, text.muted color
-- sprout: SF Symbol `leaf.fill` at 10pt, text.tertiary color
-- sapling: SF Symbol `leaf.fill` at 12pt, text.secondary color
-- tree: SF Symbol `tree.fill` at 14pt, text.primary color
-- Tooltip shows score breakdown on hover
+- **Socratic** — Probing assumptions, exposing what the user thinks they know but hasn't examined. Used when the user has deep rabbit holes on one topic without questioning the foundations.
+- **Hegelian** — Thesis-antithesis-synthesis. Used when the knowledge base contains contradictions (items with `.contradicts` connections) or when the user has collected opposing viewpoints. Naturally maps to the synthesis tool.
+- **Nietzschean** — Perspectivism and revaluation. Looking at the same idea from multiple angles, questioning whether the *framework* is right, not just the conclusions. Used when the user has collected perspectives without committing to one.
 
-### Ghost Text / Placeholder Prompts
-- Newsreader italic, text.muted color, 13pt
-- Fades out on focus / when user starts typing
-- Used in empty reflection pane and AI prompt blocks
+The LLM reads the shape of the user's knowledge and picks the right approach. This is specified in the system prompt, not in code branching.
 
-## Layout Structure
+## What Was Cut and Why
+
+### LearningPathService + LearningPathView → Removed
+Imposed a pedagogical structure (foundational → advanced) on content that isn't a curriculum. The heuristic fallback (sort by depth ascending) revealed the feature's thinness. Users can ask Dialectics "how should I sequence my notes on X?" if they want this.
+
+### Automatic WeeklyDigest generation → Disabled
+Auto-creating digest items every week pollutes the knowledge base with meta-content. 52 digest notes per year mixed in with real knowledge. The service is kept in the codebase but not auto-invoked. Users can ask Dialectics "summarize my week."
+
+### Streak, continue-course, connection-prompt nudges → Removed
+Streak notifications are a Duolingo pattern. Grove is a contemplative tool, not a habit tracker. Continue-course assumes linear lecture progression. Connection-prompt is replaced by Dialectics' ability to discover connections conversationally. Only spaced-resurfacing and stale-inbox heuristics remain, surfaced as a quiet count in the Library.
+
+### SmartNudgeService + CheckInTriggerService → Replaced by ConversationStarterService
+Three separate nudge/trigger services with different scheduling → one service that generates prompt bubbles on app launch. Simpler, more focused, and the output (conversation starters) is higher value than banner notifications.
+
+### ReflectionPromptService UI in Inspector → Removed
+Static prompts attached to items are less useful than dynamic conversation that probes, follows up, and adjusts. "Discuss this" (Library → Dialectics) replaces the inspector's reflection prompt section. The service is kept but not auto-invoked.
+
+### ConnectionSuggestionService UI in Inspector → Removed
+Same reasoning. LLM-powered connection discovery is better in conversation where the user can accept, reject, or refine. The Jaccard fallback remains available for any future use. Manual connection management stays in the inspector.
+
+## What Was Kept and Why
+
+### AutoTagService
+Fast, invisible, genuinely useful. Runs on capture, doesn't interrupt, produces actionable metadata. The user never thinks about it.
+
+### DialecticsService + Agentic Loop
+The product's moat. 6 read tools + 1 write tool (create_synthesis), 3-round max, ~50 lines of loop logic. This is what makes Grove different from every other notes app.
+
+### SynthesisService
+Synthesis produces a *document* — a new Item with connections to source items. Conversations produce transcripts. Different artifacts with different shelf lives. Kept as a standalone service, also exposed as a Dialectics write tool (`create_synthesis`).
+
+### LLMProvider protocol + GroqProvider
+12-line protocol, single implementation. Exponential backoff, token budgets, JSON parsing fallbacks. Clean and production-ready.
+
+### ResurfacingService
+Spaced resurfacing is a proven pattern. Kept as a quiet Library indicator, not a push notification.
+
+### Data Model (Item, Board, Tag, Connection, ReflectionBlock, Conversation, ChatMessage)
+Sound and unchanged. Typed connections are especially valuable for the agentic loop — the LLM uses connection types to understand relationships.
+
+## Architecture Summary
+
+### Services (post-redesign)
+
+| Service | Role | Invocation |
+|---|---|---|
+| AutoTagService | Tags, summary, board suggestion on capture | Automatic on save |
+| DialecticsService | All conversational AI, agentic tool-calling loop | User-initiated |
+| ConversationStarterService | 2-3 prompt bubbles for home screen | App launch, cached |
+| SynthesisService | Creates synthesis Item from multiple items | Library multi-select OR Dialectics tool |
+| ResurfacingService | Spaced resurfacing candidates | Timer, exposes count to Library |
+| WeeklyDigestService | Weekly activity summary | Manual/on-demand only (not auto-invoked) |
+
+### KnowledgeBaseTools (Dialectics)
+
+| Tool | Type | Description |
+|---|---|---|
+| search_items | Read | Keyword search across titles, content, tags |
+| get_item_detail | Read | Full item with content, tags, reflections, depth |
+| get_reflections | Read | All reflection blocks for an item |
+| get_connections | Read | Incoming + outgoing connections with types |
+| search_by_tag | Read | Find all items with a specific tag |
+| get_board_items | Read | All items in a named board |
+| create_synthesis | Write | Create a synthesis Item from specified items with focus prompt |
+| create_board | Write | Create a Board and assign specified items to it |
+
+### Layer Map
 
 ```
-┌─────────┬────────────────────────────┬──────────┐
-│ Sidebar │       Main Content         │ Inspector│
-│  220px  │         flex               │  280px   │
-│         │                            │          │
-│ Logo    │  [Nudge Bar]               │ Section  │
-│ Search  │  Board Title (Newsreader)  │ Headers  │
-│ Inbox   │  Tag Filters               │ (mono    │
-│ Boards  │  ──────────────            │ upper)   │
-│ (list)  │  Cluster Label             │          │
-│         │  Table Header (mono)       │ Tags     │
-│         │  Item rows                 │ Connects │
-│         │  ...                       │ Reflect  │
-│         │                            │ blocks   │
-│ ─────── │                            │          │
-│ Shortcut│                            │          │
-└─────────┴────────────────────────────┴──────────┘
+UI Layer         HomeView, DialecticsView, LibraryView, InspectorView, CaptureView
+ViewModels       ItemViewModel, BoardViewModel, InspectorVM, ConversationVM
+Services         AutoTag, Dialectics, ConversationStarter, Synthesis, Resurfacing
+Core LLM         LLMProvider protocol, GroqProvider, LLMJSONParser, TokenTracker, KnowledgeBaseTools
+Data             Item, Board, Tag, Connection, ReflectionBlock, Conversation, ChatMessage, Nudge
 ```
 
-### List View (default)
-- Grid columns: title (flex), source (140px), tags (80px), depth (60px)
-- Table header row: section header style (mono, uppercase, muted)
-- Item rows: 10px 12px padding, border-radius 6px
-- Selected row gets left-border + shadow treatment
-- Type indicators: ◇ article, ▷ video, ∎ note, ◈ lecture (mono, muted)
+## UX Principles
 
-### Reflection Split View (v3)
-```
-┌────────────────────────┬────────────────────────┐
-│   Source Content        │   Reflection Blocks    │
-│   (read-only)           │                        │
-│                         │   [Type Label]         │
-│   Web view or           │   Block content...     │
-│   rendered markdown     │                        │
-│                         │   [Type Label]         │
-│   ██ highlight ██ →     │   Block content...     │
-│                         │                        │
-│                         │   [+ Add Block]        │
-│                         │                        │
-│                         │   -- ghost prompts --  │
-└────────────────────────┴────────────────────────┘
-```
-
-- Left pane: 55% width, right pane: 45% width (adjustable divider)
-- Highlighting text in left pane → "Reflect" button appears → creates block linked to highlight
-
-## Animations & Transitions
-
-Keep it minimal and fast. No spring animations, no bouncing.
-
-```
-transition.default:  0.15s ease
-transition.hover:    0.1s ease
-shadow.default:      0 1px 3px rgba(0,0,0,0.04)  [light] / 0 1px 3px rgba(0,0,0,0.2) [dark]
-shadow.hover:        0 4px 12px rgba(0,0,0,0.06) [light] / 0 4px 12px rgba(0,0,0,0.3) [dark]
-```
-
-## Principles
-
-1. **Monochromatic** — no accent colors. Hierarchy through weight, size, and opacity only.
-2. **Typography is the design** — Newsreader for editorial warmth, Plex Mono for precision. These carry the entire visual identity.
-3. **Density over whitespace** — this is a power user tool. Show information, don't hide it.
-4. **Left-border selection** — the only strong visual affordance. Used consistently for selected items, boards, and emphasis blocks.
-5. **Data as ornament** — tag counts, engagement bars, timestamps, keyboard shortcuts are decorative as much as functional. Render them beautifully in monospace.
+- **Search is the #1 retrieval mechanism.** If the user can't find something by typing, no amount of AI will compensate.
+- **Capture should take < 3 seconds.** No forms, no templates, no prompts on save.
+- **AI features are pull, not push.** The user initiates thinking. The app invites, never interrupts.
+- **Every conversation output should be saveable.** Insights that stay trapped in chat transcripts are waste.
+- **Fewer features, more depth.** 3 polished modes > 8 half-used services.
+- **Organization should be suggested, not required.** Auto-tag silently. Suggest boards when confidence is low. Surface unboarded clusters as invitations. Never force the user to categorize before they save.

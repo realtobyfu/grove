@@ -28,6 +28,36 @@ protocol LLMProvider: Sendable {
     func completeChat(messages: [ChatTurn], service: String) async -> LLMCompletionResult?
 }
 
+/// Categorizes LLM failure modes with user-facing messages.
+enum LLMError: Sendable {
+    case apiKeyMissing
+    case budgetExceeded
+    case invalidURL
+    case networkError
+    case serverError(statusCode: Int)
+    case emptyResponse
+    case cancelled
+
+    var userMessage: String {
+        switch self {
+        case .apiKeyMissing:
+            return "No API key configured. Add one in Settings > AI."
+        case .budgetExceeded:
+            return "Monthly token budget exceeded."
+        case .invalidURL:
+            return "Invalid API URL."
+        case .networkError:
+            return "Could not reach the AI service."
+        case .serverError(let statusCode):
+            return "The AI service returned an error (HTTP \(statusCode))."
+        case .emptyResponse:
+            return "The AI returned an empty response."
+        case .cancelled:
+            return "Request was cancelled."
+        }
+    }
+}
+
 extension LLMProvider {
     func complete(system: String, user: String, service: String) async -> LLMCompletionResult? {
         await complete(system: system, user: user)

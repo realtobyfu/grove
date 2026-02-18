@@ -1,256 +1,276 @@
 {
-  "projectName": "Grove",
-  "branchName": "v3/intelligence-layer",
-  "description": "V3: LLM integration, reflection system, auto-tagging, connection suggestions, smart nudges, synthesis notes, and learning paths.",
+  "project": "grove",
+  "branchName": "ralph/ux-redesign-v2",
+  "description": "Major UX redesign: center the app around Dialectics as the home screen, add proactive conversation starters (prompt bubbles), auto-board creation, redesign Synthesis as a reusable tool, add full-text search, add actionable outputs in Dialectics, and simplify the nudge/service architecture by cutting or folding redundant features.",
   "userStories": [
     {
-      "id": "S1",
-      "title": "LLM Service Protocol & Groq Provider",
-      "description": "Create the LLM service foundation with a protocol and Groq/Kimi K2 implementation.",
+      "id": "US-001",
+      "title": "Home screen is the Dialectics landing state with prompt bubbles",
+      "description": "As a user, I want the app's home screen to show 2-3 contextual conversation starters as tappable prompt bubbles so that I always have something to engage with when I open Grove, solving the blank-canvas problem.",
       "acceptanceCriteria": [
-        "LLMProvider protocol in Services/LLM/LLMProvider.swift with func complete(system: String, user: String) async throws -> String",
-        "GroqProvider.swift implements LLMProvider using URLSession to call https://api.groq.com/openai/v1/chat/completions",
-        "Model is moonshotai/kimi-k2-instruct, OpenAI-compatible request format",
-        "API key stored in UserDefaults or Keychain, configurable in settings",
-        "Retry with exponential backoff (max 3 attempts)",
-        "All calls are async and failure-tolerant — failures return nil, never crash",
-        "LLMServiceConfig struct holds apiKey, model, baseURL, isEnabled toggle",
-        "JSON response parsing helper that strips markdown fences and parses safely",
-        "Project builds successfully"
+        "App launches to a new HomeView (not the previous Library or sidebar-first layout)",
+        "HomeView shows 2-3 prompt bubbles in a visually distinct style (not nudge banners)",
+        "Below the prompt bubbles, show a compressed recent-items list and a capture button",
+        "Tapping a prompt bubble navigates into DialecticsView with that prompt pre-filled as the first user message",
+        "If no prompts are available (LLM offline, empty knowledge base), show a single fallback: 'Start a conversation' that opens an empty Dialectics session",
+        "Typecheck passes"
       ],
-      "passes": false
+      "priority": 1,
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "S2",
-      "title": "LLM Settings UI",
-      "description": "Add settings view for LLM configuration including API key, model selection, and usage tracking.",
+      "id": "US-002",
+      "title": "Conversation starter generation service",
+      "description": "As a user, I want the prompt bubbles on the home screen to be contextually relevant to my recent activity, stale items, and contradictions, so the app feels like a thinking partner that noticed something interesting.",
       "acceptanceCriteria": [
-        "Settings view accessible from sidebar or menu bar",
-        "Section for AI/LLM with fields: API key (secure text field), model name, base URL",
-        "Toggle to enable/disable AI features globally",
-        "Token usage counter that tracks total input/output tokens used (stored in UserDefaults)",
-        "Display estimated cost based on token count ($1.50/M blended)",
-        "Reset usage counter button",
-        "Settings persist across app launches",
-        "Project builds successfully"
+        "Create ConversationStarterService (or a method on DialecticsService) that generates 2-3 starters",
+        "Service takes recent items (last 7 days), stale high-value items (untouched 30+ days), and items with .contradicts connections as input context",
+        "Single LLM call with a system prompt that returns JSON array of {prompt: String, itemIDs: [String]} objects",
+        "Heuristic fallback when LLM is unavailable: surface 2 starters based on staleness ('You haven't revisited X in N weeks') and recency ('You saved 3 things about Y recently')",
+        "Results are cached in memory per app launch — do not re-call LLM on every HomeView appearance",
+        "Typecheck passes"
       ],
-      "passes": false
+      "priority": 2,
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "S3",
-      "title": "Auto-Tagging Service",
-      "description": "Create AutoTagService that generates tags for captured items using the LLM.",
+      "id": "US-003",
+      "title": "Auto-board suggestion on capture",
+      "description": "As a user, I want Grove to suggest creating a new board when I save an item that doesn't fit any existing board, so my knowledge base organizes itself without me managing boards manually.",
       "acceptanceCriteria": [
-        "AutoTagService.swift in Services/ takes an Item and calls LLMProvider",
-        "System prompt instructs LLM to return JSON with tags array (name, category, confidence) and one_line_summary",
-        "Sends item title, sourceURL, and first 1500 characters of content",
-        "Parses response into Tag entities with isAutoGenerated=true and confidence score",
-        "Creates tags and associates them with the item via SwiftData",
-        "Also sets a one-line summary on the item metadata",
-        "Graceful failure — if LLM fails, item is saved without auto-tags",
-        "Project builds successfully"
+        "After AutoTagService runs on capture, evaluate the board assignment confidence score",
+        "If best board match confidence is below threshold (e.g. < 0.4) AND no board was manually selected, show an inline suggestion below the capture field: 'This doesn't fit your existing boards. Create [suggested name]?'",
+        "Suggested board name comes from AutoTagService response (add a suggestedBoardName field to AutoTagResponse if not present)",
+        "User can tap 'Create' (creates board + assigns item), 'Dismiss' (item saved with no board), or just ignore (suggestion auto-dismisses after 5 seconds)",
+        "The suggestion is non-blocking — the item is already saved, this is a post-save prompt",
+        "If the user has zero boards (cold start), always suggest a board name on the first 3 captures",
+        "Typecheck passes"
       ],
-      "passes": false
+      "priority": 3,
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "S4",
-      "title": "Wire Auto-Tagging into Capture Flow",
-      "description": "Integrate AutoTagService into the existing capture/save flow so every new item gets auto-tagged.",
+      "id": "US-004",
+      "title": "Unboarded items surfaced as conversation starter",
+      "description": "As a user, I want Grove to notice when I have a cluster of unboarded items sharing tags and suggest grouping them, surfaced as a prompt bubble on the home screen rather than an automatic action.",
       "acceptanceCriteria": [
-        "When a new Item is created (via quick capture or manual creation), AutoTagService.tagItem() is called",
-        "Tagging runs as a background Task — does not block the UI or item creation",
-        "Auto-generated tags appear on the item card with a visual distinction (dimmed or dashed border style)",
-        "User can tap an auto-tag to confirm it (sets isAutoGenerated=false) or dismiss it (removes tag)",
-        "If AI is disabled in settings, auto-tagging is skipped entirely",
-        "Also generates suggested_board from LLM response and shows it in inbox triage",
-        "Project builds successfully"
+        "ConversationStarterService (from US-002) includes an additional heuristic check: find unboarded items that share 2+ tags with at least 4 other unboarded items",
+        "If a cluster is found, one of the 2-3 prompt bubbles can be a board-suggestion starter, e.g. 'You have 6 items about continental philosophy floating around. Want to organize them?'",
+        "Tapping this starter opens a Dialectics conversation where the agent can list the items, suggest a board name, and the user can confirm",
+        "Add a create_board tool to KnowledgeBaseTools that creates a Board and assigns specified items to it",
+        "The create_board tool is a write tool — creates Board entity and updates Item.board relationships",
+        "This prompt bubble type should appear at most once per app launch to avoid nagging",
+        "Typecheck passes"
       ],
-      "passes": false
+      "priority": 4,
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "S5",
-      "title": "Reflection Data Model",
-      "description": "Replace the Annotation model with a block-based Reflection model.",
+      "id": "US-005",
+      "title": "Full-text search bar in Library view",
+      "description": "As a user, I want a prominent search bar in the Library that queries across item titles, content, tags, and reflections so I can quickly find anything in my knowledge base.",
       "acceptanceCriteria": [
-        "New ReflectionBlock model replaces or extends Annotation",
-        "Fields: id (UUID), item (Item relationship), blockType (enum: keyInsight, connection, question, disagreement, summary, freeform), content (String/markdown), highlight (String? — linked source text), position (Int for ordering), createdAt (Date)",
-        "ReflectionBlockType enum with all six types and displayName computed property",
-        "Item has a reflections relationship (one-to-many with ReflectionBlock)",
-        "Migration or update from old Annotation model if needed — or keep both if Annotation data exists",
-        "SwiftData model registered in the model container",
-        "Project builds successfully"
+        "Library view has a persistent search bar at the top (always visible, not hidden behind a button)",
+        "Search queries SwiftData across Item title, content, Tag names, and ReflectionBlock content",
+        "Results update as the user types (debounced, ~300ms delay)",
+        "Results show item cards with the matching text highlighted or indicated",
+        "Empty search state shows the default library view (reverse-chronological all items)",
+        "Boards act as filters alongside search — selecting a board narrows search scope to that board",
+        "Typecheck passes"
       ],
-      "passes": false
+      "priority": 5,
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "S6",
-      "title": "Reflection Split View",
-      "description": "Build the split-pane reflection view that shows source content on the left and reflection blocks on the right.",
+      "id": "US-006",
+      "title": "Discuss this: item-anchored Dialectics conversations",
+      "description": "As a user, I want to tap a 'Discuss' button on any item in the Library or Inspector and land in a Dialectics conversation with that item pre-loaded as context, so I can think deeply about specific items.",
       "acceptanceCriteria": [
-        "When an item is opened, display a horizontal split view (HSplitView or similar)",
-        "Left pane: article content, embedded web view, or note content (read-only)",
-        "Right pane: list of ReflectionBlock entries for this item, plus an add button",
-        "Each block shows its type as a subtle label (Key Insight, Question, etc.) and its markdown content",
-        "Blocks are editable inline — click to edit, click away to save",
-        "Add block button shows a picker for block type, then creates an empty block of that type",
-        "If no reflections exist, show ghost text prompts: 'What is the key claim here?', 'How does this connect to what you know?', 'What would you challenge?'",
-        "Text can be selected in the left pane — selecting text and clicking a 'Reflect' button creates a new block with that text as the highlight field",
-        "Project builds successfully"
+        "Item cards in Library and the InspectorView both show a 'Discuss' action (button or context menu)",
+        "Tapping 'Discuss' creates a new Conversation entity with the item's title and content included in the initial system context",
+        "DialecticsView opens with a pre-generated opening message from the assistant that references the item (e.g., 'Let's explore your note on X. What aspect interests you?')",
+        "The item's ID is stored in the Conversation metadata so the conversation is linked to that item",
+        "Typecheck passes"
       ],
-      "passes": false
+      "priority": 6,
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "S7",
-      "title": "Reflection Block Editor",
-      "description": "Polish the block editor with markdown support, wiki-links, and code blocks.",
+      "id": "US-007",
+      "title": "Actionable outputs in Dialectics — save as note",
+      "description": "As a user, I want to save a Dialectics response as a new Item in my knowledge base with one tap, so that insights from conversations become persistent, searchable knowledge artifacts.",
       "acceptanceCriteria": [
-        "Block content field is a markdown-aware text editor using swift-markdown and TextKit 2",
-        "Typing [[ opens a fuzzy search dropdown of all items — selecting one inserts a wiki-link and auto-creates a Connection entity",
-        "Code blocks render with syntax highlighting (at minimum Swift, Python, JavaScript)",
-        "Basic markdown rendering: headings, bold, italic, inline code, links, bullet lists",
-        "Each block has a subtle drag handle for reordering within the reflection",
-        "Delete block with confirmation (or swipe/button)",
-        "Block type can be changed after creation via a dropdown",
-        "Project builds successfully"
+        "Each assistant message in DialecticsView shows a subtle 'Save as note' action button",
+        "Tapping 'Save as note' creates a new Item(.note) with the message content as the body",
+        "The new item's title is auto-generated from the first sentence or a summary",
+        "Tags are generated via AutoTagService on the new item",
+        "A Connection entity is created linking the new item to the conversation's source item (if the conversation was item-anchored via US-006)",
+        "A brief toast/confirmation is shown after saving",
+        "Typecheck passes"
       ],
-      "passes": false
+      "priority": 7,
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "S8",
-      "title": "Connection Suggestion Service",
-      "description": "After saving or reflecting on an item, suggest related items to connect to.",
+      "id": "US-008",
+      "title": "Actionable outputs in Dialectics — add reflection to item",
+      "description": "As a user, when Dialectics references one of my items with a [[wiki-link]], I want to be able to add the insight as a ReflectionBlock on that item with one tap.",
       "acceptanceCriteria": [
-        "ConnectionSuggestionService.swift takes an Item and queries the LLM",
-        "Sends the item's title, tags, and reflection content plus a list of up to 50 other items (title + tags only) from the same boards",
-        "LLM returns JSON: array of {target_id, connection_type, reason}",
-        "Service creates pending suggestion objects (not actual Connections yet)",
-        "Suggestions shown in a collapsible section in the inspector panel",
-        "Each suggestion shows target item title, connection type badge, and the AI's reason",
-        "Accept creates the Connection entity with the reason as the note field",
-        "Dismiss hides the suggestion — dismissed pairs are tracked and not re-suggested",
-        "Only fires if AI is enabled and the item has content or reflections",
-        "Project builds successfully"
+        "When a Dialectics response contains [[wiki-links]], those links are rendered as tappable inline elements",
+        "Tapping a wiki-link shows a popover with two options: 'View item' and 'Add reflection'",
+        "Choosing 'Add reflection' creates a ReflectionBlock on the referenced item with the surrounding paragraph as content",
+        "The reflection block type defaults to .keyInsight but can be changed by the user",
+        "Typecheck passes"
       ],
-      "passes": false
+      "priority": 8,
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "S9",
-      "title": "AI Reflection Prompts",
-      "description": "When opening the reflection view, generate contextual prompts based on the item and the user's existing knowledge.",
+      "id": "US-009",
+      "title": "Actionable outputs in Dialectics — create connection between items",
+      "description": "As a user, when Dialectics identifies a relationship between two of my items, I want to create a typed Connection between them with one tap.",
       "acceptanceCriteria": [
-        "ReflectionPromptService.swift generates 2-3 prompts when the reflection view opens",
-        "Sends to LLM: the current item (title, excerpt, tags) plus summaries of related items and existing reflections from same board",
-        "LLM returns JSON array of prompts, each with a suggested block type and text",
-        "Prompts reference the user's own items and reflections by name using [[wiki-link]] syntax",
-        "Prompts appear as ghost-text placeholder blocks in the reflection pane",
-        "Clicking a prompt block converts it to a real editable block with the prompt as starter text",
-        "Dismissing a prompt hides it for that item",
-        "Prompts only generate if the item has no existing reflections (don't overwrite user's work)",
-        "Fires as a background task — reflection view is usable immediately, prompts appear when ready",
-        "Project builds successfully"
+        "When a Dialectics response contains two or more [[wiki-links]], show a 'Create connection' action",
+        "Tapping 'Create connection' shows a sheet with the two items and a picker for connection type (contradicts, buildsOn, inspiredBy, relatedTo)",
+        "The connection type is pre-selected based on the LLM's language in the response if detectable (e.g., 'contradicts' if the response says 'this contradicts')",
+        "Saving creates a Connection entity between the two items",
+        "Typecheck passes"
       ],
-      "passes": false
+      "priority": 9,
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "S10",
-      "title": "Smart Nudge Engine",
-      "description": "Replace basic time-based nudges with LLM-generated contextual nudges.",
+      "id": "US-010",
+      "title": "Conversation history: browsable and searchable past Dialectics sessions",
+      "description": "As a user, I want to browse and search my past Dialectics conversations so I can revisit previous thinking and find conclusions I reached earlier.",
       "acceptanceCriteria": [
-        "SmartNudgeService.swift replaces or upgrades the existing NudgeEngine",
-        "Fires on app launch (and optionally on a configurable timer)",
-        "Sends to LLM: summary of boards (names, item counts), recent items (last 2 weeks with reflection status), engagement stats",
-        "LLM returns one nudge as JSON: {type, message, target_item_id}",
-        "Nudge types: reflection_prompt, contradiction, knowledge_gap, synthesis_prompt, course_continue",
-        "Nudge displayed in the existing NudgeBar UI with action button and dismiss",
-        "Acting on a nudge navigates to the relevant item or board",
-        "Dismissed nudge types for specific items are tracked and not re-suggested",
-        "Maximum one LLM nudge call per app launch",
-        "Falls back to simple time-based nudges if AI is disabled",
-        "Project builds successfully"
+        "A 'History' section or tab is accessible from the Dialectics view",
+        "Shows a reverse-chronological list of past Conversations with title, date, and item count",
+        "Search bar filters conversations by title and message content",
+        "Tapping a conversation opens it in read-only mode with the full message history",
+        "User can continue a past conversation (creates new messages appended to the existing Conversation entity)",
+        "Typecheck passes"
       ],
-      "passes": false
+      "priority": 10,
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "S11",
-      "title": "Engagement Score Overhaul",
-      "description": "Redesign engagement scoring to weight reflections heavily, with a plant growth visual metaphor.",
+      "id": "US-011",
+      "title": "Redesign SynthesisService: add create_synthesis as a Dialectics write tool",
+      "description": "As a user, I want to trigger synthesis both from the Library (select items → synthesize) and from Dialectics ('synthesize my notes on X'), with both paths producing a persistent Item(.note) with connections to source items.",
       "acceptanceCriteria": [
-        "New scoring: opened=5pts, manually_tagged=5pts, reflected=25pts, connected=15pts each, referenced_in_synthesis=20pts, revisited_after_7days=10pts",
-        "Computed property on Item that calculates the score from relationships",
-        "Score mapped to growth stages: seed (0-10), sprout (11-30), sapling (31-60), tree (61+)",
-        "Visual indicator in ItemCardView and InspectorView uses SF Symbols or small custom icon for each stage",
-        "Tooltip or label shows the breakdown on hover in the inspector",
-        "Replace the old percentage bar engagement display everywhere it appears",
-        "Board view can sort by engagement/depth score",
-        "Project builds successfully"
+        "SynthesisService is kept and works as before when invoked directly from Library (multi-select items → 'Synthesize' button)",
+        "A new KnowledgeBaseTools tool called 'create_synthesis' is added that accepts a list of item titles/IDs and a focus prompt",
+        "The create_synthesis tool calls SynthesisService internally and returns the created item's title and ID",
+        "DialecticsService system prompt is updated to include create_synthesis in its available tools",
+        "The agentic loop handles create_synthesis as a write tool (creates Item and Connection entities)",
+        "In Dialectics, after synthesis is created, the assistant message includes a link to the new synthesis item",
+        "Typecheck passes"
       ],
-      "passes": false
+      "priority": 11,
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "S12",
-      "title": "Synthesis Note Generation",
-      "description": "Allow users to generate an AI-drafted synthesis note from a board or tag cluster.",
+      "id": "US-012",
+      "title": "Update Dialectics system prompt for multi-mode dialectical approach",
+      "description": "As a user, I want Dialectics conversations to adapt their philosophical approach — Socratic questioning, Hegelian thesis-antithesis-synthesis, Nietzschean perspectivism — based on the shape of my knowledge, rather than always defaulting to Socratic elenchus.",
       "acceptanceCriteria": [
-        "SynthesisService.swift takes a scope (board or tag filter) and generates a synthesis draft",
-        "Gathers all items + reflections in scope, sends titles, tags, one-line summaries, and reflection content to LLM",
-        "System prompt: identify 3-5 themes, note contradictions, highlight user's own insights from reflections, list open questions, use [[wiki-links]]",
-        "LLM response is parsed and created as a new Item with type .note",
-        "Note is marked with metadata flag ai_generated=true",
-        "UI: a 'Synthesize' button in board header and in tag cluster headers",
-        "Generated note appears with a visible 'AI Draft' badge",
-        "User can edit the note freely — editing removes the badge or changes it to 'Edited'",
-        "Project builds successfully"
+        "DialecticsService system prompt is rewritten to describe three dialectical modes without naming a default",
+        "System prompt instructs the LLM to choose mode based on context: Socratic when probing assumptions, Hegelian when contradictions exist between items, Nietzschean when the user has collected multiple perspectives without committing",
+        "UI labels and strings throughout the app say 'Dialectics' not 'Socratic Dialectics' or 'Socratic conversation'",
+        "No user-facing UI changes needed beyond string updates — the mode selection is in the system prompt",
+        "Typecheck passes"
       ],
-      "passes": false
+      "priority": 12,
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "S13",
-      "title": "Weekly Digest",
-      "description": "Generate a weekly summary of learning activity delivered as a nudge or inbox item.",
+      "id": "US-013",
+      "title": "Simplify NudgeEngine: remove streak, continue-course, and connection-prompt nudges",
+      "description": "As a developer, I want to remove the streak nudge, continue-course nudge, and connection-prompt heuristic nudge types from NudgeEngine, keeping only spaced-resurfacing and stale-inbox, so the app's proactive surface is the home screen prompt bubbles rather than a multi-strategy nudge pipeline.",
       "acceptanceCriteria": [
-        "WeeklyDigestService.swift runs on app launch if 7+ days since last digest",
-        "Gathers: items added this week, reflections written, connections formed, boards most active",
-        "Sends summary to LLM to generate a short digest (150-250 words)",
-        "Digest created as a special Item with type .note and metadata digest=true",
-        "Includes: what was added (count + highlights), what was reflected on, knowledge gaps identified, suggested focus",
-        "Configurable: can be disabled in settings, day of week can be changed",
-        "Only generates if meaningful activity occurred (at least 2 items added or 1 reflection written)",
-        "Project builds successfully"
+        "NudgeEngine no longer evaluates streak, continue-course, or connection-prompt strategies",
+        "ResurfacingService (spaced resurfacing) is kept and runs on its existing timer",
+        "Stale-inbox heuristic is kept",
+        "NudgeBanner UI is removed from Library/HomeView — resurfacing results are exposed as a count indicator in the Library (e.g., '3 items to revisit') that the user can tap to see the list",
+        "SmartNudgeService is removed (its role is replaced by ConversationStarterService from US-002)",
+        "CheckInTriggerService is removed (its role is replaced by ConversationStarterService from US-002)",
+        "Typecheck passes"
       ],
-      "passes": false
+      "priority": 13,
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "S14",
-      "title": "Learning Path Generation",
-      "description": "Generate ordered learning paths from saved items within a topic.",
+      "id": "US-014",
+      "title": "Remove LearningPathView and LearningPathService",
+      "description": "As a developer, I want to remove LearningPathService, LearningPathView, and the LearningPath data model so the codebase is simpler. Users can ask Dialectics to suggest a learning sequence if they want one.",
       "acceptanceCriteria": [
-        "LearningPathService.swift takes a topic (board or tag) and generates a sequenced path",
-        "Sends all items in scope with their types, tags, engagement scores, and reflection status to LLM",
-        "LLM returns JSON: ordered array of {item_id, reason, step_number} plus a final synthesis step",
-        "LearningPath model: id, title, topic, steps (ordered array of LearningPathStep with item reference, reason, position)",
-        "Learning path displayed as a special view — ordered list with progress indicators per item (not opened / read / reflected)",
-        "Final step is always 'Write a synthesis note' with a button to trigger SynthesisService",
-        "Path stored as a standalone entity associated with a Board",
-        "User can reorder steps manually or regenerate",
-        "Accessible via a 'Create learning path' button in board header",
-        "Project builds successfully"
+        "LearningPathService is deleted",
+        "LearningPathView is deleted",
+        "LearningPath and LearningPathStep SwiftData models are removed (or marked deprecated with a migration that removes existing data)",
+        "All references to learning paths in navigation, sidebar, or menus are removed",
+        "Typecheck passes"
       ],
-      "passes": false
+      "priority": 14,
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "S15",
-      "title": "Token Usage Tracking",
-      "description": "Track and display LLM token usage across all services.",
+      "id": "US-015",
+      "title": "Remove automatic WeeklyDigest generation",
+      "description": "As a developer, I want to remove the automatic weekly digest item creation from NudgeEngine so the knowledge base isn't polluted with meta-content. Users can ask Dialectics 'summarize my week' to get the same output on demand.",
       "acceptanceCriteria": [
-        "TokenTracker singleton that records every LLM call: timestamp, service name, input tokens, output tokens, model",
-        "GroqProvider parses usage from API response (usage.prompt_tokens, usage.completion_tokens) and reports to TokenTracker",
-        "Token data persisted in UserDefaults or a lightweight store",
-        "Settings UI shows: total tokens used, breakdown by service (tagging, suggestions, nudges, synthesis), estimated cost",
-        "Reset button clears usage data",
-        "Optional: monthly budget limit — when reached, AI features pause and user is notified",
-        "Project builds successfully"
+        "WeeklyDigestService is no longer triggered automatically by NudgeEngine on app launch",
+        "WeeklyDigestService itself is kept in the codebase but not auto-invoked (it can be called manually or via Dialectics in a future story)",
+        "No digest Items are auto-created on the weekly schedule",
+        "Typecheck passes"
       ],
-      "passes": false
+      "priority": 15,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-016",
+      "title": "Remove standalone ReflectionPromptService UI from InspectorView",
+      "description": "As a developer, I want to remove the auto-generated reflection prompts from InspectorView so the inspector becomes a clean read/edit view. Reflection prompting is now handled by Dialectics conversations (via US-006 'Discuss this').",
+      "acceptanceCriteria": [
+        "InspectorView no longer calls ReflectionPromptService on appearance",
+        "The 'suggested reflections' or 'reflection prompts' section is removed from InspectorView",
+        "InspectorView still displays existing ReflectionBlock entities (user's past reflections remain visible)",
+        "ReflectionPromptService is kept in the codebase but not auto-invoked from InspectorView",
+        "Typecheck passes"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-017",
+      "title": "Remove standalone ConnectionSuggestionService UI from InspectorView",
+      "description": "As a developer, I want to remove the auto-generated connection suggestions from InspectorView. Connection discovery is now handled by Dialectics conversations. The inspector keeps manual connection management.",
+      "acceptanceCriteria": [
+        "InspectorView no longer calls ConnectionSuggestionService on appearance",
+        "The 'suggested connections' section is removed from InspectorView",
+        "InspectorView still displays existing Connection entities and allows manual connection creation (search-to-link)",
+        "ConnectionSuggestionService is kept in the codebase but not auto-invoked from InspectorView",
+        "Typecheck passes"
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": ""
     }
   ]
 }

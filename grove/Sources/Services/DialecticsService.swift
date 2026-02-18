@@ -26,6 +26,7 @@ final class DialecticsService: DialecticsServiceProtocol {
     private let provider: LLMProvider
     var isGenerating = false
     var streamingText = ""
+    var lastError: String?
 
     private static let maxToolRounds = 3
     private static let contextSummaryThreshold = 20
@@ -112,6 +113,7 @@ final class DialecticsService: DialecticsServiceProtocol {
         guard !isGenerating else { return nil }
         isGenerating = true
         streamingText = ""
+        lastError = nil
 
         // Save user message
         let userMsg = ChatMessage(
@@ -135,6 +137,9 @@ final class DialecticsService: DialecticsServiceProtocol {
 
         for _ in 0..<Self.maxToolRounds {
             guard let result = await provider.completeChat(messages: currentTurns, service: "dialectics") else {
+                if let groqProvider = provider as? GroqProvider {
+                    lastError = groqProvider.lastError?.userMessage
+                }
                 break
             }
 
@@ -182,12 +187,18 @@ final class DialecticsService: DialecticsServiceProtocol {
         }
 
         // If no response from loop, try one last direct call
-        if assistantContent == nil {
+        if assistantContent == nil && lastError == nil {
             let fallbackResult = await provider.completeChat(messages: currentTurns, service: "dialectics")
             assistantContent = fallbackResult?.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            if assistantContent == nil, let groqProvider = provider as? GroqProvider {
+                lastError = groqProvider.lastError?.userMessage
+            }
         }
 
         guard let finalContent = assistantContent, !finalContent.isEmpty else {
+            if lastError == nil {
+                lastError = "Unable to generate a response. Try again."
+            }
             isGenerating = false
             return nil
         }

@@ -45,7 +45,9 @@ final class AutoTagService: AutoTagServiceProtocol {
         - "tags": an array of objects, each with "name" (lowercase, 1-3 words), \
           "category" (one of: topic, concept, technology, person, custom), and \
           "confidence" (0.0-1.0).
-        - "one_line_summary": a single sentence summarizing the item (max 120 characters).
+        - "one_line_summary": a single sentence summarizing the item (max 120 characters). \
+          This field is REQUIRED — always return a summary even if content is minimal. \
+          Use the title and URL to infer the topic if needed.
         - "suggested_board": the best board name for this item. Prefer an existing board if one fits. \
           If none fit, suggest a concise, reusable topic name (2-4 words) that could group related items. \
           Avoid one-off labels; think in terms of durable categories.

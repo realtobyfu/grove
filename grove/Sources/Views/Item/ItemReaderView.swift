@@ -38,6 +38,8 @@ struct ItemReaderView: View {
     // Summary editing
     @State private var isEditingSummary = false
     @State private var editableSummary = ""
+    // Draggable split
+    @State private var reflectionPanelWidth: CGFloat = 380
 
     private var sortedReflections: [ReflectionBlock] {
         item.reflections.sorted { $0.position < $1.position }
@@ -51,38 +53,67 @@ struct ItemReaderView: View {
         ZStack(alignment: .topTrailing) {
             if showReflectionEditor {
                 // Split mode: source left, editor right
-                HStack(spacing: 0) {
-                    // Left: source content (60%)
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 0) {
-                            itemHeader
+                GeometryReader { geo in
+                    let minPanel: CGFloat = 280
+                    let maxPanel = max(minPanel, geo.size.width * 0.6)
+                    let clampedWidth = min(max(reflectionPanelWidth, minPanel), maxPanel)
 
-                            if let thumbnailData = item.thumbnail {
-                                CoverImageView(
-                                    imageData: thumbnailData,
-                                    height: 200,
-                                    showPlayOverlay: false,
-                                    cornerRadius: 0
-                                )
-                                .padding(.horizontal)
+                    HStack(spacing: 0) {
+                        // Left: source content
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 0) {
+                                itemHeader
+
+                                if let thumbnailData = item.thumbnail {
+                                    CoverImageView(
+                                        imageData: thumbnailData,
+                                        height: 200,
+                                        showPlayOverlay: false,
+                                        cornerRadius: 0
+                                    )
+                                    .padding(.horizontal)
+                                }
+
+                                Divider().padding(.horizontal)
+                                sourceContent
+                                    .padding()
                             }
-
-                            Divider().padding(.horizontal)
-                            sourceContent
-                                .padding()
                         }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.bgPrimary)
-
-                    Divider()
-
-                    // Right: editor panel (40%, min 320)
-                    reflectionEditorPanel
-                        .frame(minWidth: 320, idealWidth: 380)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(Color.bgPrimary)
-                        .transition(.move(edge: .trailing))
+
+                        // Draggable divider
+                        Rectangle()
+                            .fill(Color.borderPrimary)
+                            .frame(width: 1)
+                            .overlay {
+                                Rectangle()
+                                    .fill(Color.clear)
+                                    .frame(width: 9)
+                                    .contentShape(Rectangle())
+                                    .onHover { hovering in
+                                        if hovering {
+                                            NSCursor.resizeLeftRight.push()
+                                        } else {
+                                            NSCursor.pop()
+                                        }
+                                    }
+                                    .gesture(
+                                        DragGesture(coordinateSpace: .global)
+                                            .onChanged { value in
+                                                let newWidth = geo.size.width - value.location.x
+                                                reflectionPanelWidth = min(max(newWidth, minPanel), maxPanel)
+                                            }
+                                    )
+                            }
+
+                        // Right: editor panel
+                        reflectionEditorPanel
+                            .frame(width: clampedWidth)
+                            .frame(maxHeight: .infinity)
+                            .background(Color.bgPrimary)
+                            .transition(.move(edge: .trailing))
+                    }
                 }
             } else {
                 // Normal mode: full-width reader

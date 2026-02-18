@@ -28,6 +28,7 @@ struct ContentView: View {
     @State private var savedColumnVisibility: NavigationSplitViewVisibility?
     @State private var savedInspectorOverride: Bool?
     @State private var savedChatPanel: Bool?
+    @State private var chatPanelWidth: CGFloat = 380
 
     private var isInspectorVisible: Bool {
         if let override = inspectorUserOverride {
@@ -205,7 +206,33 @@ struct ContentView: View {
     @ViewBuilder
     private var rightPanel: some View {
         if showChatPanel {
-            Divider()
+            // Draggable divider for chat panel
+            Rectangle()
+                .fill(Color.borderPrimary)
+                .frame(width: 1)
+                .overlay {
+                    Rectangle()
+                        .fill(Color.clear)
+                        .frame(width: 9)
+                        .contentShape(Rectangle())
+                        .onHover { hovering in
+                                if hovering {
+                                    NSCursor.resizeLeftRight.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                        .gesture(
+                            DragGesture(coordinateSpace: .global)
+                                .onChanged { value in
+                                    if let window = NSApp.keyWindow {
+                                        let windowWidth = window.frame.width
+                                        let newWidth = windowWidth - value.location.x
+                                        chatPanelWidth = min(max(newWidth, 300), windowWidth * 0.6)
+                                    }
+                                }
+                        )
+                }
             DialecticalChatPanel(
                 selectedConversation: $selectedConversation,
                 isVisible: $showChatPanel,
@@ -215,6 +242,7 @@ struct ContentView: View {
                     openedItem = item
                 }
             )
+            .frame(width: chatPanelWidth)
             .transition(.move(edge: .trailing))
         } else if isInspectorVisible {
             Divider()

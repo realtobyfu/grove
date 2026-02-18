@@ -34,7 +34,7 @@ struct DialecticalChatPanel: View {
                 emptyState
             }
         }
-        .frame(width: 380)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.bgInspector)
         .sheet(item: $connectionMessage) { message in
             connectionSheet(for: message)
@@ -116,6 +116,10 @@ struct DialecticalChatPanel: View {
 
                         if dialecticsService.isGenerating {
                             thinkingIndicator
+                        }
+
+                        if let error = dialecticsService.lastError {
+                            errorBubble(error)
                         }
                     }
                     .padding(.horizontal, Spacing.md)
@@ -299,6 +303,34 @@ struct DialecticalChatPanel: View {
             .clipShape(RoundedRectangle(cornerRadius: 8))
             Spacer()
         }
+    }
+
+    // MARK: - Error Bubble
+
+    private func errorBubble(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: Spacing.sm) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.groveBody)
+                .foregroundStyle(Color.textMuted)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Unable to respond")
+                    .font(.groveBadge)
+                    .foregroundStyle(Color.textSecondary)
+                Text(message)
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textMuted)
+            }
+
+            Spacer()
+        }
+        .padding(Spacing.md)
+        .background(Color.bgCard)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.borderPrimary, lineWidth: 1)
+        )
     }
 
     // MARK: - Input Area

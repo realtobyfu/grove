@@ -90,4 +90,4 @@ prd.json
 .env.*
 Secrets.swift
 
-./old-context
+old-context/

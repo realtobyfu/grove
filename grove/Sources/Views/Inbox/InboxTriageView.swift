@@ -60,7 +60,6 @@ struct InboxTriageView: View {
                             item: item,
                             isSelected: index == focusedIndex,
                             onKeep: { keepItem(item) },
-                            onLater: { /* no-op — stays in inbox */ },
                             onDrop: { dropItem(item) },
                             onConfirmTag: { tag in confirmTag(tag) },
                             onDismissTag: { tag in dismissTag(tag, from: item) }
@@ -102,7 +101,7 @@ struct InboxTriageView: View {
         let visibleItems = Array(inboxItems.prefix(8))
         return VStack(spacing: 8) {
             LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 200, maximum: 400), spacing: 12)],
+                columns: [GridItem(.adaptive(minimum: 300, maximum: 600), spacing: 12)],
                 spacing: 12
             ) {
                 ForEach(Array(visibleItems.enumerated()), id: \.element.id) { index, item in
@@ -110,7 +109,6 @@ struct InboxTriageView: View {
                         item: item,
                         isSelected: index == focusedIndex,
                         onKeep: { keepItem(item) },
-                        onLater: { /* no-op — stays in inbox */ },
                         onDrop: { dropItem(item) },
                         onConfirmTag: { tag in confirmTag(tag) },
                         onDismissTag: { tag in dismissTag(tag, from: item) }
@@ -196,15 +194,9 @@ struct InboxTriageView: View {
                 .opacity(0)
                 .frame(width: 0, height: 0)
 
-            // 2 — Later
-            Button("") { performAction(.later) }
-                .keyboardShortcut("2", modifiers: [])
-                .opacity(0)
-                .frame(width: 0, height: 0)
-
-            // 3 — Drop
+            // 2 — Drop
             Button("") { performAction(.drop) }
-                .keyboardShortcut("3", modifiers: [])
+                .keyboardShortcut("2", modifiers: [])
                 .opacity(0)
                 .frame(width: 0, height: 0)
 
@@ -223,7 +215,7 @@ struct InboxTriageView: View {
     // MARK: - Actions
 
     private enum TriageAction {
-        case keep, later, drop
+        case keep, drop
     }
 
     private func performAction(_ action: TriageAction) {
@@ -234,8 +226,6 @@ struct InboxTriageView: View {
         switch action {
         case .keep:
             keepItem(item)
-        case .later:
-            break // stays in inbox
         case .drop:
             dropItem(item)
         }

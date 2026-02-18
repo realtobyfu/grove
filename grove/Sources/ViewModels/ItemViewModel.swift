@@ -118,6 +118,21 @@ final class ItemViewModel {
                         description: metadata.description,
                         bodyText: metadata.bodyText
                     )
+
+                    // Fallback: if still no summary but overview was generated, extract from overview
+                    let desc2 = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
+                    if let updatedItem = try? context.fetch(desc2).first,
+                       updatedItem.metadata["summary"] == nil,
+                       let overviewContent = updatedItem.content, !overviewContent.isEmpty {
+                        let firstSentence = overviewContent
+                            .components(separatedBy: CharacterSet(charactersIn: ".!?"))
+                            .first?
+                            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        if !firstSentence.isEmpty {
+                            updatedItem.metadata["summary"] = String(firstSentence.prefix(120))
+                            try? context.save()
+                        }
+                    }
                 }
             }
 
@@ -171,7 +186,7 @@ final class ItemViewModel {
 
         // Need at least some text to summarize
         let sourceText = bodyText ?? description ?? ""
-        guard sourceText.count > 50 else { return }
+        guard sourceText.count > 20 else { return }
 
         let systemPrompt = """
         You are a knowledge-management assistant. Given an article's title and text, \

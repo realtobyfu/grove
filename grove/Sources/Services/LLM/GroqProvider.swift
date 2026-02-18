@@ -6,6 +6,7 @@ import Foundation
 final class GroqProvider: LLMProvider, @unchecked Sendable {
     private let session: URLSession
     private let maxRetries = 3
+    private(set) var lastError: LLMError?
 
     init(session: URLSession = .shared) {
         self.session = session
@@ -20,9 +21,11 @@ final class GroqProvider: LLMProvider, @unchecked Sendable {
     }
 
     private func complete(system: String, user: String, serviceName: String?) async -> LLMCompletionResult? {
+        lastError = nil
+
         // Check monthly budget limit
         let budgetExceeded = await MainActor.run { TokenTracker.shared.isBudgetExceeded }
-        if budgetExceeded { return nil }
+        if budgetExceeded { lastError = .budgetExceeded; return nil }
 
         let config = (
             apiKey: LLMServiceConfig.apiKey,
@@ -30,8 +33,8 @@ final class GroqProvider: LLMProvider, @unchecked Sendable {
             baseURL: LLMServiceConfig.baseURL
         )
 
-        guard !config.apiKey.isEmpty else { return nil }
-        guard let url = URL(string: config.baseURL) else { return nil }
+        guard !config.apiKey.isEmpty else { lastError = .apiKeyMissing; return nil }
+        guard let url = URL(string: config.baseURL) else { lastError = .invalidURL; return nil }
 
         let body: [String: Any] = [
             "model": config.model,
@@ -59,7 +62,7 @@ final class GroqProvider: LLMProvider, @unchecked Sendable {
                 try? await Task.sleep(nanoseconds: delay)
             }
 
-            guard !Task.isCancelled else { return nil }
+            guard !Task.isCancelled else { lastError = .cancelled; return nil }
 
             do {
                 let (data, response) = try await session.data(for: request)
@@ -71,7 +74,10 @@ final class GroqProvider: LLMProvider, @unchecked Sendable {
                     continue
                 }
 
-                guard httpResponse.statusCode == 200 else { return nil }
+                guard httpResponse.statusCode == 200 else {
+                    lastError = .serverError(statusCode: httpResponse.statusCode)
+                    return nil
+                }
 
                 return parseResponse(data, serviceName: serviceName)
             } catch {
@@ -80,14 +86,17 @@ final class GroqProvider: LLMProvider, @unchecked Sendable {
             }
         }
 
+        lastError = .networkError
         return nil
     }
 
     // MARK: - Multi-Turn Chat
 
     func completeChat(messages: [ChatTurn], service: String) async -> LLMCompletionResult? {
+        lastError = nil
+
         let budgetExceeded = await MainActor.run { TokenTracker.shared.isBudgetExceeded }
-        if budgetExceeded { return nil }
+        if budgetExceeded { lastError = .budgetExceeded; return nil }
 
         let config = (
             apiKey: LLMServiceConfig.apiKey,
@@ -95,8 +104,8 @@ final class GroqProvider: LLMProvider, @unchecked Sendable {
             baseURL: LLMServiceConfig.baseURL
         )
 
-        guard !config.apiKey.isEmpty else { return nil }
-        guard let url = URL(string: config.baseURL) else { return nil }
+        guard !config.apiKey.isEmpty else { lastError = .apiKeyMissing; return nil }
+        guard let url = URL(string: config.baseURL) else { lastError = .invalidURL; return nil }
 
         let apiMessages = messages.map { turn -> [String: String] in
             ["role": turn.role, "content": turn.content]
@@ -124,19 +133,23 @@ final class GroqProvider: LLMProvider, @unchecked Sendable {
                 try? await Task.sleep(nanoseconds: delay)
             }
 
-            guard !Task.isCancelled else { return nil }
+            guard !Task.isCancelled else { lastError = .cancelled; return nil }
 
             do {
                 let (data, response) = try await session.data(for: request)
                 guard let httpResponse = response as? HTTPURLResponse else { continue }
                 if httpResponse.statusCode >= 500 || httpResponse.statusCode == 429 { continue }
-                guard httpResponse.statusCode == 200 else { return nil }
+                guard httpResponse.statusCode == 200 else {
+                    lastError = .serverError(statusCode: httpResponse.statusCode)
+                    return nil
+                }
                 return parseResponse(data, serviceName: service)
             } catch {
                 continue
             }
         }
 
+        lastError = .networkError
         return nil
     }
 
