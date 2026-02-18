@@ -373,6 +373,27 @@ struct InspectorPanelView: View {
                 Text(item.type.rawValue.capitalized)
                     .font(.groveMeta)
                     .foregroundStyle(Color.textSecondary)
+
+                Spacer()
+
+                // Discuss button
+                Button {
+                    NotificationCenter.default.post(name: .groveDiscussItem, object: item)
+                } label: {
+                    Label("Discuss", systemImage: "bubble.left.and.bubble.right")
+                        .font(.groveBadge)
+                        .foregroundStyle(Color.textSecondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.bgCard)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(Color.borderPrimary, lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+                .help("Discuss this item in Dialectics")
             }
             .padding(.horizontal)
 
@@ -906,6 +927,10 @@ struct ContentViewNotificationHandlers: ViewModifier {
                 let seedIDs = notification.userInfo?["seedItemIDs"] as? [UUID] ?? []
                 startConversation(withPrompt: prompt, seedItemIDs: seedIDs)
             }
+            .onReceive(NotificationCenter.default.publisher(for: .groveDiscussItem)) { notification in
+                guard let item = notification.object as? Item else { return }
+                startDiscussion(item: item)
+            }
             .onReceive(NotificationCenter.default.publisher(for: .groveEnterFocusMode)) { _ in
                 savedColumnVisibility = columnVisibility
                 savedInspectorOverride = inspectorUserOverride
@@ -978,6 +1003,15 @@ struct ContentViewNotificationHandlers: ViewModifier {
 
         selectedConversation = conversation
         withAnimation { showChatPanel = true }
+    }
+
+    private func startDiscussion(item: Item) {
+        let service = DialecticsService()
+        withAnimation { showChatPanel = true }
+        Task { @MainActor in
+            let conversation = await service.startDiscussion(item: item, context: modelContext)
+            selectedConversation = conversation
+        }
     }
 
     private func startCheckInConversation(from nudge: Nudge) {

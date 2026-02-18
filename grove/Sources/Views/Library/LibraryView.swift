@@ -155,6 +155,19 @@ struct LibraryView: View {
                                 selectedItem = item
                             }
                             .selectedItemStyle(selectedItem?.id == item.id)
+                            .contextMenu {
+                                Button {
+                                    openedItem = item
+                                    selectedItem = item
+                                } label: {
+                                    Label("Open", systemImage: "doc.text")
+                                }
+                                Button {
+                                    NotificationCenter.default.post(name: .groveDiscussItem, object: item)
+                                } label: {
+                                    Label("Discuss", systemImage: "bubble.left.and.bubble.right")
+                                }
+                            }
                         Divider()
                             .padding(.leading, 40)
                     }
@@ -165,72 +178,7 @@ struct LibraryView: View {
     }
 
     private func libraryRow(item: Item) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: item.type.iconName)
-                .font(.groveMeta)
-                .foregroundStyle(Color.textMuted)
-                .frame(width: 20)
-
-            VStack(alignment: .leading, spacing: 2) {
-                // Title with optional search highlight indication
-                Text(item.title)
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textPrimary)
-                    .lineLimit(1)
-
-                HStack(spacing: 4) {
-                    // Board membership
-                    if let firstBoard = item.boards.first {
-                        Text(firstBoard.title)
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                    }
-
-                    if !item.tags.isEmpty && item.boards.first != nil {
-                        Text("·")
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                    }
-
-                    // Tags (first 2)
-                    ForEach(Array(item.tags.prefix(2)), id: \.id) { tag in
-                        Text(tag.name)
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textSecondary)
-                    }
-                    if item.tags.count > 2 {
-                        Text("+\(item.tags.count - 2)")
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                    }
-                }
-            }
-
-            Spacer()
-
-            // Date
-            Text(item.updatedAt.relativeShort)
-                .font(.groveMeta)
-                .foregroundStyle(Color.textTertiary)
-
-            GrowthStageIndicator(stage: item.growthStage)
-                .help("\(item.growthStage.displayName) — \(item.depthScore) pts")
-
-            let connectionCount = item.outgoingConnections.count + item.incomingConnections.count
-            if connectionCount > 0 {
-                Label("\(connectionCount)", systemImage: "link")
-                    .font(.groveMeta)
-                    .foregroundStyle(Color.textSecondary)
-            }
-
-            if item.reflections.count > 0 {
-                Label("\(item.reflections.count)", systemImage: "text.alignleft")
-                    .font(.groveMeta)
-                    .foregroundStyle(Color.textSecondary)
-            }
-        }
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, 8)
+        LibraryRowView(item: item)
     }
 
     // MARK: - Empty State
@@ -364,6 +312,101 @@ struct LibraryView: View {
             return 0.55
         }
         return 0
+    }
+}
+
+// MARK: - Library Row View
+
+private struct LibraryRowView: View {
+    let item: Item
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: item.type.iconName)
+                .font(.groveMeta)
+                .foregroundStyle(Color.textMuted)
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title)
+                    .font(.groveBody)
+                    .foregroundStyle(Color.textPrimary)
+                    .lineLimit(1)
+
+                HStack(spacing: 4) {
+                    if let firstBoard = item.boards.first {
+                        Text(firstBoard.title)
+                            .font(.groveMeta)
+                            .foregroundStyle(Color.textTertiary)
+                    }
+                    if !item.tags.isEmpty && item.boards.first != nil {
+                        Text("·")
+                            .font(.groveMeta)
+                            .foregroundStyle(Color.textTertiary)
+                    }
+                    ForEach(Array(item.tags.prefix(2)), id: \.id) { tag in
+                        Text(tag.name)
+                            .font(.groveMeta)
+                            .foregroundStyle(Color.textSecondary)
+                    }
+                    if item.tags.count > 2 {
+                        Text("+\(item.tags.count - 2)")
+                            .font(.groveMeta)
+                            .foregroundStyle(Color.textTertiary)
+                    }
+                }
+            }
+
+            Spacer()
+
+            // Discuss button — visible on hover
+            if isHovered {
+                Button {
+                    NotificationCenter.default.post(name: .groveDiscussItem, object: item)
+                } label: {
+                    Label("Discuss", systemImage: "bubble.left.and.bubble.right")
+                        .font(.groveBadge)
+                        .foregroundStyle(Color.textSecondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.bgCard)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(Color.borderPrimary, lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+                .transition(.opacity)
+            }
+
+            Text(item.updatedAt.relativeShort)
+                .font(.groveMeta)
+                .foregroundStyle(Color.textTertiary)
+
+            GrowthStageIndicator(stage: item.growthStage)
+                .help("\(item.growthStage.displayName) — \(item.depthScore) pts")
+
+            let connectionCount = item.outgoingConnections.count + item.incomingConnections.count
+            if connectionCount > 0 {
+                Label("\(connectionCount)", systemImage: "link")
+                    .font(.groveMeta)
+                    .foregroundStyle(Color.textSecondary)
+            }
+            if item.reflections.count > 0 {
+                Label("\(item.reflections.count)", systemImage: "text.alignleft")
+                    .font(.groveMeta)
+                    .foregroundStyle(Color.textSecondary)
+            }
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, 8)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.1)) {
+                isHovered = hovering
+            }
+        }
     }
 }
 

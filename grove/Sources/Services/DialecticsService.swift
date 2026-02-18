@@ -368,6 +368,58 @@ final class DialecticsService: DialecticsServiceProtocol {
         }
     }
 
+    // MARK: - Item-Anchored Conversation
+
+    /// Creates a conversation anchored to a single item and generates an opening assistant message.
+    func startDiscussion(item: Item, context: ModelContext) async -> Conversation {
+        let conversation = startConversation(
+            trigger: .userInitiated,
+            seedItems: [item],
+            board: item.boards.first,
+            context: context
+        )
+        // Title the conversation immediately so it's identifiable
+        conversation.title = "Discuss: \(item.title)"
+        try? context.save()
+
+        // Generate opening message from assistant
+        let openingPrompt = """
+        You are starting a focused discussion about this item from the user's knowledge base.
+        Generate a single engaging opening message (2-3 sentences) that:
+        1. Acknowledges the item by name
+        2. Identifies the most interesting or debatable aspect you notice
+        3. Ends with a specific question to invite the user into dialogue
+        Do NOT use bullet points. Write naturally and directly.
+        """
+
+        let itemContext = buildSeedContext(items: [item])
+        let result = await provider.complete(
+            system: openingPrompt,
+            user: itemContext,
+            service: "dialectics"
+        )
+
+        let openingContent = result?.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? "Let's explore your note on \"\(item.title)\". What aspect interests you most, or what made you save this?"
+
+        // Extract any wiki-link references from the opening
+        let referencedIDs = extractReferencedItemIDs(from: openingContent, context: context)
+
+        let assistantMsg = ChatMessage(
+            role: .assistant,
+            content: openingContent,
+            position: conversation.nextPosition,
+            referencedItemIDs: referencedIDs
+        )
+        assistantMsg.conversation = conversation
+        conversation.messages.append(assistantMsg)
+        context.insert(assistantMsg)
+        conversation.updatedAt = .now
+        try? context.save()
+
+        return conversation
+    }
+
     // MARK: - Reflection Creation
 
     func saveAsReflection(

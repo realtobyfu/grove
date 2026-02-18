@@ -80,3 +80,16 @@ Implementation:
 - ContentView.detailContent wires .library to LibraryView(selectedItem:openedItem:)
 - Ran tuist generate --no-open after adding new file
 - Build passes with zero errors
+
+## US-006 — Discuss this: item-anchored Dialectics conversations
+Status: PASS
+Date: 2026-02-18
+
+Implementation:
+- Added groveDiscussItem notification to Notifications.swift (object: Item)
+- Added DialecticsService.startDiscussion(item:context:) — creates a conversation anchored to the item (seedItemIDs=[item.id], board=item.boards.first), sets title to "Discuss: {item title}", then generates an opening assistant message using a focused system prompt; failure-tolerant fallback message if LLM is unreachable
+- ContentViewNotificationHandlers: added .onReceive(groveDiscussItem) handler that calls startDiscussion(item:), shows the chat panel, and assigns selectedConversation asynchronously after the opening message is generated
+- LibraryView: rows refactored into LibraryRowView (private struct); hover state shows a "Discuss" button inline; context menu adds "Open" and "Discuss" actions; Discuss fires groveDiscussItem notification with the item
+- InspectorPanelView (ContentView.swift): "Discuss" button added to metadataSection type header row (trailing Spacer + button); fires groveDiscussItem notification; tooltip "Discuss this item in Dialectics"
+- Conversation.seedItemIDs[0] acts as the anchored item ID (stored in existing field, no model migration needed)
+- Build passes with zero errors
