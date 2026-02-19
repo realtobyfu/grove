@@ -114,10 +114,17 @@ struct ContentView: View {
 
     private var mainContentArea: some View {
         HStack(spacing: 0) {
-            detailContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // detailContent always fills the full remaining width so that
+            // LazyVGrid / LazyVStack layouts never reflow when the write
+            // panel appears. The write panel overlays on top as a ZStack.
+            ZStack(alignment: .trailing) {
+                detailContent
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            rightPanel
+                writePanelOverlay
+            }
+
+            sidePanel
         }
         .toolbar {
             ToolbarItem(placement: .navigation) {
@@ -259,23 +266,26 @@ struct ContentView: View {
             }
     }
 
+    // Write panel as a ZStack overlay — does NOT change detailContent width,
+    // so grid/list layouts never reflow and gesture hit areas stay correct.
     @ViewBuilder
-    private var rightPanel: some View {
+    private var writePanelOverlay: some View {
         if showWritePanel {
-            draggableDivider(width: $writePanelWidth, min: 360, max: 700)
-            NoteWriterOverlayView(
-                isPresented: $showWritePanel,
-                currentBoardID: currentBoardID,
-                prompt: writePanelPrompt,
-                editingItem: writePanelEditItem,
-                panelMode: true
-            ) { note in
-                writePanelPrompt = nil
-                writePanelEditItem = nil
-                selectedItem = note
-                // Do NOT set openedItem — list stays visible
+            HStack(spacing: 0) {
+                draggableDivider(width: $writePanelWidth, min: 360, max: 700)
+                NoteWriterOverlayView(
+                    isPresented: $showWritePanel,
+                    currentBoardID: currentBoardID,
+                    prompt: writePanelPrompt,
+                    editingItem: writePanelEditItem,
+                    panelMode: true
+                ) { note in
+                    writePanelPrompt = nil
+                    writePanelEditItem = nil
+                    selectedItem = note
+                }
+                .frame(width: writePanelWidth)
             }
-            .frame(width: writePanelWidth)
             .transition(.move(edge: .trailing))
             .onChange(of: showWritePanel) {
                 if !showWritePanel {
@@ -283,7 +293,13 @@ struct ContentView: View {
                     writePanelEditItem = nil
                 }
             }
-        } else if showChatPanel {
+        }
+    }
+
+    // Chat and inspector remain as HStack siblings (intended permanent panels).
+    @ViewBuilder
+    private var sidePanel: some View {
+        if showChatPanel {
             draggableDivider(width: $chatPanelWidth, min: 300, max: .infinity)
             DialecticalChatPanel(
                 selectedConversation: $selectedConversation,

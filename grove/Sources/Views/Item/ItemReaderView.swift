@@ -80,6 +80,13 @@ struct ItemReaderView: View {
                                                 cornerRadius: 0
                                             )
                                             .padding(.horizontal)
+                                            .onTapGesture {
+                                                if articleURL != nil {
+                                                    withAnimation(.easeOut(duration: 0.2)) {
+                                                        showArticleWebView = true
+                                                    }
+                                                }
+                                            }
                                         }
                                         Divider().padding(.horizontal)
                                         sourceContent.padding()
@@ -140,6 +147,13 @@ struct ItemReaderView: View {
                                 cornerRadius: 0
                             )
                             .padding(.horizontal)
+                            .onTapGesture {
+                                if articleURL != nil {
+                                    withAnimation(.easeOut(duration: 0.2)) {
+                                        showArticleWebView = true
+                                    }
+                                }
+                            }
                         }
 
                         Divider().padding(.horizontal)

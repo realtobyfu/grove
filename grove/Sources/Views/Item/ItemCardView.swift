@@ -150,22 +150,8 @@ struct ItemCardView: View {
                     showPlayOverlay: item.type == .video,
                     cornerRadius: 4
                 )
-                .contextMenu {
-                    if let urlString = item.sourceURL, let url = URL(string: urlString),
-                       item.metadata["videoLocalFile"] != "true" {
-                        if let readAction = onReadInApp {
-                            Button {
-                                readAction()
-                            } label: {
-                                Label("Read in App", systemImage: "doc.text.magnifyingglass")
-                            }
-                        }
-                        Button {
-                            NSWorkspace.shared.open(url)
-                        } label: {
-                            Label("Open in Browser", systemImage: "safari")
-                        }
-                    }
+                .onTapGesture {
+                    onReadInApp?()
                 }
             }
 
