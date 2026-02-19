@@ -483,47 +483,49 @@ struct BoardDetailView: View {
 
     // MARK: - Grid View
 
+    @ViewBuilder
+    private func boardGridCard(_ item: Item, canReorder: Bool) -> some View {
+        ItemCardView(item: item, showTags: false, onReadInApp: {
+            openedItem = item
+            selectedItem = item
+        })
+        .clipped()
+        .opacity(canReorder && draggingItemID == item.id ? 0.4 : 1)
+        .onTapGesture(count: 2) {
+            openedItem = item
+            selectedItem = item
+        }
+        .onTapGesture(count: 1) {
+            selectedItem = item
+        }
+        .selectedItemStyle(selectedItem?.id == item.id)
+        .contextMenu { itemContextMenu(for: item) }
+        .onDrag {
+            guard canReorder else { return NSItemProvider() }
+            draggingItemID = item.id
+            return NSItemProvider(object: item.id.uuidString as NSString)
+        }
+        .onDrop(of: [.text], delegate: BoardGridDropDelegate(
+            targetItemID: item.id,
+            draggingItemID: $draggingItemID,
+            isEnabled: canReorder,
+            onReorder: moveGridItem
+        ))
+    }
+
     private var gridView: some View {
         let canReorder = sortOption == .manual && !board.isSmart
         return ScrollView {
             LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 200, maximum: 420), spacing: Spacing.lg)],
+                columns: [GridItem(.adaptive(minimum: 220, maximum: 420), spacing: Spacing.lg)],
                 spacing: Spacing.lg
             ) {
                 ForEach(sortedFilteredItems) { item in
-                    ItemCardView(item: item, showTags: false, onReadInApp: {
-                        openedItem = item
-                        selectedItem = item
-                    })
-                    .opacity(canReorder && draggingItemID == item.id ? 0.4 : 1)
-                    .onTapGesture(count: 2) {
-                        openedItem = item
-                        selectedItem = item
-                    }
-                    .onTapGesture(count: 1) {
-                        selectedItem = item
-                    }
-                    .selectedItemStyle(selectedItem?.id == item.id)
-                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                    .contextMenu { itemContextMenu(for: item) }
-                    .onDrag {
-                        guard canReorder else { return NSItemProvider() }
-                        draggingItemID = item.id
-                        return NSItemProvider(object: item.id.uuidString as NSString)
-                    }
-                    .onDrop(of: [.text], delegate: BoardGridDropDelegate(
-                        targetItemID: item.id,
-                        draggingItemID: $draggingItemID,
-                        isEnabled: canReorder,
-                        onReorder: moveGridItem
-                    ))
+                    boardGridCard(item, canReorder: canReorder)
                 }
             }
-            .frame(maxWidth: .infinity)
-            .animation(.easeInOut(duration: 0.2), value: sortedFilteredItems.map(\.id))
             .padding(Spacing.lg)
         }
-        .frame(maxWidth: .infinity)
     }
 
     // MARK: - List View
@@ -698,17 +700,20 @@ struct BoardDetailView: View {
                 guard let url = url else { return }
                 let path = url.path
                 guard ItemViewModel.isSupportedVideoFile(path) else { return }
-                nonisolated(unsafe) let context = modelContext
-                nonisolated(unsafe) let boardRef = board
                 Task { @MainActor in
-                    let viewModel = ItemViewModel(modelContext: context)
-                    let item = viewModel.createVideoItem(filePath: path, board: boardRef.isSmart ? nil : boardRef)
-                    selectedItem = item
+                    importDroppedVideo(at: path)
                 }
             }
             handled = true
         }
         return handled
+    }
+
+    @MainActor
+    private func importDroppedVideo(at path: String) {
+        let viewModel = ItemViewModel(modelContext: modelContext)
+        let item = viewModel.createVideoItem(filePath: path, board: board.isSmart ? nil : board)
+        selectedItem = item
     }
 
     // MARK: - Item Context Menu

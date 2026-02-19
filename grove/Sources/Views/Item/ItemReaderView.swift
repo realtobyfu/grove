@@ -1147,7 +1147,8 @@ struct ItemReaderView: View {
             showReflectionEditor = true
         }
         NotificationCenter.default.post(name: .groveEnterFocusMode, object: nil)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(150))
             isNewReflectionFocused = true
         }
     }
@@ -1160,7 +1161,8 @@ struct ItemReaderView: View {
             showReflectionEditor = true
         }
         NotificationCenter.default.post(name: .groveEnterFocusMode, object: nil)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(150))
             isNewReflectionFocused = true
         }
     }

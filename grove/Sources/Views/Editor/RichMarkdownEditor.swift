@@ -23,7 +23,7 @@ struct RichMarkdownEditor: View {
         allItems.filter { candidate in
             if let sourceItem, candidate.id == sourceItem.id { return false }
             if wikiSearchText.isEmpty { return true }
-            return candidate.title.localizedCaseInsensitiveContains(wikiSearchText)
+            return candidate.title.localizedStandardContains(wikiSearchText)
         }.prefix(10).map { $0 }
     }
 
@@ -175,18 +175,33 @@ struct RichMarkdownEditor: View {
 
     // MARK: - Toolbar Actions
 
+    private func withFocusedEditor(_ action: (HighlightingTextView) -> Void, fallback: () -> Void) {
+        if let focusedEditor = HighlightingTextView.focusedEditor {
+            action(focusedEditor)
+        } else {
+            fallback()
+        }
+    }
+
     private func wrapSelection(prefix: String, suffix: String) {
-        // Insert around cursor/selection — append to text if no selection info
-        text += prefix + suffix
+        withFocusedEditor(
+            { $0.wrapSelectionWith(prefix: prefix, suffix: suffix) },
+            fallback: { text += prefix + suffix }
+        )
     }
 
     private func insertPrefix(_ prefix: String) {
-        // Insert at beginning of current line or at cursor
-        text += "\n" + prefix
+        withFocusedEditor(
+            { $0.insertPrefixAtCurrentLine(prefix) },
+            fallback: { text += "\n" + prefix }
+        )
     }
 
     private func insertText(_ insertion: String, cursorOffset: Int) {
-        text += insertion
+        withFocusedEditor(
+            { $0.insertTextAtSelection(insertion, cursorOffset: cursorOffset) },
+            fallback: { text += insertion }
+        )
     }
 
     // MARK: - Wiki Link Dropdown
@@ -260,8 +275,9 @@ struct RichMarkdownEditor: View {
     }
 
     private func insertWikiLink(for target: Item) {
-        // Replace the partial [[search with [[Item Title]]
-        if let range = text.range(of: "[[", options: .backwards) {
+        if let focusedEditor = HighlightingTextView.focusedEditor {
+            focusedEditor.replaceActiveWikiQuery(with: target.title)
+        } else if let range = text.range(of: "[[", options: .backwards) {
             let before = text[text.startIndex..<range.lowerBound]
             text = before + "[[" + target.title + "]]"
         }
@@ -338,6 +354,10 @@ struct MarkdownNSTextView: NSViewRepresentable {
 
         textView.font = defaultFont
         textView.typingAttributes = typingAttrs
+        if #available(macOS 15.0, *) {
+            textView.writingToolsBehavior = .limited
+            textView.allowedWritingToolsResultOptions = [.plainText, .list]
+        }
 
         textView.delegate = context.coordinator
         context.coordinator.textView = textView
@@ -364,6 +384,7 @@ struct MarkdownNSTextView: NSViewRepresentable {
 
     // MARK: - Coordinator
 
+    @MainActor
     class Coordinator: NSObject, NSTextViewDelegate {
         var parent: MarkdownNSTextView
         weak var textView: HighlightingTextView?
@@ -386,29 +407,31 @@ struct MarkdownNSTextView: NSViewRepresentable {
 
         private func detectWikiLink(in textView: NSTextView) {
             let text = textView.string
+            let nsText = text as NSString
+            let safeCursorLocation = min(max(0, textView.selectedRange().location), nsText.length)
+            let prefix = nsText.substring(to: safeCursorLocation)
+            let prefixNSString = prefix as NSString
 
-            // Find the last [[ without a closing ]]
-            guard let openRange = text.range(of: "[[", options: .backwards) else {
+            let openRange = prefixNSString.range(of: "[[", options: .backwards)
+            guard openRange.location != NSNotFound else {
                 parent.onWikiTrigger?(nil)
                 return
             }
 
-            let afterBrackets = text[openRange.upperBound...]
-
-            // If we find ]], the link is closed
-            if afterBrackets.contains("]]") {
+            let queryStart = openRange.location + openRange.length
+            guard queryStart <= prefixNSString.length else {
                 parent.onWikiTrigger?(nil)
                 return
             }
 
-            // Check cursor is after the [[
-            let cursorLocation = textView.selectedRange().location
-            let openLocation = text.distance(from: text.startIndex, to: openRange.lowerBound)
-            if cursorLocation > openLocation {
-                parent.onWikiTrigger?(String(afterBrackets))
-            } else {
+            let query = prefixNSString.substring(from: queryStart)
+
+            if query.contains("]]") || query.contains("\n") {
                 parent.onWikiTrigger?(nil)
+                return
             }
+
+            parent.onWikiTrigger?(query)
         }
 
         // MARK: - Syntax Highlighting
@@ -578,6 +601,23 @@ struct MarkdownNSTextView: NSViewRepresentable {
 
 /// Custom NSTextView subclass that handles formatting keyboard shortcuts.
 class HighlightingTextView: NSTextView {
+    static weak var focusedEditor: HighlightingTextView?
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted {
+            Self.focusedEditor = self
+        }
+        return accepted
+    }
+
+    override func resignFirstResponder() -> Bool {
+        if Self.focusedEditor === self {
+            Self.focusedEditor = nil
+        }
+        return super.resignFirstResponder()
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.modifierFlags.contains(.command) else {
             return super.performKeyEquivalent(with: event)
@@ -601,7 +641,7 @@ class HighlightingTextView: NSTextView {
         }
     }
 
-    private func wrapSelectionWith(prefix: String, suffix: String) {
+    func wrapSelectionWith(prefix: String, suffix: String) {
         let selectedRange = self.selectedRange()
         guard let textStorage = self.textStorage else { return }
 
@@ -627,6 +667,66 @@ class HighlightingTextView: NSTextView {
                 let newStart = selectedRange.location + prefix.count
                 setSelectedRange(NSRange(location: newStart, length: selectedText.count))
             }
+        }
+    }
+
+    func insertTextAtSelection(_ insertion: String, cursorOffset: Int = 0) {
+        let selectedRange = selectedRange()
+        guard let textStorage = textStorage else { return }
+        let insertedLength = (insertion as NSString).length
+
+        if shouldChangeText(in: selectedRange, replacementString: insertion) {
+            textStorage.replaceCharacters(in: selectedRange, with: insertion)
+            didChangeText()
+            let minCursor = selectedRange.location
+            let maxCursor = selectedRange.location + insertedLength
+            let proposed = maxCursor + cursorOffset
+            let clamped = min(max(proposed, minCursor), maxCursor)
+            setSelectedRange(NSRange(location: clamped, length: 0))
+        }
+    }
+
+    func insertPrefixAtCurrentLine(_ prefix: String) {
+        let selectedRange = selectedRange()
+        let nsText = string as NSString
+        let lineRange = nsText.lineRange(for: NSRange(location: selectedRange.location, length: 0))
+        let insertionRange = NSRange(location: lineRange.location, length: 0)
+        guard let textStorage = textStorage else { return }
+        let prefixLength = (prefix as NSString).length
+
+        if shouldChangeText(in: insertionRange, replacementString: prefix) {
+            textStorage.replaceCharacters(in: insertionRange, with: prefix)
+            didChangeText()
+            let shiftedCursor = selectedRange.location + prefixLength
+            setSelectedRange(NSRange(location: shiftedCursor, length: selectedRange.length))
+        }
+    }
+
+    func replaceActiveWikiQuery(with title: String) {
+        let selectedRange = selectedRange()
+        guard selectedRange.length == 0 else { return }
+
+        let nsText = string as NSString
+        let safeCursor = min(selectedRange.location, nsText.length)
+        let prefix = nsText.substring(to: safeCursor)
+        let prefixNSString = prefix as NSString
+        let openRange = prefixNSString.range(of: "[[", options: .backwards)
+        guard openRange.location != NSNotFound else { return }
+
+        let queryStart = openRange.location + openRange.length
+        let query = prefixNSString.substring(from: queryStart)
+        guard !query.contains("]]"), !query.contains("\n") else { return }
+
+        let replacementRange = NSRange(location: openRange.location, length: safeCursor - openRange.location)
+        let replacement = "[[\(title)]]"
+        guard let textStorage = textStorage else { return }
+        let replacementLength = (replacement as NSString).length
+
+        if shouldChangeText(in: replacementRange, replacementString: replacement) {
+            textStorage.replaceCharacters(in: replacementRange, with: replacement)
+            didChangeText()
+            let cursor = replacementRange.location + replacementLength
+            setSelectedRange(NSRange(location: cursor, length: 0))
         }
     }
 }

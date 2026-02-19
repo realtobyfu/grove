@@ -156,7 +156,8 @@ final class DialecticsService: DialecticsServiceProtocol {
         for _ in 0..<Self.maxToolRounds {
             guard let result = await provider.completeChat(messages: currentTurns, service: "dialectics") else {
                 if let groqProvider = provider as? GroqProvider {
-                    lastError = groqProvider.lastError?.userMessage
+                    let providerError = await groqProvider.lastError
+                    lastError = providerError?.userMessage
                 }
                 break
             }
@@ -209,7 +210,8 @@ final class DialecticsService: DialecticsServiceProtocol {
             let fallbackResult = await provider.completeChat(messages: currentTurns, service: "dialectics")
             assistantContent = fallbackResult?.content.trimmingCharacters(in: .whitespacesAndNewlines)
             if assistantContent == nil, let groqProvider = provider as? GroqProvider {
-                lastError = groqProvider.lastError?.userMessage
+                let providerError = await groqProvider.lastError
+                lastError = providerError?.userMessage
             }
         }
 

@@ -824,7 +824,8 @@ private struct SaveReflectionSheet: View {
         )
         saved = true
         // Dismiss after a brief moment so the user sees the confirmation
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(600))
             onDismiss()
         }
     }
@@ -925,7 +926,8 @@ private struct SaveNoteSheet: View {
             context: modelContext
         )
         saved = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(600))
             onDismiss()
         }
     }

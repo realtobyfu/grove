@@ -150,7 +150,7 @@ struct GraphSceneView: NSViewRepresentable {
         skView.ignoresSiblingOrder = true
         if let scene {
             // Defer to avoid presenting scene during layout pass
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 skView.presentScene(scene)
             }
         }
@@ -160,7 +160,7 @@ struct GraphSceneView: NSViewRepresentable {
     func updateNSView(_ skView: SKView, context: Context) {
         if let scene, skView.scene !== scene {
             // Defer to avoid re-entrant layout from SpriteKit's presentScene
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 skView.presentScene(scene)
             }
         }

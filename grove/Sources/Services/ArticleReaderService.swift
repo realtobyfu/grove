@@ -12,7 +12,7 @@ protocol ArticleReaderServiceProtocol {
 
 // MARK: - Article Reader Service
 
-final class ArticleReaderService: ArticleReaderServiceProtocol, @unchecked Sendable {
+final class ArticleReaderService: ArticleReaderServiceProtocol, Sendable {
     static let shared = ArticleReaderService()
 
     private init() {}

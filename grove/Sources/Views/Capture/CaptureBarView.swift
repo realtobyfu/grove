@@ -252,7 +252,8 @@ struct CaptureBarView: View {
         withAnimation(.easeIn(duration: 0.15)) {
             showConfirmation = true
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1))
             withAnimation(.easeOut(duration: 0.3)) {
                 showConfirmation = false
             }
@@ -525,7 +526,8 @@ struct CaptureBarOverlayView: View {
         withAnimation(.easeIn(duration: 0.15)) {
             showConfirmation = true
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(800))
             withAnimation(.easeOut(duration: 0.2)) {
                 showConfirmation = false
                 if !showBoardSuggestion {

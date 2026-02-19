@@ -6,6 +6,7 @@ struct InboxCard: View {
     let isSelected: Bool
     let onKeep: () -> Void
     let onDrop: () -> Void
+    var onQueue: ((ReadLaterPreset) -> Void)?
     var onConfirmTag: ((Tag) -> Void)?
     var onDismissTag: ((Tag) -> Void)?
 
@@ -146,6 +147,23 @@ struct InboxCard: View {
                 .tint(Color.textPrimary)
                 .controlSize(.small)
                 .help("Shortcut: 1")
+
+                Menu {
+                    ForEach(ReadLaterPreset.allCases) { preset in
+                        Button {
+                            onQueue?(preset)
+                        } label: {
+                            Text(preset.label)
+                        }
+                    }
+                } label: {
+                    Label("Later", systemImage: "clock")
+                        .font(.groveBodyMedium)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(onQueue == nil)
+                .help("Shortcut: 3 queues until tomorrow morning")
 
                 Button {
                     onDrop()

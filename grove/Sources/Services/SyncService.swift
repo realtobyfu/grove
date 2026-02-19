@@ -93,7 +93,7 @@ final class SyncService {
 
 /// UserDefaults-backed sync configuration.
 struct SyncSettings: Sendable {
-    private static nonisolated(unsafe) let defaults = UserDefaults.standard
+    private static var defaults: UserDefaults { UserDefaults.standard }
 
     private enum Key: String {
         case syncEnabled = "grove.sync.enabled"

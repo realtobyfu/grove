@@ -2,7 +2,7 @@ import Foundation
 
 /// Global appearance settings stored in UserDefaults.
 struct AppearanceSettings: Sendable {
-    private static nonisolated(unsafe) let defaults = UserDefaults.standard
+    private static var defaults: UserDefaults { UserDefaults.standard }
 
     private enum Key: String {
         case monochromeCoverImages = "grove.appearance.monochromeCoverImages"

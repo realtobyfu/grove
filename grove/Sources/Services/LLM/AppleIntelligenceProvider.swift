@@ -8,7 +8,7 @@ import FoundationModels
 /// All calls are async, non-blocking, and failure-tolerant — returns nil on any error.
 /// On macOS < 26, all calls return nil (graceful degradation).
 @available(macOS 26, *)
-final class AppleIntelligenceProvider: LLMProvider, @unchecked Sendable {
+final class AppleIntelligenceProvider: LLMProvider, Sendable {
 
     /// Check whether the on-device model is available on this machine.
     static var isAvailable: Bool {
@@ -40,7 +40,7 @@ final class AppleIntelligenceProvider: LLMProvider, @unchecked Sendable {
             let outputTokens = content.count / 4
 
             if let serviceName {
-                Task { @MainActor in
+                await MainActor.run {
                     TokenTracker.shared.record(
                         service: serviceName,
                         inputTokens: inputTokens,
@@ -89,7 +89,7 @@ final class AppleIntelligenceProvider: LLMProvider, @unchecked Sendable {
             let inputTokens = totalInputChars / 4
             let outputTokens = content.count / 4
 
-            Task { @MainActor in
+            await MainActor.run {
                 TokenTracker.shared.record(
                     service: service,
                     inputTokens: inputTokens,

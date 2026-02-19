@@ -3,7 +3,7 @@ import Foundation
 /// LLM provider that calls the Groq API (OpenAI-compatible format).
 /// Uses moonshotai/kimi-k2-instruct by default.
 /// All calls are async, non-blocking, and failure-tolerant — returns nil on any error.
-final class GroqProvider: LLMProvider, @unchecked Sendable {
+actor GroqProvider: LLMProvider {
     private let session: URLSession
     private let maxRetries = 3
     private(set) var lastError: LLMError?
@@ -79,7 +79,7 @@ final class GroqProvider: LLMProvider, @unchecked Sendable {
                     return nil
                 }
 
-                return parseResponse(data, serviceName: serviceName)
+                return await parseResponse(data, serviceName: serviceName)
             } catch {
                 // Network error — retry
                 continue
@@ -143,7 +143,7 @@ final class GroqProvider: LLMProvider, @unchecked Sendable {
                     lastError = .serverError(statusCode: httpResponse.statusCode)
                     return nil
                 }
-                return parseResponse(data, serviceName: service)
+                return await parseResponse(data, serviceName: service)
             } catch {
                 continue
             }
@@ -155,7 +155,7 @@ final class GroqProvider: LLMProvider, @unchecked Sendable {
 
     // MARK: - Response Parsing
 
-    private func parseResponse(_ data: Data, serviceName: String?) -> LLMCompletionResult? {
+    private func parseResponse(_ data: Data, serviceName: String?) async -> LLMCompletionResult? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let choices = json["choices"] as? [[String: Any]],
               let first = choices.first,
@@ -173,7 +173,7 @@ final class GroqProvider: LLMProvider, @unchecked Sendable {
 
         // Record to TokenTracker (per-service tracking) if service name provided
         if let serviceName = serviceName {
-            Task { @MainActor in
+            await MainActor.run {
                 TokenTracker.shared.record(
                     service: serviceName,
                     inputTokens: inputTokens,
@@ -183,7 +183,9 @@ final class GroqProvider: LLMProvider, @unchecked Sendable {
             }
         } else {
             // Legacy: just update global counters
-            LLMServiceConfig.recordUsage(inputTokens: inputTokens, outputTokens: outputTokens)
+            await MainActor.run {
+                LLMServiceConfig.recordUsage(inputTokens: inputTokens, outputTokens: outputTokens)
+            }
         }
 
         return LLMCompletionResult(

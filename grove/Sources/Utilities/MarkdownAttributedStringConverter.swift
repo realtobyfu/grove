@@ -196,33 +196,7 @@ struct MarkdownAttributedStringConverter {
 
     /// Serialize an AttributedString back to markdown.
     func markdown(from attributedString: AttributedString) -> String {
-        let fullText = String(attributedString.characters)
-        guard !fullText.isEmpty else { return "" }
-
-        // Split into lines, process each line's attribute runs
-        var lines: [String] = []
-        var currentLineStart = attributedString.startIndex
-        var currentPos = attributedString.startIndex
-
-        // Walk through characters to find newlines
-        for ch in attributedString.characters {
-            let nextPos = attributedString.characters.index(after: currentPos)
-            if ch == "\n" {
-                // Process the line from currentLineStart to currentPos (excluding newline)
-                let lineStr = serializeLine(attributedString, from: currentLineStart, to: currentPos)
-                lines.append(lineStr)
-                currentLineStart = nextPos
-            }
-            currentPos = nextPos
-        }
-
-        // Handle last line if no trailing newline
-        if currentLineStart < attributedString.endIndex {
-            let lineStr = serializeLine(attributedString, from: currentLineStart, to: attributedString.endIndex)
-            lines.append(lineStr)
-        }
-
-        return lines.joined(separator: "\n")
+        String(attributedString.characters)
     }
 
     // MARK: - Line Serialization

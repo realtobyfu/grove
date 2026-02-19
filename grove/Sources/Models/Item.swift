@@ -82,6 +82,7 @@ enum ItemType: String, Codable {
 
 enum ItemStatus: String, Codable {
     case inbox
+    case queued
     case active
     case archived
     case dismissed
@@ -100,6 +101,9 @@ final class Item {
     var metadata: [String: String]
     var createdAt: Date
     var updatedAt: Date
+
+    // Inbox defer queue ("Read Later")
+    var readLaterUntil: Date?
 
     // Spaced resurfacing fields
     var lastResurfacedAt: Date?
@@ -124,7 +128,7 @@ final class Item {
         var score = 0
 
         // opened: item moved out of inbox = 5pts
-        if status != .inbox {
+        if status != .inbox && status != .queued {
             score += 5
         }
 
@@ -165,7 +169,7 @@ final class Item {
     var scoreBreakdown: [(label: String, points: Int)] {
         var breakdown: [(label: String, points: Int)] = []
 
-        if status != .inbox {
+        if status != .inbox && status != .queued {
             breakdown.append(("Opened", 5))
         }
 
@@ -203,6 +207,12 @@ final class Item {
         !reflections.isEmpty || !outgoingConnections.isEmpty || !incomingConnections.isEmpty
     }
 
+    /// Whether this item is deferred from inbox triage until a future date.
+    var isQueuedForReadLater: Bool {
+        guard status == .queued, let until = readLaterUntil else { return false }
+        return until > .now
+    }
+
     /// Next resurfacing date based on lastResurfacedAt + interval, or lastEngagedAt + interval.
     var nextResurfaceDate: Date? {
         guard isResurfacingEligible, !isResurfacingPaused, status == .active else { return nil }
@@ -228,6 +238,7 @@ final class Item {
         self.metadata = [:]
         self.createdAt = .now
         self.updatedAt = .now
+        self.readLaterUntil = nil
         self.lastResurfacedAt = nil
         self.resurfaceIntervalDays = 7
         self.resurfaceCount = 0

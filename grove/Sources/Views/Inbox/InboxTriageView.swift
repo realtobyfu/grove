@@ -16,8 +16,18 @@ struct InboxTriageView: View {
     @State private var boardPickerRecommendedBoardID: UUID? = nil
     @State private var boardPickerAlternativeBoardIDs: [UUID] = []
 
+    private var readLaterService: ReadLaterService {
+        ReadLaterService(modelContext: modelContext)
+    }
+
     private var inboxItems: [Item] {
         allItems.filter { $0.status == .inbox }
+    }
+
+    private var queuedItems: [Item] {
+        allItems
+            .filter { $0.status == .queued && $0.isQueuedForReadLater }
+            .sorted { ($0.readLaterUntil ?? .distantFuture) < ($1.readLaterUntil ?? .distantFuture) }
     }
 
     var body: some View {
@@ -66,6 +76,15 @@ struct InboxTriageView: View {
                 resetBoardPickerState()
             }
         }
+        .onAppear {
+            restoreDueQueuedItems()
+        }
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+                restoreDueQueuedItems()
+            }
+        }
     }
 
     // MARK: - Inbox List
@@ -73,24 +92,31 @@ struct InboxTriageView: View {
     private var inboxList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 8) {
-                    ForEach(Array(inboxItems.enumerated()), id: \.element.id) { index, item in
-                        InboxCard(
-                            item: item,
-                            isSelected: index == focusedIndex,
-                            onKeep: { keepItem(item) },
-                            onDrop: { dropItem(item) },
-                            onConfirmTag: { tag in confirmTag(tag) },
-                            onDismissTag: { tag in dismissTag(tag, from: item) }
-                        )
-                        .id(item.id)
-                        .transition(.asymmetric(
-                            insertion: .opacity.combined(with: .scale(scale: 0.95)),
-                            removal: .opacity.combined(with: .move(edge: .trailing))
-                        ))
-                        .onTapGesture {
-                            focusedIndex = index
-                            selectedItem = item
+                VStack(spacing: 8) {
+                    if !queuedItems.isEmpty {
+                        queuedSummaryBanner
+                    }
+
+                    LazyVStack(spacing: 8) {
+                        ForEach(Array(inboxItems.enumerated()), id: \.element.id) { index, item in
+                            InboxCard(
+                                item: item,
+                                isSelected: index == focusedIndex,
+                                onKeep: { keepItem(item) },
+                                onDrop: { dropItem(item) },
+                                onQueue: { preset in queueItem(item, preset: preset) },
+                                onConfirmTag: { tag in confirmTag(tag) },
+                                onDismissTag: { tag in dismissTag(tag, from: item) }
+                            )
+                            .id(item.id)
+                            .transition(.asymmetric(
+                                insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                                removal: .opacity.combined(with: .move(edge: .trailing))
+                            ))
+                            .onTapGesture {
+                                focusedIndex = index
+                                selectedItem = item
+                            }
                         }
                     }
                 }
@@ -119,6 +145,10 @@ struct InboxTriageView: View {
     private var embeddedInboxList: some View {
         let visibleItems = Array(inboxItems.prefix(8))
         return VStack(spacing: 8) {
+            if !queuedItems.isEmpty {
+                queuedSummaryBanner
+            }
+
             LazyVGrid(
                 columns: [GridItem(.adaptive(minimum: 300, maximum: 600), spacing: 12)],
                 spacing: 12
@@ -129,6 +159,7 @@ struct InboxTriageView: View {
                         isSelected: index == focusedIndex,
                         onKeep: { keepItem(item) },
                         onDrop: { dropItem(item) },
+                        onQueue: { preset in queueItem(item, preset: preset) },
                         onConfirmTag: { tag in confirmTag(tag) },
                         onDismissTag: { tag in dismissTag(tag, from: item) }
                     )
@@ -164,10 +195,10 @@ struct InboxTriageView: View {
 
     private var embeddedEmptyState: some View {
         HStack(spacing: Spacing.sm) {
-            Image(systemName: "checkmark.circle")
+            Image(systemName: queuedItems.isEmpty ? "checkmark.circle" : "clock.badge")
                 .font(.groveBody)
                 .foregroundStyle(Color.textTertiary)
-            Text("All caught up — inbox is clear.")
+            Text(queuedItems.isEmpty ? "All caught up — inbox is clear." : queuedSummaryText)
                 .font(.groveBody)
                 .foregroundStyle(Color.textTertiary)
         }
@@ -177,13 +208,16 @@ struct InboxTriageView: View {
 
     private var emptyState: some View {
         VStack(spacing: 16) {
-            Image(systemName: "tray")
+            Image(systemName: queuedItems.isEmpty ? "tray" : "clock.badge")
                 .font(.system(size: 48))
                 .foregroundStyle(Color.textSecondary)
-            Text("Inbox Clear")
+            Text(queuedItems.isEmpty ? "Inbox Clear" : "Inbox Clear For Now")
                 .font(.groveTitleLarge)
                 .fontWeight(.semibold)
-            Text("Nice work! No items waiting for triage.\nCapture something with ⌘+Shift+K to get started.")
+            Text(queuedItems.isEmpty
+                ? "Nice work! No items waiting for triage.\nCapture something with ⌘+Shift+K to get started."
+                : queuedSummaryText
+            )
                 .font(.groveBody)
                 .foregroundStyle(Color.textSecondary)
                 .multilineTextAlignment(.center)
@@ -219,6 +253,12 @@ struct InboxTriageView: View {
                 .opacity(0)
                 .frame(width: 0, height: 0)
 
+            // 3 — Queue until tomorrow morning
+            Button("") { performAction(.later) }
+                .keyboardShortcut("3", modifiers: [])
+                .opacity(0)
+                .frame(width: 0, height: 0)
+
             // Enter — Open selected item
             Button("") {
                 let items = inboxItems
@@ -234,7 +274,7 @@ struct InboxTriageView: View {
     // MARK: - Actions
 
     private enum TriageAction {
-        case keep, drop
+        case keep, later, drop
     }
 
     private func performAction(_ action: TriageAction) {
@@ -245,6 +285,8 @@ struct InboxTriageView: View {
         switch action {
         case .keep:
             keepItem(item)
+        case .later:
+            queueItem(item, preset: .tomorrowMorning)
         case .drop:
             dropItem(item)
         }
@@ -289,6 +331,13 @@ struct InboxTriageView: View {
             try? modelContext.save()
         }
 
+        adjustFocusAfterRemoval()
+    }
+
+    private func queueItem(_ item: Item, preset: ReadLaterPreset) {
+        withAnimation(.easeOut(duration: 0.25)) {
+            readLaterService.queue(item, for: preset)
+        }
         adjustFocusAfterRemoval()
     }
 
@@ -364,6 +413,40 @@ struct InboxTriageView: View {
         }
     }
 
+    private var queuedSummaryText: String {
+        let count = queuedItems.count
+        guard count > 0 else { return "" }
+        if let next = queuedItems.first?.readLaterUntil {
+            return "\(count) queued for later, next returns \(next.formatted(date: .abbreviated, time: .shortened))"
+        }
+        return "\(count) queued for later"
+    }
+
+    private var queuedSummaryBanner: some View {
+        HStack(spacing: Spacing.sm) {
+            Image(systemName: "clock.badge")
+                .font(.groveMeta)
+                .foregroundStyle(Color.textSecondary)
+            Text(queuedSummaryText)
+                .font(.groveMeta)
+                .foregroundStyle(Color.textSecondary)
+                .lineLimit(1)
+            Spacer()
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.xs)
+        .background(Color.bgCard)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Color.borderPrimary, lineWidth: 1)
+        )
+    }
+
+    private func restoreDueQueuedItems() {
+        _ = readLaterService.restoreDueItems()
+    }
+
     // MARK: - Video Drag-and-Drop
 
     private func handleVideoDrop(providers: [NSItemProvider]) -> Bool {
@@ -373,14 +456,18 @@ struct InboxTriageView: View {
                 guard let url = url else { return }
                 let path = url.path
                 guard ItemViewModel.isSupportedVideoFile(path) else { return }
-                nonisolated(unsafe) let context = modelContext
                 Task { @MainActor in
-                    let viewModel = ItemViewModel(modelContext: context)
-                    _ = viewModel.createVideoItem(filePath: path)
+                    importDroppedVideo(at: path)
                 }
             }
             handled = true
         }
         return handled
+    }
+
+    @MainActor
+    private func importDroppedVideo(at path: String) {
+        let viewModel = ItemViewModel(modelContext: modelContext)
+        _ = viewModel.createVideoItem(filePath: path)
     }
 }

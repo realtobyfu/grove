@@ -9,36 +9,51 @@ import SwiftData
 @Observable
 final class NudgeEngine {
     private var modelContext: ModelContext
-    private var timer: Timer?
+    private var nudgeTimer: Timer?
+    private var readLaterTimer: Timer?
     private(set) var resurfacingService: ResurfacingService
+    private(set) var readLaterService: ReadLaterService
 
     init(modelContext: ModelContext) {
         self.modelContext = modelContext
         self.resurfacingService = ResurfacingService(modelContext: modelContext)
+        self.readLaterService = ReadLaterService(modelContext: modelContext)
     }
 
     // MARK: - Scheduling
 
     /// Start periodic nudge generation. Call once on app launch.
     func startSchedule() {
+        processReadLaterQueue()
         generateNudges()
         let intervalSeconds = TimeInterval(NudgeSettings.scheduleIntervalHours) * 3600
-        timer = Timer.scheduledTimer(withTimeInterval: intervalSeconds, repeats: true) { [weak self] _ in
+        nudgeTimer = Timer.scheduledTimer(withTimeInterval: intervalSeconds, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.generateNudges()
+            }
+        }
+
+        // Read-later queue checks run independently so deferred inbox items return on time.
+        readLaterTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.processReadLaterQueue()
             }
         }
     }
 
     func stopSchedule() {
-        timer?.invalidate()
-        timer = nil
+        nudgeTimer?.invalidate()
+        nudgeTimer = nil
+        readLaterTimer?.invalidate()
+        readLaterTimer = nil
     }
 
     /// Generate active nudge types: spaced resurfacing and stale inbox.
     /// Streak, continue-course, connection-prompt, smart, and check-in nudges are removed —
     /// their role is now served by ConversationStarterService prompt bubbles on the home screen.
     func generateNudges() {
+        processReadLaterQueue()
+
         // Reset stale resurfacing intervals (60+ days no engagement → back to 7 days)
         resurfacingService.resetStaleIntervals()
 
@@ -54,6 +69,10 @@ final class NudgeEngine {
         if NudgeSettings.staleInboxEnabled {
             generateStaleInboxNudge()
         }
+    }
+
+    private func processReadLaterQueue() {
+        _ = readLaterService.restoreDueItems()
     }
 
     // MARK: - Daily Limit Helpers
