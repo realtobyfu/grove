@@ -487,7 +487,7 @@ struct BoardDetailView: View {
         let canReorder = sortOption == .manual && !board.isSmart
         return ScrollView {
             LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 200, maximum: 300), spacing: Spacing.lg)],
+                columns: [GridItem(.adaptive(minimum: 200, maximum: 420), spacing: Spacing.lg)],
                 spacing: Spacing.lg
             ) {
                 ForEach(sortedFilteredItems) { item in
@@ -519,9 +519,11 @@ struct BoardDetailView: View {
                     ))
                 }
             }
+            .frame(maxWidth: .infinity)
             .animation(.easeInOut(duration: 0.2), value: sortedFilteredItems.map(\.id))
             .padding(Spacing.lg)
         }
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - List View

@@ -458,8 +458,9 @@ struct SuggestedConversationCard: View {
                             Text(title)
                                 .font(.groveBody)
                                 .foregroundStyle(Color.textPrimary)
+                                .lineLimit(2)
+                                .truncationMode(.tail)
                                 .multilineTextAlignment(.leading)
-                                .fixedSize(horizontal: false, vertical: true)
                         }
 
                         if let subtitle {

@@ -91,16 +91,6 @@ struct DialecticalChatPanel: View {
                     .foregroundStyle(Color.textSecondary)
                     .lineLimit(1)
 
-                Button {
-                    archiveConversation(conversation)
-                } label: {
-                    Image(systemName: "archivebox")
-                        .font(.groveBody)
-                        .foregroundStyle(Color.textMuted)
-                }
-                .buttonStyle(.plain)
-                .help("Archive conversation")
-
                 Button(role: .destructive) {
                     conversationToDelete = conversation
                 } label: {
@@ -134,6 +124,25 @@ struct DialecticalChatPanel: View {
             }
             .buttonStyle(.plain)
             .help("New conversation")
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isVisible = false
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.textMuted)
+                    .padding(6)
+                    .background(Color.bgCard)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.borderPrimary, lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+            .help("Close chat")
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
@@ -566,14 +575,6 @@ struct DialecticalChatPanel: View {
                 context: modelContext
             )
         }
-    }
-
-    private func archiveConversation(_ conversation: Conversation) {
-        conversation.isArchived = true
-        if selectedConversation?.id == conversation.id {
-            selectedConversation = nil
-        }
-        try? modelContext.save()
     }
 
     private func deleteConversation(_ conversation: Conversation) {
