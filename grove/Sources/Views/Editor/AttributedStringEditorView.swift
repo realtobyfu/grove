@@ -18,7 +18,6 @@ struct AttributedStringEditorView: View {
     @State private var attributedText: AttributedString = AttributedString()
     @State private var selection = AttributedTextSelection()
     @State private var suppressAttributedUpdates = false
-    @State private var suppressMarkdownUpdates = false
     @State private var serializationTask: Task<Void, Never>?
 
     // Wiki-link autocomplete
@@ -54,7 +53,7 @@ struct AttributedStringEditorView: View {
                 reloadFromMarkdown(markdownText, preserveSelection: false)
             }
             .onChange(of: markdownText) { _, newValue in
-                guard !suppressMarkdownUpdates else { return }
+                guard newValue != plainText else { return }
                 reloadFromMarkdown(newValue, preserveSelection: true)
             }
             .onChange(of: attributedText) { _, _ in
@@ -62,6 +61,7 @@ struct AttributedStringEditorView: View {
                 detectWikiLink()
                 scheduleSerializeToMarkdown()
             }
+            .animation(nil, value: showWikiPopover)
             .onDisappear {
                 serializationTask?.cancel()
             }
@@ -128,7 +128,7 @@ struct AttributedStringEditorView: View {
                     .padding(.horizontal, 40)
             }
 
-            proseCommandBar
+            proseToolbar
                 .padding(.horizontal, 40)
                 .padding(.vertical, 10)
         }
@@ -139,7 +139,10 @@ struct AttributedStringEditorView: View {
             .font(formatting.bodyFont)
             .textEditorStyle(.plain)
             .writingToolsBehavior(.limited)
-            .writingToolsAffordanceVisibility(.automatic)
+            .writingToolsAffordanceVisibility(.hidden)
+            .onKeyPress(phases: [.down]) { keyPress in
+                handleKeyPress(keyPress)
+            }
     }
 
     // MARK: - Sync
@@ -151,9 +154,7 @@ struct AttributedStringEditorView: View {
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled else { return }
             guard markdownText != latest else { return }
-            suppressMarkdownUpdates = true
             markdownText = latest
-            suppressMarkdownUpdates = false
         }
     }
 
@@ -182,11 +183,9 @@ struct AttributedStringEditorView: View {
     private func commitMarkdown(_ markdown: String, selection targetSelection: SelectionOffsets) {
         serializationTask?.cancel()
 
-        suppressMarkdownUpdates = true
         if markdownText != markdown {
             markdownText = markdown
         }
-        suppressMarkdownUpdates = false
 
         reloadFromMarkdown(markdown, preserveSelection: false, preferredSelection: targetSelection)
     }
@@ -234,56 +233,60 @@ struct AttributedStringEditorView: View {
         }
     }
 
-    private var proseCommandBar: some View {
-        HStack(spacing: 18) {
-            proseCommandButton("### Subheading") { setHeading(level: 3) }
-            proseCommandButton("- List") { toggleListItem() }
-            proseCommandButton("> Quote") { toggleBlockQuote() }
-
+    private var proseToolbar: some View {
+        HStack(spacing: 16) {
+            toolbarButton("Bold", icon: "bold", shortcut: "B") { wrapSelection(prefix: "**", suffix: "**") }
+            toolbarButton("Italic", icon: "italic", shortcut: "I") { wrapSelection(prefix: "*", suffix: "*") }
+            toolbarButton("Code", icon: "chevron.left.forwardslash.chevron.right", shortcut: "E") { wrapSelection(prefix: "`", suffix: "`") }
+            toolbarButton("Strikethrough", icon: "strikethrough", shortcut: nil) { wrapSelection(prefix: "~~", suffix: "~~") }
             Menu {
                 Button("# Title") { setHeading(level: 1) }
                 Button("## Heading") { setHeading(level: 2) }
                 Button("### Subheading") { setHeading(level: 3) }
+                Divider()
                 Button("Clear Heading") { setHeading(level: 0) }
-                Divider()
-                Button("Bold") { wrapSelection(prefix: "**", suffix: "**") }
-                Button("Italic") { wrapSelection(prefix: "*", suffix: "*") }
-                Button("Inline Code") { wrapSelection(prefix: "`", suffix: "`") }
-                Button("Strikethrough") { wrapSelection(prefix: "~~", suffix: "~~") }
-                Divider()
-                Button("Link") { insertLink() }
-                Button("Wiki Link") { insertWikiLinkSyntax() }
             } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 14, weight: .semibold))
-                    .frame(width: 34, height: 34)
-                    .background(Color.bgCard)
-                    .clipShape(.rect(cornerRadius: 8, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Color.borderInput, lineWidth: 1)
-                    )
+                Image(systemName: "number")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
             .buttonStyle(.plain)
+            .foregroundStyle(Color.textSecondary)
+            .help("Heading")
+
+            toolbarButton("Quote", icon: "text.quote", shortcut: nil) { toggleBlockQuote() }
+            toolbarButton("List", icon: "list.bullet", shortcut: nil) { toggleListItem() }
+            toolbarButton("Link", icon: "link", shortcut: "K") { insertLink() }
+            toolbarButton("Wiki Link", icon: "link.badge.plus", shortcut: nil) { insertWikiLinkSyntax() }
+            Spacer()
+            Text(wordCountLabel)
+                .font(.groveMeta)
+                .foregroundStyle(Color.textTertiary)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .center)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(
-            Capsule()
-                .stroke(Color.borderInput.opacity(0.45), lineWidth: 1)
-        )
     }
 
-    private func proseCommandButton(_ label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(label)
-                .font(.groveBodyLarge)
-                .foregroundStyle(Color.textSecondary)
+    private func handleKeyPress(_ keyPress: KeyPress) -> KeyPress.Result {
+        let hasFormattingModifier = keyPress.modifiers.contains(.command) || keyPress.modifiers.contains(.control)
+        guard hasFormattingModifier else { return .ignored }
+
+        switch keyPress.characters.lowercased() {
+        case "b":
+            wrapSelection(prefix: "**", suffix: "**")
+            return .handled
+        case "i":
+            wrapSelection(prefix: "*", suffix: "*")
+            return .handled
+        case "e":
+            wrapSelection(prefix: "`", suffix: "`")
+            return .handled
+        case "k":
+            insertLink()
+            return .handled
+        default:
+            return .ignored
         }
-        .buttonStyle(.plain)
     }
 
     private func toolbarButton(_ label: String, icon: String, shortcut: String?, action: @escaping () -> Void) -> some View {

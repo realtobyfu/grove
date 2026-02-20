@@ -28,14 +28,7 @@ struct RichMarkdownEditor: View {
     }
 
     var body: some View {
-        if #available(macOS 26, *) {
-            AttributedStringEditorView(
-                markdownText: $text,
-                sourceItem: sourceItem,
-                proseMode: proseMode,
-                minHeight: minHeight
-            )
-        } else if proseMode {
+        if proseMode {
             VStack(spacing: 0) {
                 MarkdownNSTextView(
                     text: $text,
@@ -117,21 +110,52 @@ struct RichMarkdownEditor: View {
             toolbarButton("Italic", icon: "italic", shortcut: "I") {
                 wrapSelection(prefix: "*", suffix: "*")
             }
-            toolbarButton("Code", icon: "chevron.left.forwardslash.chevron.right", shortcut: "E") {
-                wrapSelection(prefix: "`", suffix: "`")
-            }
             Divider()
                 .frame(height: 16)
                 .padding(.horizontal, 4)
-            toolbarButton("Heading", icon: "number", shortcut: nil) {
-                insertPrefix("# ")
+
+            Menu {
+                Button("# Title") { insertPrefix("# ") }
+                Button("## Heading") { insertPrefix("## ") }
+                Button("### Subheading") { insertPrefix("### ") }
+            } label: {
+                Image(systemName: "number")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
             }
-            toolbarButton("Link", icon: "link", shortcut: "K") {
-                wrapSelection(prefix: "[", suffix: "](url)")
+            .menuStyle(.borderlessButton)
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.textSecondary)
+            .help("Heading")
+
+            toolbarButton("List", icon: "list.bullet", shortcut: nil) {
+                insertPrefix("- ")
             }
-            toolbarButton("Wiki Link", icon: "link.badge.plus", shortcut: nil) {
-                insertText("[[]]", cursorOffset: -2)
+            toolbarButton("Quote", icon: "text.quote", shortcut: nil) {
+                insertPrefix("> ")
             }
+
+            Divider()
+                .frame(height: 16)
+                .padding(.horizontal, 4)
+
+            Menu {
+                Button("Code") { wrapSelection(prefix: "`", suffix: "`") }
+                Button("Link") { wrapSelection(prefix: "[", suffix: "](url)") }
+                Button("Wiki Link") { insertText("[[]]", cursorOffset: -2) }
+                Divider()
+                Button("Strikethrough") { wrapSelection(prefix: "~~", suffix: "~~") }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.textSecondary)
+            .help("More")
             Spacer()
         }
     }
@@ -158,15 +182,44 @@ struct RichMarkdownEditor: View {
             toolbarButton("Italic", icon: "italic", shortcut: "I") {
                 wrapSelection(prefix: "*", suffix: "*")
             }
-            toolbarButton("Code", icon: "chevron.left.forwardslash.chevron.right", shortcut: "E") {
-                wrapSelection(prefix: "`", suffix: "`")
+
+            Menu {
+                Button("# Title") { insertPrefix("# ") }
+                Button("## Heading") { insertPrefix("## ") }
+                Button("### Subheading") { insertPrefix("### ") }
+            } label: {
+                Image(systemName: "number")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
             }
-            toolbarButton("Link", icon: "link", shortcut: "K") {
-                wrapSelection(prefix: "[", suffix: "](url)")
+            .menuStyle(.borderlessButton)
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.textSecondary)
+            .help("Heading")
+
+            toolbarButton("List", icon: "list.bullet", shortcut: nil) {
+                insertPrefix("- ")
             }
-            toolbarButton("Wiki Link", icon: "link.badge.plus", shortcut: nil) {
-                insertText("[[]]", cursorOffset: -2)
+            toolbarButton("Quote", icon: "text.quote", shortcut: nil) {
+                insertPrefix("> ")
             }
+
+            Menu {
+                Button("Code") { wrapSelection(prefix: "`", suffix: "`") }
+                Button("Link") { wrapSelection(prefix: "[", suffix: "](url)") }
+                Button("Wiki Link") { insertText("[[]]", cursorOffset: -2) }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.textSecondary)
+            .help("More")
+
             Spacer()
         }
         .padding(.horizontal, 40)
@@ -440,6 +493,7 @@ struct MarkdownNSTextView: NSViewRepresentable {
             let storage = textView.textStorage!
             let fullRange = NSRange(location: 0, length: storage.length)
             let text = storage.string
+            let cursorLocation = min(max(0, textView.selectedRange().location), (text as NSString).length)
 
             let size = parent.fontSize
             let defaultFont = NSFont(name: "IBMPlexSans-Regular", size: size) ?? NSFont.systemFont(ofSize: size)
@@ -447,6 +501,14 @@ struct MarkdownNSTextView: NSViewRepresentable {
             let boldFont = NSFont(name: "IBMPlexSans-Medium", size: size) ?? NSFont.boldSystemFont(ofSize: size)
             let headingFont = NSFont(name: "Newsreader-Medium", size: round(size * 1.55)) ?? NSFont.systemFont(ofSize: round(size * 1.55), weight: .medium)
             let headingSmallFont = NSFont(name: "Newsreader-Medium", size: round(size * 1.22)) ?? NSFont.systemFont(ofSize: round(size * 1.22), weight: .medium)
+            let headingMidFont = NSFont(name: "Newsreader-Medium", size: round(size * 1.08)) ?? NSFont.systemFont(ofSize: round(size * 1.08), weight: .medium)
+            let quoteFontSize = size + (size >= 17 ? 1.5 : 1)
+            let fallbackQuoteFont = NSFontManager.shared.convert(
+                NSFont.systemFont(ofSize: quoteFontSize),
+                toHaveTrait: .italicFontMask
+            )
+            let quoteFont = NSFont(name: "Newsreader-Italic", size: quoteFontSize) ?? fallbackQuoteFont
+            let quoteColor = NSColor.labelColor.withAlphaComponent(0.92)
 
             let primaryColor = NSColor.labelColor
             let secondaryColor = NSColor.secondaryLabelColor
@@ -474,12 +536,36 @@ struct MarkdownNSTextView: NSViewRepresentable {
             }
             storage.addAttributes(defaultAttrs, range: fullRange)
 
+            let hiddenDelimiterAttrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: NSColor.clear,
+                .font: NSFont.systemFont(ofSize: 0.1)
+            ]
+            let hiddenListPrefixAttrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: NSColor.clear
+            ]
+
+            // Bold + italic: ***text***
+            applyPattern(
+                #"\*\*\*(.+?)\*\*\*"#,
+                in: text, storage: storage,
+                contentAttributes: [
+                    .font: boldFont,
+                    .obliqueness: 0.2 as NSNumber,
+                    .foregroundColor: primaryColor
+                ],
+                delimiterAttributes: [.font: defaultFont, .foregroundColor: tertiaryColor],
+                hiddenDelimiterAttributes: hiddenDelimiterAttrs,
+                cursorLocation: cursorLocation
+            )
+
             // Bold: **text**
             applyPattern(
                 #"\*\*(.+?)\*\*"#,
                 in: text, storage: storage,
                 contentAttributes: [.font: boldFont, .foregroundColor: primaryColor],
-                delimiterAttributes: [.font: defaultFont, .foregroundColor: tertiaryColor]
+                delimiterAttributes: [.font: defaultFont, .foregroundColor: tertiaryColor],
+                hiddenDelimiterAttributes: hiddenDelimiterAttrs,
+                cursorLocation: cursorLocation
             )
 
             // Italic: *text* (but not **)
@@ -487,7 +573,9 @@ struct MarkdownNSTextView: NSViewRepresentable {
                 #"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)"#,
                 in: text, storage: storage,
                 contentAttributes: [.obliqueness: 0.2 as NSNumber, .foregroundColor: primaryColor],
-                delimiterAttributes: [.foregroundColor: tertiaryColor]
+                delimiterAttributes: [.foregroundColor: tertiaryColor],
+                hiddenDelimiterAttributes: hiddenDelimiterAttrs,
+                cursorLocation: cursorLocation
             )
 
             // Inline code: `text`
@@ -503,16 +591,57 @@ struct MarkdownNSTextView: NSViewRepresentable {
                     .font: monoFont,
                     .foregroundColor: tertiaryColor,
                     .backgroundColor: codeBackground
-                ]
+                ],
+                hiddenDelimiterAttributes: hiddenDelimiterAttrs.merging([.backgroundColor: NSColor.clear]) { _, new in new },
+                cursorLocation: cursorLocation
             )
 
-            // Headings: # at start of line
-            applyLinePattern(
-                #"^(#{1,2})\s+(.+)$"#,
-                in: text, storage: storage,
+            // Headings: #, ##, ###, ####... at start of line
+            applyHeadingLinePattern(
+                in: text,
+                storage: storage,
+                cursorLocation: cursorLocation,
                 prefixAttributes: [.foregroundColor: tertiaryColor],
-                contentAttributes: [.font: headingFont, .foregroundColor: primaryColor],
-                smallContentAttributes: [.font: headingSmallFont, .foregroundColor: primaryColor]
+                hiddenPrefixAttributes: hiddenDelimiterAttrs,
+                h1Attributes: [.font: headingFont, .foregroundColor: primaryColor],
+                h2Attributes: [.font: headingSmallFont, .foregroundColor: primaryColor],
+                h3Attributes: [.font: headingMidFont, .foregroundColor: primaryColor],
+                proseParagraph: proseParagraph
+            )
+
+            // Block quote: > text
+            applyPrefixLinePattern(
+                #"^(>\s?)(.*)$"#,
+                in: text,
+                storage: storage,
+                cursorLocation: cursorLocation,
+                prefixAttributes: [.foregroundColor: tertiaryColor],
+                hiddenPrefixAttributes: hiddenDelimiterAttrs,
+                contentAttributes: [
+                    .font: quoteFont,
+                    .foregroundColor: quoteColor
+                ],
+                lineTransform: { style, _ in
+                    self.quoteParagraphStyle(from: style, isProse: proseParagraph != nil)
+                }
+            )
+
+            // List item: - item
+            applyPrefixLinePattern(
+                #"^([-\*]\s+)(.*)$"#,
+                in: text,
+                storage: storage,
+                cursorLocation: cursorLocation,
+                prefixAttributes: [.foregroundColor: tertiaryColor],
+                hiddenPrefixAttributes: hiddenListPrefixAttrs,
+                contentAttributes: [.foregroundColor: primaryColor],
+                lineTransform: { style, isEditingPrefix in
+                    self.listParagraphStyle(
+                        from: style,
+                        isProse: proseParagraph != nil,
+                        showVisualMarker: !isEditingPrefix
+                    )
+                }
             )
 
             // Wiki-links: [[text]]
@@ -523,7 +652,9 @@ struct MarkdownNSTextView: NSViewRepresentable {
                     .underlineStyle: NSUnderlineStyle.single.rawValue,
                     .foregroundColor: secondaryColor
                 ],
-                delimiterAttributes: [.foregroundColor: tertiaryColor]
+                delimiterAttributes: [.foregroundColor: tertiaryColor],
+                hiddenDelimiterAttributes: hiddenDelimiterAttrs,
+                cursorLocation: cursorLocation
             )
 
             storage.endEditing()
@@ -535,7 +666,9 @@ struct MarkdownNSTextView: NSViewRepresentable {
             in text: String,
             storage: NSTextStorage,
             contentAttributes: [NSAttributedString.Key: Any],
-            delimiterAttributes: [NSAttributedString.Key: Any]
+            delimiterAttributes: [NSAttributedString.Key: Any],
+            hiddenDelimiterAttributes: [NSAttributedString.Key: Any],
+            cursorLocation: Int
         ) {
             guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return }
             let nsText = text as NSString
@@ -543,9 +676,10 @@ struct MarkdownNSTextView: NSViewRepresentable {
 
             regex.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
                 guard let match else { return }
+                let isEditingMatch = self.rangeContainsCursor(match.range, cursorLocation: cursorLocation)
 
-                // Full match range — apply delimiter style
-                storage.addAttributes(delimiterAttributes, range: match.range)
+                // Full match range — apply delimiter style or hide tokens when cursor is elsewhere
+                storage.addAttributes(isEditingMatch ? delimiterAttributes : hiddenDelimiterAttributes, range: match.range)
 
                 // Group 1 (content) — apply content style on top
                 if match.numberOfRanges > 1 {
@@ -558,41 +692,178 @@ struct MarkdownNSTextView: NSViewRepresentable {
         }
 
         /// Apply heading pattern — line-level with # prefix styling.
-        private func applyLinePattern(
+        private func applyHeadingLinePattern(
+            in text: String,
+            storage: NSTextStorage,
+            cursorLocation: Int,
+            prefixAttributes: [NSAttributedString.Key: Any],
+            hiddenPrefixAttributes: [NSAttributedString.Key: Any],
+            h1Attributes: [NSAttributedString.Key: Any],
+            h2Attributes: [NSAttributedString.Key: Any],
+            h3Attributes: [NSAttributedString.Key: Any],
+            proseParagraph: NSParagraphStyle?
+        ) {
+            guard let regex = try? NSRegularExpression(pattern: #"^(#{1,6})(\s*)(.*)$"#, options: [.anchorsMatchLines]) else { return }
+            let nsText = text as NSString
+            let fullRange = NSRange(location: 0, length: nsText.length)
+
+            regex.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
+                guard let match, match.numberOfRanges >= 4 else { return }
+
+                let prefixRange = match.range(at: 1)
+                let spacingRange = match.range(at: 2)
+                let contentRange = match.range(at: 3)
+                let isEditingLine = self.rangeContainsCursor(match.range, cursorLocation: cursorLocation)
+                let effectivePrefixAttrs = isEditingLine ? prefixAttributes : hiddenPrefixAttributes
+
+                if prefixRange.location != NSNotFound {
+                    storage.addAttributes(effectivePrefixAttrs, range: prefixRange)
+                }
+                if spacingRange.location != NSNotFound {
+                    storage.addAttributes(effectivePrefixAttrs, range: spacingRange)
+                }
+
+                guard contentRange.location != NSNotFound else { return }
+                let prefix = nsText.substring(with: prefixRange)
+                let level = prefix.count
+                let contentAttrs: [NSAttributedString.Key: Any]
+                switch level {
+                case 1, 4, 5, 6: contentAttrs = h1Attributes
+                case 2: contentAttrs = h2Attributes
+                default: contentAttrs = h3Attributes
+                }
+                storage.addAttributes(contentAttrs, range: contentRange)
+
+                // Keep heading paragraph spacing even for empty heading lines.
+                if let proseParagraph {
+                    storage.addAttribute(.paragraphStyle, value: proseParagraph, range: match.range)
+                }
+            }
+        }
+
+        private func applyPrefixLinePattern(
             _ pattern: String,
             in text: String,
             storage: NSTextStorage,
+            cursorLocation: Int,
             prefixAttributes: [NSAttributedString.Key: Any],
+            hiddenPrefixAttributes: [NSAttributedString.Key: Any],
             contentAttributes: [NSAttributedString.Key: Any],
-            smallContentAttributes: [NSAttributedString.Key: Any]
+            lineTransform: (NSParagraphStyle, Bool) -> NSParagraphStyle
         ) {
             guard let regex = try? NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines]) else { return }
-            let nsText = text as NSString
-            let fullRange = NSRange(location: 0, length: nsText.length)
+            let fullRange = NSRange(location: 0, length: (text as NSString).length)
 
             regex.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
                 guard let match, match.numberOfRanges >= 3 else { return }
 
                 let prefixRange = match.range(at: 1)
                 let contentRange = match.range(at: 2)
+                let lineRange = match.range
+                let isEditingPrefix = prefixRange.location != NSNotFound && self.rangeContainsCursor(prefixRange, cursorLocation: cursorLocation)
+                let effectivePrefixAttrs = isEditingPrefix ? prefixAttributes : hiddenPrefixAttributes
 
                 if prefixRange.location != NSNotFound {
-                    storage.addAttributes(prefixAttributes, range: prefixRange)
+                    storage.addAttributes(effectivePrefixAttrs, range: prefixRange)
+                }
+                if contentRange.location != NSNotFound {
+                    storage.addAttributes(contentAttributes, range: contentRange)
                 }
 
-                if contentRange.location != NSNotFound {
-                    // Use smaller font for ## headings
-                    let prefix = nsText.substring(with: prefixRange)
-                    let attrs = prefix.count >= 2 ? smallContentAttributes : contentAttributes
-                    storage.addAttributes(attrs, range: contentRange)
-                }
+                let existingStyle = (storage.attribute(.paragraphStyle, at: lineRange.location, effectiveRange: nil) as? NSParagraphStyle)
+                    ?? NSParagraphStyle.default
+                let updatedStyle = lineTransform(existingStyle, isEditingPrefix)
+                storage.addAttribute(.paragraphStyle, value: updatedStyle, range: lineRange)
             }
+        }
+
+        private func rangeContainsCursor(_ range: NSRange, cursorLocation: Int) -> Bool {
+            if range.location == NSNotFound { return false }
+            let upperBound = range.location + range.length
+            return cursorLocation >= range.location && cursorLocation <= upperBound
+        }
+
+        private func quoteParagraphStyle(from baseStyle: NSParagraphStyle, isProse: Bool) -> NSParagraphStyle {
+            let style = baseStyle.mutableCopy() as! NSMutableParagraphStyle
+            let block = NSTextBlock()
+            let accent = NSColor.controlAccentColor
+
+            block.backgroundColor = accent.withAlphaComponent(isProse ? 0.12 : 0.1)
+            block.setBorderColor(accent.withAlphaComponent(0.7), for: .minX)
+            let panelBorder = accent.withAlphaComponent(0.22)
+            block.setBorderColor(panelBorder, for: .maxX)
+            block.setBorderColor(panelBorder, for: .minY)
+            block.setBorderColor(panelBorder, for: .maxY)
+
+            let railWidth: CGFloat = isProse ? 3.4 : 3.0
+            block.setWidth(railWidth, type: .absoluteValueType, for: .border, edge: .minX)
+            block.setWidth(0.7, type: .absoluteValueType, for: .border, edge: .maxX)
+            block.setWidth(0.7, type: .absoluteValueType, for: .border, edge: .minY)
+            block.setWidth(0.7, type: .absoluteValueType, for: .border, edge: .maxY)
+
+            let leftPadding: CGFloat = isProse ? 14 : 11
+            let rightPadding: CGFloat = isProse ? 12 : 10
+            block.setWidth(leftPadding, type: .absoluteValueType, for: .padding, edge: .minX)
+            block.setWidth(rightPadding, type: .absoluteValueType, for: .padding, edge: .maxX)
+            block.setWidth(isProse ? 6 : 5, type: .absoluteValueType, for: .padding, edge: .minY)
+            block.setWidth(isProse ? 7 : 6, type: .absoluteValueType, for: .padding, edge: .maxY)
+            block.setWidth(0, type: .absoluteValueType, for: .margin)
+
+            style.textBlocks = [block]
+            style.firstLineHeadIndent = 0
+            style.headIndent = 0
+            style.paragraphSpacing = max(style.paragraphSpacing, isProse ? 12 : 9)
+            style.paragraphSpacingBefore = max(style.paragraphSpacingBefore, isProse ? 6 : 4)
+            return style
+        }
+
+        private func listParagraphStyle(from baseStyle: NSParagraphStyle, isProse: Bool, showVisualMarker: Bool) -> NSParagraphStyle {
+            let style = baseStyle.mutableCopy() as! NSMutableParagraphStyle
+            if showVisualMarker {
+                style.textLists = [NSTextList(markerFormat: .circle, options: 0)]
+                style.firstLineHeadIndent = 0
+                style.headIndent = isProse ? 14 : 12
+            } else {
+                style.textLists = []
+                style.firstLineHeadIndent = 0
+                style.headIndent = 0
+            }
+            style.paragraphSpacing = max(style.paragraphSpacing, isProse ? 8 : 6)
+            return style
         }
 
         // MARK: - Keyboard Shortcuts
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            false
+            guard commandSelector == #selector(NSResponder.insertNewline(_:)) else {
+                return false
+            }
+
+            let selected = textView.selectedRange()
+            guard selected.length == 0 else { return false }
+            let nsText = textView.string as NSString
+            let safeLocation = min(max(0, selected.location), nsText.length)
+            let lineRange = nsText.lineRange(for: NSRange(location: safeLocation, length: 0))
+            let line = nsText.substring(with: lineRange)
+
+            if line.hasPrefix("- ") || line.hasPrefix("* ") {
+                let marker: String = line.hasPrefix("* ") ? "*" : "-"
+                if line.trimmingCharacters(in: .whitespacesAndNewlines) == marker {
+                    textView.insertText("\n", replacementRange: selected)
+                } else {
+                    textView.insertText("\n\(marker) ", replacementRange: selected)
+                }
+                return true
+            }
+            if line.hasPrefix("> ") || line == ">" {
+                if line.trimmingCharacters(in: .whitespacesAndNewlines) == ">" {
+                    textView.insertText("\n", replacementRange: selected)
+                } else {
+                    textView.insertText("\n> ", replacementRange: selected)
+                }
+                return true
+            }
+            return false
         }
     }
 }
@@ -619,7 +890,8 @@ class HighlightingTextView: NSTextView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard event.modifierFlags.contains(.command) else {
+        let hasFormattingModifier = event.modifierFlags.contains(.command) || event.modifierFlags.contains(.control)
+        guard hasFormattingModifier else {
             return super.performKeyEquivalent(with: event)
         }
 

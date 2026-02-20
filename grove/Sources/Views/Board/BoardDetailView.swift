@@ -43,8 +43,9 @@ struct BoardDetailView: View {
     private var effectiveItems: [Item] {
         if board.isSmart {
             return BoardViewModel.smartBoardItems(for: board, from: allItems)
+                .filter { $0.status == .active }
         }
-        return board.items
+        return board.items.filter { $0.status == .active }
     }
 
     private var sortedFilteredItems: [Item] {

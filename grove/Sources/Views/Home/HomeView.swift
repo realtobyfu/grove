@@ -109,7 +109,7 @@ struct HomeView: View {
 
             if !isDiscussionCollapsed {
                 LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 250, maximum: 400), spacing: Spacing.md)],
+                    columns: [GridItem(.adaptive(minimum: 320, maximum: 400), spacing: Spacing.md)],
                     spacing: Spacing.md
                 ) {
                     SuggestedConversationCard(

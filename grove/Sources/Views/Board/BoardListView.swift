@@ -77,6 +77,18 @@ struct BoardListView: View {
                         .foregroundStyle(Color.textTertiary)
                         .lineLimit(1)
                 }
+                if !item.tags.isEmpty {
+                    HStack(spacing: 4) {
+                        ForEach(item.tags.prefix(2)) { tag in
+                            TagChip(tag: tag, mode: .capsule)
+                        }
+                        if item.tags.count > 2 {
+                            Text("+\(item.tags.count - 2)")
+                                .font(.groveBadge)
+                                .foregroundStyle(Color.textTertiary)
+                        }
+                    }
+                }
             }
 
             Spacer()

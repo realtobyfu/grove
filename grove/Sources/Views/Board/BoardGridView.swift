@@ -26,7 +26,7 @@ struct BoardGridView: View {
     }
 
     private func gridCard(_ item: Item) -> some View {
-        ItemCardView(item: item, showTags: false, onReadInApp: {
+        ItemCardView(item: item, showTags: true, onReadInApp: {
             openedItem = item
             selectedItem = item
         })
