@@ -4,9 +4,18 @@ import SwiftData
 // MARK: - HomeView
 
 struct HomeView: View {
-    private struct PromptModeSelection: Equatable {
+    private struct PromptModeSelection {
         let prompt: String
         let label: String
+        let clusterTag: String?
+        let clusterItemIDs: [UUID]
+
+        init(bubble: PromptBubble) {
+            self.prompt = bubble.prompt
+            self.label = bubble.label
+            self.clusterTag = bubble.clusterTag
+            self.clusterItemIDs = bubble.clusterItemIDs
+        }
     }
 
     @Binding var selectedItem: Item?
@@ -337,7 +346,7 @@ struct HomeView: View {
 
             VStack(spacing: Spacing.sm) {
                 Button {
-                    startDialectic(with: selection.prompt)
+                    startDialectic(with: selection)
                 } label: {
                     Label("Open Dialectic Chat", systemImage: "bubble.left.and.bubble.right")
                         .font(.groveBody)
@@ -381,7 +390,7 @@ struct HomeView: View {
 
     private func presentModePanel(for bubble: PromptBubble) {
         withAnimation(.easeInOut(duration: 0.2)) {
-            promptModeSelection = PromptModeSelection(prompt: bubble.prompt, label: bubble.label)
+            promptModeSelection = PromptModeSelection(bubble: bubble)
         }
     }
 
@@ -400,13 +409,18 @@ struct HomeView: View {
         NotificationCenter.default.post(name: .groveNewNoteWithPrompt, object: prompt)
     }
 
-    private func startDialectic(with prompt: String?) {
+    private func startDialectic(with selection: PromptModeSelection?) {
         defer { promptModeSelection = nil }
-        guard let prompt, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard let selection else {
             openConversation(with: "")
             return
         }
-        NotificationCenter.default.post(name: .groveStartDialecticWithDisplayPrompt, object: prompt)
+        let prompt = selection.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prompt.isEmpty else {
+            openConversation(with: "")
+            return
+        }
+        openConversation(with: prompt, seedItemIDs: selection.clusterItemIDs)
     }
 }
 

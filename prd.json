@@ -30,8 +30,8 @@
         "tuist test passes"
       ],
       "priority": 2,
-      "passes": false,
-      "notes": "Prompt metadata is dropped in HomeView (HomeView.swift:7, HomeView.swift:382-410), and display-prompt path currently injects an assistant message (ContentViewHandlers.swift:258-279)."
+      "passes": true,
+      "notes": "Home prompt-mode state now preserves full bubble metadata (including clusterItemIDs), and \"Open Dialectic Chat\" routes through groveStartConversationWithPrompt with seedItemIDs so starters create a first user message via DialecticsService.sendMessage instead of assistant-injected display text."
     },
     {
       "id": "US-003",

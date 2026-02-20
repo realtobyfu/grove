@@ -1,45 +1,38 @@
-# Grove — V3 Intelligence Layer
+# Grove — Ralph Loop Notes (Updated Feb 2026)
 
-## What This Is
-Mac-native knowledge management app (macOS 15+). V1-V2 built the core: SwiftData models, three-column layout, boards, items, tags, connections, annotations, capture flow, search. V3 adds the LLM layer and reflection system.
+## Purpose
+This repo is run with a Ralph-style loop. Each iteration should complete exactly one `prd.json` story.
 
-## References
-- `prd.json` — V3 user stories (S1-S15). Work through these in order.
-- `DESIGN.md` — Complete design system. Follow it exactly for all UI work. Typography (Newsreader, IBM Plex Sans, IBM Plex Mono), color tokens (light + dark mode), component patterns, layout specs.
-- `progress.txt` — Append after each story. Read it first to understand project state.
+## Source of truth
+- `prd.json` — prioritized stories with `passes` status.
+- `DESIGN.md` — current product + UX contract.
+- `progress.txt` — append-only learnings across iterations.
 
-## Tech Stack
-- Swift, SwiftUI, SwiftData
-- MVVM with @Observable ViewModels
-- swift-markdown for rendering, TextKit 2 for editing
-- Tuist for project generation
-- LLM: Groq API (OpenAI-compatible), model moonshotai/kimi-k2-instruct
+## Iteration contract
+1. Read `prd.json` and pick the highest-priority story where `passes: false`.
+2. Implement only that story (do not bundle extra work).
+3. Run quality checks:
+   - `tuist test` (required)
+   - `tuist build` when the story changes view/layout-heavy code
+4. If checks pass:
+   - set that story's `passes` to `true`
+   - update that story's `notes` with concise implementation details
+   - append key learnings to `progress.txt`
+   - commit with: `ralph: US-XXX - short title`
 
-## Project Structure
-```
-Grove/
-  Models/       — SwiftData: Item, Board, Tag, Connection, Annotation, Nudge (+ new: ReflectionBlock, LearningPath)
-  Views/        — Organized by feature: {Feature}/{Feature}View.swift
-  ViewModels/   — @Observable classes, one per major view
-  Services/     — Business logic, LLM/ subfolder for AI services
-  Utilities/    — WikiLinkResolver, helpers
-```
+## Project-specific guidance
+- App module name is `grove` (lowercase) in code/tests.
+- Prioritize keyboard-first macOS UX: focus behavior, shortcuts, and predictable navigation.
+- Keep Home starter UX decision-light (small number of high-quality prompts).
+- Dialectics outputs should remain artifact-friendly (saveable, linkable, searchable).
+- Avoid dead settings/UI paths that no longer map to active services.
 
-## Rules
-1. ONE story per iteration. Do not combine stories.
-2. Read `progress.txt` before starting. Append results after.
-3. Follow `DESIGN.md` for ALL visual decisions — typography, colors, spacing, component patterns. No system fonts. No accent colors. Monochromatic only.
-4. Bundle Newsreader, IBM Plex Sans, IBM Plex Mono as app resources.
-5. All LLM calls must be async, non-blocking, failure-tolerant. If Groq is unreachable, feature degrades silently.
-6. LLM responses are always JSON. Parse defensively — strip markdown fences, handle malformed responses.
-7. Use xclaude MCP tools for builds: `xc-build` to compile, `xc-testing` for tests, `xc-launch` to run.
-8. Never ask questions. Make the best decision and move on.
-9. Commit after each passing story with message: "v3: S{N} — {title}"
+## Engineering guardrails
+- Keep LLM calls async and failure-tolerant.
+- Parse structured LLM outputs defensively.
+- Do not add force unwraps outside previews/tests.
+- Prefer small, reviewable diffs over broad refactors.
 
-## Quality Checks
-After every story:
-1. `xc-build` passes with zero errors
-2. No force unwraps except in previews
-3. New services have a protocol for testability
-4. SwiftData models registered in container
-5. UI matches DESIGN.md tokens (spot check colors, fonts, spacing)
+## If blocked
+- Record the blocker clearly in `progress.txt`.
+- Keep the story `passes: false` and add a precise note in `prd.json`.

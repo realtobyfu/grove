@@ -43,6 +43,30 @@ struct GroveTests {
         #expect(service.bubbles.first?.label == "REFLECT")
     }
 
+    @Test func conversationPromptPayloadParsesSeedItemIDsFromNotification() {
+        let expectedPrompt = "Organize these notes into a coherent board."
+        let expectedSeedIDs = [UUID(), UUID(), UUID()]
+        let notification = Notification(
+            name: .groveStartConversationWithPrompt,
+            object: expectedPrompt,
+            userInfo: ["seedItemIDs": expectedSeedIDs]
+        )
+
+        let payload = NotificationCenter.conversationPromptPayload(from: notification)
+        #expect(payload.prompt == expectedPrompt)
+        #expect(payload.seedItemIDs == expectedSeedIDs)
+    }
+
+    @Test func conversationPromptPayloadDefaultsToEmptySeedItemIDs() {
+        let notification = Notification(
+            name: .groveStartConversationWithPrompt,
+            object: "Start with a blank slate."
+        )
+        let payload = NotificationCenter.conversationPromptPayload(from: notification)
+        #expect(payload.prompt == "Start with a blank slate.")
+        #expect(payload.seedItemIDs.isEmpty)
+    }
+
     @Test func readLaterTomorrowMorningPresetSchedulesAtNineAM() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current

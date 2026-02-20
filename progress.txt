@@ -3,3 +3,5 @@ Started: Thu Feb 19 22:33:31 HST 2026
 ---
 - US-001 (2026-02-19): Home discussion starters are now decision-light by enforcing a hard 3-starter cap in both `HomeView` and `ConversationStarterService` (including cached loads), and by always returning one fallback REFLECT starter when context is empty.
 - Added regression tests for starter cap and empty-context fallback in `grove/Tests/GroveTests.swift` to keep LLM/heuristic behavior stable.
+- US-002 (2026-02-19): Home starter handoff now keeps full prompt metadata through mode selection and sends Dialectics launches via `groveStartConversationWithPrompt`, passing `clusterItemIDs` as `seedItemIDs` so ORGANIZE starters carry their intended context.
+- Added payload parsing tests in `grove/Tests/GroveTests.swift` to guard prompt + seed-ID extraction from `groveStartConversationWithPrompt` notifications.
