@@ -149,8 +149,8 @@
         "tuist test passes"
       ],
       "priority": 10,
-      "passes": false,
-      "notes": "Current token contrast examples: textTertiary on bgPrimary ~2.22 (light) / ~2.53 (dark), textMuted on bgPrimary ~1.84 (light) / ~1.94 (dark)."
+      "passes": true,
+      "notes": "Raised textSecondary/textTertiary/textMuted token contrast in light + dark themes to meet WCAG AA across primary metadata surfaces (bgPrimary/bgCard/bgSidebar/bgInspector), and added a repeatable checker: `python3 scripts/check_token_contrast.py` (current lowest reported ratio: 4.53)."
     },
     {
       "id": "US-011",

@@ -21,3 +21,5 @@ Started: Thu Feb 19 22:33:31 HST 2026
 - US-009 (2026-02-19): Added explicit accessibility labels/hints for icon-only controls in Home, Sidebar, Dialectics, Capture, Search, and Inspector so VoiceOver users get clear action names and intent cues.
 - Accessibility checklist (US-009): Home prompt-actions close button; Sidebar new board/new course/delete conversation buttons; Dialectics header/send/search-clear/delete controls; Capture close/send/suggestion-dismiss controls; Search overlay clear/close controls; Inspector add/delete connection buttons.
 - Accessibility implementation learning: `.help(...)` tooltips are useful for pointer users but do not replace explicit accessibility labels/hints for assistive technologies.
+- US-010 (2026-02-19): Rebalanced `textSecondary`, `textTertiary`, and `textMuted` light/dark asset values so metadata text reaches WCAG AA contrast across core backgrounds while preserving token hierarchy.
+- Contrast regression learning: keep a repeatable asset-level check (`python3 scripts/check_token_contrast.py`) to catch low-contrast token drift early; current floor is 4.53 (`textMuted` on `bgSidebar`).
