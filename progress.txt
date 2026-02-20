@@ -27,3 +27,5 @@ Started: Thu Feb 19 22:33:31 HST 2026
 - Keyboard scope learning: guarding key handlers with key-window first-responder checks (`NSTextView`/`NSTextInputClient`) keeps navigation shortcuts inert while any text field or editor is actively focused.
 - US-013 (2026-02-19): Updated `create_synthesis` tool output to return the newly created synthesis as a direct wiki-link (`[[Title]]`) alongside the stable item ID, while keeping source wiki-links and missing-title diagnostics intact.
 - Dialectics artifact-linking learning: write-tool confirmations are more reusable when the primary created artifact is emitted in canonical wiki-link form, not quoted plain text.
+- US-014 (2026-02-19): Standardized board suggestion auto-dismiss timing via `AppConstants.Capture.boardSuggestionAutoDismissSeconds` and updated both capture bar variants to use the shared 5-second value.
+- Timing-contract learning: centralizing UX timeouts in `AppConstants` prevents drift between parallel UI surfaces and keeps behavior aligned with DESIGN.md.

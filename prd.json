@@ -206,8 +206,8 @@
         "tuist test passes"
       ],
       "priority": 14,
-      "passes": false,
-      "notes": "Current timeout is 7 seconds in both capture surfaces (CaptureBarView.swift:359, CaptureBarView.swift:645)."
+      "passes": true,
+      "notes": "Added shared timeout constant `AppConstants.Capture.boardSuggestionAutoDismissSeconds = 5` and routed both CaptureBarView auto-dismiss paths through it, aligning implementation with the existing DESIGN.md 5-second contract; verified with passing `tuist test` and `tuist build`."
     }
   ]
 }

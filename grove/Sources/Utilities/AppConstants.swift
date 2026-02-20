@@ -66,4 +66,10 @@ enum AppConstants {
         /// Common tag threshold (appears in N+ items) for synthesis
         static let commonTagThreshold: Int = 2
     }
+
+    // MARK: - Capture
+    enum Capture {
+        /// Auto-dismiss delay for inline board suggestions shown after capture.
+        static let boardSuggestionAutoDismissSeconds: Int = 5
+    }
 }
