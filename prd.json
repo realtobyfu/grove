@@ -119,8 +119,8 @@
         "tuist test passes"
       ],
       "priority": 8,
-      "passes": false,
-      "notes": "Current mismatches: DialecticalChatPanel header/copy (DialecticalChatPanel.swift:80, DialecticalChatPanel.swift:417-420), shortcuts label says \"Go to Inbox\" while command says \"Go to Home\" (ShortcutsSettingsView.swift:15, GroveApp.swift:158-161)."
+      "passes": true,
+      "notes": "Standardized user-facing naming to \"Dialectics\" across chat/home/settings surfaces, updated the View command label to \"Toggle Dialectics\", and aligned Shortcuts settings with menu behavior (Go to Home, added ⌘⇧D toggle row, matched Export Selected Item... label, removed stale Export Board row)."
     },
     {
       "id": "US-009",

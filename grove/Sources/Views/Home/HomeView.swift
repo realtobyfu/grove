@@ -348,7 +348,7 @@ struct HomeView: View {
                 Button {
                     startDialectic(with: selection)
                 } label: {
-                    Label("Open Dialectic Chat", systemImage: "bubble.left.and.bubble.right")
+                    Label("Open Dialectics", systemImage: "bubble.left.and.bubble.right")
                         .font(.groveBody)
                         .foregroundStyle(Color.textPrimary)
                         .frame(maxWidth: .infinity, alignment: .leading)

@@ -12,18 +12,18 @@ struct ShortcutsSettingsView: View {
 
             Section("Navigation") {
                 shortcutRow("Search", shortcut: "⌘F")
-                shortcutRow("Go to Inbox", shortcut: "⌘0")
+                shortcutRow("Go to Home", shortcut: "⌘0")
                 shortcutRow("Go to Board 1–9", shortcut: "⌘1 – ⌘9")
                 shortcutRow("New Board", shortcut: "⌘⇧B")
             }
 
             Section("View") {
                 shortcutRow("Toggle Inspector", shortcut: "⌘]")
+                shortcutRow("Toggle Dialectics", shortcut: "⌘⇧D")
             }
 
             Section("Export") {
-                shortcutRow("Export Board", shortcut: "Menu only")
-                shortcutRow("Export Selected Item", shortcut: "Menu only")
+                shortcutRow("Export Selected Item...", shortcut: "Menu only")
             }
         }
         .formStyle(.grouped)

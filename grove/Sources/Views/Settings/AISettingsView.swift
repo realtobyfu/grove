@@ -330,7 +330,7 @@ struct AISettingsView: View {
         case "digest": return "Weekly Digest"
         case "learning_path": return "Learning Paths"
         case "overview": return "Article Overview"
-        case "dialectics": return "Dialectical Chat"
+        case "dialectics": return "Dialectics"
         default: return service.capitalized
         }
     }

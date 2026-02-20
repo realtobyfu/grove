@@ -178,7 +178,7 @@ struct GroveMenuCommands: Commands {
             }
             .keyboardShortcut("]", modifiers: .command)
 
-            Button("Toggle Dialectical Chat") {
+            Button("Toggle Dialectics") {
                 NotificationCenter.default.post(name: .groveToggleChat, object: nil)
             }
             .keyboardShortcut("d", modifiers: [.command, .shift])

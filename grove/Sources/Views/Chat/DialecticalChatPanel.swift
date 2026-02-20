@@ -96,7 +96,7 @@ struct DialecticalChatPanel: View {
 
     private var headerBar: some View {
         HStack(spacing: Spacing.sm) {
-            Text("DIALECTICAL CHAT")
+            Text("DIALECTICS")
                 .font(.groveSectionHeader)
                 .textCase(.uppercase)
                 .tracking(1.2)
@@ -433,7 +433,7 @@ struct DialecticalChatPanel: View {
             Image(systemName: "bubble.left.and.bubble.right")
                 .font(.system(size: 36))
                 .foregroundStyle(Color.textTertiary)
-            Text("Dialectical Chat")
+            Text("Dialectics")
                 .font(.groveItemTitle)
                 .foregroundStyle(Color.textPrimary)
             Text("Start a conversation to explore your ideas through dialectical reasoning.")

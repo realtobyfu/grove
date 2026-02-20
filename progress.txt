@@ -16,3 +16,5 @@ Started: Thu Feb 19 22:33:31 HST 2026
 - Weekly digest learning: digest controls were misleading because digest scheduling is not part of the active nudge engine; the nudge settings surface now labels digest as manual-only and keeps only last-generated metadata.
 - US-007 (2026-02-19): Wired Command menu Quick Capture to `openWindow(id: "quick-capture")`, matching the menu bar utility so Cmd+Shift+K reliably opens the Quick Capture window.
 - Command routing learning: if an action's destination is a SwiftUI window scene, using `openWindow` directly avoids dead notification paths and keeps shortcut behavior consistent.
+- US-008 (2026-02-19): Standardized user-facing naming to `Dialectics` across chat, Home starter actions, View menu toggle, and AI service labels to remove lingering `Dialectical Chat`/`Dialectic` wording drift.
+- Shortcut docs learning: the Shortcuts settings page stays trustworthy when it mirrors command menu labels/keys exactly (`Go to Home`, `Toggle Dialectics` with `⌘⇧D`, and `Export Selected Item...`) and drops stale rows that no longer map to menu commands.
