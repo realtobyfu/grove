@@ -23,3 +23,5 @@ Started: Thu Feb 19 22:33:31 HST 2026
 - Accessibility implementation learning: `.help(...)` tooltips are useful for pointer users but do not replace explicit accessibility labels/hints for assistive technologies.
 - US-010 (2026-02-19): Rebalanced `textSecondary`, `textTertiary`, and `textMuted` light/dark asset values so metadata text reaches WCAG AA contrast across core backgrounds while preserving token hierarchy.
 - Contrast regression learning: keep a repeatable asset-level check (`python3 scripts/check_token_contrast.py`) to catch low-contrast token drift early; current floor is 4.53 (`textMuted` on `bgSidebar`).
+- US-012 (2026-02-19): Removed invisible zero-size keyboard shortcut buttons from `InboxTriageView` and `BoardDetailView`, replacing them with scoped `.onKeyPress` handlers so `j/k/1/2/3/enter` triage and board navigation stay in-view rather than global hacks.
+- Keyboard scope learning: guarding key handlers with key-window first-responder checks (`NSTextView`/`NSTextInputClient`) keeps navigation shortcuts inert while any text field or editor is actively focused.

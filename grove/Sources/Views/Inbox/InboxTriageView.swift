@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
@@ -70,7 +71,14 @@ struct InboxTriageView: View {
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             handleVideoDrop(providers: providers)
         }
-        .background(keyboardHandlers)
+        .onKeyPress(phases: [.down]) { keyPress in
+            handleTriageKeyPress(keyPress)
+        }
+        .onKeyPress(.return) {
+            guard canHandleTriageShortcuts else { return .ignored }
+            openFocusedItem()
+            return .handled
+        }
         .onChange(of: showBoardPicker) { _, isPresented in
             if !isPresented, itemToAssign != nil {
                 resetBoardPickerState()
@@ -227,47 +235,39 @@ struct InboxTriageView: View {
 
     // MARK: - Keyboard Handlers
 
-    private var keyboardHandlers: some View {
-        Group {
-            // J — move down
-            Button("") { moveFocus(by: 1) }
-                .keyboardShortcut("j", modifiers: [])
-                .opacity(0)
-                .frame(width: 0, height: 0)
+    private var canHandleTriageShortcuts: Bool {
+        !isTextInputFocusedInKeyWindow
+    }
 
-            // K — move up
-            Button("") { moveFocus(by: -1) }
-                .keyboardShortcut("k", modifiers: [])
-                .opacity(0)
-                .frame(width: 0, height: 0)
+    private var isTextInputFocusedInKeyWindow: Bool {
+        guard let firstResponder = NSApp.keyWindow?.firstResponder else { return false }
+        if firstResponder is NSTextView { return true }
+        guard let responderView = firstResponder as? NSView else { return false }
+        return responderView.conforms(to: NSTextInputClient.self)
+    }
 
-            // 1 — Keep
-            Button("") { performAction(.keep) }
-                .keyboardShortcut("1", modifiers: [])
-                .opacity(0)
-                .frame(width: 0, height: 0)
+    private func handleTriageKeyPress(_ keyPress: KeyPress) -> KeyPress.Result {
+        guard canHandleTriageShortcuts else { return .ignored }
+        guard keyPress.modifiers.isEmpty else { return .ignored }
 
-            // 2 — Drop
-            Button("") { performAction(.drop) }
-                .keyboardShortcut("2", modifiers: [])
-                .opacity(0)
-                .frame(width: 0, height: 0)
-
-            // 3 — Queue until tomorrow morning
-            Button("") { performAction(.later) }
-                .keyboardShortcut("3", modifiers: [])
-                .opacity(0)
-                .frame(width: 0, height: 0)
-
-            // Enter — Open selected item
-            Button("") {
-                let items = inboxItems
-                guard focusedIndex >= 0, focusedIndex < items.count else { return }
-                openedItem?.wrappedValue = items[focusedIndex]
-            }
-            .keyboardShortcut(.return, modifiers: [])
-            .opacity(0)
-            .frame(width: 0, height: 0)
+        switch keyPress.characters.lowercased() {
+        case "j":
+            moveFocus(by: 1)
+            return .handled
+        case "k":
+            moveFocus(by: -1)
+            return .handled
+        case "1":
+            performAction(.keep)
+            return .handled
+        case "2":
+            performAction(.drop)
+            return .handled
+        case "3":
+            performAction(.later)
+            return .handled
+        default:
+            return .ignored
         }
     }
 
@@ -400,6 +400,12 @@ struct InboxTriageView: View {
         guard !items.isEmpty else { return }
         let newIndex = max(0, min(items.count - 1, focusedIndex + offset))
         focusedIndex = newIndex
+    }
+
+    private func openFocusedItem() {
+        let items = inboxItems
+        guard focusedIndex >= 0, focusedIndex < items.count else { return }
+        openedItem?.wrappedValue = items[focusedIndex]
     }
 
     private func adjustFocusAfterRemoval() {

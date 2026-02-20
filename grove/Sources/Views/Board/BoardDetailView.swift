@@ -136,7 +136,14 @@ struct BoardDetailView: View {
                 boardToolbarCluster
             }
         }
-        .background(boardKeyboardHandlers)
+        .onKeyPress(phases: [.down]) { keyPress in
+            handleBoardKeyPress(keyPress)
+        }
+        .onKeyPress(.return) {
+            guard canHandleBoardShortcuts else { return .ignored }
+            openSelectedItem()
+            return .handled
+        }
         .task {
             if boardSuggestions.isEmpty {
                 refreshBoardSuggestions()
@@ -213,19 +220,30 @@ struct BoardDetailView: View {
 
     // MARK: - Keyboard Handlers
 
-    private var boardKeyboardHandlers: some View {
-        Group {
-            Button("") { navigateItems(by: 1) }
-                .keyboardShortcut("j", modifiers: [])
-                .opacity(0).frame(width: 0, height: 0)
+    private var canHandleBoardShortcuts: Bool {
+        !showItemPicker && !showSynthesisSheet && !isTextInputFocusedInKeyWindow
+    }
 
-            Button("") { navigateItems(by: -1) }
-                .keyboardShortcut("k", modifiers: [])
-                .opacity(0).frame(width: 0, height: 0)
+    private var isTextInputFocusedInKeyWindow: Bool {
+        guard let firstResponder = NSApp.keyWindow?.firstResponder else { return false }
+        if firstResponder is NSTextView { return true }
+        guard let responderView = firstResponder as? NSView else { return false }
+        return responderView.conforms(to: NSTextInputClient.self)
+    }
 
-            Button("") { if let item = selectedItem { openedItem = item } }
-                .keyboardShortcut(.return, modifiers: [])
-                .opacity(0).frame(width: 0, height: 0)
+    private func handleBoardKeyPress(_ keyPress: KeyPress) -> KeyPress.Result {
+        guard canHandleBoardShortcuts else { return .ignored }
+        guard keyPress.modifiers.isEmpty else { return .ignored }
+
+        switch keyPress.characters.lowercased() {
+        case "j":
+            navigateItems(by: 1)
+            return .handled
+        case "k":
+            navigateItems(by: -1)
+            return .handled
+        default:
+            return .ignored
         }
     }
 
@@ -240,6 +258,11 @@ struct BoardDetailView: View {
         } else {
             selectedItem = offset > 0 ? items.first : items.last
         }
+    }
+
+    private func openSelectedItem() {
+        guard let item = selectedItem else { return }
+        openedItem = item
     }
 
     // MARK: - Empty State

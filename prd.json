@@ -178,8 +178,8 @@
         "tuist test passes"
       ],
       "priority": 12,
-      "passes": false,
-      "notes": "Current pattern uses invisible buttons with empty labels and zero frames for shortcuts (InboxTriageView.swift:230-271, BoardDetailView.swift:216-229)."
+      "passes": true,
+      "notes": "Replaced hidden zero-size shortcut buttons in Inbox triage and board detail with scoped onKeyPress handlers (`j/k/1/2/3/return` in triage, `j/k/return` in board detail) and added AppKit first-responder guards so shortcuts ignore events when a text field/editor is focused."
     },
     {
       "id": "US-013",
