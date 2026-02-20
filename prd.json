@@ -90,8 +90,8 @@
         "tuist test passes"
       ],
       "priority": 6,
-      "passes": false,
-      "notes": "NudgeEngine generates only resurface + staleInbox, but settings/model still expose removed categories (NudgeEngine.swift:63-84, NudgeSettingsView.swift:32-177, NudgeSettings.swift:10-96, Nudge.swift:4-19)."
+      "passes": true,
+      "notes": "Nudge settings now expose only active engine controls (resurface, stale inbox, cadence, resurfacing queue). Removed legacy/smart toggles and analytics rows, marked weekly digest as manual-only, and simplified NudgeSettings so only active categories are configurable while legacy NudgeType cases remain compatibility-only and return false from isEnabled."
     },
     {
       "id": "US-007",

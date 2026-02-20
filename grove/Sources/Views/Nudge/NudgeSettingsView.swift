@@ -7,15 +7,10 @@ struct NudgeSettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var resurfaceEnabled = NudgeSettings.resurfaceEnabled
     @State private var staleInboxEnabled = NudgeSettings.staleInboxEnabled
-    @State private var connectionPromptEnabled = NudgeSettings.connectionPromptEnabled
-    @State private var streakEnabled = NudgeSettings.streakEnabled
-    @State private var continueCourseEnabled = NudgeSettings.continueCourseEnabled
     @State private var scheduleIntervalHours = NudgeSettings.scheduleIntervalHours
     @State private var maxNudgesPerDay = NudgeSettings.maxNudgesPerDay
     @State private var spacedResurfacingEnabled = NudgeSettings.spacedResurfacingEnabled
     @State private var globalResurfacingPause = NudgeSettings.spacedResurfacingGlobalPause
-    @State private var digestEnabled = NudgeSettings.digestEnabled
-    @State private var digestDayOfWeek = NudgeSettings.digestDayOfWeek
     @State private var queueStats: ResurfacingService.QueueStats?
     @State private var showAdvancedDetails = false
 
@@ -40,22 +35,7 @@ struct NudgeSettingsView: View {
                         NudgeSettings.staleInboxEnabled = newValue
                     }
 
-                Toggle("Connection Prompts", isOn: $connectionPromptEnabled)
-                    .onChange(of: connectionPromptEnabled) { _, newValue in
-                        NudgeSettings.connectionPromptEnabled = newValue
-                    }
-
-                Toggle("Streaks", isOn: $streakEnabled)
-                    .onChange(of: streakEnabled) { _, newValue in
-                        NudgeSettings.streakEnabled = newValue
-                    }
-
-                Toggle("Continue Course", isOn: $continueCourseEnabled)
-                    .onChange(of: continueCourseEnabled) { _, newValue in
-                        NudgeSettings.continueCourseEnabled = newValue
-                    }
-
-                Text("Enable only the prompts you want to see.")
+                Text("Only active nudge categories are shown here.")
                     .font(.groveBodySmall)
                     .foregroundStyle(Color.textSecondary)
             }
@@ -81,47 +61,13 @@ struct NudgeSettingsView: View {
             }
 
             Section("Weekly Digest") {
-                Toggle("Weekly digest", isOn: $digestEnabled)
-                    .onChange(of: digestEnabled) { _, newValue in
-                        NudgeSettings.digestEnabled = newValue
-                    }
+                Text("Weekly Digest is manual-only and not part of the active nudge engine.")
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textSecondary)
 
-                if digestEnabled {
-                    Picker("Day of week", selection: $digestDayOfWeek) {
-                        Text("Sunday").tag(1)
-                        Text("Monday").tag(2)
-                        Text("Tuesday").tag(3)
-                        Text("Wednesday").tag(4)
-                        Text("Thursday").tag(5)
-                        Text("Friday").tag(6)
-                        Text("Saturday").tag(7)
-                    }
-                    .onChange(of: digestDayOfWeek) { _, newValue in
-                        NudgeSettings.digestDayOfWeek = newValue
-                    }
-
-                    digestStatusText
-                        .font(.groveBodySmall)
-                        .foregroundStyle(Color.textSecondary)
-                }
-
-                if !LLMServiceConfig.isConfigured {
-                    Text("Uses a local summary when AI is not configured.")
-                        .font(.groveBodySmall)
-                        .foregroundStyle(Color.textSecondary)
-                }
-            }
-
-            Section("Smart Nudges (AI)") {
-                if LLMServiceConfig.isConfigured {
-                    Text("AI-powered nudges generate on launch (max one per launch).")
-                        .font(.groveBodySmall)
-                        .foregroundStyle(Color.textSecondary)
-                } else {
-                    Text("Enable AI in Settings > AI for smart nudges.")
-                        .font(.groveBodySmall)
-                        .foregroundStyle(Color.textSecondary)
-                }
+                digestStatusText
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textSecondary)
             }
 
             Section("Advanced") {
@@ -167,14 +113,6 @@ struct NudgeSettingsView: View {
 
                     analyticsRow(type: .resurface, label: "Resurface")
                     analyticsRow(type: .staleInbox, label: "Stale Inbox")
-                    analyticsRow(type: .connectionPrompt, label: "Connection Prompts")
-                    analyticsRow(type: .streak, label: "Streaks")
-                    analyticsRow(type: .continueCourse, label: "Continue Course")
-                    analyticsRow(type: .reflectionPrompt, label: "AI: Reflect")
-                    analyticsRow(type: .contradiction, label: "AI: Contradiction")
-                    analyticsRow(type: .knowledgeGap, label: "AI: Knowledge Gap")
-                    analyticsRow(type: .synthesisPrompt, label: "AI: Synthesis")
-                    analyticsRow(type: .dialecticalCheckIn, label: "AI: Chat Check-In")
                 }
             }
         }

@@ -11,3 +11,6 @@ Started: Thu Feb 19 22:33:31 HST 2026
 - Keyboard-state learning: keep a dedicated selected conversation ID synchronized with filtered IDs so arrow navigation remains stable as the query changes or conversations are deleted.
 - US-005 (2026-02-19): Global search overlay now autofocuses on open and updates query via a debounced, cancellable task path (`SearchViewModel.updateQuery`) so typing no longer runs immediate synchronous searches on every keypress.
 - Search perf learning: cache fetched search entities for the active overlay session and guard async result application with a generation counter to prevent stale debounced tasks from overwriting newer query results.
+- US-006 (2026-02-19): Nudge settings now align with the simplified engine by exposing only active controls (resurface, stale inbox, cadence, and resurfacing queue), removing legacy/smart category toggles and analytics rows.
+- Nudge model/settings learning: keep legacy `NudgeType` cases for persisted SwiftData compatibility, but treat them as non-configurable by returning `false` from `NudgeSettings.isEnabled(for:)` so dead categories are never considered active behavior.
+- Weekly digest learning: digest controls were misleading because digest scheduling is not part of the active nudge engine; the nudge settings surface now labels digest as manual-only and keeps only last-generated metadata.

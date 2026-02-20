@@ -127,6 +127,42 @@ struct GroveTests {
         #expect(viewModel.totalResultCount == 0)
     }
 
+    @Test func nudgeSettingsOnlyEnableActiveEngineCategories() {
+        let previousResurface = NudgeSettings.resurfaceEnabled
+        let previousStaleInbox = NudgeSettings.staleInboxEnabled
+
+        NudgeSettings.resurfaceEnabled = true
+        NudgeSettings.staleInboxEnabled = true
+
+        #expect(NudgeSettings.isEnabled(for: .resurface))
+        #expect(NudgeSettings.isEnabled(for: .staleInbox))
+        #expect(!NudgeSettings.isEnabled(for: .connectionPrompt))
+        #expect(!NudgeSettings.isEnabled(for: .streak))
+        #expect(!NudgeSettings.isEnabled(for: .continueCourse))
+        #expect(!NudgeSettings.isEnabled(for: .reflectionPrompt))
+        #expect(!NudgeSettings.isEnabled(for: .contradiction))
+        #expect(!NudgeSettings.isEnabled(for: .knowledgeGap))
+        #expect(!NudgeSettings.isEnabled(for: .synthesisPrompt))
+        #expect(!NudgeSettings.isEnabled(for: .dialecticalCheckIn))
+
+        NudgeSettings.resurfaceEnabled = previousResurface
+        NudgeSettings.staleInboxEnabled = previousStaleInbox
+    }
+
+    @Test func nudgeSettingsRespectActiveCategoryToggles() {
+        let previousResurface = NudgeSettings.resurfaceEnabled
+        let previousStaleInbox = NudgeSettings.staleInboxEnabled
+
+        NudgeSettings.resurfaceEnabled = false
+        NudgeSettings.staleInboxEnabled = false
+
+        #expect(!NudgeSettings.isEnabled(for: .resurface))
+        #expect(!NudgeSettings.isEnabled(for: .staleInbox))
+
+        NudgeSettings.resurfaceEnabled = previousResurface
+        NudgeSettings.staleInboxEnabled = previousStaleInbox
+    }
+
     private func makeDate(
         year: Int,
         month: Int,

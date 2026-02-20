@@ -2,19 +2,22 @@ import Foundation
 import SwiftData
 
 enum NudgeType: String, Codable {
+    // Active engine categories.
     case resurface
-    case connectionPrompt
     case staleInbox
+
+    // Legacy categories retained for persisted-model compatibility.
+    case connectionPrompt
     case streak
     case continueCourse
 
-    // Smart (LLM-generated) nudge types
+    // Legacy smart (LLM-generated) nudge categories.
     case reflectionPrompt
     case contradiction
     case knowledgeGap
     case synthesisPrompt
 
-    // Dialectical check-in
+    // Legacy dialectical check-in nudge category.
     case dialecticalCheckIn
 }
 

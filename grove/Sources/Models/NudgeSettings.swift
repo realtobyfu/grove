@@ -1,7 +1,7 @@
 import Foundation
 
 /// Global nudge settings stored in UserDefaults.
-/// Controls which nudge categories are enabled, frequency, and daily limits.
+/// Controls only the active nudge engine categories plus cadence and resurfacing queue behavior.
 struct NudgeSettings: Sendable {
     private static var defaults: UserDefaults { UserDefaults.standard }
 
@@ -10,16 +10,13 @@ struct NudgeSettings: Sendable {
     private enum Key: String {
         case resurfaceEnabled = "nudge.resurface.enabled"
         case staleInboxEnabled = "nudge.staleInbox.enabled"
-        case connectionPromptEnabled = "nudge.connectionPrompt.enabled"
-        case streakEnabled = "nudge.streak.enabled"
-        case continueCourseEnabled = "nudge.continueCourse.enabled"
         case scheduleIntervalHours = "nudge.schedule.intervalHours"
         case maxNudgesPerDay = "nudge.maxPerDay"
         case spacedResurfacingEnabled = "nudge.spacedResurfacing.enabled"
         case spacedResurfacingGlobalPause = "nudge.spacedResurfacing.globalPause"
     }
 
-    // MARK: - Type Toggles
+    // MARK: - Active Category Toggles
 
     static var resurfaceEnabled: Bool {
         get { defaults.object(forKey: Key.resurfaceEnabled.rawValue) as? Bool ?? true }
@@ -29,21 +26,6 @@ struct NudgeSettings: Sendable {
     static var staleInboxEnabled: Bool {
         get { defaults.object(forKey: Key.staleInboxEnabled.rawValue) as? Bool ?? true }
         set { defaults.set(newValue, forKey: Key.staleInboxEnabled.rawValue) }
-    }
-
-    static var connectionPromptEnabled: Bool {
-        get { defaults.object(forKey: Key.connectionPromptEnabled.rawValue) as? Bool ?? true }
-        set { defaults.set(newValue, forKey: Key.connectionPromptEnabled.rawValue) }
-    }
-
-    static var streakEnabled: Bool {
-        get { defaults.object(forKey: Key.streakEnabled.rawValue) as? Bool ?? true }
-        set { defaults.set(newValue, forKey: Key.streakEnabled.rawValue) }
-    }
-
-    static var continueCourseEnabled: Bool {
-        get { defaults.object(forKey: Key.continueCourseEnabled.rawValue) as? Bool ?? true }
-        set { defaults.set(newValue, forKey: Key.continueCourseEnabled.rawValue) }
     }
 
     // MARK: - Schedule
@@ -82,24 +64,26 @@ struct NudgeSettings: Sendable {
 
     // MARK: - Helpers
 
+    /// Active nudge generation is intentionally limited to the simplified engine.
+    /// Legacy/smart/check-in categories remain in `NudgeType` only for persisted-model compatibility.
     static func isEnabled(for type: NudgeType) -> Bool {
         switch type {
-        case .resurface: return resurfaceEnabled
-        case .staleInbox: return staleInboxEnabled
-        case .connectionPrompt: return connectionPromptEnabled
-        case .streak: return streakEnabled
-        case .continueCourse: return continueCourseEnabled
-        case .reflectionPrompt, .contradiction, .knowledgeGap, .synthesisPrompt,
+        case .resurface:
+            return resurfaceEnabled
+        case .staleInbox:
+            return staleInboxEnabled
+        case .connectionPrompt, .streak, .continueCourse,
+             .reflectionPrompt, .contradiction, .knowledgeGap, .synthesisPrompt,
              .dialecticalCheckIn:
-            return LLMServiceConfig.isConfigured
+            return false
         }
     }
 
-    // MARK: - Smart Nudge Dismissed Tracking
+    // MARK: - Smart Nudge Dismissed Tracking (Legacy)
 
     private static let smartNudgeDismissedKey = "nudge.smart.dismissed"
 
-    /// Track a dismissed smart nudge type + item pair so it isn't re-suggested.
+    /// Retained for compatibility with historical smart nudge records.
     static func recordSmartDismissal(type: NudgeType, itemID: UUID?) {
         var entries = smartDismissedEntries()
         entries.append(SmartDismissEntry(
@@ -112,7 +96,7 @@ struct NudgeSettings: Sendable {
         }
     }
 
-    /// Check if a smart nudge type + item was dismissed within the last 30 days.
+    /// Retained for compatibility with historical smart nudge records.
     static func isSmartNudgeDismissed(type: NudgeType, itemID: UUID?) -> Bool {
         let thirtyDaysAgo = Date.now.timeIntervalSince1970 - (30 * 24 * 3600)
         return smartDismissedEntries().contains { entry in
@@ -129,31 +113,14 @@ struct NudgeSettings: Sendable {
         return entries
     }
 
-    // MARK: - Weekly Digest Settings
+    // MARK: - Weekly Digest Metadata (Manual-Only)
 
-    private static let digestEnabledKey = "digest.enabled"
     private static let digestLastGeneratedAtKey = "digest.lastGeneratedAt"
-    private static let digestDayOfWeekKey = "digest.dayOfWeek"
-
-    /// Whether the weekly digest is enabled. Default: true.
-    static var digestEnabled: Bool {
-        get { defaults.object(forKey: digestEnabledKey) as? Bool ?? true }
-        set { defaults.set(newValue, forKey: digestEnabledKey) }
-    }
 
     /// Timestamp of the last digest generation (TimeInterval since 1970). Default: 0 (never).
     static var digestLastGeneratedAt: TimeInterval {
         get { defaults.double(forKey: digestLastGeneratedAtKey) }
         set { defaults.set(newValue, forKey: digestLastGeneratedAtKey) }
-    }
-
-    /// Day of week for digest generation (1=Sunday, 2=Monday, ..., 7=Saturday). Default: 2 (Monday).
-    static var digestDayOfWeek: Int {
-        get {
-            let val = defaults.integer(forKey: digestDayOfWeekKey)
-            return val > 0 ? val : 2
-        }
-        set { defaults.set(newValue, forKey: digestDayOfWeekKey) }
     }
 
     // MARK: - Analytics Keys
