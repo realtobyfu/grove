@@ -2,6 +2,11 @@ import SwiftUI
 import SwiftData
 import AppKit
 
+private extension NSAttributedString.Key {
+    static let groveListPrefix = NSAttributedString.Key("groveListPrefix")
+    static let groveQuotePrefix = NSAttributedString.Key("groveQuotePrefix")
+}
+
 // MARK: - RichMarkdownEditor
 
 /// A rich text editor that stores markdown as the source of truth but renders
@@ -400,8 +405,8 @@ struct MarkdownNSTextView: NSViewRepresentable {
         ]
         if fontSize >= 17 {
             let paragraphStyle = NSMutableParagraphStyle()
-            paragraphStyle.lineSpacing = 8
-            paragraphStyle.paragraphSpacing = 12
+            paragraphStyle.lineSpacing = 2
+            paragraphStyle.paragraphSpacing = 6
             typingAttrs[.paragraphStyle] = paragraphStyle
         }
 
@@ -502,12 +507,6 @@ struct MarkdownNSTextView: NSViewRepresentable {
             let headingFont = NSFont(name: "Newsreader-Medium", size: round(size * 1.55)) ?? NSFont.systemFont(ofSize: round(size * 1.55), weight: .medium)
             let headingSmallFont = NSFont(name: "Newsreader-Medium", size: round(size * 1.22)) ?? NSFont.systemFont(ofSize: round(size * 1.22), weight: .medium)
             let headingMidFont = NSFont(name: "Newsreader-Medium", size: round(size * 1.08)) ?? NSFont.systemFont(ofSize: round(size * 1.08), weight: .medium)
-            let quoteFontSize = size + (size >= 17 ? 1.5 : 1)
-            let fallbackQuoteFont = NSFontManager.shared.convert(
-                NSFont.systemFont(ofSize: quoteFontSize),
-                toHaveTrait: .italicFontMask
-            )
-            let quoteFont = NSFont(name: "Newsreader-Italic", size: quoteFontSize) ?? fallbackQuoteFont
             let quoteColor = NSColor.labelColor.withAlphaComponent(0.92)
 
             let primaryColor = NSColor.labelColor
@@ -519,12 +518,14 @@ struct MarkdownNSTextView: NSViewRepresentable {
             let proseParagraph: NSParagraphStyle? = {
                 guard size >= 17 else { return nil }
                 let style = NSMutableParagraphStyle()
-                style.lineSpacing = 8
-                style.paragraphSpacing = 12
+                style.lineSpacing = 2
+                style.paragraphSpacing = 6
                 return style
             }()
 
             storage.beginEditing()
+            storage.removeAttribute(.groveListPrefix, range: fullRange)
+            storage.removeAttribute(.groveQuotePrefix, range: fullRange)
 
             // Reset to default
             var defaultAttrs: [NSAttributedString.Key: Any] = [
@@ -541,6 +542,9 @@ struct MarkdownNSTextView: NSViewRepresentable {
                 .font: NSFont.systemFont(ofSize: 0.1)
             ]
             let hiddenListPrefixAttrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: NSColor.clear
+            ]
+            let hiddenQuotePrefixAttrs: [NSAttributedString.Key: Any] = [
                 .foregroundColor: NSColor.clear
             ]
 
@@ -616,11 +620,12 @@ struct MarkdownNSTextView: NSViewRepresentable {
                 storage: storage,
                 cursorLocation: cursorLocation,
                 prefixAttributes: [.foregroundColor: tertiaryColor],
-                hiddenPrefixAttributes: hiddenDelimiterAttrs,
+                hiddenPrefixAttributes: hiddenQuotePrefixAttrs,
                 contentAttributes: [
-                    .font: quoteFont,
+                    .font: defaultFont,
                     .foregroundColor: quoteColor
                 ],
+                prefixMarkerAttributes: [.groveQuotePrefix: true],
                 lineTransform: { style, _ in
                     self.quoteParagraphStyle(from: style, isProse: proseParagraph != nil)
                 }
@@ -635,12 +640,9 @@ struct MarkdownNSTextView: NSViewRepresentable {
                 prefixAttributes: [.foregroundColor: tertiaryColor],
                 hiddenPrefixAttributes: hiddenListPrefixAttrs,
                 contentAttributes: [.foregroundColor: primaryColor],
-                lineTransform: { style, isEditingPrefix in
-                    self.listParagraphStyle(
-                        from: style,
-                        isProse: proseParagraph != nil,
-                        showVisualMarker: !isEditingPrefix
-                    )
+                prefixMarkerAttributes: [.groveListPrefix: true],
+                lineTransform: { style, _ in
+                    self.listParagraphStyle(from: style, isProse: proseParagraph != nil)
                 }
             )
 
@@ -749,6 +751,7 @@ struct MarkdownNSTextView: NSViewRepresentable {
             prefixAttributes: [NSAttributedString.Key: Any],
             hiddenPrefixAttributes: [NSAttributedString.Key: Any],
             contentAttributes: [NSAttributedString.Key: Any],
+            prefixMarkerAttributes: [NSAttributedString.Key: Any] = [:],
             lineTransform: (NSParagraphStyle, Bool) -> NSParagraphStyle
         ) {
             guard let regex = try? NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines]) else { return }
@@ -760,11 +763,16 @@ struct MarkdownNSTextView: NSViewRepresentable {
                 let prefixRange = match.range(at: 1)
                 let contentRange = match.range(at: 2)
                 let lineRange = match.range
-                let isEditingPrefix = prefixRange.location != NSNotFound && self.rangeContainsCursor(prefixRange, cursorLocation: cursorLocation)
+                let isEditingPrefix = prefixRange.location != NSNotFound
+                    && cursorLocation >= prefixRange.location
+                    && cursorLocation < (prefixRange.location + prefixRange.length)
                 let effectivePrefixAttrs = isEditingPrefix ? prefixAttributes : hiddenPrefixAttributes
 
                 if prefixRange.location != NSNotFound {
                     storage.addAttributes(effectivePrefixAttrs, range: prefixRange)
+                    if !prefixMarkerAttributes.isEmpty {
+                        storage.addAttributes(prefixMarkerAttributes, range: prefixRange)
+                    }
                 }
                 if contentRange.location != NSNotFound {
                     storage.addAttributes(contentAttributes, range: contentRange)
@@ -785,49 +793,20 @@ struct MarkdownNSTextView: NSViewRepresentable {
 
         private func quoteParagraphStyle(from baseStyle: NSParagraphStyle, isProse: Bool) -> NSParagraphStyle {
             let style = baseStyle.mutableCopy() as! NSMutableParagraphStyle
-            let block = NSTextBlock()
-            let accent = NSColor.controlAccentColor
-
-            block.backgroundColor = accent.withAlphaComponent(isProse ? 0.12 : 0.1)
-            block.setBorderColor(accent.withAlphaComponent(0.7), for: .minX)
-            let panelBorder = accent.withAlphaComponent(0.22)
-            block.setBorderColor(panelBorder, for: .maxX)
-            block.setBorderColor(panelBorder, for: .minY)
-            block.setBorderColor(panelBorder, for: .maxY)
-
-            let railWidth: CGFloat = isProse ? 3.4 : 3.0
-            block.setWidth(railWidth, type: .absoluteValueType, for: .border, edge: .minX)
-            block.setWidth(0.7, type: .absoluteValueType, for: .border, edge: .maxX)
-            block.setWidth(0.7, type: .absoluteValueType, for: .border, edge: .minY)
-            block.setWidth(0.7, type: .absoluteValueType, for: .border, edge: .maxY)
-
-            let leftPadding: CGFloat = isProse ? 14 : 11
-            let rightPadding: CGFloat = isProse ? 12 : 10
-            block.setWidth(leftPadding, type: .absoluteValueType, for: .padding, edge: .minX)
-            block.setWidth(rightPadding, type: .absoluteValueType, for: .padding, edge: .maxX)
-            block.setWidth(isProse ? 6 : 5, type: .absoluteValueType, for: .padding, edge: .minY)
-            block.setWidth(isProse ? 7 : 6, type: .absoluteValueType, for: .padding, edge: .maxY)
-            block.setWidth(0, type: .absoluteValueType, for: .margin)
-
-            style.textBlocks = [block]
-            style.firstLineHeadIndent = 0
-            style.headIndent = 0
-            style.paragraphSpacing = max(style.paragraphSpacing, isProse ? 12 : 9)
-            style.paragraphSpacingBefore = max(style.paragraphSpacingBefore, isProse ? 6 : 4)
+            style.textBlocks = []
+            let indent: CGFloat = isProse ? 14 : 11
+            style.firstLineHeadIndent = indent
+            style.headIndent = indent
+            style.paragraphSpacing = 0
+            style.paragraphSpacingBefore = 0
             return style
         }
 
-        private func listParagraphStyle(from baseStyle: NSParagraphStyle, isProse: Bool, showVisualMarker: Bool) -> NSParagraphStyle {
+        private func listParagraphStyle(from baseStyle: NSParagraphStyle, isProse: Bool) -> NSParagraphStyle {
             let style = baseStyle.mutableCopy() as! NSMutableParagraphStyle
-            if showVisualMarker {
-                style.textLists = [NSTextList(markerFormat: .circle, options: 0)]
-                style.firstLineHeadIndent = 0
-                style.headIndent = isProse ? 14 : 12
-            } else {
-                style.textLists = []
-                style.firstLineHeadIndent = 0
-                style.headIndent = 0
-            }
+            style.textLists = []
+            style.firstLineHeadIndent = 0
+            style.headIndent = isProse ? 14 : 12
             style.paragraphSpacing = max(style.paragraphSpacing, isProse ? 8 : 6)
             return style
         }
@@ -874,6 +853,12 @@ struct MarkdownNSTextView: NSViewRepresentable {
 class HighlightingTextView: NSTextView {
     static weak var focusedEditor: HighlightingTextView?
 
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        drawMarkdownQuoteRails(in: dirtyRect)
+        drawMarkdownListBullets(in: dirtyRect)
+    }
+
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
         if accepted {
@@ -910,6 +895,140 @@ class HighlightingTextView: NSTextView {
             return true
         default:
             return super.performKeyEquivalent(with: event)
+        }
+    }
+
+    private func drawMarkdownListBullets(in dirtyRect: NSRect) {
+        guard
+            let storage = textStorage,
+            let layoutManager = layoutManager,
+            let textContainer = textContainer
+        else { return }
+
+        let selection = selectedRange()
+        let textOrigin = textContainerOrigin
+        let markerColor = NSColor.secondaryLabelColor.withAlphaComponent(0.9)
+        let baseSize = font?.pointSize ?? 15
+        let bulletSize: CGFloat = baseSize >= 17 ? 5.4 : 4.6
+        let fullRange = NSRange(location: 0, length: storage.length)
+
+        storage.enumerateAttribute(.groveListPrefix, in: fullRange, options: []) { value, range, _ in
+            guard let isListPrefix = value as? Bool, isListPrefix, range.length > 0 else { return }
+
+            if selection.length > 0, NSIntersectionRange(selection, range).length > 0 { return }
+            if selection.length == 0 {
+                let cursor = selection.location
+                if cursor >= range.location && cursor <= range.location + range.length { return }
+            }
+
+            let markerCharRange = NSRange(location: range.location, length: 1)
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: markerCharRange, actualCharacterRange: nil)
+            guard glyphRange.length > 0, glyphRange.location != NSNotFound else { return }
+
+            var glyphRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+            glyphRect.origin.x += textOrigin.x
+            glyphRect.origin.y += textOrigin.y
+            guard glyphRect.intersects(dirtyRect) else { return }
+
+            let bulletRect = NSRect(
+                x: glyphRect.midX - bulletSize / 2,
+                y: glyphRect.midY - bulletSize / 2 + 0.4,
+                width: bulletSize,
+                height: bulletSize
+            )
+
+            markerColor.setFill()
+            NSBezierPath(ovalIn: bulletRect).fill()
+        }
+    }
+
+    private func drawMarkdownQuoteRails(in dirtyRect: NSRect) {
+        guard
+            let storage = textStorage,
+            let layoutManager = layoutManager,
+            let textContainer = textContainer
+        else { return }
+
+        let nsText = storage.string as NSString
+        let selection = selectedRange()
+        let textOrigin = textContainerOrigin
+        let railColor = NSColor.tertiaryLabelColor.withAlphaComponent(0.72)
+        let baseSize = font?.pointSize ?? 15
+        let railWidth: CGFloat = baseSize >= 17 ? 1.0 : 0.85
+        let fullRange = NSRange(location: 0, length: storage.length)
+
+        struct QuoteLinePrefix {
+            let prefixRange: NSRange
+            let lineRange: NSRange
+        }
+
+        var prefixes: [QuoteLinePrefix] = []
+        storage.enumerateAttribute(.groveQuotePrefix, in: fullRange, options: []) { value, range, _ in
+            guard let isQuotePrefix = value as? Bool, isQuotePrefix, range.length > 0 else { return }
+
+            if selection.length > 0, NSIntersectionRange(selection, range).length > 0 { return }
+            if selection.length == 0, selection.location >= range.location, selection.location < range.location + range.length {
+                return
+            }
+
+            let lineRange = nsText.lineRange(for: NSRange(location: range.location, length: 0))
+            prefixes.append(QuoteLinePrefix(prefixRange: range, lineRange: lineRange))
+        }
+
+        guard !prefixes.isEmpty else { return }
+        prefixes.sort { $0.lineRange.location < $1.lineRange.location }
+
+        struct QuoteBlock {
+            var firstPrefixLocation: Int
+            var blockLineRange: NSRange
+        }
+
+        var blocks: [QuoteBlock] = []
+        for entry in prefixes {
+            if var last = blocks.last {
+                let lastEnd = last.blockLineRange.location + last.blockLineRange.length
+                let currentEnd = entry.lineRange.location + entry.lineRange.length
+                if entry.lineRange.location <= lastEnd {
+                    last.blockLineRange = NSRange(
+                        location: last.blockLineRange.location,
+                        length: max(lastEnd, currentEnd) - last.blockLineRange.location
+                    )
+                    blocks[blocks.count - 1] = last
+                    continue
+                }
+            }
+
+            blocks.append(
+                QuoteBlock(
+                    firstPrefixLocation: entry.prefixRange.location,
+                    blockLineRange: entry.lineRange
+                )
+            )
+        }
+
+        for block in blocks {
+            let markerCharRange = NSRange(location: block.firstPrefixLocation, length: 1)
+            let markerGlyphRange = layoutManager.glyphRange(forCharacterRange: markerCharRange, actualCharacterRange: nil)
+            let blockGlyphRange = layoutManager.glyphRange(forCharacterRange: block.blockLineRange, actualCharacterRange: nil)
+            guard markerGlyphRange.length > 0, blockGlyphRange.length > 0 else { continue }
+
+            var markerRect = layoutManager.boundingRect(forGlyphRange: markerGlyphRange, in: textContainer)
+            var blockRect = layoutManager.boundingRect(forGlyphRange: blockGlyphRange, in: textContainer)
+            markerRect.origin.x += textOrigin.x
+            markerRect.origin.y += textOrigin.y
+            blockRect.origin.x += textOrigin.x
+            blockRect.origin.y += textOrigin.y
+            guard blockRect.intersects(dirtyRect) else { continue }
+
+            let railRect = NSRect(
+                x: markerRect.minX + 1.4,
+                y: blockRect.minY + 1,
+                width: railWidth,
+                height: max(10, blockRect.height - 2)
+            )
+
+            railColor.setFill()
+            NSBezierPath(roundedRect: railRect, xRadius: railWidth / 2, yRadius: railWidth / 2).fill()
         }
     }
 
