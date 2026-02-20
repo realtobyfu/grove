@@ -27,7 +27,7 @@ struct HomeView: View {
     }
 
     private var discussionBubbles: [PromptBubble] {
-        Array(starterService.bubbles.prefix(5))
+        Array(starterService.bubbles.prefix(3))
     }
 
     private var recentItems: [Item] {

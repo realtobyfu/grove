@@ -1,293 +1,213 @@
 {
   "project": "grove",
-  "branchName": "ralph/ux-redesign-v2",
-  "description": "Major UX redesign: center the app around Dialectics as the home screen, add proactive conversation starters (prompt bubbles), auto-board creation, redesign Synthesis as a reusable tool, add full-text search, add actionable outputs in Dialectics, and simplify the nudge/service architecture by cutting or folding redundant features.",
+  "branchName": "ralph/ux-feature-alignment-v3",
+  "description": "Feature + UI/UX alignment pass based on current code reality (Feb 2026): tighten home experience, fix Dialectics interaction gaps, align nudge/config surfaces with implemented behavior, improve accessibility and visual readability, and remove high-friction inconsistencies before the next autonomous loop.",
   "userStories": [
     {
       "id": "US-001",
-      "title": "Home screen is the Dialectics landing state with prompt bubbles",
-      "description": "As a user, I want the app's home screen to show 2-3 contextual conversation starters as tappable prompt bubbles so that I always have something to engage with when I open Grove, solving the blank-canvas problem.",
+      "title": "Home prompt density and fallback behavior are decision-light",
+      "description": "As a user, I want Home discussion starters to be focused (2-3 max) with a clear fallback, so opening Grove feels inviting rather than noisy.",
       "acceptanceCriteria": [
-        "App launches to a new HomeView (not the previous Library or sidebar-first layout)",
-        "HomeView shows 2-3 prompt bubbles in a visually distinct style (not nudge banners)",
-        "Below the prompt bubbles, show a compressed recent-items list and a capture button",
-        "Tapping a prompt bubble navigates into DialecticsView with that prompt pre-filled as the first user message",
-        "If no prompts are available (LLM offline, empty knowledge base), show a single fallback: 'Start a conversation' that opens an empty Dialectics session",
-        "Typecheck passes"
+        "Home discussion starter cards show at most 3 contextual bubbles plus the existing \"New Conversation\" card",
+        "ConversationStarterService returns at most 3 bubbles from both LLM and heuristic paths",
+        "When no context is available, Home still shows a single meaningful fallback starter instead of an empty section",
+        "Existing caching behavior (8 hour TTL) remains intact",
+        "tuist test passes"
       ],
       "priority": 1,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Capped Home starters at 3 in both UI and service paths (LLM parse, heuristic generation, and cached load), and added a guaranteed single REFLECT fallback bubble when context is empty; verified with new service tests and passing tuist test/build."
     },
     {
       "id": "US-002",
-      "title": "Conversation starter generation service",
-      "description": "As a user, I want the prompt bubbles on the home screen to be contextually relevant to my recent activity, stale items, and contradictions, so the app feels like a thinking partner that noticed something interesting.",
+      "title": "Prompt bubble handoff preserves context and user intent",
+      "description": "As a user, when I tap a Home starter (especially ORGANIZE), I want the resulting Dialectics session to carry that context as my first message with proper seed items.",
       "acceptanceCriteria": [
-        "Create ConversationStarterService (or a method on DialecticsService) that generates 2-3 starters",
-        "Service takes recent items (last 7 days), stale high-value items (untouched 30+ days), and items with .contradicts connections as input context",
-        "Single LLM call with a system prompt that returns JSON array of {prompt: String, itemIDs: [String]} objects",
-        "Heuristic fallback when LLM is unavailable: surface 2 starters based on staleness ('You haven't revisited X in N weeks') and recency ('You saved 3 things about Y recently')",
-        "Results are cached in memory per app launch — do not re-call LLM on every HomeView appearance",
-        "Typecheck passes"
+        "Prompt mode selection preserves bubble metadata (including clusterItemIDs) instead of only prompt/label",
+        "Opening Dialectics from a starter routes through groveStartConversationWithPrompt, creating a first user message (not assistant-injected display text)",
+        "ORGANIZE bubbles pass cluster item IDs into conversation seed context",
+        "Existing \"Start Writing\" action from prompt mode remains available",
+        "tuist test passes"
       ],
       "priority": 2,
       "passes": false,
-      "notes": ""
+      "notes": "Prompt metadata is dropped in HomeView (HomeView.swift:7, HomeView.swift:382-410), and display-prompt path currently injects an assistant message (ContentViewHandlers.swift:258-279)."
     },
     {
       "id": "US-003",
-      "title": "Auto-board suggestion on capture",
-      "description": "As a user, I want Grove to suggest creating a new board when I save an item that doesn't fit any existing board, so my knowledge base organizes itself without me managing boards manually.",
+      "title": "Wiki-links are truly interactive in rendered markdown",
+      "description": "As a user, wiki-links shown in Dialectics and reader surfaces should behave like actual links so I can navigate reliably from AI output.",
       "acceptanceCriteria": [
-        "After AutoTagService runs on capture, evaluate the board assignment confidence score",
-        "If best board match confidence is below threshold (e.g. < 0.4) AND no board was manually selected, show an inline suggestion below the capture field: 'This doesn't fit your existing boards. Create [suggested name]?'",
-        "Suggested board name comes from AutoTagService response (add a suggestedBoardName field to AutoTagResponse if not present)",
-        "User can tap 'Create' (creates board + assigns item), 'Dismiss' (item saved with no board), or just ignore (suggestion auto-dismisses after 5 seconds)",
-        "The suggestion is non-blocking — the item is already saved, this is a post-save prompt",
-        "If the user has zero boards (cold start), always suggest a board name on the first 3 captures",
-        "Typecheck passes"
+        "MarkdownTextView renders wiki-link segments as tappable link/button elements, not only underlined text styling",
+        "Tapping a wiki-link triggers existing item navigation callback",
+        "Behavior is consistent anywhere MarkdownTextView is used (chat and item reader)",
+        "No regressions to markdown formatting for non-link text",
+        "tuist test passes"
       ],
       "priority": 3,
       "passes": false,
-      "notes": ""
+      "notes": "Current renderer styles wiki-link text but does not attach a tappable link target (ItemReaderView.swift:1535-1560)."
     },
     {
       "id": "US-004",
-      "title": "Unboarded items surfaced as conversation starter",
-      "description": "As a user, I want Grove to notice when I have a cluster of unboarded items sharing tags and suggest grouping them, surfaced as a prompt bubble on the home screen rather than an automatic action.",
+      "title": "Conversation history is searchable in Dialectics",
+      "description": "As a user, I want to search past conversations by title and message content so prior reasoning is actually retrievable.",
       "acceptanceCriteria": [
-        "ConversationStarterService (from US-002) includes an additional heuristic check: find unboarded items that share 2+ tags with at least 4 other unboarded items",
-        "If a cluster is found, one of the 2-3 prompt bubbles can be a board-suggestion starter, e.g. 'You have 6 items about continental philosophy floating around. Want to organize them?'",
-        "Tapping this starter opens a Dialectics conversation where the agent can list the items, suggest a board name, and the user can confirm",
-        "Add a create_board tool to KnowledgeBaseTools that creates a Board and assigns specified items to it",
-        "The create_board tool is a write tool — creates Board entity and updates Item.board relationships",
-        "This prompt bubble type should appear at most once per app launch to avoid nagging",
-        "Typecheck passes"
+        "Conversation popover includes a search field with live filtering",
+        "Search matches conversation title and visible message content",
+        "Keyboard support remains intact (arrow navigation + return to open)",
+        "If no matches, empty state clearly distinguishes \"no conversations\" from \"no search results\"",
+        "tuist test passes"
       ],
       "priority": 4,
       "passes": false,
-      "notes": ""
+      "notes": "History list exists but has no search control (DialecticalChatPanel.swift:471-540)."
     },
     {
       "id": "US-005",
-      "title": "Full-text search bar in Library view",
-      "description": "As a user, I want a prominent search bar in the Library that queries across item titles, content, tags, and reflections so I can quickly find anything in my knowledge base.",
+      "title": "Global search overlay gets focus, debouncing, and async-safe search",
+      "description": "As a keyboard-first user, when opening global search I expect immediate typing focus and responsive results even on larger datasets.",
       "acceptanceCriteria": [
-        "Library view has a persistent search bar at the top (always visible, not hidden behind a button)",
-        "Search queries SwiftData across Item title, content, Tag names, and ReflectionBlock content",
-        "Results update as the user types (debounced, ~300ms delay)",
-        "Results show item cards with the matching text highlighted or indicated",
-        "Empty search state shows the default library view (reverse-chronological all items)",
-        "Boards act as filters alongside search — selecting a board narrows search scope to that board",
-        "Typecheck passes"
+        "Search text field auto-focuses when SearchOverlay opens",
+        "Overlay search is debounced with cancellation (task-based) rather than firing full synchronous fetches per keypress",
+        "Search results still support up/down/return keyboard navigation",
+        "Row activation uses accessible button semantics instead of tap-only gestures",
+        "tuist test passes"
       ],
       "priority": 5,
       "passes": false,
-      "notes": ""
+      "notes": "Current overlay calls search on every setter write and VM fetches full entity sets synchronously (SearchOverlayView.swift:114-122, SearchViewModel.swift:101-232)."
     },
     {
       "id": "US-006",
-      "title": "Discuss this: item-anchored Dialectics conversations",
-      "description": "As a user, I want to tap a 'Discuss' button on any item in the Library or Inspector and land in a Dialectics conversation with that item pre-loaded as context, so I can think deeply about specific items.",
+      "title": "Nudge settings and nudge model are aligned with the simplified engine",
+      "description": "As a user and developer, I want nudge controls to match what is actually generated, so settings are trustworthy and maintenance complexity drops.",
       "acceptanceCriteria": [
-        "Item cards in Library and the InspectorView both show a 'Discuss' action (button or context menu)",
-        "Tapping 'Discuss' creates a new Conversation entity with the item's title and content included in the initial system context",
-        "DialecticsView opens with a pre-generated opening message from the assistant that references the item (e.g., 'Let's explore your note on X. What aspect interests you?')",
-        "The item's ID is stored in the Conversation metadata so the conversation is linked to that item",
-        "Typecheck passes"
+        "Nudge settings UI exposes only active categories and controls (resurface, stale inbox, cadence, resurfacing queue controls)",
+        "Legacy toggles/analytics rows for streak, continue-course, connection prompts, and smart nudge categories are removed from settings",
+        "NudgeType and NudgeSettings are cleaned up (or explicitly deprecated) so dead categories are not treated as active configuration",
+        "Weekly digest controls are moved out of Nudge settings or clearly marked as manual-only configuration",
+        "tuist test passes"
       ],
       "priority": 6,
       "passes": false,
-      "notes": ""
+      "notes": "NudgeEngine generates only resurface + staleInbox, but settings/model still expose removed categories (NudgeEngine.swift:63-84, NudgeSettingsView.swift:32-177, NudgeSettings.swift:10-96, Nudge.swift:4-19)."
     },
     {
       "id": "US-007",
-      "title": "Actionable outputs in Dialectics — save as note",
-      "description": "As a user, I want to save a Dialectics response as a new Item in my knowledge base with one tap, so that insights from conversations become persistent, searchable knowledge artifacts.",
+      "title": "Quick Capture shortcut is wired end-to-end",
+      "description": "As a user, pressing Cmd+Shift+K from menu commands should always open Quick Capture, not post a dead notification.",
       "acceptanceCriteria": [
-        "Each assistant message in DialecticsView shows a subtle 'Save as note' action button",
-        "Tapping 'Save as note' creates a new Item(.note) with the message content as the body",
-        "The new item's title is auto-generated from the first sentence or a summary",
-        "Tags are generated via AutoTagService on the new item",
-        "A Connection entity is created linking the new item to the conversation's source item (if the conversation was item-anchored via US-006)",
-        "A brief toast/confirmation is shown after saving",
-        "Typecheck passes"
+        "Quick Capture command opens the quick-capture window (or intentionally chosen capture surface) reliably",
+        "No orphan notification path remains for groveQuickCapture unless a matching receiver is added",
+        "Shortcut behavior is consistent between menu command and menu bar utility",
+        "tuist test passes"
       ],
       "priority": 7,
       "passes": false,
-      "notes": "Not yet started. The current 'Save as Reflection' button (US-008) saves to an existing item, not a new Item. This requires a separate button and Item creation path."
+      "notes": "Command currently posts .groveQuickCapture with no receiver (GroveApp.swift:138-141, Notifications.swift:7, ContentViewHandlers.swift handlers list has no groveQuickCapture subscriber)."
     },
     {
       "id": "US-008",
-      "title": "Actionable outputs in Dialectics — add reflection to item",
-      "description": "As a user, when Dialectics references one of my items with a [[wiki-link]], I want to be able to add the insight as a ReflectionBlock on that item with one tap.",
+      "title": "Naming and shortcut docs match actual product behavior",
+      "description": "As a user, I want UI language and shortcut documentation to match what the app does, so trust and learnability stay high.",
       "acceptanceCriteria": [
-        "When a Dialectics response contains [[wiki-links]], those links are rendered as tappable inline elements",
-        "Tapping a wiki-link shows a popover with two options: 'View item' and 'Add reflection'",
-        "Choosing 'Add reflection' creates a ReflectionBlock on the referenced item with the surrounding paragraph as content",
-        "The reflection block type defaults to .keyInsight but can be changed by the user",
-        "Typecheck passes"
+        "User-facing strings use \"Dialectics\" consistently (replace remaining \"Dialectical Chat\"/\"Dialectic\" wording where intended)",
+        "Shortcuts settings copy matches command menu labels and keys exactly",
+        "Shortcut docs include currently available chat toggle shortcut",
+        "Go-to-home labeling mismatch is resolved",
+        "tuist test passes"
       ],
       "priority": 8,
-      "passes": true,
-      "notes": "Implemented via SaveReflectionSheet in DialecticalChatPanel. Assistant messages with referenced items show 'Save as Reflection' button that opens a sheet to pick item, block type (all ReflectionBlockType cases), and edit content. Reflection is saved via DialecticsService.saveAsReflection."
+      "passes": false,
+      "notes": "Current mismatches: DialecticalChatPanel header/copy (DialecticalChatPanel.swift:80, DialecticalChatPanel.swift:417-420), shortcuts label says \"Go to Inbox\" while command says \"Go to Home\" (ShortcutsSettingsView.swift:15, GroveApp.swift:158-161)."
     },
     {
       "id": "US-009",
-      "title": "Actionable outputs in Dialectics — create connection between items",
-      "description": "As a user, when Dialectics identifies a relationship between two of my items, I want to create a typed Connection between them with one tap.",
+      "title": "Accessibility baseline pass for control-heavy surfaces",
+      "description": "As a VoiceOver and keyboard user, I need icon-heavy controls to expose clear labels/hints so the app is operable without sighted inference.",
       "acceptanceCriteria": [
-        "When a Dialectics response contains two or more [[wiki-links]], show a 'Create connection' action",
-        "Tapping 'Create connection' shows a sheet with the two items and a picker for connection type (contradicts, buildsOn, inspiredBy, relatedTo)",
-        "The connection type is pre-selected based on the LLM's language in the response if detectable (e.g., 'contradicts' if the response says 'this contradicts')",
-        "Saving creates a Connection entity between the two items",
-        "Typecheck passes"
+        "Icon-only buttons in Home, Sidebar, Chat, Capture, Search, and Inspector have explicit accessibility labels",
+        "Key actions include concise accessibility hints where behavior is not obvious",
+        "Tap-only result rows in overlays are converted to semantic button interactions",
+        "Accessibility coverage is documented in a brief checklist note in progress.txt for future stories",
+        "tuist test passes"
       ],
       "priority": 9,
-      "passes": true,
-      "notes": "Implemented via connectionSheet in DialecticalChatPanel. Messages with 2+ referenced item IDs show 'Create Connection' button. Sheet shows source/target items with ConnectionType picker (all cases). DialecticsService.createConnection creates the Connection entity."
+      "passes": false,
+      "notes": "No explicit accessibility modifiers are currently present across views (rg accessibility on grove/Sources/Views returns no matches)."
     },
     {
       "id": "US-010",
-      "title": "Conversation history: browsable and searchable past Dialectics sessions",
-      "description": "As a user, I want to browse and search my past Dialectics conversations so I can revisit previous thinking and find conclusions I reached earlier.",
+      "title": "Design token contrast meets readability targets",
+      "description": "As a user, secondary and tertiary text should remain readable in both themes so metadata and helper copy are not visually lost.",
       "acceptanceCriteria": [
-        "A 'History' section or tab is accessible from the Dialectics view",
-        "Shows a reverse-chronological list of past Conversations with title, date, and item count",
-        "Search bar filters conversations by title and message content",
-        "Tapping a conversation opens it in read-only mode with the full message history",
-        "User can continue a past conversation (creates new messages appended to the existing Conversation entity)",
-        "Typecheck passes"
+        "Update color tokens so regular-size text usage meets WCAG AA 4.5:1 where applicable on primary reading surfaces",
+        "At minimum, textSecondary/textTertiary/textMuted combinations used in common UI metadata are brought to acceptable contrast",
+        "Include a repeatable script/check command in notes that reports key contrast pairs for light and dark",
+        "No major visual regressions to selected/active states",
+        "tuist test passes"
       ],
       "priority": 10,
-      "passes": true,
-      "notes": "Implemented via conversationListPopover in DialecticalChatPanel header (list icon). Shows all non-archived conversations with title, trigger, date, and message count. Tapping selects conversation which continues in the chat view. Conversations also appear in the HomeView 'Recent Conversations' section and in SidebarView. Note: search filtering within history list is not implemented — the popover shows all conversations with no search bar. Consider partial pass."
+      "passes": false,
+      "notes": "Current token contrast examples: textTertiary on bgPrimary ~2.22 (light) / ~2.53 (dark), textMuted on bgPrimary ~1.84 (light) / ~1.94 (dark)."
     },
     {
       "id": "US-011",
-      "title": "Redesign SynthesisService: add create_synthesis as a Dialectics write tool",
-      "description": "As a user, I want to trigger synthesis both from the Library (select items → synthesize) and from Dialectics ('synthesize my notes on X'), with both paths producing a persistent Item(.note) with connections to source items.",
+      "title": "Graph view gains relationship legend and type filters",
+      "description": "As a user, I need to understand what graph edges mean at a glance and selectively inspect relationship types.",
       "acceptanceCriteria": [
-        "SynthesisService is kept and works as before when invoked directly from Library (multi-select items → 'Synthesize' button)",
-        "A new KnowledgeBaseTools tool called 'create_synthesis' is added that accepts a list of item titles/IDs and a focus prompt",
-        "The create_synthesis tool calls SynthesisService internally and returns the created item's title and ID",
-        "DialecticsService system prompt is updated to include create_synthesis in its available tools",
-        "The agentic loop handles create_synthesis as a write tool (creates Item and Connection entities)",
-        "In Dialectics, after synthesis is created, the assistant message includes a link to the new synthesis item",
-        "Typecheck passes"
+        "Graph toolbar includes a visible legend for edge styles/colors by connection type",
+        "Users can toggle connection-type filters (buildsOn, contradicts, related, inspiredBy, sameTopic)",
+        "Board and tag filters continue to work with relationship filters",
+        "Empty state messaging updates to reflect active filters",
+        "tuist test passes"
       ],
       "priority": 11,
       "passes": false,
-      "notes": ""
+      "notes": "Edge semantics are currently encoded only by subtle line style/opacity with no legend/filter UI (GraphVisualizationView.swift:43-80, GraphVisualizationView.swift:355-373)."
     },
     {
       "id": "US-012",
-      "title": "Update Dialectics system prompt for multi-mode dialectical approach",
-      "description": "As a user, I want Dialectics conversations to adapt their philosophical approach — Socratic questioning, Hegelian thesis-antithesis-synthesis, Nietzschean perspectivism — based on the shape of my knowledge, rather than always defaulting to Socratic elenchus.",
+      "title": "Keyboard shortcut handling is scoped and non-brittle",
+      "description": "As a keyboard user, j/k and triage shortcuts should work predictably without hidden zero-size button hacks that can conflict with text input.",
       "acceptanceCriteria": [
-        "DialecticsService system prompt is rewritten to describe three dialectical modes without naming a default",
-        "System prompt instructs the LLM to choose mode based on context: Socratic when probing assumptions, Hegelian when contradictions exist between items, Nietzschean when the user has collected multiple perspectives without committing",
-        "UI labels and strings throughout the app say 'Dialectics' not 'Socratic Dialectics' or 'Socratic conversation'",
-        "No user-facing UI changes needed beyond string updates — the mode selection is in the system prompt",
-        "Typecheck passes"
+        "Replace hidden zero-size button shortcut handlers in InboxTriage and BoardDetail with scoped key handling",
+        "Keyboard actions are disabled when a text field/editor is focused",
+        "Existing shortcuts (j/k/1/2/3/enter) retain behavior within their intended view context",
+        "tuist test passes"
       ],
       "priority": 12,
       "passes": false,
-      "notes": "Partially done. DialecticsService.systemPrompt says 'blends Socratic questioning with Hegelian dialectics' but does not include Nietzschean perspectivism or explicit mode-switching logic. UI still has 'Socratic questioning and dialectical reasoning' in the empty state of DialecticalChatPanel. Needs: (1) add Nietzschean mode to system prompt, (2) explicit context-based mode selection instructions, (3) fix UI string in DialecticalChatPanel empty state."
+      "notes": "Current pattern uses invisible buttons with empty labels and zero frames for shortcuts (InboxTriageView.swift:230-271, BoardDetailView.swift:216-229)."
     },
     {
       "id": "US-013",
-      "title": "Simplify NudgeEngine: remove streak, continue-course, and connection-prompt nudges",
-      "description": "As a developer, I want to remove the streak nudge, continue-course nudge, and connection-prompt heuristic nudge types from NudgeEngine, keeping only spaced-resurfacing and stale-inbox, so the app's proactive surface is the home screen prompt bubbles rather than a multi-strategy nudge pipeline.",
+      "title": "create_synthesis tool returns directly reusable synthesis link",
+      "description": "As a user, when Dialectics creates a synthesis, I should get a direct wiki-link to the new artifact so I can immediately open or reference it.",
       "acceptanceCriteria": [
-        "NudgeEngine no longer evaluates streak, continue-course, or connection-prompt strategies",
-        "ResurfacingService (spaced resurfacing) is kept and runs on its existing timer",
-        "Stale-inbox heuristic is kept",
-        "NudgeBanner UI is removed from Library/HomeView — resurfacing results are exposed as a count indicator in the Library (e.g., '3 items to revisit') that the user can tap to see the list",
-        "SmartNudgeService is removed (its role is replaced by ConversationStarterService from US-002)",
-        "CheckInTriggerService is removed (its role is replaced by ConversationStarterService from US-002)",
-        "Typecheck passes"
+        "create_synthesis response includes a wiki-link for the newly created synthesis item title (not only plain quoted text)",
+        "Response still includes source links and missing-title diagnostics",
+        "Assistant follow-up can navigate to created synthesis via existing wiki-link handling",
+        "tuist test passes"
       ],
       "priority": 13,
       "passes": false,
-      "notes": ""
+      "notes": "Current tool response returns plain title and ID, with wiki-links only for source items (KnowledgeBaseTools.swift:285-289)."
     },
     {
       "id": "US-014",
-      "title": "Remove LearningPathView and LearningPathService",
-      "description": "As a developer, I want to remove LearningPathService, LearningPathView, and the LearningPath data model so the codebase is simpler. Users can ask Dialectics to suggest a learning sequence if they want one.",
+      "title": "Board suggestion timeout and spec source-of-truth are aligned",
+      "description": "As a user, inline board suggestions should dismiss on a predictable cadence that matches product spec and feels unobtrusive.",
       "acceptanceCriteria": [
-        "LearningPathService is deleted",
-        "LearningPathView is deleted",
-        "LearningPath and LearningPathStep SwiftData models are removed (or marked deprecated with a migration that removes existing data)",
-        "All references to learning paths in navigation, sidebar, or menus are removed",
-        "Typecheck passes"
+        "Board suggestion auto-dismiss uses a single shared constant",
+        "Dismiss timeout is set to 5 seconds across both capture bar variants",
+        "Updated timing is documented in DESIGN.md behavior contract",
+        "tuist test passes"
       ],
       "priority": 14,
       "passes": false,
-      "notes": ""
-    },
-    {
-      "id": "US-015",
-      "title": "Remove automatic WeeklyDigest generation",
-      "description": "As a developer, I want to remove the automatic weekly digest item creation from NudgeEngine so the knowledge base isn't polluted with meta-content. Users can ask Dialectics 'summarize my week' to get the same output on demand.",
-      "acceptanceCriteria": [
-        "WeeklyDigestService is no longer triggered automatically by NudgeEngine on app launch",
-        "WeeklyDigestService itself is kept in the codebase but not auto-invoked (it can be called manually or via Dialectics in a future story)",
-        "No digest Items are auto-created on the weekly schedule",
-        "Typecheck passes"
-      ],
-      "priority": 15,
-      "passes": false,
-      "notes": ""
-    },
-    {
-      "id": "US-016",
-      "title": "Remove standalone ReflectionPromptService UI from InspectorView",
-      "description": "As a developer, I want to remove the auto-generated reflection prompts from InspectorView so the inspector becomes a clean read/edit view. Reflection prompting is now handled by Dialectics conversations (via US-006 'Discuss this').",
-      "acceptanceCriteria": [
-        "InspectorView no longer calls ReflectionPromptService on appearance",
-        "The 'suggested reflections' or 'reflection prompts' section is removed from InspectorView",
-        "InspectorView still displays existing ReflectionBlock entities (user's past reflections remain visible)",
-        "ReflectionPromptService is kept in the codebase but not auto-invoked from InspectorView",
-        "Typecheck passes"
-      ],
-      "priority": 16,
-      "passes": false,
-      "notes": "Not done. ReflectionPromptService is still called in ItemReaderView at line 1130."
-    },
-    {
-      "id": "US-017",
-      "title": "Remove standalone ConnectionSuggestionService UI from InspectorView",
-      "description": "As a developer, I want to remove the auto-generated connection suggestions from InspectorView. Connection discovery is now handled by Dialectics conversations. The inspector keeps manual connection management.",
-      "acceptanceCriteria": [
-        "InspectorView no longer calls ConnectionSuggestionService on appearance",
-        "The 'suggested connections' section is removed from InspectorView",
-        "InspectorView still displays existing Connection entities and allows manual connection creation (search-to-link)",
-        "ConnectionSuggestionService is kept in the codebase but not auto-invoked from InspectorView",
-        "Typecheck passes"
-      ],
-      "priority": 17,
-      "passes": false,
-      "notes": "Not done. ConnectionSuggestionService is still called in ItemReaderView at multiple call sites (lines 1160, 1177, 1188, 1199)."
-    },
-    {
-      "id": "US-018",
-      "title": "Apple Intelligence on-device LLM provider",
-      "description": "As a user on macOS 26+, I want Grove's AI features to work using Apple's on-device Foundation Models so I get free, private AI with no API key required, while users on older macOS fall back to Groq.",
-      "acceptanceCriteria": [
-        "AppleIntelligenceProvider implements LLMProvider protocol using FoundationModels framework",
-        "Provider is gated with @available(macOS 26, *) and gracefully returns nil on older OS versions",
-        "LLMServiceConfig selects Apple Intelligence over Groq when the on-device model is available",
-        "Both single-turn (complete) and multi-turn chat (completeChat) paths are implemented",
-        "Token usage is estimated (chars/4 heuristic) and recorded via TokenTracker",
-        "All existing AI features (AutoTag, Synthesis, Dialectics, etc.) work through the new provider without code changes",
-        "Typecheck passes"
-      ],
-      "priority": 18,
-      "passes": true,
-      "notes": "Implemented in grove/Sources/Services/LLM/AppleIntelligenceProvider.swift. Uses SystemLanguageModel.default with LanguageModelSession. Availability gated on SystemLanguageModel.default.availability == .available. Multi-turn chat replays messages sequentially via session.respond(to:). Compiles conditionally with #if canImport(FoundationModels)."
+      "notes": "Current timeout is 7 seconds in both capture surfaces (CaptureBarView.swift:359, CaptureBarView.swift:645)."
     }
   ]
 }

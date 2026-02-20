@@ -12,7 +12,7 @@ import Observation
 
 // MARK: - ConversationStarterService
 
-/// Generates 3-5 contextual conversation starters for the HomeView prompt bubbles.
+/// Generates up to 3 contextual conversation starters for the HomeView prompt bubbles.
 /// Uses a single LLM call with heuristic fallback when LLM is unavailable.
 /// Results are persisted to UserDefaults (TTL: 8 hours) so they appear instantly on relaunch.
 @MainActor @Observable final class ConversationStarterService: ConversationStarterServiceProtocol {
@@ -36,6 +36,7 @@ import Observation
         let clusterItemIDs: [UUID]
     }
 
+    private static let maxBubbleCount = 3
     private static let cacheKey = "grove.conversationStarters"
     private static let cacheTTLSeconds: TimeInterval = 8 * 3600  // 8 hours
 
@@ -158,7 +159,7 @@ import Observation
 
         let systemPrompt = """
         You are a philosophical thinking partner that helps users reflect on their knowledge base.
-        Given context about a user's recent notes, stale items, and contradictions, generate 3-5 engaging conversation starters.
+        Given context about a user's recent notes, stale items, and contradictions, generate up to 3 engaging conversation starters.
 
         Rules:
         - Each starter is a single, thought-provoking question or prompt (1-2 sentences)
@@ -231,7 +232,7 @@ import Observation
             return PromptBubble(prompt: prompt, label: label)
         }
 
-        return parsed.isEmpty ? nil : Array(parsed.prefix(5))
+        return parsed.isEmpty ? nil : Array(parsed.prefix(Self.maxBubbleCount))
     }
 
     // MARK: - Heuristic Fallback
@@ -264,7 +265,7 @@ import Observation
         }
 
         // Unboarded cluster — show at most once per launch
-        if let cluster = context.unboardedCluster, !didShowClusterBubble, bubbles.count < 3 {
+        if let cluster = context.unboardedCluster, !didShowClusterBubble, bubbles.count < Self.maxBubbleCount {
             bubbles.append(PromptBubble(
                 prompt: "You have \(cluster.count) items about \"\(cluster.sharedTag)\" floating around without a board. Want to organize them?",
                 label: "ORGANIZE",
@@ -274,15 +275,15 @@ import Observation
             didShowClusterBubble = true
         }
 
-        // Generic fallback when knowledge base has something but no specific trigger
-        if bubbles.isEmpty && (!context.recentItems.isEmpty || !context.staleItems.isEmpty) {
+        // Keep Home decision-light but never empty: always provide one meaningful fallback.
+        if bubbles.isEmpty {
             bubbles.append(PromptBubble(
-                prompt: "What idea from your knowledge base has been sitting unresolved the longest?",
+                prompt: "What question feels most worth thinking through right now?",
                 label: "REFLECT"
             ))
         }
 
-        return Array(bubbles.prefix(5))
+        return Array(bubbles.prefix(Self.maxBubbleCount))
     }
 
     // MARK: - Cache Helpers
@@ -305,6 +306,10 @@ import Observation
         guard age < cacheTTLSeconds else { return nil }
 
         guard let cached = try? JSONDecoder().decode([CachedBubble].self, from: data) else { return nil }
-        return cached.map { PromptBubble(prompt: $0.prompt, label: $0.label, clusterTag: $0.clusterTag, clusterItemIDs: $0.clusterItemIDs) }
+        return Array(
+            cached
+                .map { PromptBubble(prompt: $0.prompt, label: $0.label, clusterTag: $0.clusterTag, clusterItemIDs: $0.clusterItemIDs) }
+                .prefix(Self.maxBubbleCount)
+        )
     }
 }

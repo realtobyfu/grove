@@ -3,6 +3,45 @@ import Testing
 @testable import grove
 
 struct GroveTests {
+    @MainActor
+    @Test func conversationStarterServiceCapsLLMResultsAtThree() async {
+        UserDefaults.standard.removeObject(forKey: "grove.conversationStarters")
+
+        let provider = MockLLMProvider()
+        provider.responseContent = """
+        [
+          {"prompt":"P1","label":"REVISIT"},
+          {"prompt":"P2","label":"EXPLORE"},
+          {"prompt":"P3","label":"RESOLVE"},
+          {"prompt":"P4","label":"REFLECT"},
+          {"prompt":"P5","label":"SYNTHESIZE"}
+        ]
+        """
+
+        let service = ConversationStarterService(provider: provider)
+        let recent = Item(title: "Recent", type: .note)
+        recent.status = .active
+        recent.createdAt = .now
+        recent.updatedAt = .now
+
+        await service.refresh(items: [recent])
+
+        #expect(service.bubbles.count == 3)
+    }
+
+    @MainActor
+    @Test func conversationStarterServiceProvidesFallbackWhenNoContext() async {
+        UserDefaults.standard.removeObject(forKey: "grove.conversationStarters")
+
+        let provider = MockLLMProvider()
+        provider.responseContent = nil
+
+        let service = ConversationStarterService(provider: provider)
+        await service.refresh(items: [])
+
+        #expect(service.bubbles.count == 1)
+        #expect(service.bubbles.first?.label == "REFLECT")
+    }
 
     @Test func readLaterTomorrowMorningPresetSchedulesAtNineAM() {
         var calendar = Calendar(identifier: .gregorian)
