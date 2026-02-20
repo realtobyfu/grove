@@ -414,8 +414,12 @@ private struct LibraryRowView: View {
                         Text(firstBoard.title)
                             .font(.groveMeta)
                             .foregroundStyle(Color.textTertiary)
+                    } else {
+                        Text("Unfiled")
+                            .font(.groveMeta)
+                            .foregroundStyle(Color.textTertiary)
                     }
-                    if !item.tags.isEmpty && item.boards.first != nil {
+                    if !item.tags.isEmpty {
                         Text("·")
                             .font(.groveMeta)
                             .foregroundStyle(Color.textTertiary)

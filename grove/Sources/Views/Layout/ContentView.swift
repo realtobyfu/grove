@@ -259,12 +259,12 @@ struct ContentView: View {
     private var writePanelSection: some View {
         if showWritePanel {
             draggableDivider(width: $writePanelWidth, min: 360, max: 700)
-            NoteWriterOverlayView(
+            NoteWriterPanelView(
                 isPresented: $showWritePanel,
                 currentBoardID: currentBoardID,
                 prompt: writePanelPrompt,
                 editingItem: writePanelEditItem,
-                panelMode: true
+                isSidePanel: true
             ) { note in
                 writePanelPrompt = nil
                 writePanelEditItem = nil

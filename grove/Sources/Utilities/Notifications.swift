@@ -17,7 +17,7 @@ extension Notification.Name {
     static let groveStartCheckIn = Notification.Name("groveStartCheckIn")
     static let groveEnterFocusMode = Notification.Name("groveEnterFocusMode")
     static let groveExitFocusMode = Notification.Name("groveExitFocusMode")
-    /// Object: String — the writing prompt to display at the top of NoteWriterOverlayView
+    /// Object: String — the writing prompt to display at the top of NoteWriterPanelView
     static let groveNewNoteWithPrompt = Notification.Name("groveNewNoteWithPrompt")
     static let groveStartConversationWithPrompt = Notification.Name("groveStartConversationWithPrompt")
     static let groveDiscussItem = Notification.Name("groveDiscussItem")

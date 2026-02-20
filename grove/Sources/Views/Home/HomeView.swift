@@ -191,7 +191,7 @@ struct HomeView: View {
                             .font(.groveMeta)
                             .foregroundStyle(Color.textTertiary)
                     } else {
-                        Text(item.updatedAt.formatted(date: .abbreviated, time: .omitted))
+                        Text("Unfiled")
                             .font(.groveMeta)
                             .foregroundStyle(Color.textTertiary)
                     }

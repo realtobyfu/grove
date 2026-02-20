@@ -3,6 +3,12 @@ import SwiftUI
 import SwiftData
 
 struct BoardGridView: View {
+    private enum Layout {
+        static let minCardWidth: CGFloat = 300
+        static let maxCardWidth: CGFloat = 420
+        static let maxGridWidth: CGFloat = 1450
+    }
+
     let items: [Item]
     let canReorder: Bool
     @Binding var selectedItem: Item?
@@ -14,13 +20,15 @@ struct BoardGridView: View {
     var body: some View {
         ScrollView {
             LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 220, maximum: 420), spacing: Spacing.lg)],
+                columns: [GridItem(.adaptive(minimum: Layout.minCardWidth, maximum: Layout.maxCardWidth), spacing: Spacing.lg, alignment: .top)],
                 spacing: Spacing.lg
             ) {
                 ForEach(items) { item in
                     gridCard(item)
                 }
             }
+            .frame(maxWidth: Layout.maxGridWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(Spacing.lg)
         }
     }
