@@ -116,6 +116,8 @@ struct GroveApp: App {
 // MARK: - Menu Bar Commands
 
 struct GroveMenuCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+
     var body: some Commands {
         CommandGroup(after: .newItem) {
             Button("Capture") {
@@ -136,7 +138,7 @@ struct GroveMenuCommands: Commands {
             Divider()
 
             Button("Quick Capture") {
-                NotificationCenter.default.post(name: .groveQuickCapture, object: nil)
+                openWindow(id: "quick-capture")
             }
             .keyboardShortcut("k", modifiers: [.command, .shift])
         }

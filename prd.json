@@ -104,8 +104,8 @@
         "tuist test passes"
       ],
       "priority": 7,
-      "passes": false,
-      "notes": "Command currently posts .groveQuickCapture with no receiver (GroveApp.swift:138-141, Notifications.swift:7, ContentViewHandlers.swift handlers list has no groveQuickCapture subscriber)."
+      "passes": true,
+      "notes": "Quick Capture command now opens `openWindow(id: \"quick-capture\")` directly (matching MenuBarView), and the orphan `.groveQuickCapture` notification path was removed so Cmd+Shift+K is consistent across command menu and menu bar."
     },
     {
       "id": "US-008",
