@@ -54,6 +54,7 @@ final class ConnectionSuggestionService: ConnectionSuggestionServiceProtocol {
     /// Suggest connections using the LLM. Falls back to heuristic method if LLM fails.
     /// Call this from async contexts (Task blocks) for best results.
     func suggestConnectionsAsync(for sourceItem: Item, maxResults: Int = 3) async -> [ConnectionSuggestion] {
+        guard EntitlementService.shared.canUse(.connectionSuggestions) else { return [] }
         // Try LLM first if configured
         if LLMServiceConfig.isConfigured,
            sourceItem.content != nil || !sourceItem.reflections.isEmpty {
@@ -67,13 +68,18 @@ final class ConnectionSuggestionService: ConnectionSuggestionServiceProtocol {
                     maxResults: maxResults
                 )
                 if !llmSuggestions.isEmpty {
+                    EntitlementService.shared.recordUse(.connectionSuggestions)
                     return llmSuggestions
                 }
             }
         }
 
         // Fallback to heuristic
-        return suggestConnections(for: sourceItem, maxResults: maxResults)
+        let heuristic = suggestConnections(for: sourceItem, maxResults: maxResults)
+        if !heuristic.isEmpty {
+            EntitlementService.shared.recordUse(.connectionSuggestions)
+        }
+        return heuristic
     }
 
     /// Query the LLM for semantic connection suggestions.
@@ -261,6 +267,7 @@ final class ConnectionSuggestionService: ConnectionSuggestionServiceProtocol {
     /// Fires silently after item capture — degrades gracefully if LLM is unavailable.
     /// Caps at 2 auto-connections per item. Requires at least 5 other items for signal.
     func autoConnect(item: Item, in context: ModelContext) async {
+        guard EntitlementService.shared.canUse(.connectionSuggestions) else { return }
         let allItems = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
 
         // Need at least 5 other items for meaningful signal
@@ -301,6 +308,7 @@ final class ConnectionSuggestionService: ConnectionSuggestionServiceProtocol {
         }
 
         if !toCreate.isEmpty {
+            EntitlementService.shared.recordUse(.connectionSuggestions)
             try? modelContext.save()
         }
     }

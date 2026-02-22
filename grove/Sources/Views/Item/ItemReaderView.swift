@@ -19,6 +19,8 @@ struct ItemReaderView: View {
     @State private var draggingBlock: ReflectionBlock?
     // Web article reading mode (activated by clicking URL link)
     @State private var showArticleWebView = false
+    // Text selection from web reader
+    @State private var webViewSelectedText: String?
     // Delete confirmation
     @State private var blockToDelete: ReflectionBlock?
     @State private var showDeleteConfirmation = false
@@ -190,6 +192,7 @@ struct ItemReaderView: View {
         .onChange(of: item.id) {
             isEditingContent = false
             selectedHighlightText = nil
+            webViewSelectedText = nil
             if showReflectionEditor { closeReflectionEditor() }
             showArticleWebView = false
             isEditingSummary = false
@@ -223,6 +226,7 @@ struct ItemReaderView: View {
             // Slim navigation bar
             HStack(spacing: 10) {
                 Button {
+                    webViewSelectedText = nil
                     withAnimation(.easeOut(duration: 0.2)) { showArticleWebView = false }
                 } label: {
                     HStack(spacing: 4) {
@@ -245,15 +249,28 @@ struct ItemReaderView: View {
 
                 Spacer()
 
-                Button {
-                    openReflectionEditor(type: .keyInsight, content: "", highlight: nil)
-                } label: {
-                    Label("Reflect", systemImage: "square.and.pencil")
-                        .font(.groveMeta)
-                        .foregroundStyle(Color.textMuted)
+                if let selectedText = webViewSelectedText, !selectedText.isEmpty {
+                    Button {
+                        openReflectionEditor(type: .keyInsight, content: "", highlight: selectedText)
+                        webViewSelectedText = nil
+                    } label: {
+                        Label("Reflect on Selection", systemImage: "text.quote")
+                            .font(.groveMeta)
+                            .foregroundStyle(Color.textPrimary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Reflect on selected text")
+                } else {
+                    Button {
+                        openReflectionEditor(type: .keyInsight, content: "", highlight: nil)
+                    } label: {
+                        Label("Reflect", systemImage: "square.and.pencil")
+                            .font(.groveMeta)
+                            .foregroundStyle(Color.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Open reflection panel")
                 }
-                .buttonStyle(.plain)
-                .help("Open reflection panel")
 
                 Button {
                     NSWorkspace.shared.open(url)
@@ -268,10 +285,13 @@ struct ItemReaderView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
             .background(Color.bgCard)
+            .animation(.easeOut(duration: 0.2), value: webViewSelectedText != nil)
 
             Divider()
 
-            ArticleWebView(url: url)
+            ArticleWebView(url: url, onTextSelected: { text in
+                webViewSelectedText = text
+            })
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }

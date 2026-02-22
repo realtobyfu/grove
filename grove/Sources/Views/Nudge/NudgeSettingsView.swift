@@ -28,19 +28,37 @@ struct NudgeSettingsView: View {
     var body: some View {
         Form {
             Section("Nudge Categories") {
-                Toggle("Resurface", isOn: $resurfaceEnabled)
-                    .onChange(of: resurfaceEnabled) { _, newValue in
-                        NudgeSettings.resurfaceEnabled = newValue
+                HStack {
+                    Toggle("Resurface", isOn: $resurfaceEnabled)
+                        .onChange(of: resurfaceEnabled) { _, newValue in
+                            NudgeSettings.resurfaceEnabled = newValue
+                        }
+                        .disabled(!entitlement.isPro)
+                    if !entitlement.isPro {
+                        HStack(spacing: 4) {
+                            Image(systemName: "lock.fill")
+                                .font(.groveBadge)
+                            Text("Pro")
+                                .font(.groveBadge)
+                        }
+                        .foregroundStyle(Color.textSecondary)
                     }
+                }
 
                 Toggle("Stale Inbox", isOn: $staleInboxEnabled)
                     .onChange(of: staleInboxEnabled) { _, newValue in
                         NudgeSettings.staleInboxEnabled = newValue
                     }
 
-                Text("Only active nudge categories are shown here.")
-                    .font(.groveBodySmall)
-                    .foregroundStyle(Color.textSecondary)
+                if !entitlement.isPro {
+                    Text("Smart resurfacing nudges require Pro. Stale inbox nudges are available to all.")
+                        .font(.groveBodySmall)
+                        .foregroundStyle(Color.textSecondary)
+                } else {
+                    Text("Only active nudge categories are shown here.")
+                        .font(.groveBodySmall)
+                        .foregroundStyle(Color.textSecondary)
+                }
             }
 
             Section("Cadence") {

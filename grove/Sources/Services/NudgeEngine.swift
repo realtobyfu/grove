@@ -75,7 +75,7 @@ final class NudgeEngine: NudgeEngineProtocol {
         // Don't create more than maxPerDay unless user has high engagement
         guard todayNudgeCount < maxPerDay || userHasHighEngagement() else { return }
 
-        if NudgeSettings.resurfaceEnabled {
+        if NudgeSettings.resurfaceEnabled && EntitlementService.shared.isPro {
             generateSpacedResurfaceNudge()
         }
         if NudgeSettings.staleInboxEnabled {

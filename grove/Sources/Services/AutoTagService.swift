@@ -45,6 +45,7 @@ final class AutoTagService: AutoTagServiceProtocol {
 
     @MainActor func tagItem(_ item: Item, in context: ModelContext) async {
         guard LLMServiceConfig.isConfigured else { return }
+        guard EntitlementService.shared.canUse(.autoTagging) else { return }
 
         // Gather existing board names to help the LLM suggest one
         let boardDescriptor = FetchDescriptor<Board>()
@@ -106,6 +107,8 @@ final class AutoTagService: AutoTagServiceProtocol {
                 item.tags.append(tag)
             }
         }
+
+        EntitlementService.shared.recordUse(.autoTagging)
 
         // Apply one-line summary
         if let summary = parsed.one_line_summary, !summary.isEmpty {

@@ -7,6 +7,13 @@ enum PaywallSource: String, Codable, Sendable {
     case chatHistory
     case proSettings
     case homeTeaser
+    case dialecticsLimit
+    case reflectionPrompt
+    case autoTagging
+    case connectionSuggestion
+    case synthesisAction
+    case weeklyDigest
+    case promptBubble
 }
 
 struct PaywallPresentation: Identifiable {

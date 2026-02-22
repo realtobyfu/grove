@@ -40,13 +40,19 @@ import Observation
         let boardIDs: [UUID]?
     }
 
-    private static let maxBubbleCount = 3
+    private static let maxBubbleCountPro = 3
+    private static let maxBubbleCountFree = 2
     private static let cacheKey = "grove.conversationStarters"
     private static let cacheTTLSeconds: TimeInterval = 8 * 3600  // 8 hours
 
+    private static var maxBubbleCount: Int {
+        EntitlementService.currentTier == .pro ? maxBubbleCountPro : maxBubbleCountFree
+    }
+
     init(provider: LLMProvider = LLMServiceConfig.makeProvider()) {
         self.provider = provider
-        if let cached = Self.loadCachedBubbles() {
+        // Only load cache for Pro users — prevents stale Pro bubbles showing after downgrade
+        if EntitlementService.currentTier == .pro, let cached = Self.loadCachedBubbles() {
             self.bubbles = cached
         }
     }
@@ -62,17 +68,38 @@ import Observation
         defer { isLoading = false }
 
         let context = buildContext(from: items)
+        let isPro = await EntitlementService.shared.isPro
+        let cap = isPro ? Self.maxBubbleCountPro : Self.maxBubbleCountFree
 
-        // Attempt LLM generation, fall back to heuristics on failure
-        if let llmBubbles = await generateViaLLM(context: context) {
-            bubbles = llmBubbles
-            Self.saveCachedBubbles(llmBubbles)
-        } else {
-            let heuristics = buildHeuristics(context: context)
-            if !heuristics.isEmpty {
-                bubbles = heuristics
-                Self.saveCachedBubbles(heuristics)
+        if isPro {
+            // Pro: attempt full LLM generation, fall back to heuristics
+            if let llmBubbles = await generateViaLLM(context: context) {
+                bubbles = Array(llmBubbles.prefix(cap))
+                Self.saveCachedBubbles(bubbles)
+            } else {
+                let heuristics = buildHeuristics(context: context)
+                if !heuristics.isEmpty {
+                    bubbles = Array(heuristics.prefix(cap))
+                    Self.saveCachedBubbles(bubbles)
+                }
             }
+        } else {
+            // Free: attempt 1 LLM bubble, always include 1 heuristic fallback
+            let heuristics = buildHeuristics(context: context)
+            if let llmBubbles = await generateViaLLM(context: context), let first = llmBubbles.first {
+                var result = [first]
+                if let heuristic = heuristics.first(where: { $0.prompt != first.prompt }) {
+                    result.append(heuristic)
+                } else if heuristics.count > 1 {
+                    result.append(heuristics[1])
+                } else if let fallback = heuristics.first {
+                    result.append(fallback)
+                }
+                bubbles = Array(result.prefix(cap))
+            } else {
+                bubbles = Array(heuristics.prefix(cap))
+            }
+            Self.saveCachedBubbles(bubbles)
         }
     }
 
@@ -266,7 +293,7 @@ import Observation
             )
         }
 
-        return parsed.isEmpty ? nil : Array(parsed.prefix(Self.maxBubbleCount))
+        return parsed.isEmpty ? nil : Array(parsed.prefix(Self.maxBubbleCountPro))
     }
 
     // MARK: - Heuristic Fallback
@@ -310,7 +337,7 @@ import Observation
         }
 
         // Unboarded cluster — show at most once per launch
-        if let cluster = context.unboardedCluster, !didShowClusterBubble, bubbles.count < Self.maxBubbleCount {
+        if let cluster = context.unboardedCluster, !didShowClusterBubble, bubbles.count < Self.maxBubbleCountPro {
             bubbles.append(PromptBubble(
                 prompt: "You have \(cluster.count) items about \"\(cluster.sharedTag)\" floating around without a board. Want to organize them?",
                 label: "ORGANIZE",
@@ -328,7 +355,7 @@ import Observation
             ))
         }
 
-        return Array(bubbles.prefix(Self.maxBubbleCount))
+        return Array(bubbles.prefix(Self.maxBubbleCountPro))
     }
 
     private func llmContextCandidates(from context: StarterContext) -> [LLMContextCandidate] {
@@ -432,6 +459,7 @@ import Observation
         guard age < cacheTTLSeconds else { return nil }
 
         guard let cached = try? JSONDecoder().decode([CachedBubble].self, from: data) else { return nil }
+        let cap = maxBubbleCount
         return Array(
             cached
                 .map {
@@ -443,7 +471,7 @@ import Observation
                         boardIDs: $0.boardIDs ?? []
                     )
                 }
-                .prefix(Self.maxBubbleCount)
+                .prefix(cap)
         )
     }
 }

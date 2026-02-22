@@ -19,6 +19,7 @@ final class WeeklyDigestService: WeeklyDigestServiceProtocol {
     }
 
     @MainActor func generateDigest(context: ModelContext) async -> Item? {
+        guard EntitlementService.shared.isPro else { return nil }
         let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -AppConstants.Days.recent, to: .now) ?? .now
 
         let allItems = (try? context.fetch(FetchDescriptor<Item>())) ?? []

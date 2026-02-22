@@ -49,6 +49,11 @@ final class SynthesisService: SynthesisServiceProtocol {
     /// Generate a synthesis note from the given items.
     /// Uses LLM when configured, falls back to local heuristic.
     func generateSynthesis(items: [Item], scopeTitle: String) async -> SynthesisResult? {
+        guard EntitlementService.shared.canUse(.synthesis) else {
+            lastError = "Synthesis requires Grove Pro."
+            return nil
+        }
+
         isGenerating = true
         progress = "Collecting content..."
         lastError = nil
@@ -59,6 +64,10 @@ final class SynthesisService: SynthesisServiceProtocol {
             result = await generateLLMSynthesis(items: items, scopeTitle: scopeTitle)
         } else {
             result = await generateLocalSynthesis(items: items, scopeTitle: scopeTitle)
+        }
+
+        if result != nil {
+            EntitlementService.shared.recordUse(.synthesis)
         }
 
         isGenerating = false

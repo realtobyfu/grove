@@ -26,6 +26,8 @@ extension Notification.Name {
     static let groveDismissNudgeNotification = Notification.Name("groveDismissNudgeNotification")
     /// Object: String — URL to pre-fill in the capture bar, then auto-capture
     static let groveCoachMarkPrefill = Notification.Name("groveCoachMarkPrefill")
+    /// Posted when a free user hits the dialectics monthly limit
+    static let groveDialecticsLimitReached = Notification.Name("groveDialecticsLimitReached")
 }
 
 // MARK: - Typed Notification Payloads

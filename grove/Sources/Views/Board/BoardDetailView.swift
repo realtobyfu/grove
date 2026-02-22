@@ -41,6 +41,8 @@ struct BoardDetailView: View {
     @Binding var selectedItem: Item?
     @Binding var openedItem: Item?
     @Environment(\.modelContext) private var modelContext
+    @Environment(EntitlementService.self) private var entitlement
+    @Environment(PaywallCoordinator.self) private var paywallCoordinator
     @Query private var allItems: [Item]
     @State private var viewMode: BoardViewMode = .grid
     @State private var sortOption: BoardSortOption = .manual
@@ -52,6 +54,7 @@ struct BoardDetailView: View {
     @State private var isSuggestionsCollapsed = false
     @State private var starterService = ConversationStarterService.shared
     @State private var promptModeSelection: PromptModeSelection?
+    @State private var paywallPresentation: PaywallPresentation?
 
     /// The effective items for this board — smart boards compute from tag rules, regular boards use direct membership
     private var effectiveItems: [Item] {
@@ -161,6 +164,9 @@ struct BoardDetailView: View {
                     openedItem = item
                 }
             )
+        }
+        .sheet(item: $paywallPresentation) { presentation in
+            ProPaywallView(presentation: presentation)
         }
         .toolbar {
             ToolbarItem(placement: .secondaryAction) {
@@ -438,6 +444,13 @@ struct BoardDetailView: View {
 
     private var synthesisButton: some View {
         Button {
+            guard entitlement.canUse(.synthesis) else {
+                paywallPresentation = paywallCoordinator.present(
+                    feature: .synthesis,
+                    source: .synthesisAction
+                )
+                return
+            }
             pickedItems = []
             showItemPicker = true
         } label: {

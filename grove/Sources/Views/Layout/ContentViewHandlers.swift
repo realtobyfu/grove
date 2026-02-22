@@ -252,6 +252,14 @@ struct ContentViewNotificationHandlers: ViewModifier {
         seedItemIDs: [UUID] = [],
         injectionMode: ConversationPromptInjectionMode = .asUserMessage
     ) {
+        let entitlement = EntitlementService.shared
+        guard entitlement.canUse(.dialectics) else {
+            // Post paywall presentation via notification — the sheet binding is on DialecticalChatPanel
+            NotificationCenter.default.post(name: .groveDialecticsLimitReached, object: nil)
+            return
+        }
+        entitlement.recordUse(.dialectics)
+
         var seedItems: [Item] = []
         if !seedItemIDs.isEmpty {
             let all = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []

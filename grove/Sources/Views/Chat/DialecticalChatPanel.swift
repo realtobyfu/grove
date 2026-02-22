@@ -87,6 +87,12 @@ struct DialecticalChatPanel: View {
         .sheet(item: $paywallPresentation) { presentation in
             ProPaywallView(presentation: presentation)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .groveDialecticsLimitReached)) { _ in
+            paywallPresentation = paywallCoordinator.present(
+                feature: .dialectics,
+                source: .dialecticsLimit
+            )
+        }
         .alert(
             "Delete Conversation Permanently?",
             isPresented: Binding(
@@ -158,9 +164,16 @@ struct DialecticalChatPanel: View {
             Button {
                 startNewConversation()
             } label: {
-                Image(systemName: "plus")
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textMuted)
+                HStack(spacing: 4) {
+                    Image(systemName: "plus")
+                        .font(.groveBody)
+                        .foregroundStyle(Color.textMuted)
+                    if !entitlement.isPro {
+                        Text("\(entitlement.remaining(.dialectics))/\(MeteredFeature.dialectics.freeLimit)")
+                            .font(.groveBadge)
+                            .foregroundStyle(Color.textTertiary)
+                    }
+                }
             }
             .buttonStyle(.plain)
             .help("New conversation")
@@ -718,6 +731,15 @@ struct DialecticalChatPanel: View {
     // MARK: - Actions
 
     private func startNewConversation() {
+        guard entitlement.canUse(.dialectics) else {
+            paywallPresentation = paywallCoordinator.present(
+                feature: .dialectics,
+                source: .dialecticsLimit
+            )
+            return
+        }
+        entitlement.recordUse(.dialectics)
+
         let seedItems: [Item]
         if let board = currentBoard {
             // Seed with up to 10 active items from the current board, sorted by depth score

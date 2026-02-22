@@ -35,6 +35,7 @@ final class ReflectionPromptService: ReflectionPromptServiceProtocol {
 
     @MainActor func generatePrompts(for item: Item, in context: ModelContext) async -> [ReflectionPrompt] {
         guard LLMServiceConfig.isConfigured else { return [] }
+        guard EntitlementService.shared.canUse(.reflectionPrompts) else { return [] }
 
         // Only generate if the item has no existing reflections
         guard item.reflections.isEmpty else { return [] }
@@ -95,12 +96,18 @@ final class ReflectionPromptService: ReflectionPromptServiceProtocol {
             return []
         }
 
-        return parsed.prompts.prefix(3).compactMap { entry in
+        let results = parsed.prompts.prefix(3).compactMap { entry -> ReflectionPrompt? in
             let blockType = ReflectionBlockType(rawValue: entry.block_type) ?? .keyInsight
             let text = String(entry.text.prefix(150))
             guard !text.isEmpty else { return nil }
             return ReflectionPrompt(suggestedBlockType: blockType, text: text)
         }
+
+        if !results.isEmpty {
+            EntitlementService.shared.recordUse(.reflectionPrompts)
+        }
+
+        return results
     }
 
     // MARK: - Context Gathering
