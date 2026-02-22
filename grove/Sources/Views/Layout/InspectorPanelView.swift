@@ -21,6 +21,9 @@ struct InspectorPanelView: View {
                 connectionsSection
                 Divider().padding(.horizontal)
                 resurfacingSection
+                if item.type == .article {
+                    discussionSuggestionsSection
+                }
 
                 Spacer()
             }
@@ -290,6 +293,35 @@ struct InspectorPanelView: View {
     private func deleteConnection(_ connection: Connection) {
         let viewModel = ItemViewModel(modelContext: modelContext)
         viewModel.deleteConnection(connection)
+    }
+
+    // MARK: - Discussion Suggestions Section
+
+    private var discussionSuggestionsSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Button {
+                item.isIncludedInDiscussionSuggestions.toggle()
+                item.updatedAt = .now
+                try? modelContext.save()
+
+                Task { @MainActor in
+                    let allItems = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
+                    await ConversationStarterService.shared.forceRefresh(items: allItems)
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: item.isIncludedInDiscussionSuggestions ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 14))
+                        .foregroundStyle(item.isIncludedInDiscussionSuggestions ? Color.textPrimary : Color.textTertiary)
+                    Text("Include in discussion suggestions")
+                        .font(.groveBodySmall)
+                        .foregroundStyle(item.isIncludedInDiscussionSuggestions ? Color.textPrimary : Color.textSecondary)
+                }
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal)
+            .help("Include or exclude this article from discussion suggestions.")
+        }
     }
 
     // MARK: - Review Section

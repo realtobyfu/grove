@@ -323,28 +323,6 @@ struct ItemReaderView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
 
-                if item.type == .article {
-                    Button {
-                        item.isIncludedInDiscussionSuggestions.toggle()
-                        item.updatedAt = .now
-                        try? modelContext.save()
-
-                        Task { @MainActor in
-                            let allItems = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
-                            await ConversationStarterService.shared.forceRefresh(items: allItems)
-                        }
-                    } label: {
-                        Label(
-                            item.isIncludedInDiscussionSuggestions ? "Suggestions On" : "Suggestions Off",
-                            systemImage: item.isIncludedInDiscussionSuggestions ? "sparkles" : "sparkles.slash"
-                        )
-                        .font(.groveMeta)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .help("Include or exclude this article from discussion suggestions.")
-                }
-
                 if item.type == .note || (item.type == .article && item.metadata["hasLLMOverview"] == "true") {
                     Button {
                         let wasEditing = isEditingContent

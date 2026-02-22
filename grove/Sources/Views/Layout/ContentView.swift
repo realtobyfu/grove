@@ -41,7 +41,7 @@ struct ContentView: View {
         if let override = inspectorUserOverride {
             return override
         }
-        return selectedItem != nil
+        return selectedItem != nil || openedItem != nil
     }
 
     var syncService: SyncService
@@ -339,8 +339,8 @@ struct ContentView: View {
             .transition(.move(edge: .trailing))
         } else if isInspectorVisible {
             draggableDivider(width: $inspectorWidth, min: 220, max: 480)
-            if let selectedItem {
-                InspectorPanelView(item: selectedItem)
+            if let inspectorItem = selectedItem ?? openedItem {
+                InspectorPanelView(item: inspectorItem)
                     .frame(width: inspectorWidth)
                     .transition(.move(edge: .trailing))
             } else {
