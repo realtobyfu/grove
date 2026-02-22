@@ -144,10 +144,16 @@ struct OnboardingFlowView: View {
 
             Spacer()
 
+            // Footer hint
+            Text("After setup, we'll show you around.")
+                .font(.groveBodySmall)
+                .foregroundStyle(Color.textTertiary)
+
             // Get Started button
             Button("Get Started") {
                 OnboardingPreferences.selectedUseCases = selectedUseCases
                 onboarding.complete()
+                CoachMarkService.shared.startGuide()
             }
             .buttonStyle(OnboardingPrimaryButtonStyle())
             .keyboardShortcut(.return, modifiers: [])
