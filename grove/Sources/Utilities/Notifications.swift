@@ -24,6 +24,8 @@ extension Notification.Name {
     static let groveOpenReflectMode = Notification.Name("groveOpenReflectMode")
     static let groveOpenNudgeNotification = Notification.Name("groveOpenNudgeNotification")
     static let groveDismissNudgeNotification = Notification.Name("groveDismissNudgeNotification")
+    /// Object: String — URL to pre-fill in the capture bar, then auto-capture
+    static let groveCoachMarkPrefill = Notification.Name("groveCoachMarkPrefill")
 }
 
 // MARK: - Typed Notification Payloads

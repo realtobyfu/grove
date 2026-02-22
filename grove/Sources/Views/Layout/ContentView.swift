@@ -12,6 +12,7 @@ enum SidebarItem: Hashable {
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(OnboardingService.self) private var onboarding
+    @State private var coachMarks = CoachMarkService.shared
     @Query(sort: \Board.sortOrder) private var boards: [Board]
     @Query(sort: \Course.createdAt) private var courses: [Course]
     @Query private var allItemsForOnboarding: [Item]
@@ -139,6 +140,7 @@ struct ContentView: View {
             searchOverlay
             captureOverlay
             onboardingOverlay
+            coachMarkOverlay
         }
     }
 
@@ -264,6 +266,14 @@ struct ContentView: View {
             OnboardingFlowView()
                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
         }
+    }
+
+    @ViewBuilder
+    private var coachMarkOverlay: some View {
+        CoachMarkOverlay(
+            coachMarks: coachMarks,
+            showChatPanel: $showChatPanel
+        )
     }
 
     // MARK: - Panels

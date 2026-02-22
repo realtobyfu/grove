@@ -233,6 +233,15 @@ struct CaptureBarView: View {
                 scheduleAutoDismiss()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .groveCoachMarkPrefill)) { notification in
+            if let url = notification.object as? String {
+                inputText = url
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(200))
+                    capture()
+                }
+            }
+        }
     }
 
     // MARK: - Capture
