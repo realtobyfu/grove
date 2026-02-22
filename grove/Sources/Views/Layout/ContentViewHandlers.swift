@@ -287,6 +287,17 @@ struct ContentViewNotificationHandlers: ViewModifier {
                 modelContext.insert(systemPromptMsg)
                 conversation.updatedAt = .now
                 try? modelContext.save()
+            case .asAssistantGreeting:
+                let greetingMsg = ChatMessage(
+                    role: .assistant,
+                    content: trimmedPrompt,
+                    position: conversation.nextPosition
+                )
+                greetingMsg.conversation = conversation
+                conversation.messages.append(greetingMsg)
+                modelContext.insert(greetingMsg)
+                conversation.updatedAt = .now
+                try? modelContext.save()
             }
         }
 

@@ -340,7 +340,7 @@ struct BoardDetailView: View {
             ConversationPromptPayload(
                 prompt: prompt,
                 seedItemIDs: seedItemIDs,
-                injectionMode: .asSystemPrompt
+                injectionMode: .asAssistantGreeting
             )
         )
     }

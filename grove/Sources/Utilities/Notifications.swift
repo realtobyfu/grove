@@ -51,6 +51,7 @@ struct DiscussItemPayload {
 enum ConversationPromptInjectionMode: String {
     case asUserMessage
     case asSystemPrompt
+    case asAssistantGreeting
 }
 
 extension NotificationCenter {

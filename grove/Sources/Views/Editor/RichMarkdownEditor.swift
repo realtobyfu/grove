@@ -550,7 +550,7 @@ struct MarkdownNSTextView: NSViewRepresentable {
 
             // Bold + italic: ***text***
             applyPattern(
-                #"\*\*\*(.+?)\*\*\*"#,
+                #"\*\*\*(?=\S)(.+?)(?<=\S)\*\*\*"#,
                 in: text, storage: storage,
                 contentAttributes: [
                     .font: boldFont,
@@ -564,7 +564,7 @@ struct MarkdownNSTextView: NSViewRepresentable {
 
             // Bold: **text**
             applyPattern(
-                #"\*\*(.+?)\*\*"#,
+                #"\*\*(?=\S)(.+?)(?<=\S)\*\*"#,
                 in: text, storage: storage,
                 contentAttributes: [.font: boldFont, .foregroundColor: primaryColor],
                 delimiterAttributes: [.font: defaultFont, .foregroundColor: tertiaryColor],
@@ -574,7 +574,7 @@ struct MarkdownNSTextView: NSViewRepresentable {
 
             // Italic: *text* (but not **)
             applyPattern(
-                #"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)"#,
+                #"(?<!\*)\*(?!\*)(?=\S)(.+?)(?<=\S)(?<!\*)\*(?!\*)"#,
                 in: text, storage: storage,
                 contentAttributes: [.obliqueness: 0.2 as NSNumber, .foregroundColor: primaryColor],
                 delimiterAttributes: [.foregroundColor: tertiaryColor],
@@ -600,6 +600,19 @@ struct MarkdownNSTextView: NSViewRepresentable {
                 cursorLocation: cursorLocation
             )
 
+            // Markdown links: [text](url)
+            applyPattern(
+                #"\[(?!\[)(.+?)\]\((.+?)\)"#,
+                in: text, storage: storage,
+                contentAttributes: [
+                    .underlineStyle: NSUnderlineStyle.single.rawValue,
+                    .foregroundColor: secondaryColor
+                ],
+                delimiterAttributes: [.foregroundColor: tertiaryColor],
+                hiddenDelimiterAttributes: hiddenDelimiterAttrs,
+                cursorLocation: cursorLocation
+            )
+
             // Headings: #, ##, ###, ####... at start of line
             applyHeadingLinePattern(
                 in: text,
@@ -615,7 +628,7 @@ struct MarkdownNSTextView: NSViewRepresentable {
 
             // Block quote: > text
             applyPrefixLinePattern(
-                #"^(>\s?)(.*)$"#,
+                #"^(>[ \t]*)(.*)$"#,
                 in: text,
                 storage: storage,
                 cursorLocation: cursorLocation,
@@ -679,17 +692,38 @@ struct MarkdownNSTextView: NSViewRepresentable {
             regex.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
                 guard let match else { return }
                 let isEditingMatch = self.rangeContainsCursor(match.range, cursorLocation: cursorLocation)
+                let tokenAttributes = isEditingMatch ? delimiterAttributes : hiddenDelimiterAttributes
 
-                // Full match range — apply delimiter style or hide tokens when cursor is elsewhere
-                storage.addAttributes(isEditingMatch ? delimiterAttributes : hiddenDelimiterAttributes, range: match.range)
-
-                // Group 1 (content) — apply content style on top
                 if match.numberOfRanges > 1 {
                     let contentRange = match.range(at: 1)
                     if contentRange.location != NSNotFound {
+                        let matchStart = match.range.location
+                        let matchEnd = match.range.location + match.range.length
+                        let contentStart = contentRange.location
+                        let contentEnd = contentRange.location + contentRange.length
+
+                        // Apply token style/hiding only to delimiter regions so content keeps normal glyph metrics.
+                        if contentStart > matchStart {
+                            storage.addAttributes(
+                                tokenAttributes,
+                                range: NSRange(location: matchStart, length: contentStart - matchStart)
+                            )
+                        }
+                        if contentEnd < matchEnd {
+                            storage.addAttributes(
+                                tokenAttributes,
+                                range: NSRange(location: contentEnd, length: matchEnd - contentEnd)
+                            )
+                        }
+
+                        // Group 1 (content) — apply content style on top.
                         storage.addAttributes(contentAttributes, range: contentRange)
+                        return
                     }
                 }
+
+                // Fallback for patterns without a captured content group.
+                storage.addAttributes(tokenAttributes, range: match.range)
             }
         }
 
@@ -765,7 +799,7 @@ struct MarkdownNSTextView: NSViewRepresentable {
                 let lineRange = match.range
                 let isEditingPrefix = prefixRange.location != NSNotFound
                     && cursorLocation >= prefixRange.location
-                    && cursorLocation < (prefixRange.location + prefixRange.length)
+                    && cursorLocation <= (prefixRange.location + prefixRange.length)
                 let effectivePrefixAttrs = isEditingPrefix ? prefixAttributes : hiddenPrefixAttributes
 
                 if prefixRange.location != NSNotFound {
@@ -795,8 +829,9 @@ struct MarkdownNSTextView: NSViewRepresentable {
             let style = baseStyle.mutableCopy() as! NSMutableParagraphStyle
             style.textBlocks = []
             let indent: CGFloat = isProse ? 14 : 11
+            let markerAdvance: CGFloat = isProse ? 11 : 9
             style.firstLineHeadIndent = indent
-            style.headIndent = indent
+            style.headIndent = indent + markerAdvance
             style.paragraphSpacing = 0
             style.paragraphSpacingBefore = 0
             return style
@@ -823,26 +858,52 @@ struct MarkdownNSTextView: NSViewRepresentable {
             let nsText = textView.string as NSString
             let safeLocation = min(max(0, selected.location), nsText.length)
             let lineRange = nsText.lineRange(for: NSRange(location: safeLocation, length: 0))
-            let line = nsText.substring(with: lineRange)
+            let lineWithLineBreak = nsText.substring(with: lineRange)
+            let line = lineWithLineBreak.trimmingCharacters(in: .newlines)
 
-            if line.hasPrefix("- ") || line.hasPrefix("* ") {
-                let marker: String = line.hasPrefix("* ") ? "*" : "-"
-                if line.trimmingCharacters(in: .whitespacesAndNewlines) == marker {
+            if let listLine = parseListLine(line) {
+                let isEmptyItem = listLine.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                if isEmptyItem {
                     textView.insertText("\n", replacementRange: selected)
                 } else {
-                    textView.insertText("\n\(marker) ", replacementRange: selected)
+                    textView.insertText("\n\(listLine.marker)\(listLine.spacer)", replacementRange: selected)
                 }
                 return true
             }
-            if line.hasPrefix("> ") || line == ">" {
-                if line.trimmingCharacters(in: .whitespacesAndNewlines) == ">" {
+            if let quoteLine = parseQuoteLine(line) {
+                let isEmptyQuote = quoteLine.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                if isEmptyQuote {
                     textView.insertText("\n", replacementRange: selected)
                 } else {
-                    textView.insertText("\n> ", replacementRange: selected)
+                    textView.insertText("\n>\(quoteLine.spacer)", replacementRange: selected)
                 }
                 return true
             }
             return false
+        }
+
+        private func parseListLine(_ line: String) -> (marker: String, spacer: String, content: String)? {
+            guard let first = line.first, first == "-" || first == "*" else { return nil }
+            let afterMarker = line.dropFirst()
+            guard !afterMarker.isEmpty else {
+                return (String(first), " ", "")
+            }
+
+            let spacerPrefix = afterMarker.prefix { $0 == " " || $0 == "\t" }
+            guard !spacerPrefix.isEmpty else { return nil }
+
+            let spacer = String(spacerPrefix)
+            let content = String(afterMarker.dropFirst(spacerPrefix.count))
+            return (String(first), spacer, content)
+        }
+
+        private func parseQuoteLine(_ line: String) -> (spacer: String, content: String)? {
+            guard line.first == ">" else { return nil }
+            let afterMarker = line.dropFirst()
+            let spacerPrefix = afterMarker.prefix { $0 == " " || $0 == "\t" }
+            let spacer = spacerPrefix.isEmpty ? " " : String(spacerPrefix)
+            let content = String(afterMarker.dropFirst(spacerPrefix.count))
+            return (spacer, content)
         }
     }
 }
@@ -880,7 +941,23 @@ class HighlightingTextView: NSTextView {
             return super.performKeyEquivalent(with: event)
         }
 
-        switch event.charactersIgnoringModifiers {
+        let key = (event.charactersIgnoringModifiers ?? "").lowercased()
+        if applyFormattingShortcut(for: key) {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    @objc func toggleBoldface(_ sender: Any?) {
+        wrapSelectionWith(prefix: "**", suffix: "**")
+    }
+
+    @objc func toggleItalics(_ sender: Any?) {
+        wrapSelectionWith(prefix: "*", suffix: "*")
+    }
+
+    private func applyFormattingShortcut(for key: String) -> Bool {
+        switch key {
         case "b":
             wrapSelectionWith(prefix: "**", suffix: "**")
             return true
@@ -894,7 +971,7 @@ class HighlightingTextView: NSTextView {
             wrapSelectionWith(prefix: "[", suffix: "](url)")
             return true
         default:
-            return super.performKeyEquivalent(with: event)
+            return false
         }
     }
 
@@ -971,7 +1048,8 @@ class HighlightingTextView: NSTextView {
                 return
             }
 
-            let lineRange = nsText.lineRange(for: NSRange(location: range.location, length: 0))
+            let fullLineRange = nsText.lineRange(for: NSRange(location: range.location, length: 0))
+            let lineRange = trimmedLineRange(fullLineRange, in: nsText, fallback: range)
             prefixes.append(QuoteLinePrefix(prefixRange: range, lineRange: lineRange))
         }
 
@@ -988,7 +1066,7 @@ class HighlightingTextView: NSTextView {
             if var last = blocks.last {
                 let lastEnd = last.blockLineRange.location + last.blockLineRange.length
                 let currentEnd = entry.lineRange.location + entry.lineRange.length
-                if entry.lineRange.location <= lastEnd {
+                if entry.lineRange.location <= lastEnd + 2 {
                     last.blockLineRange = NSRange(
                         location: last.blockLineRange.location,
                         length: max(lastEnd, currentEnd) - last.blockLineRange.location
@@ -1032,33 +1110,114 @@ class HighlightingTextView: NSTextView {
         }
     }
 
+    private func trimmedLineRange(_ lineRange: NSRange, in text: NSString, fallback: NSRange) -> NSRange {
+        guard lineRange.length > 0 else { return fallback }
+
+        let lineStart = lineRange.location
+        var lineEnd = lineRange.location + lineRange.length
+        while lineEnd > lineStart {
+            let scalar = text.character(at: lineEnd - 1)
+            if scalar == 10 || scalar == 13 {
+                lineEnd -= 1
+            } else {
+                break
+            }
+        }
+
+        let trimmedLength = lineEnd - lineStart
+        if trimmedLength > 0 {
+            return NSRange(location: lineStart, length: trimmedLength)
+        }
+        return fallback
+    }
+
     func wrapSelectionWith(prefix: String, suffix: String) {
         let selectedRange = self.selectedRange()
         guard let textStorage = self.textStorage else { return }
+        let prefixLength = utf16Length(of: prefix)
+        let suffixLength = utf16Length(of: suffix)
 
-        let selectedText: String
-        if selectedRange.length > 0 {
-            selectedText = (textStorage.string as NSString).substring(with: selectedRange)
-        } else {
-            selectedText = ""
+        if selectedRange.length == 0 {
+            let insertion = prefix + suffix
+            if shouldChangeText(in: selectedRange, replacementString: insertion) {
+                textStorage.replaceCharacters(in: selectedRange, with: insertion)
+                didChangeText()
+                setSelectedRange(NSRange(location: selectedRange.location + prefixLength, length: 0))
+            }
+            return
         }
 
-        let replacement = prefix + selectedText + suffix
+        let nsText = textStorage.string as NSString
+        let selectedText = nsText.substring(with: selectedRange)
+        let segments = splitOuterWhitespace(selectedText)
+
+        if !segments.core.isEmpty,
+           segments.core.hasPrefix(prefix),
+           segments.core.hasSuffix(suffix),
+           utf16Length(of: segments.core) >= prefixLength + suffixLength {
+            let coreText = segments.core as NSString
+            let innerRange = NSRange(
+                location: prefixLength,
+                length: coreText.length - prefixLength - suffixLength
+            )
+            let inner = coreText.substring(with: innerRange)
+            let replacement = segments.leading + inner + segments.trailing
+
+            if shouldChangeText(in: selectedRange, replacementString: replacement) {
+                textStorage.replaceCharacters(in: selectedRange, with: replacement)
+                didChangeText()
+                let newStart = selectedRange.location + utf16Length(of: segments.leading)
+                setSelectedRange(NSRange(location: newStart, length: utf16Length(of: inner)))
+            }
+            return
+        }
+
+        let replacement: String
+        let selectionStart: Int
+        let selectionLength: Int
+
+        if segments.core.isEmpty {
+            replacement = prefix + selectedText + suffix
+            selectionStart = selectedRange.location + prefixLength
+            selectionLength = selectedRange.length
+        } else {
+            replacement = segments.leading + prefix + segments.core + suffix + segments.trailing
+            selectionStart = selectedRange.location + utf16Length(of: segments.leading) + prefixLength
+            selectionLength = utf16Length(of: segments.core)
+        }
 
         if shouldChangeText(in: selectedRange, replacementString: replacement) {
             textStorage.replaceCharacters(in: selectedRange, with: replacement)
             didChangeText()
+            setSelectedRange(NSRange(location: selectionStart, length: selectionLength))
+        }
+    }
 
-            // Place cursor between prefix and suffix if no selection
-            if selectedText.isEmpty {
-                let cursorPos = selectedRange.location + prefix.count
-                setSelectedRange(NSRange(location: cursorPos, length: 0))
+    private func splitOuterWhitespace(_ text: String) -> (leading: String, core: String, trailing: String) {
+        var start = text.startIndex
+        while start < text.endIndex, text[start].isWhitespace {
+            start = text.index(after: start)
+        }
+
+        var end = text.endIndex
+        while end > start {
+            let before = text.index(before: end)
+            if text[before].isWhitespace {
+                end = before
             } else {
-                // Select the wrapped content
-                let newStart = selectedRange.location + prefix.count
-                setSelectedRange(NSRange(location: newStart, length: selectedText.count))
+                break
             }
         }
+
+        return (
+            leading: String(text[..<start]),
+            core: String(text[start..<end]),
+            trailing: String(text[end...])
+        )
+    }
+
+    private func utf16Length(of text: String) -> Int {
+        (text as NSString).length
     }
 
     func insertTextAtSelection(_ insertion: String, cursorOffset: Int = 0) {
