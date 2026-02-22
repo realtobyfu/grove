@@ -19,9 +19,11 @@ private struct OnboardingPrimaryButtonStyle: ButtonStyle {
 
 // MARK: - Onboarding Page
 
-private enum OnboardingPage {
+private enum OnboardingPage: Int, CaseIterable {
     case welcome
-    case preferences
+    case useCases
+    case featureTour
+    case ready
 }
 
 // MARK: - Flow View
@@ -31,6 +33,7 @@ struct OnboardingFlowView: View {
 
     @State private var page: OnboardingPage = .welcome
     @State private var selectedUseCases: Set<GroveUseCase> = []
+    @State private var navigatingForward = true
 
     var body: some View {
         ZStack {
@@ -38,36 +41,49 @@ struct OnboardingFlowView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Close button
+                // Navigation row: back button only (no X)
                 HStack {
-                    Spacer()
-                    Button {
-                        onboarding.skip()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.groveBody)
-                            .foregroundStyle(Color.textSecondary)
-                            .frame(width: 28, height: 28)
-                            .contentShape(Rectangle())
+                    if page != .welcome {
+                        Button {
+                            navigatingForward = false
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                goBack()
+                            }
+                        } label: {
+                            Image(systemName: "chevron.left")
+                                .font(.groveBody)
+                                .foregroundStyle(Color.textSecondary)
+                                .frame(width: 28, height: 28)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
-                    .padding(.top, Spacing.lg)
-                    .padding(.trailing, Spacing.lg)
+                    Spacer()
                 }
+                .padding(.top, Spacing.lg)
+                .padding(.horizontal, Spacing.lg)
 
                 // Page content
                 Group {
                     switch page {
                     case .welcome:
                         welcomePage
-                    case .preferences:
-                        preferencesPage
+                    case .useCases:
+                        useCasesPage
+                    case .featureTour:
+                        featureTourPage
+                    case .ready:
+                        readyPage
                     }
                 }
                 .transition(.asymmetric(
-                    insertion: .move(edge: .trailing).combined(with: .opacity),
-                    removal: .move(edge: .leading).combined(with: .opacity)
+                    insertion: .move(edge: navigatingForward ? .trailing : .leading).combined(with: .opacity),
+                    removal: .move(edge: navigatingForward ? .leading : .trailing).combined(with: .opacity)
                 ))
+
+                // Page indicator dots
+                pageIndicator
+                    .padding(.bottom, Spacing.lg)
             }
             .frame(maxWidth: 680)
             .background(Color.bgPrimary)
@@ -78,10 +94,35 @@ struct OnboardingFlowView: View {
             )
             .shadow(color: .black.opacity(0.18), radius: 18, y: 8)
         }
-        .animation(.easeInOut(duration: 0.2), value: page)
     }
 
-    // MARK: - Welcome Page
+    // MARK: - Navigation
+
+    private func goForward() {
+        guard let idx = OnboardingPage.allCases.firstIndex(of: page),
+              idx < OnboardingPage.allCases.count - 1 else { return }
+        page = OnboardingPage.allCases[idx + 1]
+    }
+
+    private func goBack() {
+        guard let idx = OnboardingPage.allCases.firstIndex(of: page),
+              idx > 0 else { return }
+        page = OnboardingPage.allCases[idx - 1]
+    }
+
+    // MARK: - Page Indicator
+
+    private var pageIndicator: some View {
+        HStack(spacing: Spacing.sm) {
+            ForEach(OnboardingPage.allCases, id: \.rawValue) { p in
+                Circle()
+                    .fill(p == page ? Color.textPrimary : Color.borderPrimary)
+                    .frame(width: 6, height: 6)
+            }
+        }
+    }
+
+    // MARK: - Page 1: Welcome
 
     private var welcomePage: some View {
         VStack(spacing: Spacing.lg) {
@@ -91,10 +132,10 @@ struct OnboardingFlowView: View {
             Image("AppIcon")
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(width: 48, height: 48)
-                .clipShape(.rect(cornerRadius: 10))
+                .frame(width: 64, height: 64)
+                .clipShape(.rect(cornerRadius: 14))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10)
+                    RoundedRectangle(cornerRadius: 14)
                         .stroke(Color.borderPrimary, lineWidth: 1)
                 )
 
@@ -108,23 +149,31 @@ struct OnboardingFlowView: View {
                 .font(.groveBody)
                 .foregroundStyle(Color.textSecondary)
 
+            // Description
+            Text("Save links and notes, organize them into boards, and use AI-powered conversations to explore your thinking.")
+                .font(.groveBodySmall)
+                .foregroundStyle(Color.textSecondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
+
             Spacer()
 
-            // Continue button
-            Button("Continue") {
-                page = .preferences
+            continueButton {
+                navigatingForward = true
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    goForward()
+                }
             }
-            .buttonStyle(OnboardingPrimaryButtonStyle())
-            .keyboardShortcut(.return, modifiers: [])
-            .padding(.bottom, Spacing.xxl)
+            .padding(.bottom, Spacing.md)
         }
         .padding(.horizontal, Spacing.xxl)
-        .frame(minHeight: 280)
+        .padding(.top, Spacing.xxl)
+        .frame(minHeight: 420)
     }
 
-    // MARK: - Preferences Page
+    // MARK: - Page 2: Use Cases
 
-    private var preferencesPage: some View {
+    private var useCasesPage: some View {
         VStack(spacing: Spacing.lg) {
             Spacer()
 
@@ -144,12 +193,118 @@ struct OnboardingFlowView: View {
 
             Spacer()
 
-            // Footer hint
-            Text("After setup, we'll show you around.")
+            continueButton {
+                navigatingForward = true
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    goForward()
+                }
+            }
+            .padding(.bottom, Spacing.md)
+        }
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.top, Spacing.xxl)
+        .frame(minHeight: 420)
+    }
+
+    // MARK: - Page 3: Feature Tour
+
+    private var featureTourPage: some View {
+        VStack(spacing: Spacing.lg) {
+            Spacer()
+
+            Text("Here's how Grove works")
+                .font(.groveBodyMedium)
+                .foregroundStyle(Color.textPrimary)
+
+            VStack(spacing: Spacing.lg) {
+                featureRow(
+                    icon: "link",
+                    title: "Capture",
+                    description: "Save links, notes, and ideas from anywhere."
+                )
+                featureRow(
+                    icon: "square.grid.2x2",
+                    title: "Organize",
+                    description: "Group items into boards by topic or project."
+                )
+                featureRow(
+                    icon: "bubble.left.and.bubble.right",
+                    title: "Reflect",
+                    description: "Chat with Grove to explore your thinking."
+                )
+            }
+            .padding(.horizontal, Spacing.xl)
+
+            Spacer()
+
+            continueButton {
+                navigatingForward = true
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    goForward()
+                }
+            }
+            .padding(.bottom, Spacing.md)
+        }
+        .padding(.horizontal, Spacing.xxl)
+        .padding(.top, Spacing.xxl)
+        .frame(minHeight: 420)
+    }
+
+    private func featureRow(icon: String, title: String, description: String) -> some View {
+        HStack(alignment: .top, spacing: Spacing.md) {
+            Image(systemName: icon)
+                .font(.system(size: 20))
+                .foregroundStyle(Color.textSecondary)
+                .frame(width: 28, alignment: .center)
+
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                Text(title)
+                    .font(.groveBodyMedium)
+                    .foregroundStyle(Color.textPrimary)
+                Text(description)
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textSecondary)
+            }
+
+            Spacer()
+        }
+    }
+
+    // MARK: - Page 4: Ready
+
+    private var readyPage: some View {
+        VStack(spacing: Spacing.lg) {
+            Spacer()
+
+            Image(systemName: "checkmark.circle")
+                .font(.system(size: 36))
+                .foregroundStyle(Color.textSecondary)
+
+            Text("You're all set")
+                .font(.groveBodyMedium)
+                .foregroundStyle(Color.textPrimary)
+
+            // Show selected use cases as readonly chips
+            if !selectedUseCases.isEmpty {
+                FlowLayout(spacing: Spacing.sm) {
+                    ForEach(Array(selectedUseCases).sorted(by: { $0.rawValue < $1.rawValue })) { useCase in
+                        Text(useCase.label)
+                            .font(.groveMeta)
+                            .foregroundStyle(Color.textTertiary)
+                            .padding(.horizontal, Spacing.md)
+                            .padding(.vertical, Spacing.xs)
+                            .background(Color.bgCard)
+                            .clipShape(.rect(cornerRadius: 6))
+                    }
+                }
+            }
+
+            Text("We'll walk you through the basics next.")
                 .font(.groveBodySmall)
                 .foregroundStyle(Color.textTertiary)
 
-            // Get Started button
+            Spacer()
+
             Button("Get Started") {
                 OnboardingPreferences.selectedUseCases = selectedUseCases
                 onboarding.complete()
@@ -157,10 +312,19 @@ struct OnboardingFlowView: View {
             }
             .buttonStyle(OnboardingPrimaryButtonStyle())
             .keyboardShortcut(.return, modifiers: [])
-            .padding(.bottom, Spacing.xxl)
+            .padding(.bottom, Spacing.md)
         }
         .padding(.horizontal, Spacing.xxl)
-        .frame(minHeight: 280)
+        .padding(.top, Spacing.xxl)
+        .frame(minHeight: 420)
+    }
+
+    // MARK: - Shared Continue Button
+
+    private func continueButton(action: @escaping () -> Void) -> some View {
+        Button("Continue", action: action)
+            .buttonStyle(OnboardingPrimaryButtonStyle())
+            .keyboardShortcut(.return, modifiers: [])
     }
 
     // MARK: - Chip Grid
