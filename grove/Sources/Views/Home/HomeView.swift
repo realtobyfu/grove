@@ -1,6 +1,23 @@
 import SwiftUI
 import SwiftData
 
+// MARK: - Home Primary Button Style
+
+private struct HomePrimaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.groveBodySmall)
+            .foregroundStyle(Color.textInverse)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, 6)
+            .background(isEnabled ? Color.textPrimary : Color.textSecondary)
+            .clipShape(.rect(cornerRadius: 6))
+            .opacity(configuration.isPressed ? 0.8 : 1.0)
+    }
+}
+
 // MARK: - HomeView
 
 struct HomeView: View {
@@ -139,7 +156,7 @@ struct HomeView: View {
                 Button("Replay") {
                     onboarding.presentReplay()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(HomePrimaryButtonStyle())
 
                 Button("Dismiss") {
                     onboarding.dismissHomeReminder()
@@ -184,7 +201,7 @@ struct HomeView: View {
                         bypassCooldown: true
                     )
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(HomePrimaryButtonStyle())
 
                 Button("Dismiss") {
                     onboarding.dismissHomeTeaser()
