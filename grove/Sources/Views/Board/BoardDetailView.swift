@@ -69,6 +69,11 @@ struct BoardDetailView: View {
         sortItems(effectiveItems)
     }
 
+    private var weekSections: [WeekSection]? {
+        guard sortOption == .dateAdded, effectiveItems.count > 5 else { return nil }
+        return WeekSection.group(sortedFilteredItems)
+    }
+
     private var boardDiscussionSuggestions: [PromptBubble] {
         let effectiveItemIDs = Set(effectiveItems.map(\.id))
         let scoped = starterService.bubbles.filter { bubble in
@@ -105,6 +110,7 @@ struct BoardDetailView: View {
                     case .grid:
                         BoardGridView(
                             items: sortedFilteredItems,
+                            sections: weekSections,
                             canReorder: sortOption == .manual && !board.isSmart,
                             selectedItem: $selectedItem,
                             openedItem: $openedItem,
@@ -115,6 +121,7 @@ struct BoardDetailView: View {
                     case .list:
                         BoardListView(
                             items: sortedFilteredItems,
+                            sections: weekSections,
                             canReorder: sortOption == .manual && !board.isSmart,
                             selectedItem: $selectedItem,
                             openedItem: $openedItem,
@@ -185,7 +192,7 @@ struct BoardDetailView: View {
             await starterService.refresh(items: allItems)
         }
         .onChange(of: board.id, initial: true) {
-            sortOption = board.isSmart ? .dateAdded : .manual
+            sortOption = .dateAdded
             promptModeSelection = nil
         }
         .animation(.easeInOut(duration: 0.2), value: promptModeSelection != nil)

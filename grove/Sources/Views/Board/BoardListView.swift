@@ -3,6 +3,7 @@ import SwiftData
 
 struct BoardListView: View {
     let items: [Item]
+    var sections: [WeekSection]?
     let canReorder: Bool
     @Binding var selectedItem: Item?
     @Binding var openedItem: Item?
@@ -39,26 +40,48 @@ struct BoardListView: View {
 
     private var staticList: some View {
         ScrollView {
-            VStack(spacing: 0) {
-                ForEach(items) { item in
-                    listRow(item: item)
-                        .contentShape(Rectangle())
-                        .onTapGesture(count: 2) {
-                            openedItem = item
-                            selectedItem = item
+            if let sections {
+                VStack(spacing: 0) {
+                    ForEach(sections) { section in
+                        WeekSectionHeaderView(title: section.title)
+                            .padding(.horizontal)
+
+                        VStack(spacing: 0) {
+                            ForEach(section.items) { item in
+                                staticListRow(item: item)
+                            }
                         }
-                        .onTapGesture(count: 1) {
-                            selectedItem = item
-                        }
-                        .selectedItemStyle(selectedItem?.id == item.id)
-                        .transition(.opacity.combined(with: .slide))
-                        .contextMenu { itemContextMenu(item) }
+                        .cardStyle(cornerRadius: 6)
+                        .padding(.horizontal)
+                    }
                 }
+                .animation(.easeInOut(duration: 0.2), value: items.map(\.id))
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(items) { item in
+                        staticListRow(item: item)
+                    }
+                }
+                .cardStyle(cornerRadius: 6)
+                .animation(.easeInOut(duration: 0.2), value: items.map(\.id))
+                .padding()
             }
-            .cardStyle(cornerRadius: 6)
-            .animation(.easeInOut(duration: 0.2), value: items.map(\.id))
-            .padding()
         }
+    }
+
+    private func staticListRow(item: Item) -> some View {
+        listRow(item: item)
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) {
+                openedItem = item
+                selectedItem = item
+            }
+            .onTapGesture(count: 1) {
+                selectedItem = item
+            }
+            .selectedItemStyle(selectedItem?.id == item.id)
+            .transition(.opacity.combined(with: .slide))
+            .contextMenu { itemContextMenu(item) }
     }
 
     private func listRow(item: Item) -> some View {

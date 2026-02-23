@@ -10,6 +10,7 @@ struct BoardGridView: View {
     }
 
     let items: [Item]
+    var sections: [WeekSection]?
     let canReorder: Bool
     @Binding var selectedItem: Item?
     @Binding var openedItem: Item?
@@ -23,8 +24,20 @@ struct BoardGridView: View {
                 columns: [GridItem(.adaptive(minimum: Layout.minCardWidth, maximum: Layout.maxCardWidth), spacing: Spacing.lg, alignment: .top)],
                 spacing: Spacing.lg
             ) {
-                ForEach(items) { item in
-                    gridCard(item)
+                if let sections {
+                    ForEach(sections) { section in
+                        Section {
+                            ForEach(section.items) { item in
+                                gridCard(item)
+                            }
+                        } header: {
+                            WeekSectionHeaderView(title: section.title)
+                        }
+                    }
+                } else {
+                    ForEach(items) { item in
+                        gridCard(item)
+                    }
                 }
             }
             .frame(maxWidth: Layout.maxGridWidth, alignment: .leading)
