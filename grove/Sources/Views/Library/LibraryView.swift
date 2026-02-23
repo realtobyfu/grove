@@ -23,7 +23,17 @@ struct LibraryView: View {
     @State private var showingRevisitFilter = false
     @State private var itemToDelete: Item?
 
+    // Multi-select state
+    @State private var isMultiSelectMode = false
+    @State private var selectedIDs: Set<UUID> = []
+    @State private var showBoardPicker = false
+
     // MARK: - Computed
+
+    /// Non-smart boards available as move targets
+    private var moveTargetBoards: [Board] {
+        allBoards.filter { !$0.isSmart }
+    }
 
     /// Items overdue for resurfacing (spaced repetition queue)
     private var overdueItems: [Item] {
@@ -57,16 +67,24 @@ struct LibraryView: View {
     // MARK: - Body
 
     var body: some View {
+        libraryLayout
+            .alert("Delete Item", isPresented: deleteAlertBinding) {
+                deleteAlertButtons
+            } message: {
+                Text("\"\(itemToDelete?.title ?? "")\" will be permanently deleted.")
+            }
+            .sheet(isPresented: $showBoardPicker) {
+                boardPickerSheet
+            }
+    }
+
+    private var libraryLayout: some View {
         VStack(spacing: 0) {
             searchBar
-            if !overdueItems.isEmpty {
-                revisitBanner
-            }
-            if !allBoards.isEmpty && !showingRevisitFilter {
-                boardFilterBar
-            }
+            revisitSection
+            boardFilterSection
             Divider()
-            itemList
+            itemListWithToolbar
         }
         .navigationTitle("Library")
         .onChange(of: searchQuery) { _, newValue in
@@ -78,28 +96,211 @@ struct LibraryView: View {
         .onChange(of: allItems.count) { _, _ in
             scheduleSearch(query: searchQuery)
         }
-        .alert(
-            "Delete Item",
-            isPresented: Binding(
-                get: { itemToDelete != nil },
-                set: { if !$0 { itemToDelete = nil } }
-            )
-        ) {
-            Button("Cancel", role: .cancel) {
-                itemToDelete = nil
-            }
-            Button("Delete", role: .destructive) {
-                if let item = itemToDelete {
-                    if selectedItem?.id == item.id { selectedItem = nil }
-                    if openedItem?.id == item.id { openedItem = nil }
-                    modelContext.delete(item)
-                    try? modelContext.save()
-                }
-                itemToDelete = nil
-            }
-        } message: {
-            Text("\"\(itemToDelete?.title ?? "")\" will be permanently deleted.")
+        .onKeyPress(.escape) {
+            guard isMultiSelectMode else { return .ignored }
+            exitMultiSelect()
+            return .handled
         }
+        .background {
+            // Hidden button to capture Cmd+Shift+M
+            Button("") {
+                if isMultiSelectMode && !selectedIDs.isEmpty {
+                    showBoardPicker = true
+                }
+            }
+            .keyboardShortcut("m", modifiers: [.command, .shift])
+            .hidden()
+        }
+    }
+
+    private var deleteAlertBinding: Binding<Bool> {
+        Binding(
+            get: { itemToDelete != nil },
+            set: { if !$0 { itemToDelete = nil } }
+        )
+    }
+
+    @ViewBuilder
+    private var revisitSection: some View {
+        if !overdueItems.isEmpty {
+            revisitBanner
+        }
+    }
+
+    @ViewBuilder
+    private var boardFilterSection: some View {
+        if !allBoards.isEmpty && !showingRevisitFilter {
+            boardFilterBar
+        }
+    }
+
+    private var itemListWithToolbar: some View {
+        ZStack(alignment: .bottom) {
+            itemList
+            if isMultiSelectMode && !selectedIDs.isEmpty {
+                multiSelectToolbar
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var deleteAlertButtons: some View {
+        Button("Cancel", role: .cancel) {
+            itemToDelete = nil
+        }
+        Button("Delete", role: .destructive) {
+            if let item = itemToDelete {
+                if selectedItem?.id == item.id { selectedItem = nil }
+                if openedItem?.id == item.id { openedItem = nil }
+                modelContext.delete(item)
+                try? modelContext.save()
+            }
+            itemToDelete = nil
+        }
+    }
+
+    // MARK: - Multi-Select Helpers
+
+    private func exitMultiSelect() {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            isMultiSelectMode = false
+            selectedIDs = []
+        }
+    }
+
+    private func toggleSelection(for item: Item) {
+        if selectedIDs.contains(item.id) {
+            selectedIDs.remove(item.id)
+            if selectedIDs.isEmpty {
+                isMultiSelectMode = false
+            }
+        } else {
+            selectedIDs.insert(item.id)
+        }
+    }
+
+    private func performMove(to board: Board?) {
+        let itemVM = ItemViewModel(modelContext: modelContext)
+        let itemsToMove = displayedItems.filter { selectedIDs.contains($0.id) }
+        itemVM.moveItemsToBoard(itemsToMove, board: board)
+        exitMultiSelect()
+    }
+
+    // MARK: - Multi-Select Toolbar
+
+    private var multiSelectToolbar: some View {
+        HStack(spacing: Spacing.md) {
+            Text("\(selectedIDs.count) selected")
+                .font(.groveBadge)
+                .foregroundStyle(Color.textSecondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Color.accentBadge)
+                .clipShape(Capsule())
+
+            Spacer()
+
+            Button {
+                showBoardPicker = true
+            } label: {
+                Label("Move to Board\u{2026}", systemImage: "folder")
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textPrimary)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                exitMultiSelect()
+            } label: {
+                Text("Done")
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textSecondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) { Divider() }
+    }
+
+    // MARK: - Board Picker Sheet
+
+    private var boardPickerSheet: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Move to Board")
+                    .font(.groveItemTitle)
+                    .foregroundStyle(Color.textPrimary)
+                Spacer()
+                Button {
+                    showBoardPicker = false
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.groveBody)
+                        .foregroundStyle(Color.textSecondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding()
+
+            Divider()
+
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    // Unfiled option
+                    Button {
+                        showBoardPicker = false
+                        performMove(to: nil)
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "tray")
+                                .font(.groveBody)
+                                .foregroundStyle(Color.textMuted)
+                                .frame(width: 20)
+                            Text("Unfiled")
+                                .font(.groveBody)
+                                .foregroundStyle(Color.textPrimary)
+                            Spacer()
+                        }
+                        .padding(.horizontal, Spacing.md)
+                        .padding(.vertical, 10)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    Divider().padding(.leading, 42)
+
+                    ForEach(moveTargetBoards) { board in
+                        Button {
+                            showBoardPicker = false
+                            performMove(to: board)
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: board.icon ?? "folder")
+                                    .font(.groveBody)
+                                    .foregroundStyle(Color.textMuted)
+                                    .frame(width: 20)
+                                Text(board.title)
+                                    .font(.groveBody)
+                                    .foregroundStyle(Color.textPrimary)
+                                Spacer()
+                            }
+                            .padding(.horizontal, Spacing.md)
+                            .padding(.vertical, 10)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        if board.id != moveTargetBoards.last?.id {
+                            Divider().padding(.leading, 42)
+                        }
+                    }
+                }
+            }
+        }
+        .frame(width: 320, height: min(CGFloat(moveTargetBoards.count + 1) * 48 + 60, 400))
     }
 
     // MARK: - Revisit Banner
@@ -147,7 +348,7 @@ struct LibraryView: View {
                 .foregroundStyle(Color.textSecondary)
                 .animation(.easeInOut(duration: 0.15), value: isSearching)
 
-            TextField("Search titles, content, tags, reflections…", text: $searchQuery)
+            TextField("Search titles, content, tags, reflections\u{2026}", text: $searchQuery)
                 .textFieldStyle(.plain)
                 .font(.groveBody)
                 .foregroundStyle(Color.textPrimary)
@@ -162,6 +363,22 @@ struct LibraryView: View {
                 }
                 .buttonStyle(.plain)
             }
+
+            // Select mode toggle
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    if isMultiSelectMode {
+                        exitMultiSelect()
+                    } else {
+                        isMultiSelectMode = true
+                    }
+                }
+            } label: {
+                Text(isMultiSelectMode ? "Cancel" : "Select")
+                    .font(.groveBodySmall)
+                    .foregroundStyle(isMultiSelectMode ? Color.textPrimary : Color.textSecondary)
+            }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, 10)
@@ -216,44 +433,82 @@ struct LibraryView: View {
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(displayedItems) { item in
-                        libraryRow(item: item)
-                            .contentShape(Rectangle())
-                            .onTapGesture(count: 2) {
-                                openedItem = item
-                                selectedItem = item
-                            }
-                            .onTapGesture(count: 1) {
-                                selectedItem = item
-                            }
-                            .selectedItemStyle(selectedItem?.id == item.id)
-                            .contextMenu {
-                                Button {
-                                    openedItem = item
-                                    selectedItem = item
-                                } label: {
-                                    Label("Open", systemImage: "doc.text")
-                                }
-                                Button {
-                                    NotificationCenter.default.postDiscussItem(DiscussItemPayload(item: item))
-                                } label: {
-                                    Label("Discuss", systemImage: "bubble.left.and.bubble.right")
-                                }
-                                Divider()
-                                Button("Delete Item", role: .destructive) {
-                                    itemToDelete = item
-                                }
-                            }
+                        selectableRow(for: item)
                         Divider()
-                            .padding(.leading, 40)
+                            .padding(.leading, isMultiSelectMode ? 68 : 40)
                     }
                 }
                 .padding(.vertical, Spacing.xs)
+                if isMultiSelectMode && !selectedIDs.isEmpty {
+                    Spacer().frame(height: 52)
+                }
             }
         }
     }
 
-    private func libraryRow(item: Item) -> some View {
-        LibraryRowView(item: item)
+    private func selectableRow(for item: Item) -> some View {
+        let isItemSelected = selectedIDs.contains(item.id)
+        let isHighlighted = isMultiSelectMode ? isItemSelected : selectedItem?.id == item.id
+
+        return HStack(spacing: 0) {
+            if isMultiSelectMode {
+                Image(systemName: isItemSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.groveBody)
+                    .foregroundStyle(isItemSelected ? Color.textPrimary : Color.textMuted)
+                    .frame(width: 28)
+                    .padding(.leading, Spacing.sm)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+            }
+            LibraryRowView(item: item)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            if !isMultiSelectMode {
+                openedItem = item
+                selectedItem = item
+            }
+        }
+        .onTapGesture(count: 1) {
+            handleRowTap(item: item)
+        }
+        .selectedItemStyle(isHighlighted)
+        .contextMenu {
+            rowContextMenu(for: item)
+        }
+    }
+
+    private func handleRowTap(item: Item) {
+        if isMultiSelectMode {
+            withAnimation(.easeInOut(duration: 0.1)) {
+                toggleSelection(for: item)
+            }
+        } else if NSEvent.modifierFlags.contains(.command) {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isMultiSelectMode = true
+                selectedIDs.insert(item.id)
+            }
+        } else {
+            selectedItem = item
+        }
+    }
+
+    @ViewBuilder
+    private func rowContextMenu(for item: Item) -> some View {
+        Button {
+            openedItem = item
+            selectedItem = item
+        } label: {
+            Label("Open", systemImage: "doc.text")
+        }
+        Button {
+            NotificationCenter.default.postDiscussItem(DiscussItemPayload(item: item))
+        } label: {
+            Label("Discuss", systemImage: "bubble.left.and.bubble.right")
+        }
+        Divider()
+        Button("Delete Item", role: .destructive) {
+            itemToDelete = item
+        }
     }
 
     // MARK: - Empty State
@@ -420,7 +675,7 @@ private struct LibraryRowView: View {
                             .foregroundStyle(Color.textTertiary)
                     }
                     if !item.tags.isEmpty {
-                        Text("·")
+                        Text("\u{00B7}")
                             .font(.groveMeta)
                             .foregroundStyle(Color.textTertiary)
                     }

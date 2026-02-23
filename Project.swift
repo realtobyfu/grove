@@ -14,6 +14,8 @@ let project = Project(
                 "CFBundleIconName": "AppIcon",
                 "ATSApplicationFontsPath": "Fonts",
                 "LSApplicationCategoryType": "public.app-category.productivity",
+                "NSMainStoryboardFile": "",
+                "NSPrincipalClass": "NSApplication",
             ]),
             buildableFolders: [
                 "grove/Sources",

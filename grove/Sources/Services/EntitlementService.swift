@@ -25,6 +25,7 @@ enum MeteredFeature: String, CaseIterable, Sendable {
     case autoTagging
     case connectionSuggestions
     case synthesis
+    case suggestedArticles
 
     var freeLimit: Int {
         switch self {
@@ -33,6 +34,7 @@ enum MeteredFeature: String, CaseIterable, Sendable {
         case .autoTagging: return 10
         case .connectionSuggestions: return 5
         case .synthesis: return 1
+        case .suggestedArticles: return 3
         }
     }
 
@@ -43,6 +45,7 @@ enum MeteredFeature: String, CaseIterable, Sendable {
         case .autoTagging: return "Auto-Tagging"
         case .connectionSuggestions: return "Connection Suggestions"
         case .synthesis: return "Synthesis"
+        case .suggestedArticles: return "Suggested Articles"
         }
     }
 }
@@ -60,6 +63,7 @@ enum ProFeature: String, CaseIterable, Sendable, Identifiable {
     case connectionSuggestions
     case synthesis
     case weeklyDigest
+    case suggestedArticles
 
     var id: String { rawValue }
 
@@ -77,6 +81,7 @@ enum ProFeature: String, CaseIterable, Sendable, Identifiable {
         case .connectionSuggestions: return "Connection Suggestions"
         case .synthesis: return "AI Synthesis"
         case .weeklyDigest: return "Weekly Digest"
+        case .suggestedArticles: return "Suggested Articles"
         }
     }
 
@@ -94,6 +99,7 @@ enum ProFeature: String, CaseIterable, Sendable, Identifiable {
         case .connectionSuggestions: return "AI-suggested item connections."
         case .synthesis: return "AI-generated cross-item synthesis."
         case .weeklyDigest: return "AI weekly learning summaries."
+        case .suggestedArticles: return "AI-curated article suggestions from your trusted sources."
         }
     }
 }
@@ -158,7 +164,8 @@ final class EntitlementService {
     func hasAccess(to feature: ProFeature) -> Bool {
         switch feature {
         case .automations, .batchActions, .savedWorkflows, .sync, .fullHistory, .smartRouting,
-             .dialectics, .reflectionPrompts, .autoTagging, .connectionSuggestions, .synthesis, .weeklyDigest:
+             .dialectics, .reflectionPrompts, .autoTagging, .connectionSuggestions, .synthesis, .weeklyDigest,
+             .suggestedArticles:
             return isPro
         }
     }

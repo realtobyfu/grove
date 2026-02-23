@@ -33,6 +33,17 @@ final class ItemViewModel {
         try? modelContext.save()
     }
 
+    func moveItemsToBoard(_ items: [Item], board: Board?) {
+        for item in items {
+            item.boards.removeAll()
+            if let board {
+                item.boards.append(board)
+            }
+            item.updatedAt = .now
+        }
+        try? modelContext.save()
+    }
+
     func updateItem(_ item: Item, title: String, content: String?) {
         item.title = title
         item.content = content

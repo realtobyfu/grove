@@ -21,6 +21,7 @@ struct GroveApp: App {
             Course.self,
             Conversation.self,
             ChatMessage.self,
+            FeedSource.self,
         ])
 
         do {

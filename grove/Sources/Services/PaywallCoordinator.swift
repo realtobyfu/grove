@@ -14,6 +14,7 @@ enum PaywallSource: String, Codable, Sendable {
     case synthesisAction
     case weeklyDigest
     case promptBubble
+    case suggestedArticles
 }
 
 struct PaywallPresentation: Identifiable {

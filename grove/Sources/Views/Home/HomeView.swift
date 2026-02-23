@@ -47,12 +47,17 @@ struct HomeView: View {
     @Query(sort: \Conversation.updatedAt, order: .reverse) private var allConversations: [Conversation]
 
     @State private var starterService = ConversationStarterService.shared
+    @State private var feedDiscovery = FeedDiscoveryService.shared
+    @State private var feedFetch = FeedFetchService.shared
+    @State private var rankingService = SuggestionRankingService.shared
     @State private var isInboxCollapsed = false
+    @State private var isSuggestionsCollapsed = false
     @State private var isDiscussionCollapsed = false
     @State private var isItemsCollapsed = false
     @State private var isConversationsCollapsed = false
     @State private var promptModeSelection: PromptModeSelection? = nil
     @State private var paywallPresentation: PaywallPresentation?
+    @State private var rankedSuggestions: [SuggestionRankingService.ScoredSuggestion] = []
 
     private var inboxCount: Int {
         allItems.filter { $0.status == .inbox }.count
@@ -91,6 +96,11 @@ struct HomeView: View {
                     inboxSection
                         .padding(.bottom, Spacing.xl)
 
+                    if !rankedSuggestions.isEmpty {
+                        suggestedReadingSection
+                            .padding(.bottom, Spacing.xl)
+                    }
+
                     discussionSection
                         .padding(.bottom, Spacing.xl)
 
@@ -125,6 +135,9 @@ struct HomeView: View {
         .navigationTitle("")
         .task {
             await starterService.refresh(items: allItems)
+            await feedDiscovery.discoverFeeds(in: modelContext)
+            await feedFetch.refreshIfNeeded(in: modelContext)
+            rankedSuggestions = rankingService.rankSuggestions(in: modelContext)
         }
         .animation(.easeInOut(duration: 0.2), value: promptModeSelection != nil)
         .sheet(item: $paywallPresentation) { presentation in
@@ -229,6 +242,100 @@ struct HomeView: View {
                 InboxTriageView(selectedItem: $selectedItem, openedItem: $openedItem, isEmbedded: true)
             }
         }
+    }
+
+    // MARK: - Suggested Reading Section
+
+    private var suggestedReadingSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            HomeSectionHeader(
+                title: "SUGGESTED READING",
+                count: rankedSuggestions.count,
+                isCollapsed: $isSuggestionsCollapsed
+            )
+
+            if !isSuggestionsCollapsed {
+                if !entitlement.canUse(.suggestedArticles) {
+                    suggestionsPaywallTeaser
+                } else {
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 320, maximum: 400), spacing: Spacing.md)],
+                        spacing: Spacing.md
+                    ) {
+                        ForEach(Array(rankedSuggestions.prefix(5))) { scored in
+                            SuggestedArticleCard(
+                                item: scored.item,
+                                score: scored.score,
+                                onAdd: { addSuggestionToInbox(scored.item) },
+                                onDismiss: { dismissSuggestion(scored.item) },
+                                onOpen: { openSuggestionInBrowser(scored.item) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var suggestionsPaywallTeaser: some View {
+        HStack(alignment: .top, spacing: Spacing.md) {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                Text("PRO")
+                    .font(.groveBadge)
+                    .tracking(0.8)
+                    .foregroundStyle(Color.textSecondary)
+                Text("Unlock suggested articles")
+                    .font(.groveBody)
+                    .foregroundStyle(Color.textPrimary)
+                Text("Get AI-curated articles from sources you already trust.")
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            Button("Explore Pro") {
+                paywallPresentation = paywallCoordinator.present(
+                    feature: .suggestedArticles,
+                    source: .suggestedArticles
+                )
+            }
+            .buttonStyle(HomePrimaryButtonStyle())
+        }
+        .padding(Spacing.md)
+        .background(Color.bgCard)
+        .clipShape(.rect(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.borderPrimary, lineWidth: 1)
+        )
+    }
+
+    private func addSuggestionToInbox(_ item: Item) {
+        guard entitlement.canUse(.suggestedArticles) else {
+            paywallPresentation = paywallCoordinator.present(
+                feature: .suggestedArticles,
+                source: .suggestedArticles
+            )
+            return
+        }
+
+        item.metadata["isSuggested"] = nil
+        item.metadata["suggestionSource"] = nil
+        item.metadata["feedSourceID"] = nil
+        item.updatedAt = .now
+        entitlement.recordUse(.suggestedArticles)
+        rankedSuggestions.removeAll { $0.item.id == item.id }
+    }
+
+    private func dismissSuggestion(_ item: Item) {
+        item.metadata["suggestionDismissed"] = "true"
+        rankedSuggestions.removeAll { $0.item.id == item.id }
+    }
+
+    private func openSuggestionInBrowser(_ item: Item) {
+        guard let urlString = item.sourceURL,
+              let url = URL(string: urlString) else { return }
+        NSWorkspace.shared.open(url)
     }
 
     // MARK: - Discussion Prompts Section
