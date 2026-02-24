@@ -5,11 +5,6 @@ import SwiftData
 
 /// Note writer panel used both in the side write panel and the modal sheet flow.
 struct NoteWriterPanelView: View {
-    private struct PendingSaveDraft {
-        let title: String
-        let content: String?
-    }
-
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Board.sortOrder) private var boards: [Board]
 
@@ -22,9 +17,6 @@ struct NoteWriterPanelView: View {
 
     @State private var title = ""
     @State private var content = ""
-    @State private var pendingSaveDraft: PendingSaveDraft?
-    @State private var showSaveLocationDialog = false
-    @State private var showBoardPicker = false
     @FocusState private var isTitleFocused: Bool
 
     var body: some View {
@@ -39,7 +31,6 @@ struct NoteWriterPanelView: View {
                     Divider()
                         .padding(.horizontal, 40)
                     bodyEditor
-                    saveBar
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.bgPrimary)
@@ -63,7 +54,6 @@ struct NoteWriterPanelView: View {
                     Divider()
                         .padding(.horizontal, 40)
                     bodyEditor
-                    saveBar
                 }
                 .frame(minWidth: 640, idealWidth: 700, maxWidth: 820, minHeight: 480, idealHeight: 560, maxHeight: 760)
                 .background(Color.bgCard)
@@ -81,33 +71,12 @@ struct NoteWriterPanelView: View {
                 }
             }
         }
-        .confirmationDialog(
-            "Save Note",
-            isPresented: $showSaveLocationDialog,
-            titleVisibility: .visible
-        ) {
-            Button("Save Unfiled") {
-                persistPendingSave(to: nil)
-            }
-            Button("Choose Board…") {
-                showBoardPicker = true
-            }
-            Button("Cancel", role: .cancel) {
-                pendingSaveDraft = nil
-            }
-        } message: {
-            Text("This note is not in a board yet. Choose where to save it.")
-        }
-        .sheet(isPresented: $showBoardPicker) {
-            SaveNoteBoardPickerSheet(
-                boards: boards,
-                onSelectBoard: { board in
-                    persistPendingSave(to: board)
-                },
-                onCancel: {
-                    showBoardPicker = false
-                }
-            )
+        .background {
+            // Hidden button to preserve ⌘↩ keyboard shortcut for save-and-close
+            Button("") { dismiss() }
+                .keyboardShortcut(.return, modifiers: .command)
+                .frame(width: 0, height: 0)
+                .opacity(0)
         }
     }
 
@@ -145,7 +114,7 @@ struct NoteWriterPanelView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Close note writer")
-            .accessibilityHint("Dismisses this panel without saving.")
+            .accessibilityHint("Saves and closes this panel.")
         }
         .padding(.horizontal, 40)
         .padding(.top, 20)
@@ -174,44 +143,14 @@ struct NoteWriterPanelView: View {
             .frame(maxHeight: .infinity)
     }
 
-    // MARK: - Save Bar
-
-    private var saveBar: some View {
-        HStack {
-            Spacer()
-            Button("Cancel") {
-                dismiss()
-            }
-            .buttonStyle(.plain)
-            .font(.groveBody)
-            .foregroundStyle(Color.textSecondary)
-
-            Button {
-                save()
-            } label: {
-                HStack(spacing: 4) {
-                    Text("Save")
-                    Text("⌘↩")
-                        .font(.groveShortcut)
-                        .foregroundStyle(Color.textTertiary)
-                }
-            }
-            .buttonStyle(.plain)
-            .font(.groveBodyMedium)
-            .foregroundStyle(Color.textPrimary)
-            .keyboardShortcut(.return, modifiers: .command)
-            .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-                      content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        }
-        .padding(.horizontal, 40)
-        .padding(.vertical, 12)
-    }
-
     // MARK: - Actions
 
-    private func save() {
+    /// Persist content if non-empty. Called automatically on dismiss.
+    private func saveContent() {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty || !trimmedContent.isEmpty else { return }
+
         let noteTitle = trimmedTitle.isEmpty ? "Untitled Note" : trimmedTitle
         let noteContent = trimmedContent.isEmpty ? nil : trimmedContent
 
@@ -221,49 +160,23 @@ struct NoteWriterPanelView: View {
             editingItem.updatedAt = .now
             try? modelContext.save()
             onCreated?(editingItem)
-            dismiss()
         } else {
-            if let boardID = currentBoardID,
-               let board = boards.first(where: { $0.id == boardID }) {
-                persistNewNote(title: noteTitle, content: noteContent, board: board)
-            } else if boards.isEmpty {
-                persistNewNote(title: noteTitle, content: noteContent, board: nil)
-            } else {
-                pendingSaveDraft = PendingSaveDraft(title: noteTitle, content: noteContent)
-                showSaveLocationDialog = true
+            let board: Board? = currentBoardID.flatMap { id in
+                boards.first(where: { $0.id == id })
             }
+            let note = Item(title: noteTitle, type: .note)
+            note.status = .active
+            note.content = noteContent
+            note.updatedAt = .now
+            modelContext.insert(note)
+            if let board { note.boards.append(board) }
+            try? modelContext.save()
+            onCreated?(note)
         }
-    }
-
-    private func persistNewNote(title: String, content: String?, board: Board?) {
-        let note = Item(title: title, type: .note)
-        note.status = .active
-        note.content = content
-        note.updatedAt = .now
-        modelContext.insert(note)
-
-        if let board {
-            note.boards.append(board)
-        }
-
-        try? modelContext.save()
-        onCreated?(note)
-        dismiss()
-    }
-
-    private func persistPendingSave(to board: Board?) {
-        guard let pendingSaveDraft else { return }
-        showSaveLocationDialog = false
-        showBoardPicker = false
-        self.pendingSaveDraft = nil
-        persistNewNote(
-            title: pendingSaveDraft.title,
-            content: pendingSaveDraft.content,
-            board: board
-        )
     }
 
     private func dismiss() {
+        saveContent()
         // Resign first responder before animating out so macOS doesn't leave
         // the window in a state where clicks stop reaching underlying views.
         NSApp.keyWindow?.makeFirstResponder(nil)
@@ -273,68 +186,3 @@ struct NoteWriterPanelView: View {
     }
 }
 
-private struct SaveNoteBoardPickerSheet: View {
-    let boards: [Board]
-    let onSelectBoard: (Board) -> Void
-    let onCancel: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.md) {
-            Text("Choose Board")
-                .font(.groveItemTitle)
-                .foregroundStyle(Color.textPrimary)
-
-            if boards.isEmpty {
-                Text("No boards available.")
-                    .font(.groveBodySmall)
-                    .foregroundStyle(Color.textSecondary)
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(boards) { board in
-                            Button {
-                                onSelectBoard(board)
-                            } label: {
-                                HStack(spacing: Spacing.sm) {
-                                    Image(systemName: board.icon ?? "folder")
-                                        .font(.groveBodySmall)
-                                        .foregroundStyle(Color.textSecondary)
-                                        .frame(width: 14)
-
-                                    Text(board.title)
-                                        .font(.groveBody)
-                                        .foregroundStyle(Color.textPrimary)
-                                        .lineLimit(1)
-
-                                    Spacer()
-                                }
-                                .padding(.horizontal, Spacing.sm)
-                                .padding(.vertical, Spacing.xs)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-                .frame(maxHeight: 260)
-                .background(Color.bgCard)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.borderPrimary, lineWidth: 1)
-                )
-            }
-
-            HStack {
-                Spacer()
-                Button("Cancel") {
-                    onCancel()
-                }
-                .buttonStyle(.bordered)
-            }
-        }
-        .padding(Spacing.lg)
-        .frame(width: 320)
-        .background(Color.bgPrimary)
-    }
-}

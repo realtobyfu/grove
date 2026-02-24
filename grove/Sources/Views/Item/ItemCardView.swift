@@ -193,17 +193,6 @@ struct ItemCardView: View {
                         .font(.groveBadge)
                         .foregroundStyle(Color.textTertiary)
                 } else if let urlString = item.sourceURL, let url = URL(string: urlString) {
-                    if let readAction = onReadInApp {
-                        Button {
-                            readAction()
-                        } label: {
-                            Label("Read", systemImage: "doc.text.magnifyingglass")
-                                .font(.groveBadge)
-                                .foregroundStyle(Color.textSecondary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-
                     Button {
                         NSWorkspace.shared.open(url)
                     } label: {

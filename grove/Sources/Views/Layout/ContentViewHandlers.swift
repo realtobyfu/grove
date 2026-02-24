@@ -161,9 +161,11 @@ struct ContentViewNotificationHandlers: ViewModifier {
                 dismissNudgeFromNotification(id: nudgeID)
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveEnterFocusMode)) { _ in
-                savedColumnVisibility = columnVisibility
-                savedInspectorOverride = inspectorUserOverride
-                savedChatPanel = showChatPanel
+                if savedColumnVisibility == nil {
+                    savedColumnVisibility = columnVisibility
+                    savedInspectorOverride = inspectorUserOverride
+                    savedChatPanel = showChatPanel
+                }
                 withAnimation(.easeOut(duration: 0.25)) {
                     columnVisibility = .detailOnly
                     inspectorUserOverride = false

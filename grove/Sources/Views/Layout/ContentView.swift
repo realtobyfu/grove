@@ -36,7 +36,7 @@ struct ContentView: View {
     @State private var savedInspectorOverride: Bool?
     @State private var savedChatPanel: Bool?
     @State private var chatPanelWidth: CGFloat = 380
-    @State private var inspectorWidth: CGFloat = 280
+    @State private var inspectorWidth: CGFloat = 360
 
     private var isInspectorVisible: Bool {
         if let override = inspectorUserOverride {
@@ -113,6 +113,28 @@ struct ContentView: View {
                 withAnimation(.easeOut(duration: 0.2)) {
                     showWritePanel = true
                 }
+            } else if let item = openedItem, !item.reflections.isEmpty {
+                // Save current panel state and collapse for reader (only when item has reflections)
+                if savedColumnVisibility == nil {
+                    savedColumnVisibility = columnVisibility
+                    savedInspectorOverride = inspectorUserOverride
+                    savedChatPanel = showChatPanel
+                }
+                withAnimation(.easeOut(duration: 0.25)) {
+                    columnVisibility = .detailOnly
+                    inspectorUserOverride = false
+                    showChatPanel = false
+                }
+            } else if openedItem == nil && savedColumnVisibility != nil {
+                // Restore saved panel state when leaving reader
+                withAnimation(.easeOut(duration: 0.25)) {
+                    columnVisibility = savedColumnVisibility ?? .automatic
+                    inspectorUserOverride = savedInspectorOverride
+                    showChatPanel = savedChatPanel ?? false
+                }
+                savedColumnVisibility = nil
+                savedInspectorOverride = nil
+                savedChatPanel = nil
             }
         }
         .onAppear {
@@ -148,6 +170,12 @@ struct ContentView: View {
         HStack(spacing: 0) {
             detailContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay {
+                    if isInspectorVisible && selectedItem != nil && openedItem == nil {
+                        Color.black.opacity(0.04)
+                            .allowsHitTesting(false)
+                    }
+                }
 
             writePanelSection
 
@@ -348,7 +376,7 @@ struct ContentView: View {
             .frame(width: chatPanelWidth)
             .transition(.move(edge: .trailing))
         } else if isInspectorVisible {
-            draggableDivider(width: $inspectorWidth, min: 220, max: 480)
+            draggableDivider(width: $inspectorWidth, min: 300, max: 520)
             if let inspectorItem = selectedItem ?? openedItem {
                 InspectorPanelView(item: inspectorItem)
                     .frame(width: inspectorWidth)

@@ -159,37 +159,28 @@ struct SidebarView: View {
                 Section {
                     if !isConversationsCollapsed {
                         ForEach(recentConversations) { conv in
-                            HStack(spacing: Spacing.xs) {
-                                Button {
-                                    NotificationCenter.default.post(name: .groveOpenConversation, object: conv)
-                                } label: {
-                                    HStack {
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(conv.displayTitle)
-                                                .font(.groveBody)
-                                                .foregroundStyle(Color.textPrimary)
-                                                .lineLimit(1)
-                                            Text(conv.updatedAt.formatted(date: .abbreviated, time: .omitted))
-                                                .font(.groveMeta)
-                                                .foregroundStyle(Color.textTertiary)
-                                        }
-                                        Spacer()
+                            Button {
+                                NotificationCenter.default.post(name: .groveOpenConversation, object: conv)
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(conv.displayTitle)
+                                            .font(.groveBody)
+                                            .foregroundStyle(Color.textPrimary)
+                                            .lineLimit(1)
+                                        Text(conv.updatedAt.formatted(date: .abbreviated, time: .omitted))
+                                            .font(.groveMeta)
+                                            .foregroundStyle(Color.textTertiary)
                                     }
-                                    .contentShape(Rectangle())
+                                    Spacer()
                                 }
-                                .buttonStyle(.plain)
-
-                                Button(role: .destructive) {
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("Delete", role: .destructive) {
                                     conversationToDelete = conv
-                                } label: {
-                                    Image(systemName: "trash")
-                                        .font(.groveBodySmall)
-                                        .foregroundStyle(Color.textMuted)
                                 }
-                                .buttonStyle(.plain)
-                                .help("Delete conversation")
-                                .accessibilityLabel("Delete conversation \(conv.displayTitle)")
-                                .accessibilityHint("Permanently removes this conversation.")
                             }
                             .listRowBackground(
                                 selectedConversation?.id == conv.id
@@ -210,7 +201,7 @@ struct SidebarView: View {
                                 .foregroundStyle(Color.textMuted)
                                 .frame(width: 12)
 
-                            Text("Conversations")
+                            Text("Chats")
                                 .sectionHeaderStyle()
 
                             Text("\(recentConversations.count)")
