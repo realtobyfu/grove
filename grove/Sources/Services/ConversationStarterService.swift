@@ -224,6 +224,8 @@ import Observation
         - Each starter has a short label: REVISIT, EXPLORE, RESOLVE, REFLECT, SYNTHESIZE, or ORGANIZE
         - If a starter is tied to one of the snippets below, include its exact `context_id`
         - If a starter is general and not tied to a specific snippet, use `context_id` = "general"
+        - Items annotated "(your note)" are the user's own writing — use "you wrote" framing.
+        - Items annotated "(article)", "(video)", etc. are external content — use "that article" or "the video" framing.
         - Return ONLY valid JSON. No markdown fences, no explanation.
 
         Output format:
@@ -303,8 +305,11 @@ import Observation
 
         // Stale high-value item
         if let stale = context.staleItems.first {
+            let staleFraming = stale.type == .note
+                ? "You haven't revisited your note \"\(stale.title)\" in over a month. What do you remember, and has your view changed?"
+                : "You haven't revisited \"\(stale.title)\" in over a month. What do you remember, and has your view changed?"
             bubbles.append(PromptBubble(
-                prompt: "You haven't revisited \"\(stale.title)\" in over a month. What do you remember, and has your view changed?",
+                prompt: staleFraming,
                 label: "REVISIT",
                 clusterItemIDs: [stale.id],
                 boardIDs: boardIDs(for: [stale])
@@ -363,7 +368,7 @@ import Observation
 
         if !context.recentItems.isEmpty {
             let recentItems = Array(context.recentItems.prefix(6))
-            let titles = recentItems.prefix(4).map { "\"\($0.title)\"" }.joined(separator: ", ")
+            let titles = recentItems.prefix(4).map { "(\($0.type.llmLabel)) \"\($0.title)\"" }.joined(separator: ", ")
             candidates.append(LLMContextCandidate(
                 id: "recent_items",
                 summary: "Recently saved items (last 7 days): \(titles)",
@@ -376,7 +381,7 @@ import Observation
         for (index, item) in context.staleItems.prefix(2).enumerated() {
             candidates.append(LLMContextCandidate(
                 id: "stale_\(index)",
-                summary: "Stale item not touched in 30+ days: \"\(item.title)\"",
+                summary: "Stale item not touched in 30+ days: (\(item.type.llmLabel)) \"\(item.title)\"",
                 clusterTag: nil,
                 itemIDs: [item.id],
                 boardIDs: boardIDs(for: [item])
@@ -390,7 +395,7 @@ import Observation
                     .prefix(6)
             )
             if !recentTaggedItems.isEmpty {
-                let titles = recentTaggedItems.prefix(4).map { "\"\($0.title)\"" }.joined(separator: ", ")
+                let titles = recentTaggedItems.prefix(4).map { "(\($0.type.llmLabel)) \"\($0.title)\"" }.joined(separator: ", ")
                 candidates.append(LLMContextCandidate(
                     id: "recent_tag",
                     summary: "Recent cluster for tag \"\(tag)\" (\(context.topRecentTagCount) items): \(titles)",
@@ -403,7 +408,7 @@ import Observation
 
         let contradictionItems = Array(context.contradictionItems.prefix(2))
         if !contradictionItems.isEmpty {
-            let titles = contradictionItems.map { "\"\($0.title)\"" }.joined(separator: " vs ")
+            let titles = contradictionItems.map { "(\($0.type.llmLabel)) \"\($0.title)\"" }.joined(separator: " vs ")
             candidates.append(LLMContextCandidate(
                 id: "contradiction",
                 summary: "Items with contradictions: \(titles)",
@@ -414,7 +419,7 @@ import Observation
         }
 
         if let cluster = context.unboardedCluster, !didShowClusterBubble {
-            let titles = cluster.items.prefix(4).map { "\"\($0.title)\"" }.joined(separator: ", ")
+            let titles = cluster.items.prefix(4).map { "(\($0.type.llmLabel)) \"\($0.title)\"" }.joined(separator: ", ")
             candidates.append(LLMContextCandidate(
                 id: "organize_cluster",
                 summary: "Unboarded items sharing tag \"\(cluster.sharedTag)\" (\(cluster.count) items): \(titles)",

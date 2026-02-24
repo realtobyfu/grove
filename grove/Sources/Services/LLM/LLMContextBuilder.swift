@@ -1,5 +1,19 @@
 import Foundation
 
+/// Human-readable label for item types in LLM prompts.
+/// Possessive framing for notes ("your note") vs neutral for external content.
+extension ItemType {
+    var llmLabel: String {
+        switch self {
+        case .note: "your note"
+        case .article: "article"
+        case .video: "video"
+        case .codebase: "codebase"
+        case .courseLecture: "course lecture"
+        }
+    }
+}
+
 /// Shared utilities for building LLM prompt context from Item data.
 /// Eliminates duplicated item-description and item-list formatting
 /// across ConnectionSuggestionService, SynthesisService, DialecticsService,
@@ -63,7 +77,7 @@ enum LLMContextBuilder {
         items.prefix(maxItems).enumerated().map { index, item in
             let tags = item.tags.map(\.name).joined(separator: ", ")
             let summary = item.metadata["summary"] ?? ""
-            return "\(index + 1). \"\(item.title)\" [tags: \(tags.isEmpty ? "none" : tags)]\(summary.isEmpty ? "" : " — \(summary)")"
+            return "\(index + 1). (\(item.type.llmLabel)) \"\(item.title)\" [tags: \(tags.isEmpty ? "none" : tags)]\(summary.isEmpty ? "" : " — \(summary)")"
         }.joined(separator: "\n")
     }
 }

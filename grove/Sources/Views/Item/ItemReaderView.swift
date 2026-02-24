@@ -24,7 +24,8 @@ struct ItemReaderView: View {
     // Delete confirmation
     @State private var blockToDelete: ReflectionBlock?
     @State private var showDeleteConfirmation = false
-    // Editing existing block inline
+    // New reflection editor sheet / editing existing block in panel
+    @State private var showReflectionEditor = false
     @State private var editingBlock: ReflectionBlock?
     // Inline new-reflection editor focus
     @FocusState private var isNewReflectionFocused: Bool
@@ -52,7 +53,7 @@ struct ItemReaderView: View {
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            if !sortedReflections.isEmpty || editingBlock != nil {
+            if !sortedReflections.isEmpty || showReflectionEditor {
                 // Modes B and C: persistent split layout
                 GeometryReader { geo in
                     let minPanel: CGFloat = 280
@@ -116,8 +117,23 @@ struct ItemReaderView: View {
                                     )
                             }
 
-                        // Right: reflections list with inline editing
-                        reflectionsListPanel
+                        // Right: swap between reflections list (Mode B) and editor (Mode C)
+                        Group {
+                            if showReflectionEditor {
+                                reflectionEditorPanel
+                                    .transition(.asymmetric(
+                                        insertion: .move(edge: .trailing).combined(with: .opacity),
+                                        removal: .move(edge: .trailing).combined(with: .opacity)
+                                    ))
+                            } else {
+                                reflectionsListPanel
+                                    .transition(.asymmetric(
+                                        insertion: .move(edge: .trailing).combined(with: .opacity),
+                                        removal: .move(edge: .trailing).combined(with: .opacity)
+                                    ))
+                            }
+                        }
+                        .animation(.easeOut(duration: 0.25), value: showReflectionEditor)
                         .frame(width: clampedWidth)
                         .frame(maxHeight: .infinity)
                         .background(Color.bgPrimary)
@@ -177,7 +193,7 @@ struct ItemReaderView: View {
             isEditingContent = false
             selectedHighlightText = nil
             webViewSelectedText = nil
-            if editingBlock != nil { closeReflectionEditor() }
+            if showReflectionEditor { closeReflectionEditor() }
             showArticleWebView = false
             isEditingSummary = false
             editableSummary = ""
@@ -782,12 +798,8 @@ struct ItemReaderView: View {
                     ReflectionBlockRow(
                         block: block,
                         isVideoItem: isVideoItem,
-                        isEditing: editingBlock?.id == block.id,
-                        sourceItem: item,
-                        editorFocused: $isNewReflectionFocused,
                         videoSeekTarget: $videoSeekTarget,
                         onEdit: { openBlockForEditing($0) },
-                        onCloseEditor: { closeReflectionEditor() },
                         onDelete: { blk in
                             blockToDelete = blk
                             showDeleteConfirmation = true
@@ -795,7 +807,6 @@ struct ItemReaderView: View {
                         onNavigateToItemByTitle: { navigateToItemByTitle($0) },
                         modelContext: modelContext
                     )
-                    .id(block.id)
                 }
                 .onDrop(of: [.text], delegate: BlockDropDelegate(
                     targetBlock: block,
@@ -902,61 +913,123 @@ struct ItemReaderView: View {
 
             Divider()
 
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(sortedReflections.enumerated()), id: \.element.id) { index, block in
-                            HStack(alignment: .top, spacing: 4) {
-                                Image(systemName: "line.3.horizontal")
-                                    .font(.caption2)
-                                    .foregroundStyle(Color.textTertiary)
-                                    .frame(width: 12, height: 20)
-                                    .padding(.top, 12)
-                                    .onDrag {
-                                        draggingBlock = block
-                                        return NSItemProvider(object: block.id.uuidString as NSString)
-                                    }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(sortedReflections.enumerated()), id: \.element.id) { index, block in
+                        HStack(alignment: .top, spacing: 4) {
+                            Image(systemName: "line.3.horizontal")
+                                .font(.caption2)
+                                .foregroundStyle(Color.textTertiary)
+                                .frame(width: 12, height: 20)
+                                .padding(.top, 12)
+                                .onDrag {
+                                    draggingBlock = block
+                                    return NSItemProvider(object: block.id.uuidString as NSString)
+                                }
 
-                                ReflectionBlockRow(
-                                    block: block,
-                                    isVideoItem: isVideoItem,
-                                    isEditing: editingBlock?.id == block.id,
-                                    sourceItem: item,
-                                    editorFocused: $isNewReflectionFocused,
-                                    videoSeekTarget: $videoSeekTarget,
-                                    onEdit: { openBlockForEditing($0) },
-                                    onCloseEditor: { closeReflectionEditor() },
-                                    onDelete: { blk in
-                                        blockToDelete = blk
-                                        showDeleteConfirmation = true
-                                    },
-                                    onNavigateToItemByTitle: { navigateToItemByTitle($0) },
-                                    modelContext: modelContext
-                                )
-                                .id(block.id)
-                            }
-                            .onDrop(of: [.text], delegate: BlockDropDelegate(
-                                targetBlock: block,
-                                allBlocks: sortedReflections,
-                                draggingBlock: $draggingBlock,
+                            ReflectionBlockRow(
+                                block: block,
+                                isVideoItem: isVideoItem,
+                                videoSeekTarget: $videoSeekTarget,
+                                onEdit: { openBlockForEditing($0) },
+                                onDelete: { blk in
+                                    blockToDelete = blk
+                                    showDeleteConfirmation = true
+                                },
+                                onNavigateToItemByTitle: { navigateToItemByTitle($0) },
                                 modelContext: modelContext
-                            ))
+                            )
+                        }
+                        .onDrop(of: [.text], delegate: BlockDropDelegate(
+                            targetBlock: block,
+                            allBlocks: sortedReflections,
+                            draggingBlock: $draggingBlock,
+                            modelContext: modelContext
+                        ))
 
-                            if index < sortedReflections.count - 1 {
-                                Divider()
-                                    .padding(.horizontal, 16)
+                        if index < sortedReflections.count - 1 {
+                            Divider()
+                                .padding(.horizontal, 16)
+                        }
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+        }
+    }
+
+    // MARK: - Reflection Editor Panel (Mode C — split-pane right side)
+
+    private var reflectionEditorPanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let block = editingBlock {
+                // Subtle top bar: type badge (left) + close button (right)
+                HStack {
+                    Menu {
+                        ForEach(ReflectionBlockType.allCases, id: \.self) { type in
+                            Button {
+                                block.blockType = type
+                                item.updatedAt = .now
+                            } label: {
+                                Label(type.displayName, systemImage: type.systemImage)
                             }
                         }
-                    }
-                    .padding(.vertical, 8)
-                }
-                .onChange(of: editingBlock?.id) { _, newID in
-                    if let id = newID {
-                        withAnimation(.easeOut(duration: 0.25)) {
-                            proxy.scrollTo(id, anchor: .center)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: block.blockType.systemImage)
+                            Text(block.blockType.displayName)
                         }
+                        .font(.groveMeta)
+                        .foregroundStyle(Color.textTertiary)
                     }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+
+                    Spacer()
+
+                    Button { closeReflectionEditor() } label: {
+                        Image(systemName: "xmark")
+                            .font(.groveBody)
+                            .foregroundStyle(Color.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.return, modifiers: .command)
                 }
+                .padding(.horizontal, 40)
+                .padding(.top, 20)
+                .padding(.bottom, 8)
+
+                // Highlight preview (if reflecting on selection) — subtle quote
+                if let highlight = block.highlight, !highlight.isEmpty {
+                    HStack(spacing: 0) {
+                        Rectangle()
+                            .fill(Color.borderPrimary)
+                            .frame(width: 2)
+                        Text(highlight)
+                            .font(.groveGhostText)
+                            .foregroundStyle(Color.textTertiary)
+                            .lineLimit(3)
+                            .padding(.leading, 10)
+                    }
+                    .padding(.horizontal, 40)
+                    .padding(.bottom, 12)
+                }
+
+                // Editor — fills remaining space, prose mode, direct binding to block
+                RichMarkdownEditor(
+                    text: Binding(
+                        get: { block.content },
+                        set: {
+                            block.content = $0
+                            item.updatedAt = .now
+                        }
+                    ),
+                    sourceItem: item,
+                    minHeight: 200,
+                    proseMode: true
+                )
+                .focused($isNewReflectionFocused)
+                .frame(maxHeight: .infinity)
             }
         }
     }
@@ -975,16 +1048,20 @@ struct ItemReaderView: View {
             try? modelContext.save()
         }
         withAnimation(.easeOut(duration: 0.25)) {
-            editingBlock = nil
+            showReflectionEditor = false
         }
+        editingBlock = nil
+        NotificationCenter.default.post(name: .groveExitFocusMode, object: nil)
     }
 
     // MARK: - Block CRUD
 
     private func openBlockForEditing(_ block: ReflectionBlock) {
+        editingBlock = block
         withAnimation(.easeOut(duration: 0.25)) {
-            editingBlock = block
+            showReflectionEditor = true
         }
+        NotificationCenter.default.post(name: .groveEnterFocusMode, object: nil)
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(150))
             isNewReflectionFocused = true
@@ -1004,9 +1081,11 @@ struct ItemReaderView: View {
         )
         modelContext.insert(block)
         item.reflections.append(block)
+        editingBlock = block
         withAnimation(.easeOut(duration: 0.25)) {
-            editingBlock = block
+            showReflectionEditor = true
         }
+        NotificationCenter.default.post(name: .groveEnterFocusMode, object: nil)
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(150))
             isNewReflectionFocused = true
@@ -1056,12 +1135,8 @@ struct ItemReaderView: View {
 private struct ReflectionBlockRow: View {
     let block: ReflectionBlock
     let isVideoItem: Bool
-    var isEditing: Bool
-    var sourceItem: Item?
-    var editorFocused: FocusState<Bool>.Binding
     @Binding var videoSeekTarget: Double?
     var onEdit: (ReflectionBlock) -> Void
-    var onCloseEditor: () -> Void
     var onDelete: (ReflectionBlock) -> Void
     var onNavigateToItemByTitle: (String) -> Void
     var modelContext: ModelContext
@@ -1070,130 +1145,12 @@ private struct ReflectionBlockRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if isEditing {
-                editingContent
-            } else {
-                previewContent
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 4)
-                .fill(isEditing ? Color.bgCard : (isHovered ? Color.bgCardHover : Color.bgCard.opacity(0.5)))
-        )
-        .onHover { hovering in
-            isHovered = hovering
-            if !isEditing {
-                if hovering {
-                    NSCursor.pointingHand.push()
-                } else {
-                    NSCursor.pop()
-                }
-            }
-        }
-    }
-
-    // MARK: - Editing State
-
-    private var editingContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Top bar: type dropdown + close button
-            HStack {
-                Menu {
-                    ForEach(ReflectionBlockType.allCases, id: \.self) { type in
-                        Button {
-                            block.blockType = type
-                            try? modelContext.save()
-                        } label: {
-                            Label(type.displayName, systemImage: type.systemImage)
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(block.blockType.displayName)
-                            .font(.groveBadge)
-                            .tracking(0.5)
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 8, weight: .medium))
-                    }
-                    .foregroundStyle(Color.textTertiary)
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-
-                Spacer()
-
-                Button { onCloseEditor() } label: {
-                    Image(systemName: "xmark")
-                        .font(.groveBody)
-                        .foregroundStyle(Color.textMuted)
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.return, modifiers: .command)
-            }
-
-            // Highlight preview
-            if let highlight = block.highlight, !highlight.isEmpty {
-                HStack(spacing: 0) {
-                    Rectangle()
-                        .fill(Color.borderPrimary)
-                        .frame(width: 2)
-                    Text(highlight)
-                        .font(.groveGhostText)
-                        .foregroundStyle(Color.textTertiary)
-                        .lineLimit(3)
-                        .padding(.leading, 8)
-                        .padding(.vertical, 4)
-                }
-                .padding(.leading, 4)
-            }
-
-            // Inline editor
-            RichMarkdownEditor(
-                text: Binding(
-                    get: { block.content },
-                    set: {
-                        block.content = $0
-                        if let item = sourceItem { item.updatedAt = .now }
-                    }
-                ),
-                sourceItem: sourceItem,
-                minHeight: 120,
-                proseMode: false
-            )
-            .focused(editorFocused)
-            .frame(minHeight: 120, maxHeight: 300)
-        }
-    }
-
-    // MARK: - Preview State
-
-    private var previewContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
             // Header: type label + video timestamp + actions
             HStack(spacing: 6) {
-                Menu {
-                    ForEach(ReflectionBlockType.allCases, id: \.self) { type in
-                        Button {
-                            block.blockType = type
-                            try? modelContext.save()
-                        } label: {
-                            Label(type.displayName, systemImage: type.systemImage)
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(block.blockType.displayName)
-                            .font(.groveBadge)
-                            .tracking(0.5)
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 8, weight: .medium))
-                    }
+                Text(block.blockType.displayName)
+                    .font(.groveBadge)
+                    .tracking(0.5)
                     .foregroundStyle(Color.textTertiary)
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
 
                 // Video timestamp seek button
                 if isVideoItem, let ts = block.videoTimestamp {
@@ -1219,11 +1176,24 @@ private struct ReflectionBlockRow: View {
                     .font(.groveMeta)
                     .foregroundStyle(Color.textMuted)
 
-                Image(systemName: "pencil")
-                    .font(.groveMeta)
-                    .foregroundStyle(Color.textMuted)
-                    .opacity(isHovered ? 1 : 0)
-                    .animation(.easeInOut(duration: 0.15), value: isHovered)
+                // Type menu
+                Menu {
+                    ForEach(ReflectionBlockType.allCases, id: \.self) { type in
+                        Button {
+                            block.blockType = type
+                            try? modelContext.save()
+                        } label: {
+                            Label(type.displayName, systemImage: type.systemImage)
+                        }
+                    }
+                } label: {
+                    Image(systemName: block.blockType.systemImage)
+                        .font(.groveMeta)
+                        .foregroundStyle(Color.textSecondary)
+                }
+                .menuStyle(.borderlessButton)
+                .frame(width: 20)
+                .help("Change type")
 
                 // Delete — hover only
                 Button {
@@ -1263,14 +1233,24 @@ private struct ReflectionBlockRow: View {
                     .contentShape(Rectangle())
                     .onTapGesture { onEdit(block) }
             } else {
-                Text(block.content.strippingMarkdown())
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textPrimary)
-                    .lineLimit(3)
-                    .truncationMode(.tail)
+                MarkdownTextView(markdown: block.content, onWikiLinkTap: onNavigateToItemByTitle)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                     .onTapGesture { onEdit(block) }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(isHovered ? Color.bgCardHover : Color.clear)
+        )
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
             }
         }
     }
@@ -2126,35 +2106,5 @@ struct BlockDropDelegate: DropDelegate {
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
         DropProposal(operation: .move)
-    }
-}
-
-// MARK: - Markdown Stripping Helper
-
-private extension String {
-    func strippingMarkdown() -> String {
-        var result = self
-        // Remove bold/italic markers
-        result = result.replacingOccurrences(of: "\\*{1,3}", with: "", options: .regularExpression)
-        result = result.replacingOccurrences(of: "_{1,3}", with: "", options: .regularExpression)
-        // Remove wiki-link brackets
-        result = result.replacingOccurrences(of: "\\[\\[", with: "", options: .regularExpression)
-        result = result.replacingOccurrences(of: "\\]\\]", with: "", options: .regularExpression)
-        // Remove markdown link syntax [text](url) → text
-        result = result.replacingOccurrences(of: "\\[([^\\]]+)\\]\\([^)]+\\)", with: "$1", options: .regularExpression)
-        // Process line-level markers (headings, bullets, numbered lists)
-        let lines = result.components(separatedBy: .newlines)
-        let cleaned = lines.map { line in
-            var l = line
-            // Remove heading markers
-            if let range = l.range(of: "^#{1,6}\\s+", options: .regularExpression) { l.removeSubrange(range) }
-            // Remove bullet prefixes
-            if let range = l.range(of: "^\\s*[-*+]\\s+", options: .regularExpression) { l.removeSubrange(range) }
-            // Remove numbered list prefixes
-            if let range = l.range(of: "^\\s*\\d+\\.\\s+", options: .regularExpression) { l.removeSubrange(range) }
-            return l
-        }
-        result = cleaned.joined(separator: "\n")
-        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

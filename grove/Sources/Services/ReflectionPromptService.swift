@@ -62,6 +62,8 @@ final class ReflectionPromptService: ReflectionPromptServiceProtocol {
         - Vary the block types — don't repeat the same type.
         - Prefer "connection" and "disagreement" types to encourage cross-pollination.
         - If the item has related items on the same board, prompt the user to compare or connect them.
+        - Items marked "(your note)" are the user's own writing — frame reflections as "You wrote…".
+        - Items marked "(article)", "(video)", etc. are external content — frame as "This article argues…" or "The video suggests…".
         - Only return valid JSON, no extra text.
         """
 
@@ -83,6 +85,7 @@ final class ReflectionPromptService: ReflectionPromptServiceProtocol {
         let userPrompt = """
         ITEM TO REFLECT ON:
         Title: \(item.title)
+        Type: \(item.type.llmLabel)
         Tags: \(tagNames.isEmpty ? "none" : tagNames)
         Content excerpt:
         \(contentExcerpt.isEmpty ? "(no content)" : contentExcerpt)\(relatedContext)\(connectedContext)
