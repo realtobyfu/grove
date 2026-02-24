@@ -139,7 +139,7 @@ struct BoardEditorSheet: View {
         "function", "terminal", "cpu", "network",
         "chart.bar", "doc.text", "photo", "film",
         "gamecontroller", "graduationcap", "flask", "wrench",
-        "leaf", "bolt", "eye", "hand.raised",
+        "leaf", "bolt", "eye", "swift",
         "person.2", "map", "flag", "bookmark"
     ]
 

@@ -587,7 +587,7 @@ struct BoardDetailView: View {
             let orderedItems = order.compactMap { id in items.first(where: { $0.id == id }) }
             let unorderedIDs = Set(items.map(\.id)).subtracting(Set(order))
             let unordered = items.filter { unorderedIDs.contains($0.id) }
-            return orderedItems + unordered
+            return unordered.sorted { $0.createdAt > $1.createdAt } + orderedItems
         case .dateAdded:
             return items.sorted { $0.createdAt > $1.createdAt }
         case .title:
@@ -602,7 +602,7 @@ struct BoardDetailView: View {
         var order = board.manualOrder()
         let allIDs = board.items.map(\.id)
         let known = Set(order)
-        order.append(contentsOf: allIDs.filter { !known.contains($0) })
+        order.insert(contentsOf: allIDs.filter { !known.contains($0) }, at: 0)
         guard let fromIndex = order.firstIndex(of: fromID),
               let toIndex = order.firstIndex(of: toID),
               fromIndex != toIndex else { return }
@@ -617,7 +617,7 @@ struct BoardDetailView: View {
         var order = board.manualOrder()
         let allIDs = board.items.map(\.id)
         let known = Set(order)
-        order.append(contentsOf: allIDs.filter { !known.contains($0) })
+        order.insert(contentsOf: allIDs.filter { !known.contains($0) }, at: 0)
         order.move(fromOffsets: source, toOffset: destination)
         board.setManualOrder(order)
         try? modelContext.save()
