@@ -342,11 +342,19 @@ struct HomeView: View {
 
     private var discussionSection: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
-            HomeSectionHeader(
-                title: "DISCUSSION SUGGESTIONS",
-                count: min(Self.maxDiscussionCards, 1 + discussionBubbles.count),
-                isCollapsed: $isDiscussionCollapsed
-            )
+            HStack {
+                HomeSectionHeader(
+                    title: "DISCUSSION SUGGESTIONS",
+                    count: min(Self.maxDiscussionCards, 1 + discussionBubbles.count),
+                    isCollapsed: $isDiscussionCollapsed
+                )
+
+                Spacer()
+
+                #if DEBUG
+                debugRefreshButton
+                #endif
+            }
 
             if !isDiscussionCollapsed {
                 LazyVGrid(
@@ -375,6 +383,33 @@ struct HomeView: View {
             }
         }
     }
+
+    #if DEBUG
+    private var debugRefreshButton: some View {
+        Button {
+            Task {
+                await starterService.forceRefresh(items: allItems)
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.clockwise")
+                Text("Refresh")
+            }
+            .font(.groveMeta)
+            .foregroundStyle(Color.textTertiary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.bgCard)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .overlay(
+                RoundedRectangle(cornerRadius: 4)
+                    .strokeBorder(Color.borderPrimary, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .help("Force-refresh discussion suggestions (debug)")
+    }
+    #endif
 
     // MARK: - Recent Items Section
 

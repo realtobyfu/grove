@@ -100,7 +100,7 @@ struct LLMServiceConfig: Sendable {
                 if !stored.isEmpty { return stored }
                 return envFileValue(forKey: "GROQ_API_KEY") ?? ""
             }
-            return envFileValue(forKey: managedAPIKeyEnvKey) ?? ""
+            return envFileValue(forKey: "GROQ_API_KEY") ?? ""
         }
         set {
             if isBYOAllowed {

@@ -23,7 +23,7 @@ enum BoardSortOption: String, CaseIterable, Sendable {
 }
 
 struct BoardDetailView: View {
-    private static let maxDiscussionSuggestions = 3
+    private static let maxDiscussionSuggestions = 2
 
     private struct PromptModeSelection {
         let prompt: String
@@ -75,15 +75,7 @@ struct BoardDetailView: View {
     }
 
     private var boardDiscussionSuggestions: [PromptBubble] {
-        let effectiveItemIDs = Set(effectiveItems.map(\.id))
-        let scoped = starterService.bubbles.filter { bubble in
-            if bubble.boardIDs.contains(board.id) {
-                return true
-            }
-            guard !bubble.clusterItemIDs.isEmpty else { return false }
-            return !effectiveItemIDs.isDisjoint(with: bubble.clusterItemIDs)
-        }
-        return Array(scoped.prefix(Self.maxDiscussionSuggestions))
+        starterService.bubbles(for: board.id, maxResults: Self.maxDiscussionSuggestions)
     }
 
     // MARK: - Body
@@ -102,7 +94,12 @@ struct BoardDetailView: View {
                         BoardSuggestionsView(
                             suggestions: boardDiscussionSuggestions,
                             isSuggestionsCollapsed: $isSuggestionsCollapsed,
-                            onSelectSuggestion: presentPromptActions(for:)
+                            onSelectSuggestion: presentPromptActions(for:),
+                            onRefresh: {
+                                Task {
+                                    await starterService.forceRefreshBoard(board.id, items: allItems)
+                                }
+                            }
                         )
                     }
 
@@ -189,7 +186,7 @@ struct BoardDetailView: View {
             return .handled
         }
         .task {
-            await starterService.refresh(items: allItems)
+            await starterService.refreshBoard(board.id, items: allItems)
         }
         .onChange(of: board.id, initial: true) {
             sortOption = .dateAdded

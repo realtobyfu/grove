@@ -208,10 +208,33 @@ final class DialecticsService: DialecticsServiceProtocol {
         // If no response from loop, try one last direct call
         if assistantContent == nil && lastError == nil {
             let fallbackResult = await provider.completeChat(messages: currentTurns, service: "dialectics")
-            assistantContent = fallbackResult?.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let content = fallbackResult?.content.trimmingCharacters(in: .whitespacesAndNewlines) {
+                // Check if fallback also returned a tool call — execute it one more time
+                if let toolCall = parseToolCall(from: content) {
+                    let toolResult = await tools.fulfill(toolName: toolCall.name, args: toolCall.args)
+                        ?? "Tool \"\(toolCall.name)\" returned no results."
+                    currentTurns.append(ChatTurn(role: "assistant", content: content))
+                    currentTurns.append(ChatTurn(role: "user", content: "[Tool result for \(toolCall.name)]:\n\(toolResult)\n\nNow please respond to the user in natural language. Do not output a tool_call."))
+                    let finalResult = await provider.completeChat(messages: currentTurns, service: "dialectics")
+                    assistantContent = finalResult?.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                } else {
+                    assistantContent = content
+                }
+            }
             if assistantContent == nil, let groqProvider = provider as? GroqProvider {
                 let providerError = await groqProvider.lastError
                 lastError = providerError?.userMessage
+            }
+        }
+
+        // Safety net: if the final content still looks like a raw tool call, ask once more without tools
+        if let content = assistantContent, looksLikeToolCall(content) {
+            currentTurns.append(ChatTurn(role: "assistant", content: content))
+            currentTurns.append(ChatTurn(role: "user", content: "Please respond in natural language. Do not output a tool_call JSON."))
+            let retryResult = await provider.completeChat(messages: currentTurns, service: "dialectics")
+            if let retryContent = retryResult?.content.trimmingCharacters(in: .whitespacesAndNewlines),
+               !looksLikeToolCall(retryContent) {
+                assistantContent = retryContent
             }
         }
 
@@ -333,17 +356,30 @@ final class DialecticsService: DialecticsServiceProtocol {
     }
 
     private func parseToolCall(from content: String) -> ToolCall? {
-        // Look for {"tool_call": {...}} pattern
-        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-
         // Strip markdown fences if present
-        var jsonStr = trimmed
-        if jsonStr.hasPrefix("```") {
-            let lines = jsonStr.components(separatedBy: .newlines)
-            let inner = lines.dropFirst().dropLast()
-            jsonStr = inner.joined(separator: "\n")
+        var cleaned = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleaned.hasPrefix("```") {
+            let lines = cleaned.components(separatedBy: .newlines)
+            cleaned = lines
+                .drop(while: { $0.hasPrefix("```") })
+                .reversed().drop(while: { $0.hasPrefix("```") }).reversed()
+                .joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
+        // Try parsing the whole string as JSON first
+        if let result = parseToolCallJSON(cleaned) { return result }
+
+        // Fallback: extract the first {...} JSON object from the content
+        guard let openBrace = cleaned.firstIndex(of: "{"),
+              let closeBrace = cleaned.lastIndex(of: "}") else {
+            return nil
+        }
+        let jsonStr = String(cleaned[openBrace...closeBrace])
+        return parseToolCallJSON(jsonStr)
+    }
+
+    private func parseToolCallJSON(_ jsonStr: String) -> ToolCall? {
         guard let data = jsonStr.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let toolCall = json["tool_call"] as? [String: Any],
@@ -359,6 +395,12 @@ final class DialecticsService: DialecticsServiceProtocol {
         }
 
         return ToolCall(name: name, args: args)
+    }
+
+    /// Returns true if the content looks like a raw tool call JSON that shouldn't be shown to the user.
+    private func looksLikeToolCall(_ content: String) -> Bool {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.contains("\"tool_call\"") && trimmed.contains("\"name\"")
     }
 
     // MARK: - Wiki-Link Extraction
