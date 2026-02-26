@@ -1723,7 +1723,46 @@ struct MarkdownTextView: View {
     }
 
     private func parseInlineMarkdown(_ text: String) -> AttributedString {
-        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text)
+        guard var result = try? AttributedString(
+            markdown: text,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        ) else {
+            return AttributedString(text)
+        }
+
+        // Post-process to apply explicit fonts for bold/italic since
+        // SwiftUI can't resolve weight/style variants for custom fonts
+        // from presentation intents alone.
+        let bodyFont = Font.custom("IBMPlexSans-Regular", size: 13)
+        let boldFont = Font.custom("IBMPlexSans-Medium", size: 13)
+        let italicFont = Font.custom("IBMPlexSans-Regular", size: 13).italic()
+        let boldItalicFont = Font.custom("IBMPlexSans-Medium", size: 13).italic()
+        let codeFont = Font.custom("IBMPlexMono-Regular", size: 12)
+
+        for run in result.runs {
+            let range = run.range
+            guard let intent = run.inlinePresentationIntent else {
+                result[range].font = bodyFont
+                continue
+            }
+            let isBold = intent.contains(.stronglyEmphasized)
+            let isItalic = intent.contains(.emphasized)
+            let isCode = intent.contains(.code)
+
+            if isCode {
+                result[range].font = codeFont
+            } else if isBold && isItalic {
+                result[range].font = boldItalicFont
+            } else if isBold {
+                result[range].font = boldFont
+            } else if isItalic {
+                result[range].font = italicFont
+            } else {
+                result[range].font = bodyFont
+            }
+        }
+
+        return result
     }
 
     private func wikiLinkURL(for title: String) -> URL? {

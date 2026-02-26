@@ -49,13 +49,12 @@ struct GroveFormattingDefinition {
                 attributedString[range].foregroundColor = Color.textPrimary
             }
 
-            // Bold
-            if run.bold == true {
+            // Bold + Italic
+            if run.bold == true && run.italic == true {
+                attributedString[range].font = boldFont.italic()
+            } else if run.bold == true {
                 attributedString[range].font = boldFont
-            }
-
-            // Italic
-            if run.italic == true {
+            } else if run.italic == true {
                 attributedString[range].font = italicFont
             }
 
