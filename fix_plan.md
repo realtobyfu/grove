@@ -30,9 +30,9 @@ Last updated: 2026-02-26
 
 ## P0: Foundation — Tuist, Entitlements, Shared Data
 
-- [ ] P0.1: Add `grove-ios` target to Project.swift with destinations [.iPhone, .iPad], deploymentTargets .iOS("18.0"), correct source paths (App, Models, Services, ViewModels, Views/Shared, Views/iOS, Views/Components, Utilities, Extensions), resources, and entitlements reference
+- [x] P0.1: Add `grove-ios` target to Project.swift with destinations [.iPhone, .iPad], deploymentTargets .iOS("18.0"), correct source paths (App, Models, Services, ViewModels, Views/Shared, Views/iOS, Views/Components, Utilities, Extensions), resources, and entitlements reference
 - [ ] P0.2: Add `GroveShareExtension` target to Project.swift as .appExtension with source path grove/ShareExtension/**, shared resources, and entitlements reference
-- [ ] P0.3: Create `grove/grove-ios.entitlements` with App Group (group.dev.tuist.grove), iCloud container (iCloud.dev.tuist.grove), and aps-environment (development)
+- [x] P0.3: Create `grove/grove-ios.entitlements` with App Group (group.dev.tuist.grove), iCloud container (iCloud.dev.tuist.grove), and aps-environment (development)
 - [ ] P0.4: Create `grove/share-extension.entitlements` with App Group (group.dev.tuist.grove)
 - [ ] P0.5: Create `grove/Sources/Utilities/SharedModelContainer.swift` — static factory that builds ModelContainer using App Group URL (FileManager.containerURL for group.dev.tuist.grove); used by both main app and Share Extension
 - [ ] P0.6: Add `#if os(iOS)` / `#if os(macOS)` guards to GroveApp.swift so the macOS scenes (MenuBarExtra, Quick Capture window, GroveMenuCommands) only compile on macOS, and a minimal iOS WindowGroup compiles for iOS
