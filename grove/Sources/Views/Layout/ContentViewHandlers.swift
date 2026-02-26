@@ -21,6 +21,7 @@ struct ContentViewEventHandlers: ViewModifier {
     @Binding var savedInspectorOverride: Bool?
     @Binding var savedChatPanel: Bool?
     let isInspectorVisible: Bool
+    let isArticleWebViewActive: Bool
     let searchScopeBoard: Board?
     let boards: [Board]
     let modelContext: ModelContext
@@ -53,6 +54,7 @@ struct ContentViewEventHandlers: ViewModifier {
                 savedInspectorOverride: $savedInspectorOverride,
                 savedChatPanel: $savedChatPanel,
                 isInspectorVisible: isInspectorVisible,
+                isArticleWebViewActive: isArticleWebViewActive,
                 searchScopeBoard: searchScopeBoard,
                 boards: boards,
                 modelContext: modelContext
@@ -78,6 +80,7 @@ struct ContentViewNotificationHandlers: ViewModifier {
     @Binding var savedInspectorOverride: Bool?
     @Binding var savedChatPanel: Bool?
     let isInspectorVisible: Bool
+    let isArticleWebViewActive: Bool
     let searchScopeBoard: Board?
     let boards: [Board]
     let modelContext: ModelContext
@@ -97,9 +100,13 @@ struct ContentViewNotificationHandlers: ViewModifier {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveToggleSearch)) { _ in
-                withAnimation(.easeOut(duration: 0.2)) {
-                    if !showSearch { showCaptureOverlay = false }
-                    showSearch.toggle()
+                if isArticleWebViewActive {
+                    NotificationCenter.default.post(name: .groveFindInArticle, object: nil)
+                } else {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        if !showSearch { showCaptureOverlay = false }
+                        showSearch.toggle()
+                    }
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveToggleInspector)) { _ in

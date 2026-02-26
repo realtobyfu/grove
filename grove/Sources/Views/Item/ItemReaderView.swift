@@ -5,6 +5,7 @@ import WebKit
 
 struct ItemReaderView: View {
     @Bindable var item: Item
+    @Binding var isWebViewActive: Bool
     var onNavigateToItem: ((Item) -> Void)?
     @Environment(\.modelContext) private var modelContext
     @State private var isEditingContent = false
@@ -30,6 +31,13 @@ struct ItemReaderView: View {
     @State private var editableSummary = ""
     // Draggable split
     @State private var reflectionPanelWidth: CGFloat = 0
+    // Find-in-page state
+    @State private var showFindBar = false
+    @State private var findQuery = ""
+    @State private var findMatchCount = 0
+    @State private var findCurrentMatch = 0
+    @State private var findForwardToken = 0
+    @State private var findBackwardToken = 0
 
     private var sortedReflections: [ReflectionBlock] {
         item.reflections.sorted { $0.position < $1.position }
@@ -191,6 +199,15 @@ struct ItemReaderView: View {
             showArticleWebView = false
             isEditingSummary = false
             editableSummary = ""
+            closeFindBar()
+        }
+        .onChange(of: showArticleWebView) {
+            isWebViewActive = showArticleWebView
+            if !showArticleWebView { closeFindBar() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .groveFindInArticle)) { _ in
+            showFindBar.toggle()
+            if !showFindBar { closeFindBar() }
         }
         .sheet(isPresented: $showItemExportSheet) {
             ItemExportSheet(item: item)
@@ -267,9 +284,96 @@ struct ItemReaderView: View {
             .background(Color.bgCard)
             Divider()
 
-            ArticleWebView(url: url)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if showFindBar {
+                findBar
+            }
+
+            ArticleWebView(
+                url: url,
+                findQuery: findQuery,
+                findForwardToken: findForwardToken,
+                findBackwardToken: findBackwardToken,
+                onFindResult: { current, total in
+                    findCurrentMatch = current
+                    findMatchCount = total
+                }
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    @ViewBuilder
+    private var findBar: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 4) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.textTertiary)
+                TextField("Find in article…", text: $findQuery)
+                    .textFieldStyle(.plain)
+                    .font(.groveMeta)
+                    .onSubmit { findForwardToken += 1 }
+                    .onExitCommand { closeFindBar() }
+                if !findQuery.isEmpty {
+                    Text("\(findCurrentMatch)/\(findMatchCount)")
+                        .font(.groveMeta)
+                        .foregroundStyle(Color.textTertiary)
+                        .monospacedDigit()
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(Color.bgCard)
+            .cornerRadius(6)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.borderPrimary, lineWidth: 1)
+            )
+
+            Button {
+                findBackwardToken += 1
+            } label: {
+                Image(systemName: "chevron.up")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .help("Previous match")
+            .disabled(findQuery.isEmpty)
+
+            Button {
+                findForwardToken += 1
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .help("Next match")
+            .disabled(findQuery.isEmpty)
+
+            Button {
+                closeFindBar()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Color.textTertiary)
+            }
+            .buttonStyle(.plain)
+            .help("Close find bar (Esc)")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color.bgCard)
+
+        Divider()
+    }
+
+    private func closeFindBar() {
+        showFindBar = false
+        findQuery = ""
+        findMatchCount = 0
+        findCurrentMatch = 0
     }
 
     // MARK: - Score Breakdown

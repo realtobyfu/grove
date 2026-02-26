@@ -37,6 +37,7 @@ struct ContentView: View {
     @State private var savedChatPanel: Bool?
     @State private var chatPanelWidth: CGFloat = 380
     @State private var inspectorWidth: CGFloat = 360
+    @State private var isArticleWebViewActive = false
 
     private var isInspectorVisible: Bool {
         if let override = inspectorUserOverride {
@@ -101,6 +102,7 @@ struct ContentView: View {
             savedInspectorOverride: $savedInspectorOverride,
             savedChatPanel: $savedChatPanel,
             isInspectorVisible: isInspectorVisible,
+            isArticleWebViewActive: isArticleWebViewActive,
             searchScopeBoard: searchScopeBoard,
             boards: boards,
             modelContext: modelContext
@@ -125,16 +127,19 @@ struct ContentView: View {
                     inspectorUserOverride = false
                     showChatPanel = false
                 }
-            } else if openedItem == nil && savedColumnVisibility != nil {
-                // Restore saved panel state when leaving reader
-                withAnimation(.easeOut(duration: 0.25)) {
-                    columnVisibility = savedColumnVisibility ?? .automatic
-                    inspectorUserOverride = savedInspectorOverride
-                    showChatPanel = savedChatPanel ?? false
+            } else if openedItem == nil {
+                isArticleWebViewActive = false
+                if savedColumnVisibility != nil {
+                    // Restore saved panel state when leaving reader
+                    withAnimation(.easeOut(duration: 0.25)) {
+                        columnVisibility = savedColumnVisibility ?? .automatic
+                        inspectorUserOverride = savedInspectorOverride
+                        showChatPanel = savedChatPanel ?? false
+                    }
+                    savedColumnVisibility = nil
+                    savedInspectorOverride = nil
+                    savedChatPanel = nil
                 }
-                savedColumnVisibility = nil
-                savedInspectorOverride = nil
-                savedChatPanel = nil
             }
         }
         .onAppear {
@@ -258,7 +263,7 @@ struct ContentView: View {
                     },
                     onSelectTag: { _ in }
                 )
-                .padding(.top, 80)
+                .padding(.top, 12)
                 Spacer()
             }
             .transition(.opacity.combined(with: .move(edge: .top)))
@@ -394,7 +399,7 @@ struct ContentView: View {
     @ViewBuilder
     private var detailContent: some View {
         if let openedItemValue = openedItem {
-            ItemReaderView(item: openedItemValue, onNavigateToItem: { item in
+            ItemReaderView(item: openedItemValue, isWebViewActive: $isArticleWebViewActive, onNavigateToItem: { item in
                 selectedItem = item
                 openedItem = item
             })
