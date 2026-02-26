@@ -3,6 +3,7 @@ import AppKit
 
 protocol ImageDownloadServiceProtocol: Sendable {
     func downloadAndCompress(urlString: String) async -> Data?
+    func compressImageData(_ data: Data) -> Data?
 }
 
 /// Downloads OG images from URLs, resizes to fit 600×315 max, and compresses to JPEG.
@@ -35,6 +36,12 @@ final class ImageDownloadService: ImageDownloadServiceProtocol, Sendable {
         } catch {
             return nil
         }
+    }
+
+    /// Compress raw image data (e.g. from LPMetadataProvider) using the same resize/JPEG pipeline.
+    func compressImageData(_ data: Data) -> Data? {
+        guard let nsImage = NSImage(data: data) else { return nil }
+        return compressImage(nsImage)
     }
 
     private func compressImage(_ image: NSImage) -> Data? {

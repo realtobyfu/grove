@@ -13,14 +13,10 @@ struct ItemReaderView: View {
     @State private var videoCurrentTime: Double = 0
     @State private var videoDuration: Double = 0
     @State private var videoSeekTarget: Double? = nil
-    // Text selection for Reflect button
-    @State private var selectedHighlightText: String?
     // Drag reordering state
     @State private var draggingBlock: ReflectionBlock?
     // Web article reading mode (activated by clicking URL link)
     @State private var showArticleWebView = false
-    // Text selection from web reader
-    @State private var webViewSelectedText: String?
     // Delete confirmation
     @State private var blockToDelete: ReflectionBlock?
     @State private var showDeleteConfirmation = false
@@ -191,8 +187,6 @@ struct ItemReaderView: View {
         }
         .onChange(of: item.id) {
             isEditingContent = false
-            selectedHighlightText = nil
-            webViewSelectedText = nil
             if showReflectionEditor { closeReflectionEditor() }
             showArticleWebView = false
             isEditingSummary = false
@@ -226,7 +220,6 @@ struct ItemReaderView: View {
             // Slim navigation bar
             HStack(spacing: 10) {
                 Button {
-                    webViewSelectedText = nil
                     withAnimation(.easeOut(duration: 0.2)) { showArticleWebView = false }
                 } label: {
                     HStack(spacing: 4) {
@@ -249,28 +242,15 @@ struct ItemReaderView: View {
 
                 Spacer()
 
-                if let selectedText = webViewSelectedText, !selectedText.isEmpty {
-                    Button {
-                        openReflectionEditor(type: .keyInsight, content: "", highlight: selectedText)
-                        webViewSelectedText = nil
-                    } label: {
-                        Label("Reflect on Selection", systemImage: "text.quote")
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textPrimary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Reflect on selected text")
-                } else {
-                    Button {
-                        openReflectionEditor(type: .keyInsight, content: "", highlight: nil)
-                    } label: {
-                        Label("Reflect", systemImage: "square.and.pencil")
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textMuted)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Open reflection panel")
+                Button {
+                    openReflectionEditor(type: .keyInsight, content: "", highlight: nil)
+                } label: {
+                    Label("Reflect", systemImage: "square.and.pencil")
+                        .font(.groveMeta)
+                        .foregroundStyle(Color.textMuted)
                 }
+                .buttonStyle(.plain)
+                .help("Open reflection panel")
 
                 Button {
                     NSWorkspace.shared.open(url)
@@ -285,13 +265,9 @@ struct ItemReaderView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
             .background(Color.bgCard)
-            .animation(.easeOut(duration: 0.2), value: webViewSelectedText != nil)
-
             Divider()
 
-            ArticleWebView(url: url, onTextSelected: { text in
-                webViewSelectedText = text
-            })
+            ArticleWebView(url: url)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -645,10 +621,7 @@ struct ItemReaderView: View {
                 if let content = item.content, !content.isEmpty {
                     Divider()
                     SelectableMarkdownView(
-                        markdown: content,
-                        onSelectText: { text in
-                            selectedHighlightText = text
-                        }
+                        markdown: content
                     )
                 }
             }
@@ -678,10 +651,7 @@ struct ItemReaderView: View {
             }
 
             SelectableMarkdownView(
-                markdown: content,
-                onSelectText: { text in
-                    selectedHighlightText = text
-                }
+                markdown: content
             )
         } else {
             Text("No content available.")
@@ -690,32 +660,6 @@ struct ItemReaderView: View {
                 .italic()
         }
 
-        // Reflect from selection button
-        if let highlight = selectedHighlightText, !highlight.isEmpty {
-            HStack {
-                Spacer()
-                Button {
-                    openReflectionEditor(type: .keyInsight, content: "", highlight: highlight)
-                    selectedHighlightText = nil
-                } label: {
-                    Label("Reflect on Selection", systemImage: "text.quote")
-                        .font(.groveBodySecondary)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .tint(Color.textPrimary)
-
-                Button {
-                    selectedHighlightText = nil
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.caption2)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Color.textSecondary)
-            }
-            .padding(.top, 4)
-        }
     }
 
     /// Resolve the local video file URL for this item

@@ -1,9 +1,11 @@
 import Foundation
+import LinkPresentation
 
 struct URLMetadata: Sendable {
     var title: String?
     var description: String?
     var imageURL: String?
+    var imageData: Data?
     var bodyText: String?
 }
 
@@ -19,13 +21,37 @@ final class URLMetadataFetcher: URLMetadataFetcherProtocol, Sendable {
 
     private init() {}
 
-    /// Fetch metadata for the given URL string. Returns nil on failure.
+    /// Fetch metadata for the given URL string using both URLSession and LPMetadataProvider.
+    /// LP handles bot-protected sites (Vercel/Cloudflare JS challenges); URLSession provides
+    /// description, body text, and image URL. Results are merged for best coverage.
     func fetch(urlString: String) async -> URLMetadata? {
         guard let url = URL(string: urlString) else { return nil }
 
+        async let sessionResult = fetchViaURLSession(url: url)
+        async let lpResult = LPMetadataFetcherHelper.fetch(url: url)
+
+        let session = await sessionResult
+        let lp = await lpResult
+
+        // If both failed entirely, return nil
+        guard session != nil || lp.title != nil || lp.imageData != nil else {
+            return nil
+        }
+
+        // Merge: LP title preferred (works on protected sites), URLSession for description/body
+        var merged = URLMetadata()
+        merged.title = lp.title ?? session?.title
+        merged.description = session?.description
+        merged.imageData = lp.imageData
+        merged.imageURL = session?.imageURL
+        merged.bodyText = session?.bodyText
+        return merged
+    }
+
+    /// Original URLSession-based fetch (HTML scraping for OG tags and body text).
+    private func fetchViaURLSession(url: URL) async -> URLMetadata? {
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
-        // Some sites block non-browser user agents
         request.setValue(
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
             forHTTPHeaderField: "User-Agent"
@@ -190,6 +216,41 @@ final class URLMetadataFetcher: URLMetadataFetcherProtocol, Sendable {
             return nil
         }
         return String(html[captureRange])
+    }
+}
+
+// MARK: - LinkPresentation Helper
+
+/// Wraps LPMetadataProvider to fetch title and hero image via WebKit (handles JS challenges).
+@MainActor
+private enum LPMetadataFetcherHelper {
+    static func fetch(url: URL) async -> (title: String?, imageData: Data?) {
+        let provider = LPMetadataProvider()
+        provider.timeout = 12
+
+        do {
+            let metadata = try await provider.startFetchingMetadata(for: url)
+            let title = metadata.title
+
+            // Prefer imageProvider (hero image) over iconProvider (favicon)
+            let imageProvider = metadata.imageProvider ?? metadata.iconProvider
+            var imageData: Data?
+            if let itemProvider = imageProvider {
+                imageData = try? await withCheckedThrowingContinuation { continuation in
+                    itemProvider.loadDataRepresentation(forTypeIdentifier: "public.image") { data, error in
+                        if let data = data {
+                            continuation.resume(returning: data)
+                        } else {
+                            continuation.resume(throwing: error ?? NSError(domain: "LP", code: -1))
+                        }
+                    }
+                }
+            }
+
+            return (title, imageData)
+        } catch {
+            return (nil, nil)
+        }
     }
 }
 

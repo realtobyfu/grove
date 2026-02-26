@@ -21,8 +21,9 @@ private struct OnboardingPrimaryButtonStyle: ButtonStyle {
 
 private enum OnboardingPage: Int, CaseIterable {
     case welcome
-    case useCases
-    case featureTour
+    case capture
+    case organize
+    case goals
     case ready
 }
 
@@ -32,8 +33,11 @@ struct OnboardingFlowView: View {
     @Environment(OnboardingService.self) private var onboarding
 
     @State private var page: OnboardingPage = .welcome
-    @State private var selectedUseCases: Set<GroveUseCase> = []
+    @State private var selectedCapture: Set<CaptureType> = []
+    @State private var selectedOrganize: OrganizeStyle? = nil
+    @State private var selectedGoals: Set<OnboardingGoal> = []
     @State private var navigatingForward = true
+    @State private var iconAppeared = false
 
     var body: some View {
         ZStack {
@@ -41,7 +45,7 @@ struct OnboardingFlowView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Navigation row: back button only (no X)
+                // Navigation row
                 HStack {
                     if page != .welcome {
                         Button {
@@ -60,7 +64,7 @@ struct OnboardingFlowView: View {
                     }
                     Spacer()
                 }
-                .padding(.top, Spacing.lg)
+                .padding(.top, Spacing.md)
                 .padding(.horizontal, Spacing.lg)
 
                 // Page content
@@ -68,10 +72,12 @@ struct OnboardingFlowView: View {
                     switch page {
                     case .welcome:
                         welcomePage
-                    case .useCases:
-                        useCasesPage
-                    case .featureTour:
-                        featureTourPage
+                    case .capture:
+                        capturePage
+                    case .organize:
+                        organizePage
+                    case .goals:
+                        goalsPage
                     case .ready:
                         readyPage
                     }
@@ -83,13 +89,13 @@ struct OnboardingFlowView: View {
 
                 // Page indicator dots
                 pageIndicator
-                    .padding(.bottom, Spacing.lg)
+                    .padding(.bottom, Spacing.md)
             }
-            .frame(maxWidth: 680)
+            .frame(maxWidth: 460)
             .background(Color.bgPrimary)
-            .clipShape(.rect(cornerRadius: 14))
+            .clipShape(.rect(cornerRadius: 12))
             .overlay(
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: 12)
                     .stroke(Color.borderPrimary, lineWidth: 1)
             )
             .shadow(color: .black.opacity(0.18), radius: 18, y: 8)
@@ -126,116 +132,64 @@ struct OnboardingFlowView: View {
 
     private var welcomePage: some View {
         VStack(spacing: Spacing.lg) {
-            Spacer()
-
             // App icon
-            Image("AppIcon")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 64, height: 64)
-                .clipShape(.rect(cornerRadius: 14))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(Color.borderPrimary, lineWidth: 1)
-                )
+            Group {
+                if let nsImage = NSApplication.shared.applicationIconImage {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                } else {
+                    Image(systemName: "leaf")
+                        .font(.system(size: 24))
+                        .foregroundStyle(Color.textSecondary)
+                }
+            }
+            .frame(width: 48, height: 48)
+            .clipShape(.rect(cornerRadius: 11))
+            .overlay(
+                RoundedRectangle(cornerRadius: 11)
+                    .stroke(Color.borderPrimary, lineWidth: 1)
+            )
+                .scaleEffect(iconAppeared ? 1.0 : 0.8)
+                .opacity(iconAppeared ? 1.0 : 0.0)
+                .onAppear {
+                    withAnimation(.easeOut(duration: 0.35)) {
+                        iconAppeared = true
+                    }
+                }
 
             // Title
             Text("Grove")
-                .font(.groveTitle)
+                .font(.groveTitleLarge)
                 .foregroundStyle(Color.textPrimary)
 
             // Tagline
             Text("Capture, organize, and reflect.")
-                .font(.groveBody)
+                .font(.groveGhostText)
                 .foregroundStyle(Color.textSecondary)
 
-            // Description
-            Text("Save links and notes, organize them into boards, and use AI-powered conversations to explore your thinking.")
-                .font(.groveBodySmall)
-                .foregroundStyle(Color.textSecondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 420)
+            Divider()
+                .padding(.horizontal, Spacing.lg)
 
-            Spacer()
+            // How it works section
+            VStack(alignment: .leading, spacing: Spacing.md) {
+                Text("HOW IT WORKS")
+                    .sectionHeaderStyle()
 
-            continueButton {
-                navigatingForward = true
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    goForward()
-                }
-            }
-            .padding(.bottom, Spacing.md)
-        }
-        .padding(.horizontal, Spacing.xxl)
-        .padding(.top, Spacing.xxl)
-        .frame(minHeight: 420)
-    }
-
-    // MARK: - Page 2: Use Cases
-
-    private var useCasesPage: some View {
-        VStack(spacing: Spacing.lg) {
-            Spacer()
-
-            // Header
-            Text("What brings you to Grove?")
-                .font(.groveBodyMedium)
-                .foregroundStyle(Color.textPrimary)
-
-            // Subtitle
-            Text("Pick as many as you'd like.")
-                .font(.groveBodySmall)
-                .foregroundStyle(Color.textSecondary)
-
-            // Chip grid
-            chipGrid
-                .padding(.vertical, Spacing.sm)
-
-            Spacer()
-
-            continueButton {
-                navigatingForward = true
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    goForward()
-                }
-            }
-            .padding(.bottom, Spacing.md)
-        }
-        .padding(.horizontal, Spacing.xxl)
-        .padding(.top, Spacing.xxl)
-        .frame(minHeight: 420)
-    }
-
-    // MARK: - Page 3: Feature Tour
-
-    private var featureTourPage: some View {
-        VStack(spacing: Spacing.lg) {
-            Spacer()
-
-            Text("Here's how Grove works")
-                .font(.groveBodyMedium)
-                .foregroundStyle(Color.textPrimary)
-
-            VStack(spacing: Spacing.lg) {
                 featureRow(
                     icon: "link",
-                    title: "Capture",
-                    description: "Save links, notes, and ideas from anywhere."
+                    description: "Save links, notes, and ideas from anywhere"
                 )
                 featureRow(
                     icon: "square.grid.2x2",
-                    title: "Organize",
-                    description: "Group items into boards by topic or project."
+                    description: "Group items into boards by topic or project"
                 )
                 featureRow(
                     icon: "bubble.left.and.bubble.right",
-                    title: "Reflect",
-                    description: "Chat with Grove to explore your thinking."
+                    description: "Chat with Grove to explore your thinking"
                 )
             }
-            .padding(.horizontal, Spacing.xl)
-
-            Spacer()
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             continueButton {
                 navigatingForward = true
@@ -245,56 +199,144 @@ struct OnboardingFlowView: View {
             }
             .padding(.bottom, Spacing.md)
         }
-        .padding(.horizontal, Spacing.xxl)
-        .padding(.top, Spacing.xxl)
-        .frame(minHeight: 420)
+        .padding(.horizontal, Spacing.xl)
+        .padding(.top, Spacing.xl)
     }
 
-    private func featureRow(icon: String, title: String, description: String) -> some View {
-        HStack(alignment: .top, spacing: Spacing.md) {
-            Image(systemName: icon)
-                .font(.system(size: 20))
+    // MARK: - Page 2: Capture
+
+    private var capturePage: some View {
+        VStack(spacing: Spacing.lg) {
+            Text("What do you capture?")
+                .font(.groveTitleLarge)
+                .foregroundStyle(Color.textPrimary)
+
+            Text("Pick any that apply.")
+                .font(.groveBodySmall)
                 .foregroundStyle(Color.textSecondary)
-                .frame(width: 28, alignment: .center)
 
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                Text(title)
-                    .font(.groveBodyMedium)
-                    .foregroundStyle(Color.textPrimary)
-                Text(description)
-                    .font(.groveBodySmall)
-                    .foregroundStyle(Color.textSecondary)
+            FlowLayout(spacing: Spacing.sm) {
+                ForEach(CaptureType.allCases) { item in
+                    chipButton(item, selected: selectedCapture.contains(item)) {
+                        if selectedCapture.contains(item) {
+                            selectedCapture.remove(item)
+                        } else {
+                            selectedCapture.insert(item)
+                        }
+                    }
+                }
             }
+            .padding(.vertical, Spacing.sm)
 
-            Spacer()
+            continueButton {
+                navigatingForward = true
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    goForward()
+                }
+            }
+            .padding(.bottom, Spacing.md)
         }
+        .padding(.horizontal, Spacing.xl)
+        .padding(.top, Spacing.xl)
     }
 
-    // MARK: - Page 4: Ready
+    // MARK: - Page 3: Organize
+
+    private var organizePage: some View {
+        VStack(spacing: Spacing.lg) {
+            Text("How do you organize?")
+                .font(.groveTitleLarge)
+                .foregroundStyle(Color.textPrimary)
+
+            Text("Pick one.")
+                .font(.groveBodySmall)
+                .foregroundStyle(Color.textSecondary)
+
+            FlowLayout(spacing: Spacing.sm) {
+                ForEach(OrganizeStyle.allCases) { item in
+                    chipButton(item, selected: selectedOrganize == item) {
+                        selectedOrganize = item
+                    }
+                }
+            }
+            .padding(.vertical, Spacing.sm)
+
+            continueButton {
+                navigatingForward = true
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    goForward()
+                }
+            }
+            .padding(.bottom, Spacing.md)
+        }
+        .padding(.horizontal, Spacing.xl)
+        .padding(.top, Spacing.xl)
+    }
+
+    // MARK: - Page 4: Goals
+
+    private var goalsPage: some View {
+        VStack(spacing: Spacing.lg) {
+            Text("What are you here to do?")
+                .font(.groveTitleLarge)
+                .foregroundStyle(Color.textPrimary)
+
+            Text("Pick any that apply.")
+                .font(.groveBodySmall)
+                .foregroundStyle(Color.textSecondary)
+
+            FlowLayout(spacing: Spacing.sm) {
+                ForEach(OnboardingGoal.allCases) { item in
+                    chipButton(item, selected: selectedGoals.contains(item)) {
+                        if selectedGoals.contains(item) {
+                            selectedGoals.remove(item)
+                        } else {
+                            selectedGoals.insert(item)
+                        }
+                    }
+                }
+            }
+            .padding(.vertical, Spacing.sm)
+
+            continueButton {
+                navigatingForward = true
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    goForward()
+                }
+            }
+            .padding(.bottom, Spacing.md)
+        }
+        .padding(.horizontal, Spacing.xl)
+        .padding(.top, Spacing.xl)
+    }
+
+    // MARK: - Page 5: Ready
 
     private var readyPage: some View {
         VStack(spacing: Spacing.lg) {
-            Spacer()
-
             Image(systemName: "checkmark.circle")
-                .font(.system(size: 36))
+                .font(.system(size: 28))
                 .foregroundStyle(Color.textSecondary)
 
             Text("You're all set")
-                .font(.groveBodyMedium)
+                .font(.groveTitleLarge)
                 .foregroundStyle(Color.textPrimary)
 
-            // Show selected use cases as readonly chips
-            if !selectedUseCases.isEmpty {
-                FlowLayout(spacing: Spacing.sm) {
-                    ForEach(Array(selectedUseCases).sorted(by: { $0.rawValue < $1.rawValue })) { useCase in
-                        Text(useCase.label)
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                            .padding(.horizontal, Spacing.md)
-                            .padding(.vertical, Spacing.xs)
-                            .background(Color.bgCard)
-                            .clipShape(.rect(cornerRadius: 6))
+            // Summary of selections
+            if !selectedCapture.isEmpty || selectedOrganize != nil || !selectedGoals.isEmpty {
+                VStack(alignment: .leading, spacing: Spacing.md) {
+                    if !selectedCapture.isEmpty {
+                        readonlyChipGroup(
+                            items: selectedCapture.sorted(by: { $0.rawValue < $1.rawValue }).map(\.label)
+                        )
+                    }
+                    if let style = selectedOrganize {
+                        readonlyChipGroup(items: [style.label])
+                    }
+                    if !selectedGoals.isEmpty {
+                        readonlyChipGroup(
+                            items: selectedGoals.sorted(by: { $0.rawValue < $1.rawValue }).map(\.label)
+                        )
                     }
                 }
             }
@@ -303,10 +345,11 @@ struct OnboardingFlowView: View {
                 .font(.groveBodySmall)
                 .foregroundStyle(Color.textTertiary)
 
-            Spacer()
-
             Button("Get Started") {
-                OnboardingPreferences.selectedUseCases = selectedUseCases
+                OnboardingPreferences.captureTypes = selectedCapture
+                OnboardingPreferences.organizeStyle = selectedOrganize
+                OnboardingPreferences.goals = selectedGoals
+                OnboardingPreferences.selectedUseCases = derivedUseCases()
                 onboarding.complete()
                 CoachMarkService.shared.startGuide()
             }
@@ -314,12 +357,11 @@ struct OnboardingFlowView: View {
             .keyboardShortcut(.return, modifiers: [])
             .padding(.bottom, Spacing.md)
         }
-        .padding(.horizontal, Spacing.xxl)
-        .padding(.top, Spacing.xxl)
-        .frame(minHeight: 420)
+        .padding(.horizontal, Spacing.xl)
+        .padding(.top, Spacing.xl)
     }
 
-    // MARK: - Shared Continue Button
+    // MARK: - Shared Components
 
     private func continueButton(action: @escaping () -> Void) -> some View {
         Button("Continue", action: action)
@@ -327,38 +369,69 @@ struct OnboardingFlowView: View {
             .keyboardShortcut(.return, modifiers: [])
     }
 
-    // MARK: - Chip Grid
+    private func featureRow(icon: String, description: String) -> some View {
+        HStack(spacing: Spacing.md) {
+            Image(systemName: icon)
+                .font(.system(size: 16))
+                .foregroundStyle(Color.textSecondary)
+                .frame(width: 24, alignment: .center)
 
-    private var chipGrid: some View {
+            Text(description)
+                .font(.groveBodySmall)
+                .foregroundStyle(Color.textTertiary)
+
+            Spacer()
+        }
+    }
+
+    private func chipButton<T: RawRepresentable & Identifiable>(_ item: T, selected: Bool, action: @escaping () -> Void) -> some View where T: Hashable {
+        let label: String = {
+            if let c = item as? CaptureType { return c.label }
+            if let o = item as? OrganizeStyle { return o.label }
+            if let g = item as? OnboardingGoal { return g.label }
+            return ""
+        }()
+        return Button(action: action) {
+            Text(label)
+                .font(.groveBodySmall)
+                .foregroundStyle(selected ? Color.textInverse : Color.textSecondary)
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.sm)
+                .background(selected ? Color.textPrimary : Color.bgCard)
+                .clipShape(.rect(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(selected ? Color.clear : Color.borderPrimary, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .animation(.easeInOut(duration: 0.15), value: selected)
+    }
+
+    private func readonlyChipGroup(items: [String]) -> some View {
         FlowLayout(spacing: Spacing.sm) {
-            ForEach(GroveUseCase.allCases) { useCase in
-                useCaseChip(useCase)
+            ForEach(items, id: \.self) { label in
+                Text(label)
+                    .font(.groveMeta)
+                    .foregroundStyle(Color.textTertiary)
+                    .padding(.horizontal, Spacing.md)
+                    .padding(.vertical, Spacing.xs)
+                    .background(Color.bgCard)
+                    .clipShape(.rect(cornerRadius: 6))
             }
         }
     }
 
-    private func useCaseChip(_ useCase: GroveUseCase) -> some View {
-        let isSelected = selectedUseCases.contains(useCase)
-        return Button {
-            if isSelected {
-                selectedUseCases.remove(useCase)
-            } else {
-                selectedUseCases.insert(useCase)
-            }
-        } label: {
-            Text(useCase.label)
-                .font(.groveBodySmall)
-                .foregroundStyle(isSelected ? Color.textInverse : Color.textSecondary)
-                .padding(.horizontal, Spacing.md)
-                .padding(.vertical, Spacing.sm)
-                .background(isSelected ? Color.textPrimary : Color.bgCard)
-                .clipShape(.rect(cornerRadius: 8))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(isSelected ? Color.clear : Color.borderPrimary, lineWidth: 1)
-                )
-        }
-        .buttonStyle(.plain)
-        .animation(.easeInOut(duration: 0.15), value: isSelected)
+    // MARK: - Legacy Use Case Mapping
+
+    private func derivedUseCases() -> Set<GroveUseCase> {
+        var result = Set<GroveUseCase>()
+        if selectedCapture.contains(.links) { result.insert(.reading) }
+        if selectedCapture.contains(.notes) { result.insert(.notes) }
+        if selectedCapture.contains(.courses) { result.insert(.learning) }
+        if selectedGoals.contains(.research) { result.insert(.reading) }
+        if selectedGoals.contains(.journaling) { result.insert(.journaling) }
+        if selectedOrganize == .byProject { result.insert(.projects) }
+        return result
     }
 }

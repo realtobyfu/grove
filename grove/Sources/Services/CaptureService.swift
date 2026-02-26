@@ -76,9 +76,12 @@ final class CaptureService: CaptureServiceProtocol {
                 if let description = metadata.description {
                     fetchedItem.content = description
                 }
-                if let imageURLString = metadata.imageURL {
+                // Prefer LP image data (works on bot-protected sites), fall back to URL download
+                if let rawImageData = metadata.imageData,
+                   let compressed = self.imageDownloader.compressImageData(rawImageData) {
+                    fetchedItem.thumbnail = compressed
+                } else if let imageURLString = metadata.imageURL {
                     fetchedItem.metadata["thumbnailURL"] = imageURLString
-                    // Download and store cover image
                     if let imageData = await self.imageDownloader.downloadAndCompress(urlString: imageURLString) {
                         fetchedItem.thumbnail = imageData
                     }

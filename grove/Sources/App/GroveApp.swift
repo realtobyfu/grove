@@ -130,6 +130,10 @@ struct GroveApp: App {
                     .tabItem {
                         Label("Shortcuts", systemImage: "keyboard")
                     }
+                FeedbackSettingsView()
+                    .tabItem {
+                        Label("Feedback", systemImage: "envelope")
+                    }
             }
             .frame(width: 500, height: 500)
             .environment(entitlementService)
