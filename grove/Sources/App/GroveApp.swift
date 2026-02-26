@@ -61,6 +61,7 @@ struct GroveApp: App {
     }
 
     var body: some Scene {
+        #if os(macOS)
         WindowGroup {
             ContentView(syncService: syncService)
                 .task {
@@ -147,11 +148,28 @@ struct GroveApp: App {
             .environment(paywallCoordinator)
             .environment(storeKitService)
         }
+        #else
+        // iOS: MobileRootView will replace this Text in P1.5
+        WindowGroup {
+            Text("Grove")
+                .task {
+                    let context = modelContainer.mainContext
+                    AnnotationMigrationService.migrateIfNeeded(context: context)
+                    storeKitService.start()
+                }
+                .environment(entitlementService)
+                .environment(onboardingService)
+                .environment(paywallCoordinator)
+                .environment(storeKitService)
+        }
+        .modelContainer(modelContainer)
+        #endif
     }
 }
 
 // MARK: - Menu Bar Commands
 
+#if os(macOS)
 struct GroveMenuCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
@@ -344,3 +362,4 @@ struct MenuBarView: View {
         return url
     }
 }
+#endif
