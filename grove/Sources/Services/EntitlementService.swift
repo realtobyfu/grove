@@ -104,12 +104,19 @@ enum ProFeature: String, CaseIterable, Sendable, Identifiable {
     }
 }
 
+enum SubscriptionSource: String, Codable, Sendable {
+    case local
+    case trial
+    case storeKit
+}
+
 struct EntitlementState: Codable, Sendable {
     var tier: SubscriptionTier
     var isTrialActive: Bool
     var trialStartedAt: Date?
     var trialEndsAt: Date?
     var renewalDate: Date?
+    var source: SubscriptionSource
     var updatedAt: Date
 
     init(
@@ -118,6 +125,7 @@ struct EntitlementState: Codable, Sendable {
         trialStartedAt: Date? = nil,
         trialEndsAt: Date? = nil,
         renewalDate: Date? = nil,
+        source: SubscriptionSource = .local,
         updatedAt: Date = .now
     ) {
         self.tier = tier
@@ -125,7 +133,20 @@ struct EntitlementState: Codable, Sendable {
         self.trialStartedAt = trialStartedAt
         self.trialEndsAt = trialEndsAt
         self.renewalDate = renewalDate
+        self.source = source
         self.updatedAt = updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        tier = try container.decode(SubscriptionTier.self, forKey: .tier)
+        isTrialActive = try container.decode(Bool.self, forKey: .isTrialActive)
+        trialStartedAt = try container.decodeIfPresent(Date.self, forKey: .trialStartedAt)
+        trialEndsAt = try container.decodeIfPresent(Date.self, forKey: .trialEndsAt)
+        renewalDate = try container.decodeIfPresent(Date.self, forKey: .renewalDate)
+        // Backward compatibility: default to .local if source key is missing
+        source = (try? container.decode(SubscriptionSource.self, forKey: .source)) ?? .local
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
     }
 }
 
@@ -236,12 +257,13 @@ final class EntitlementService {
                 trialStartedAt: start,
                 trialEndsAt: end,
                 renewalDate: end,
+                source: .trial,
                 updatedAt: .now
             )
         )
     }
 
-    func activatePro(renewalDate: Date? = nil) {
+    func activatePro(renewalDate: Date? = nil, source: SubscriptionSource = .local) {
         updateState(
             EntitlementState(
                 tier: .pro,
@@ -249,6 +271,7 @@ final class EntitlementService {
                 trialStartedAt: state.trialStartedAt,
                 trialEndsAt: state.trialEndsAt,
                 renewalDate: renewalDate,
+                source: source,
                 updatedAt: .now
             )
         )

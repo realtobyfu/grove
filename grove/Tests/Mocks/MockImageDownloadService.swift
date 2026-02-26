@@ -10,4 +10,8 @@ final class MockImageDownloadService: ImageDownloadServiceProtocol, @unchecked S
         downloadedURLs.append(urlString)
         return result
     }
+
+    func compressImageData(_ data: Data) -> Data? {
+        return data
+    }
 }

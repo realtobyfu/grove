@@ -3,6 +3,7 @@ import SwiftUI
 struct ProSettingsView: View {
     @Environment(EntitlementService.self) private var entitlement
     @Environment(PaywallCoordinator.self) private var paywallCoordinator
+    @Environment(StoreKitService.self) private var storeKit
     @State private var paywallPresentation: PaywallPresentation?
 
     var body: some View {
@@ -34,6 +35,21 @@ struct ProSettingsView: View {
                     Text("Pro is active.")
                         .font(.groveBodySmall)
                         .foregroundStyle(Color.textSecondary)
+
+                    if let renewal = entitlement.state.renewalDate {
+                        Text("Renews \(renewal.formatted(date: .abbreviated, time: .omitted)).")
+                            .font(.groveBodySmall)
+                            .foregroundStyle(Color.textSecondary)
+                    }
+
+                    if entitlement.state.source == .storeKit {
+                        Button("Manage Subscription") {
+                            if let url = URL(string: "https://apps.apple.com/account/subscriptions") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                    }
                 } else {
                     Button("View Pro Plan") {
                         paywallPresentation = paywallCoordinator.present(
@@ -44,6 +60,13 @@ struct ProSettingsView: View {
                     }
                     .buttonStyle(.borderedProminent)
                 }
+            }
+
+            Section("Restore") {
+                Button("Restore Purchases") {
+                    Task { await storeKit.restore() }
+                }
+                .buttonStyle(.bordered)
             }
 
             Section("Included in Pro") {
@@ -69,6 +92,11 @@ struct ProSettingsView: View {
 
                 Button("Force Pro Tier") {
                     entitlement.activatePro()
+                }
+                .buttonStyle(.bordered)
+
+                Button("Start Local Trial (14 days)") {
+                    entitlement.startTrial(days: 14)
                 }
                 .buttonStyle(.bordered)
             }

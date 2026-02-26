@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import StoreKit
 
 @main
 struct GroveApp: App {
@@ -8,6 +9,7 @@ struct GroveApp: App {
     @State private var entitlementService = EntitlementService.shared
     @State private var onboardingService = OnboardingService.shared
     @State private var paywallCoordinator = PaywallCoordinator.shared
+    @State private var storeKitService = StoreKitService.shared
 
     init() {
         let schema = Schema([
@@ -65,10 +67,12 @@ struct GroveApp: App {
                     NudgeNotificationService.shared.configure()
                     let context = modelContainer.mainContext
                     AnnotationMigrationService.migrateIfNeeded(context: context)
+                    storeKitService.start()
                 }
                 .environment(entitlementService)
                 .environment(onboardingService)
                 .environment(paywallCoordinator)
+                .environment(storeKitService)
         }
         .modelContainer(modelContainer)
         .defaultSize(width: 1200, height: 800)
@@ -81,6 +85,7 @@ struct GroveApp: App {
                 .environment(entitlementService)
                 .environment(onboardingService)
                 .environment(paywallCoordinator)
+                .environment(storeKitService)
         } label: {
             Label("Grove", systemImage: "leaf")
                 .labelStyle(.iconOnly)
@@ -94,6 +99,7 @@ struct GroveApp: App {
                 .environment(entitlementService)
                 .environment(onboardingService)
                 .environment(paywallCoordinator)
+                .environment(storeKitService)
         }
         .modelContainer(modelContainer)
         .windowStyle(.hiddenTitleBar)
@@ -139,6 +145,7 @@ struct GroveApp: App {
             .environment(entitlementService)
             .environment(onboardingService)
             .environment(paywallCoordinator)
+            .environment(storeKitService)
         }
     }
 }
