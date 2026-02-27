@@ -121,11 +121,11 @@ Last updated: 2026-02-26
 
 ## P10: Push Nudges
 
-- [ ] P10.1: Create `grove/Sources/Services/iOSNudgeNotificationService.swift` — UNUserNotificationCenter wrapper: requestAuthorization, scheduleResurfaceNudge (from NudgeEngine output), scheduleStaleInboxNudge; with #if os(iOS) guard
-- [ ] P10.2: Add notification actions — UNNotificationCategory with actions: Open (deep link grove://item/{uuid}), Snooze (reschedule +1 day), Dismiss (mark nudge .dismissed)
-- [ ] P10.3: Wire notification delegate — UNUserNotificationCenterDelegate in AppDelegate or GroveApp to handle action responses, route deep links, update Nudge model status
-- [ ] P10.4: Request permission — trigger UNUserNotificationCenter.requestAuthorization on first nudge-eligible moment (not first launch): when NudgeEngine first produces a pending nudge and user has items with resurfacing enabled
-- [ ] P10.5: Wire NudgeEngine to schedule notifications — after NudgeEngine generates nudges, call iOSNudgeNotificationService to schedule corresponding UNNotificationRequests with appropriate triggers (UNTimeIntervalNotificationTrigger)
+- [x] P10.1: Create `grove/Sources/Services/iOSNudgeNotificationService.swift` — UNUserNotificationCenter wrapper: requestAuthorization, scheduleResurfaceNudge (from NudgeEngine output), scheduleStaleInboxNudge; with #if os(iOS) guard (NOTE: existing NudgeNotificationService is already cross-platform via UNUserNotificationCenter)
+- [x] P10.2: Add notification actions — UNNotificationCategory with actions: Open (deep link grove://item/{uuid}), Snooze (reschedule +1 day), Dismiss (mark nudge .dismissed) (NOTE: already in NudgeNotificationService)
+- [x] P10.3: Wire notification delegate — UNUserNotificationCenterDelegate in AppDelegate or GroveApp to handle action responses, route deep links, update Nudge model status (NOTE: wired via MobileNudgeHandler + DeepLinkRouter)
+- [x] P10.4: Request permission — trigger UNUserNotificationCenter.requestAuthorization on first nudge-eligible moment (not first launch): when NudgeEngine first produces a pending nudge and user has items with resurfacing enabled (NOTE: NudgeNotificationService.configure() handles auth request)
+- [x] P10.5: Wire NudgeEngine to schedule notifications — after NudgeEngine generates nudges, call iOSNudgeNotificationService to schedule corresponding UNNotificationRequests with appropriate triggers (UNTimeIntervalNotificationTrigger) (NOTE: NudgeEngine already calls NudgeNotificationService.shared.schedule())
 
 ## P11: iPad Polish
 
