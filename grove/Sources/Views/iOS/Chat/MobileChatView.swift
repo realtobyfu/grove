@@ -7,9 +7,14 @@ struct MobileChatView: View {
     @Bindable var conversation: Conversation
     @Environment(\.modelContext) private var modelContext
 
+    @Query private var allItemsForContext: [Item]
     @State private var dialecticsService = DialecticsService()
     @State private var inputText = ""
     @State private var scrollProxy: ScrollViewProxy?
+
+    private var seedItems: [Item] {
+        allItemsForContext.filter { conversation.seedItemIDs.contains($0.id) }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -45,6 +50,10 @@ struct MobileChatView: View {
                 .onChange(of: conversation.messages.count) { _, _ in
                     scrollToBottom(proxy: proxy)
                 }
+            }
+
+            if !seedItems.isEmpty {
+                contextBanner
             }
 
             Divider()
@@ -88,6 +97,39 @@ struct MobileChatView: View {
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
+    }
+
+    // MARK: - Context banner
+
+    private var contextBanner: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Spacing.sm) {
+                Text("Context:")
+                    .font(.groveMeta)
+                    .foregroundStyle(Color.textMuted)
+
+                ForEach(seedItems) { item in
+                    HStack(spacing: Spacing.xs) {
+                        Image(systemName: "doc.text")
+                            .font(.system(size: 10))
+                        Text(item.title)
+                            .lineLimit(1)
+                    }
+                    .font(.groveMeta)
+                    .foregroundStyle(Color.textSecondary)
+                    .padding(.horizontal, Spacing.sm)
+                    .padding(.vertical, Spacing.xs)
+                    .background(Color.bgCard)
+                    .clipShape(Capsule())
+                    .overlay {
+                        Capsule()
+                            .stroke(Color.borderPrimary, lineWidth: 1)
+                    }
+                }
+            }
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.xs)
+        }
     }
 
     // MARK: - Streaming indicator

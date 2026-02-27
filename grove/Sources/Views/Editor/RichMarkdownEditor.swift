@@ -1285,18 +1285,147 @@ class HighlightingTextView: NSTextView {
 import SwiftUI
 import SwiftData
 
-/// iOS fallback: plain TextEditor wrapping the same markdown binding.
-/// The macOS version uses NSTextView for rich rendering; iOS uses basic TextEditor.
+/// iOS rich markdown editor using UITextView for live syntax highlighting,
+/// formatting toolbar, keyboard shortcuts, wiki-link autocomplete, and
+/// smart list/quote continuation. Mirrors the macOS NSTextView implementation.
 struct RichMarkdownEditor: View {
     @Binding var text: String
     var sourceItem: Item?
     var minHeight: CGFloat = 80
     var proseMode: Bool = false
 
+    @Environment(\.modelContext) private var modelContext
+    @Query private var allItems: [Item]
+
+    @State private var showWikiPopover = false
+    @State private var wikiSearchText = ""
+
+    private var wikiSearchResults: [Item] {
+        allItems.filter { candidate in
+            if let sourceItem, candidate.id == sourceItem.id { return false }
+            if wikiSearchText.isEmpty { return true }
+            return candidate.title.localizedStandardContains(wikiSearchText)
+        }.prefix(10).map { $0 }
+    }
+
     var body: some View {
-        TextEditor(text: $text)
-            .font(.body)
+        VStack(alignment: .leading, spacing: 0) {
+            MarkdownUITextView(
+                text: $text,
+                minHeight: minHeight,
+                fontSize: proseMode ? 18 : 16,
+                textInset: proseMode
+                    ? UIEdgeInsets(top: 24, left: 20, bottom: 24, right: 20)
+                    : UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8),
+                onWikiTrigger: { searchText in
+                    if let searchText {
+                        wikiSearchText = searchText
+                        showWikiPopover = true
+                    } else {
+                        showWikiPopover = false
+                        wikiSearchText = ""
+                    }
+                }
+            )
             .frame(minHeight: minHeight)
+
+            if showWikiPopover {
+                wikiLinkDropdown
+                    .padding(.horizontal, proseMode ? 20 : 8)
+            }
+        }
+    }
+
+    // MARK: - Wiki Link Dropdown
+
+    private var wikiLinkDropdown: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Image(systemName: "link")
+                    .font(.groveBadge)
+                    .foregroundStyle(Color.textSecondary)
+                Text("Link to item")
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textSecondary)
+                Spacer()
+                Button {
+                    showWikiPopover = false
+                    wikiSearchText = ""
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.groveBadge)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.textTertiary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 6)
+            .padding(.bottom, 4)
+
+            Divider()
+
+            if wikiSearchResults.isEmpty {
+                Text("No matching items")
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textTertiary)
+                    .padding(8)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(wikiSearchResults) { candidate in
+                            Button {
+                                insertWikiLink(for: candidate)
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: candidate.type.iconName)
+                                        .font(.groveBadge)
+                                        .foregroundStyle(Color.textSecondary)
+                                        .frame(width: 14)
+                                    Text(candidate.title)
+                                        .font(.groveBodySmall)
+                                        .lineLimit(1)
+                                    Spacer()
+                                }
+                                .padding(.vertical, 4)
+                                .padding(.horizontal, 8)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .frame(maxHeight: 150)
+            }
+        }
+        .background(.background)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Color.borderPrimary, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
+    }
+
+    private func insertWikiLink(for target: Item) {
+        if let focusedEditor = HighlightingUITextView.focusedEditor {
+            focusedEditor.replaceActiveWikiQuery(with: target.title)
+        } else if let range = text.range(of: "[[", options: .backwards) {
+            let before = text[text.startIndex..<range.lowerBound]
+            text = before + "[[" + target.title + "]]"
+        }
+
+        // Auto-create connection
+        if let sourceItem {
+            let viewModel = ItemViewModel(modelContext: modelContext)
+            let alreadyConnected = sourceItem.outgoingConnections.contains { $0.targetItem?.id == target.id }
+                || sourceItem.incomingConnections.contains { $0.sourceItem?.id == target.id }
+            if !alreadyConnected {
+                _ = viewModel.createConnection(source: sourceItem, target: target, type: .related)
+            }
+        }
+
+        showWikiPopover = false
+        wikiSearchText = ""
     }
 }
 #endif

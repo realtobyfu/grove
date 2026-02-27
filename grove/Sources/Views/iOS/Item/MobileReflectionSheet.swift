@@ -44,9 +44,15 @@ struct MobileReflectionSheet: View {
                     .accessibilityLabel("Add reflection")
                 }
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") {
+                    Button {
+                        commitPendingEdits()
                         if let onDismiss { onDismiss() } else { dismiss() }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(Color.textSecondary)
                     }
+                    .accessibilityLabel("Close")
                 }
             }
         }
@@ -134,31 +140,34 @@ struct MobileReflectionSheet: View {
 
     private var newReflectionEditor: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
-            Picker("Type", selection: $newBlockType) {
-                ForEach(ReflectionBlockType.allCases, id: \.self) { type in
-                    Label(type.displayName, systemImage: type.systemImage)
-                        .tag(type)
+            HStack {
+                Picker("Type", selection: $newBlockType) {
+                    ForEach(ReflectionBlockType.allCases, id: \.self) { type in
+                        Label(type.displayName, systemImage: type.systemImage)
+                            .tag(type)
+                    }
                 }
+                .pickerStyle(.segmented)
+
+                Button {
+                    discardNewReflection()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundStyle(Color.textMuted)
+                }
+                .frame(minWidth: LayoutDimensions.minTouchTarget,
+                       minHeight: LayoutDimensions.minTouchTarget)
+                .accessibilityLabel("Discard")
             }
-            .pickerStyle(.segmented)
 
             TextEditor(text: $newBlockContent)
                 .font(.groveBody)
                 .frame(minHeight: 80)
                 .focused($isEditorFocused)
-
-            HStack {
-                Button("Cancel") {
-                    isAddingNew = false
-                    newBlockContent = ""
-                    isEditorFocused = false
+                .onChange(of: isEditorFocused) { _, focused in
+                    if !focused { autoSaveNewReflection() }
                 }
-                Spacer()
-                Button("Save") {
-                    saveNewReflection()
-                }
-                .disabled(newBlockContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
         }
         .padding(.vertical, Spacing.xs)
     }
@@ -167,41 +176,51 @@ struct MobileReflectionSheet: View {
 
     private func editBlockView(_ block: ReflectionBlock) -> some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
-            Picker("Type", selection: Binding(
-                get: { block.blockType },
-                set: { block.blockType = $0 }
-            )) {
-                ForEach(ReflectionBlockType.allCases, id: \.self) { type in
-                    Label(type.displayName, systemImage: type.systemImage)
-                        .tag(type)
+            HStack {
+                Picker("Type", selection: Binding(
+                    get: { block.blockType },
+                    set: { newType in
+                        block.blockType = newType
+                        try? modelContext.save()
+                    }
+                )) {
+                    ForEach(ReflectionBlockType.allCases, id: \.self) { type in
+                        Label(type.displayName, systemImage: type.systemImage)
+                            .tag(type)
+                    }
                 }
+                .pickerStyle(.segmented)
+
+                Button {
+                    try? modelContext.save()
+                    editingBlock = nil
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundStyle(Color.textMuted)
+                }
+                .frame(minWidth: LayoutDimensions.minTouchTarget,
+                       minHeight: LayoutDimensions.minTouchTarget)
+                .accessibilityLabel("Done editing")
             }
-            .pickerStyle(.segmented)
 
             TextEditor(text: Binding(
                 get: { block.content },
-                set: { block.content = $0 }
+                set: { newValue in
+                    block.content = newValue
+                    try? modelContext.save()
+                }
             ))
             .font(.groveBody)
             .frame(minHeight: 80)
-
-            HStack {
-                Button("Cancel") {
-                    editingBlock = nil
-                }
-                Spacer()
-                Button("Done") {
-                    try? modelContext.save()
-                    editingBlock = nil
-                }
-            }
         }
         .padding(.vertical, Spacing.xs)
     }
 
     // MARK: - Actions
 
-    private func saveNewReflection() {
+    /// Autosave: creates the reflection when the editor loses focus (if non-empty).
+    private func autoSaveNewReflection() {
         let trimmed = newBlockContent.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
@@ -216,7 +235,24 @@ struct MobileReflectionSheet: View {
 
         newBlockContent = ""
         isAddingNew = false
+    }
+
+    /// Discard the in-progress new reflection without saving.
+    private func discardNewReflection() {
+        newBlockContent = ""
+        isAddingNew = false
         isEditorFocused = false
+    }
+
+    /// Save any pending edits before dismissing.
+    private func commitPendingEdits() {
+        // Save in-progress new reflection
+        autoSaveNewReflection()
+        // Save any in-progress block edit
+        if editingBlock != nil {
+            try? modelContext.save()
+            editingBlock = nil
+        }
     }
 
     private func deleteBlocks(at offsets: IndexSet) {

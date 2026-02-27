@@ -55,11 +55,7 @@ struct MobileNoteEditorView: View {
             Divider()
 
             // Content editor
-            TextEditor(text: $content)
-                .font(.groveBody)
-                .foregroundStyle(Color.textPrimary)
-                .scrollContentBackground(.hidden)
-                .padding(.horizontal, LayoutDimensions.contentPaddingH - 5) // TextEditor has inset
+            RichMarkdownEditor(text: $content, sourceItem: item, minHeight: 200)
                 .padding(.top, Spacing.sm)
         }
         .navigationTitle("Note")

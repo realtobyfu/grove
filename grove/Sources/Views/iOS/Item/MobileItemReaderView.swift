@@ -39,6 +39,7 @@ struct MobileItemReaderView: View {
     @State private var findTotalMatches = 0
     @State private var selectedText: String?
     @State private var navigateToChat: Conversation?
+    @State private var reflectionDetent: PresentationDetent = .medium
     @FocusState private var findBarFocused: Bool
 
     private var isReflectionsPanelOpen: Bool { rightPanel == .reflections }
@@ -49,6 +50,12 @@ struct MobileItemReaderView: View {
 
     var body: some View {
         mainLayout
+            .onAppear {
+                // iPad: auto-open reflections panel for article+notes reading experience
+                if horizontalSizeClass == .regular && rightPanel == .none {
+                    rightPanel = .reflections
+                }
+            }
             .navigationTitle(item.title)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -290,7 +297,7 @@ struct MobileItemReaderView: View {
         } else {
             MobileReflectionSheet(item: item)
                 #if os(iOS)
-                .presentationDetents([.medium, .large])
+                .presentationDetents([.medium, .large], selection: $reflectionDetent)
                 .presentationDragIndicator(.visible)
                 #endif
         }

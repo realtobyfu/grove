@@ -6,6 +6,7 @@ import SwiftData
 struct MobileBoardDetailView: View {
     let board: Board
     @Environment(\.modelContext) private var modelContext
+    @Environment(iPadReaderCoordinator.self) private var readerCoordinator: iPadReaderCoordinator?
     @Query(sort: \Item.createdAt, order: .reverse) private var allItems: [Item]
 
     @State private var sortOption: BoardSortOption = .dateAdded
@@ -33,10 +34,22 @@ struct MobileBoardDetailView: View {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: Spacing.md) {
                         ForEach(boardItems) { item in
-                            NavigationLink(value: item) {
-                                MobileItemCardView(item: item)
-                                    .cardStyle()
-                                    .padding(.horizontal, Spacing.xs)
+                            Group {
+                                if let coordinator = readerCoordinator {
+                                    Button {
+                                        coordinator.openedItem = item
+                                    } label: {
+                                        MobileItemCardView(item: item)
+                                            .cardStyle()
+                                            .padding(.horizontal, Spacing.xs)
+                                    }
+                                } else {
+                                    NavigationLink(value: item) {
+                                        MobileItemCardView(item: item)
+                                            .cardStyle()
+                                            .padding(.horizontal, Spacing.xs)
+                                    }
+                                }
                             }
                             .buttonStyle(.plain)
                             .mobileItemContextMenu(item: item)

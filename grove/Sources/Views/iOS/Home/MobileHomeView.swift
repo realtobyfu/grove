@@ -4,12 +4,14 @@ import SwiftData
 /// iOS Home screen — inbox triage, conversation starters, recent items, and nudge banners.
 struct MobileHomeView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Query(sort: \Item.lastEngagedAt, order: .reverse) private var allItems: [Item]
     @Query(sort: \Item.createdAt, order: .reverse) private var allItemsByDate: [Item]
     @Query(sort: \Board.sortOrder) private var boards: [Board]
     @Query(sort: \Nudge.createdAt, order: .reverse) private var allNudges: [Nudge]
 
     @Environment(ConversationStarterService.self) private var starterService
+    @Environment(iPadReaderCoordinator.self) private var readerCoordinator: iPadReaderCoordinator?
     @State private var dialecticsService = DialecticsService()
     @State private var showSearch = false
     @State private var showBoardPicker = false
@@ -29,6 +31,12 @@ struct MobileHomeView: View {
 
     var body: some View {
         List {
+            Section {
+                InlineCaptureBar()
+            }
+            .listRowSeparator(.hidden)
+            .listSectionSeparator(.hidden)
+
             inboxSection
             startersSection
             recentItemsSection
@@ -68,18 +76,36 @@ struct MobileHomeView: View {
         if !inboxItems.isEmpty {
             Section {
                 ForEach(inboxItems) { item in
-                    MobileInboxCard(
-                        item: item,
-                        onConfirmTag: { tag in confirmTag(tag) },
-                        onDismissTag: { tag in dismissTag(tag, from: item) }
-                    )
+                    Group {
+                        if let coordinator = readerCoordinator {
+                            Button {
+                                coordinator.openedItem = item
+                            } label: {
+                                MobileInboxCard(
+                                    item: item,
+                                    onConfirmTag: { tag in confirmTag(tag) },
+                                    onDismissTag: { tag in dismissTag(tag, from: item) }
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            NavigationLink(value: item) {
+                                MobileInboxCard(
+                                    item: item,
+                                    onConfirmTag: { tag in confirmTag(tag) },
+                                    onDismissTag: { tag in dismissTag(tag, from: item) }
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                         Button {
-                            queueItem(item)
+                            keepItem(item)
                         } label: {
-                            Label("Queue", systemImage: "text.badge.plus")
+                            Label("Keep", systemImage: "checkmark.circle")
                         }
-                        .tint(.blue)
+                        .tint(Color.textPrimary)
 
                         Button {
                             itemToAssign = item
@@ -87,20 +113,13 @@ struct MobileHomeView: View {
                         } label: {
                             Label("Board", systemImage: "folder")
                         }
-                        .tint(.purple)
+                        .tint(Color.textSecondary)
                     }
                     .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                        Button {
-                            archiveItem(item)
-                        } label: {
-                            Label("Archive", systemImage: "archivebox")
-                        }
-                        .tint(.orange)
-
                         Button(role: .destructive) {
                             dismissItem(item)
                         } label: {
-                            Label("Dismiss", systemImage: "xmark")
+                            Label("Drop", systemImage: "xmark")
                         }
                     }
                 }
@@ -118,9 +137,34 @@ struct MobileHomeView: View {
         let bubbles = Array(starterService.bubbles.prefix(3))
         if !bubbles.isEmpty {
             Section {
-                ForEach(bubbles) { bubble in
-                    MobileStarterCard(bubble: bubble) {
-                        startConversation(with: bubble)
+                if horizontalSizeClass == .regular {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: Spacing.md) {
+                            ForEach(bubbles) { bubble in
+                                VStack(spacing: 0) {
+                                    MobileStarterCard(bubble: bubble) {
+                                        startConversation(with: bubble)
+                                    }
+                                    HStack {
+                                        Spacer()
+                                        Image(systemName: "arrow.right")
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundStyle(Color.textMuted)
+                                    }
+                                    .padding(.top, Spacing.xs)
+                                    .padding(.trailing, Spacing.sm)
+                                }
+                                .frame(width: 300)
+                            }
+                        }
+                        .padding(.horizontal, LayoutDimensions.contentPaddingH)
+                    }
+                    .listRowInsets(EdgeInsets())
+                } else {
+                    ForEach(bubbles) { bubble in
+                        MobileStarterCard(bubble: bubble) {
+                            startConversation(with: bubble)
+                        }
                     }
                 }
             } header: {
@@ -137,11 +181,21 @@ struct MobileHomeView: View {
         if !recentItems.isEmpty {
             Section {
                 ForEach(recentItems) { item in
-                    NavigationLink(value: item) {
-                        MobileItemCardView(item: item)
+                    if let coordinator = readerCoordinator {
+                        Button {
+                            coordinator.openedItem = item
+                        } label: {
+                            MobileItemCardView(item: item)
+                        }
+                        .buttonStyle(.plain)
+                        .mobileItemContextMenu(item: item)
+                    } else {
+                        NavigationLink(value: item) {
+                            MobileItemCardView(item: item)
+                        }
+                        .buttonStyle(.plain)
+                        .mobileItemContextMenu(item: item)
                     }
-                    .buttonStyle(.plain)
-                    .mobileItemContextMenu(item: item)
                 }
             } header: {
                 Text("Recent")
@@ -214,25 +268,13 @@ struct MobileHomeView: View {
 
     // MARK: - Inbox triage actions
 
-    private func queueItem(_ item: Item) {
+    private func keepItem(_ item: Item) {
         #if os(iOS)
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
         #endif
         withAnimation {
             item.status = .active
-            item.updatedAt = .now
-            try? modelContext.save()
-        }
-    }
-
-    private func archiveItem(_ item: Item) {
-        #if os(iOS)
-        let generator = UIImpactFeedbackGenerator(style: .light)
-        generator.impactOccurred()
-        #endif
-        withAnimation {
-            item.status = .archived
             item.updatedAt = .now
             try? modelContext.save()
         }

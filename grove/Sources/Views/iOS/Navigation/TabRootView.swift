@@ -55,9 +55,16 @@ struct TabRootView: View {
 
             TabSection("Boards") {
                 ForEach(boards) { board in
-                    SwiftUI.Tab(board.title, systemImage: board.icon ?? "folder", value: Tab.board(board.id)) {
+                    SwiftUI.Tab(value: Tab.board(board.id)) {
                         NavigationStack {
                             MobileBoardDetailView(board: board)
+                        }
+                    } label: {
+                        Label {
+                            Text("\(board.title) (\(board.items.count))")
+                        } icon: {
+                            Image(systemName: board.icon ?? "folder")
+                                .foregroundStyle(board.color.map { Color(hex: $0) } ?? Color.textSecondary)
                         }
                     }
                 }

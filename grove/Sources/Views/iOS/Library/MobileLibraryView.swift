@@ -1,42 +1,54 @@
 import SwiftUI
 import SwiftData
 
-/// Library view for iOS — shows searchable board list with NavigationLink
-/// to board detail views.
+/// Library view for iOS — shows all items with board filter chips,
+/// mirroring the macOS LibraryView pattern.
 struct MobileLibraryView: View {
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \Item.updatedAt, order: .reverse) private var allItems: [Item]
     @Query(sort: \Board.sortOrder) private var boards: [Board]
 
     @State private var searchText: String = ""
+    @State private var selectedBoardID: UUID?
     @State private var showNewBoardSheet = false
 
-    private var filteredBoards: [Board] {
-        if searchText.isEmpty {
-            return boards
+    // MARK: - Computed
+
+    /// Items scoped to the board filter (if any), before text search
+    private var boardFilteredItems: [Item] {
+        guard let boardID = selectedBoardID,
+              let board = boards.first(where: { $0.id == boardID }) else {
+            return allItems.filter { $0.status == .active || $0.status == .inbox }
         }
-        return boards.filter {
-            $0.title.localizedCaseInsensitiveContains(searchText)
+        if board.isSmart {
+            return BoardViewModel.smartBoardItems(for: board, from: allItems)
+        }
+        return board.items.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    /// Final displayed items after text search
+    private var displayedItems: [Item] {
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return boardFilteredItems }
+        return boardFilteredItems.filter {
+            $0.title.localizedCaseInsensitiveContains(trimmed)
         }
     }
 
     var body: some View {
         Group {
-            if boards.isEmpty {
+            if allItems.isEmpty {
                 ContentUnavailableView {
-                    Label("No Boards", systemImage: "folder")
+                    Label("No Items", systemImage: "tray")
                 } description: {
-                    Text("Create a board to organize your items.")
-                } actions: {
-                    Button("Create Board") {
-                        showNewBoardSheet = true
-                    }
+                    Text("Items you capture will appear here.")
                 }
             } else {
-                boardList
+                itemList
             }
         }
         .navigationTitle("Library")
-        .searchable(text: $searchText, prompt: "Search boards")
+        .searchable(text: $searchText, prompt: "Search items")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -57,47 +69,64 @@ struct MobileLibraryView: View {
         }
     }
 
-    // MARK: - Board list (P4.1)
+    // MARK: - Item list with board filter chips
 
-    private var boardList: some View {
+    private var itemList: some View {
         List {
-            ForEach(filteredBoards) { board in
-                NavigationLink(value: board) {
-                    boardRow(board)
+            // Board filter chip bar
+            Section {
+                boardFilterChips
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+            }
+
+            // Items
+            ForEach(displayedItems) { item in
+                NavigationLink(value: item) {
+                    MobileItemCardView(item: item)
                 }
-                .contextMenu {
-                    Button("Delete", role: .destructive) {
-                        let viewModel = BoardViewModel(modelContext: modelContext)
-                        viewModel.deleteBoard(board)
-                    }
-                }
+                .mobileItemContextMenu(item: item)
             }
         }
         .listStyle(.plain)
-        .navigationDestination(for: Board.self) { board in
-            MobileBoardDetailView(board: board)
+        .navigationDestination(for: Item.self) { item in
+            MobileItemReaderView(item: item)
         }
     }
 
-    private func boardRow(_ board: Board) -> some View {
-        HStack(spacing: Spacing.md) {
-            Image(systemName: board.icon ?? "folder")
-                .foregroundStyle(board.color.map { Color(hex: $0) } ?? Color.textSecondary)
-                .frame(width: 24)
+    // MARK: - Board filter chips
 
-            Text(board.title)
-                .font(.groveBody)
-                .foregroundStyle(Color.textPrimary)
+    private var boardFilterChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Spacing.sm) {
+                boardChip(title: "All", boardID: nil)
 
-            Spacer()
-
-            Text("\(board.items.count)")
-                .font(.groveMeta)
-                .foregroundStyle(Color.textMuted)
+                ForEach(boards) { board in
+                    boardChip(title: board.title, boardID: board.id)
+                }
+            }
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm)
         }
-        .frame(minHeight: LayoutDimensions.minTouchTarget)
-        #if os(iOS)
-        .hoverEffect(.highlight)
-        #endif
+    }
+
+    private func boardChip(title: String, boardID: UUID?) -> some View {
+        let isActive = selectedBoardID == boardID
+        return Button {
+            selectedBoardID = boardID
+        } label: {
+            Text(title)
+                .font(.groveTag)
+                .foregroundStyle(isActive ? Color.textInverse : Color.textPrimary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(isActive ? Color.bgTagActive : Color.bgCard)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(isActive ? Color.clear : Color.borderTag, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
     }
 }

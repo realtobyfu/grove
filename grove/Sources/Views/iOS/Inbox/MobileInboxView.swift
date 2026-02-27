@@ -2,8 +2,8 @@ import SwiftUI
 import SwiftData
 
 /// iPhone/iPad inbox triage view with swipe actions.
-/// Trailing swipe: Queue (.active) and Move to Board.
-/// Leading swipe: Archive (.archived) and Dismiss (.dismissed).
+/// Trailing swipe (right): Keep (.active) and Move to Board.
+/// Leading swipe (left): Drop (.dismissed).
 struct MobileInboxView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Item.createdAt, order: .reverse) private var allItems: [Item]
@@ -42,11 +42,11 @@ struct MobileInboxView: View {
                 )
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     Button {
-                        queueItem(item)
+                        keepItem(item)
                     } label: {
-                        Label("Queue", systemImage: "text.badge.plus")
+                        Label("Keep", systemImage: "checkmark.circle")
                     }
-                    .tint(.blue)
+                    .tint(Color.textPrimary)
 
                     Button {
                         itemToAssign = item
@@ -54,20 +54,13 @@ struct MobileInboxView: View {
                     } label: {
                         Label("Board", systemImage: "folder")
                     }
-                    .tint(.purple)
+                    .tint(Color.textSecondary)
                 }
                 .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                    Button {
-                        archiveItem(item)
-                    } label: {
-                        Label("Archive", systemImage: "archivebox")
-                    }
-                    .tint(.orange)
-
                     Button(role: .destructive) {
                         dismissItem(item)
                     } label: {
-                        Label("Dismiss", systemImage: "xmark")
+                        Label("Drop", systemImage: "xmark")
                     }
                 }
             }
@@ -121,25 +114,13 @@ struct MobileInboxView: View {
 
     // MARK: - Triage actions (P3.5)
 
-    private func queueItem(_ item: Item) {
+    private func keepItem(_ item: Item) {
         #if os(iOS)
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
         #endif
         withAnimation {
             item.status = .active
-            item.updatedAt = .now
-            try? modelContext.save()
-        }
-    }
-
-    private func archiveItem(_ item: Item) {
-        #if os(iOS)
-        let generator = UIImpactFeedbackGenerator(style: .light)
-        generator.impactOccurred()
-        #endif
-        withAnimation {
-            item.status = .archived
             item.updatedAt = .now
             try? modelContext.save()
         }

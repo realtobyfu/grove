@@ -24,6 +24,23 @@ struct MobileItemCardView: View {
                     .lineLimit(2)
 
                 HStack(spacing: Spacing.sm) {
+                    // Board indicator
+                    if let firstBoard = item.boards.first {
+                        Text(firstBoard.title)
+                            .font(.groveMeta)
+                            .foregroundStyle(Color.textTertiary)
+                        Text("·")
+                            .font(.groveMeta)
+                            .foregroundStyle(Color.textTertiary)
+                    } else {
+                        Text("Unfiled")
+                            .font(.groveMeta)
+                            .foregroundStyle(Color.textTertiary)
+                        Text("·")
+                            .font(.groveMeta)
+                            .foregroundStyle(Color.textTertiary)
+                    }
+
                     // Growth stage indicator
                     HStack(spacing: 3) {
                         Image(systemName: item.growthStage.systemImage)
