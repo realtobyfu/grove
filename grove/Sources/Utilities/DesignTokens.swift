@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 // MARK: - Color Tokens
 
@@ -34,59 +37,151 @@ extension Color {
     static let barTrack = Color("barTrack")
 }
 
+// MARK: - Platform Detection
+
+#if os(iOS)
+/// Device idiom is immutable at runtime. @MainActor required by UIDevice in Swift 6.
+@MainActor
+private enum Platform {
+    static let isIPad = UIDevice.current.userInterfaceIdiom == .pad
+}
+#endif
+
 // MARK: - Typography
+//
+// Font sizes per platform (from mobile-spec.md §6):
+//   Token              | macOS | iPhone | iPad
+//   groveTitle         | 30pt  | 28pt   | 30pt
+//   groveItemTitle     | 20pt  | 18pt   | 20pt
+//   groveBody          | 14pt  | 16pt   | 15pt
+//   groveBodySecondary | 13pt  | 15pt   | 14pt
+//   groveBodySmall     | 12pt  | 13pt   | 12pt
+//   groveMeta          | 12pt  | 13pt   | 12pt
+//   groveSectionHeader | 11pt  | 12pt   | 11pt
+//
+// On iOS, all fonts use Font.custom(_:size:relativeTo:) for Dynamic Type scaling.
+// iOS font statics are @MainActor because they read UIDevice idiom at init time.
+// This is safe: fonts are only accessed from SwiftUI view bodies (which are @MainActor).
 
 extension Font {
-    /// Newsreader 30pt, weight 500 — Board titles
+    /// Newsreader 30pt (macOS/iPad), 28pt (iPhone) — Board titles
+    #if os(macOS)
     static let groveTitle = Font.custom("Newsreader-Medium", size: 30)
+    #else
+    @MainActor static let groveTitle = Font.custom("Newsreader-Medium", size: Platform.isIPad ? 30 : 28, relativeTo: .title)
+    #endif
 
-    /// Newsreader 20pt, weight 500 — Item titles in inspector
+    /// Newsreader 20pt (macOS/iPad), 18pt (iPhone) — Item titles in inspector
+    #if os(macOS)
     static let groveItemTitle = Font.custom("Newsreader-Medium", size: 20)
+    #else
+    @MainActor static let groveItemTitle = Font.custom("Newsreader-Medium", size: Platform.isIPad ? 20 : 18, relativeTo: .title2)
+    #endif
 
-    /// IBM Plex Mono 11pt, weight 500 — Section headers (apply .textCase(.uppercase) and .tracking(1.2) separately)
+    /// IBM Plex Mono 11pt (macOS/iPad), 12pt (iPhone) — Section headers (apply .textCase(.uppercase) and .tracking(1.2) separately)
+    #if os(macOS)
     static let groveSectionHeader = Font.custom("IBMPlexMono-Medium", size: 11)
+    #else
+    @MainActor static let groveSectionHeader = Font.custom("IBMPlexMono-Medium", size: Platform.isIPad ? 11 : 12, relativeTo: .caption2)
+    #endif
 
-    /// IBM Plex Sans 14pt, weight 400 — Primary body text
+    /// IBM Plex Sans 14pt (macOS), 16pt (iPhone), 15pt (iPad) — Primary body text
+    #if os(macOS)
     static let groveBody = Font.custom("IBMPlexSans-Regular", size: 14)
+    #else
+    @MainActor static let groveBody = Font.custom("IBMPlexSans-Regular", size: Platform.isIPad ? 15 : 16, relativeTo: .body)
+    #endif
 
-    /// IBM Plex Sans 13pt, weight 400 — Secondary body text
+    /// IBM Plex Sans 13pt (macOS), 15pt (iPhone), 14pt (iPad) — Secondary body text
+    #if os(macOS)
     static let groveBodySecondary = Font.custom("IBMPlexSans-Regular", size: 13)
+    #else
+    @MainActor static let groveBodySecondary = Font.custom("IBMPlexSans-Regular", size: Platform.isIPad ? 14 : 15, relativeTo: .subheadline)
+    #endif
 
-    /// IBM Plex Sans 12pt, weight 400 — Small body text
+    /// IBM Plex Sans 12pt (macOS/iPad), 13pt (iPhone) — Small body text
+    #if os(macOS)
     static let groveBodySmall = Font.custom("IBMPlexSans-Regular", size: 12)
+    #else
+    @MainActor static let groveBodySmall = Font.custom("IBMPlexSans-Regular", size: Platform.isIPad ? 12 : 13, relativeTo: .footnote)
+    #endif
 
-    /// IBM Plex Mono 12pt, weight 400 — Tags
+    /// IBM Plex Mono 12pt (macOS/iPad), 13pt (iPhone) — Tags
+    #if os(macOS)
     static let groveTag = Font.custom("IBMPlexMono-Regular", size: 12)
+    #else
+    @MainActor static let groveTag = Font.custom("IBMPlexMono-Regular", size: Platform.isIPad ? 12 : 13, relativeTo: .caption)
+    #endif
 
-    /// IBM Plex Mono 12pt, weight 400 — Metadata (timestamps, source URLs, counts)
+    /// IBM Plex Mono 12pt (macOS/iPad), 13pt (iPhone) — Metadata (timestamps, source URLs, counts)
+    #if os(macOS)
     static let groveMeta = Font.custom("IBMPlexMono-Regular", size: 12)
+    #else
+    @MainActor static let groveMeta = Font.custom("IBMPlexMono-Regular", size: Platform.isIPad ? 12 : 13, relativeTo: .caption)
+    #endif
 
-    /// IBM Plex Mono 11pt, weight 600 — Badges
+    /// IBM Plex Mono 11pt (macOS/iPad), 12pt (iPhone) — Badges
+    #if os(macOS)
     static let groveBadge = Font.custom("IBMPlexMono-SemiBold", size: 11)
+    #else
+    @MainActor static let groveBadge = Font.custom("IBMPlexMono-SemiBold", size: Platform.isIPad ? 11 : 12, relativeTo: .caption2)
+    #endif
 
-    /// IBM Plex Mono 13pt, weight 400 — Keyboard shortcuts
+    /// IBM Plex Mono 13pt — Keyboard shortcuts
+    #if os(macOS)
     static let groveShortcut = Font.custom("IBMPlexMono-Regular", size: 13)
+    #else
+    @MainActor static let groveShortcut = Font.custom("IBMPlexMono-Regular", size: 13, relativeTo: .caption)
+    #endif
 
-    /// Newsreader 14pt italic — Ghost text / placeholder prompts
+    /// Newsreader 14pt (macOS), 16pt (iPhone), 15pt (iPad) italic — Ghost text / placeholder prompts
+    #if os(macOS)
     static let groveGhostText = Font.custom("Newsreader-Italic", size: 14)
+    #else
+    @MainActor static let groveGhostText = Font.custom("Newsreader-Italic", size: Platform.isIPad ? 15 : 16, relativeTo: .body)
+    #endif
 
-    /// IBM Plex Sans 15pt — Slightly larger body
+    /// IBM Plex Sans 15pt (macOS), 17pt (iPhone), 16pt (iPad) — Slightly larger body
+    #if os(macOS)
     static let groveBodyLarge = Font.custom("IBMPlexSans-Regular", size: 15)
+    #else
+    @MainActor static let groveBodyLarge = Font.custom("IBMPlexSans-Regular", size: Platform.isIPad ? 16 : 17, relativeTo: .body)
+    #endif
 
-    /// IBM Plex Sans Medium 14pt — Emphasized body
+    /// IBM Plex Sans Medium 14pt (macOS), 16pt (iPhone), 15pt (iPad) — Emphasized body
+    #if os(macOS)
     static let groveBodyMedium = Font.custom("IBMPlexSans-Medium", size: 14)
+    #else
+    @MainActor static let groveBodyMedium = Font.custom("IBMPlexSans-Medium", size: Platform.isIPad ? 15 : 16, relativeTo: .body)
+    #endif
 
-    /// IBM Plex Sans Light 14pt — Light body
+    /// IBM Plex Sans Light 14pt (macOS), 16pt (iPhone), 15pt (iPad) — Light body
+    #if os(macOS)
     static let groveBodyLight = Font.custom("IBMPlexSans-Light", size: 14)
+    #else
+    @MainActor static let groveBodyLight = Font.custom("IBMPlexSans-Light", size: Platform.isIPad ? 15 : 16, relativeTo: .body)
+    #endif
 
-    /// Newsreader 24pt — Large titles
+    /// Newsreader 24pt (macOS/iPad), 22pt (iPhone) — Large titles
+    #if os(macOS)
     static let groveTitleLarge = Font.custom("Newsreader-Medium", size: 24)
+    #else
+    @MainActor static let groveTitleLarge = Font.custom("Newsreader-Medium", size: Platform.isIPad ? 24 : 22, relativeTo: .title)
+    #endif
 
-    /// Newsreader 14pt — Inline serif text
+    /// Newsreader 14pt (macOS), 16pt (iPhone), 15pt (iPad) — Inline serif text
+    #if os(macOS)
     static let groveSerif = Font.custom("Newsreader-Regular", size: 14)
+    #else
+    @MainActor static let groveSerif = Font.custom("Newsreader-Regular", size: Platform.isIPad ? 15 : 16, relativeTo: .body)
+    #endif
 
-    /// Newsreader SemiBold 20pt — Emphasized item title
+    /// Newsreader SemiBold 20pt (macOS/iPad), 18pt (iPhone) — Emphasized item title
+    #if os(macOS)
     static let groveItemTitleBold = Font.custom("Newsreader-SemiBold", size: 20)
+    #else
+    @MainActor static let groveItemTitleBold = Font.custom("Newsreader-SemiBold", size: Platform.isIPad ? 20 : 18, relativeTo: .title2)
+    #endif
 }
 
 // MARK: - Spacing
