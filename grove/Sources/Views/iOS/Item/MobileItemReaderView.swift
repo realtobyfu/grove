@@ -6,6 +6,8 @@ import SwiftData
 /// Toolbar: back, share, "Discuss", reflections button, find-in-page.
 struct MobileItemReaderView: View {
     let item: Item
+    var onCloseRequested: (() -> Void)? = nil
+    var preferFullScreenReaderExperience: Bool = false
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -42,6 +44,10 @@ struct MobileItemReaderView: View {
     @State private var reflectionDetent: PresentationDetent = .medium
     @FocusState private var findBarFocused: Bool
 
+    private var usesSidePanel: Bool {
+        horizontalSizeClass == .regular && !preferFullScreenReaderExperience
+    }
+
     private var isReflectionsPanelOpen: Bool { rightPanel == .reflections }
     private var isChatPanelOpen: Bool {
         if case .chat = rightPanel { return true }
@@ -52,7 +58,7 @@ struct MobileItemReaderView: View {
         mainLayout
             .onAppear {
                 // iPad: auto-open reflections panel for article+notes reading experience
-                if horizontalSizeClass == .regular && rightPanel == .none {
+                if usesSidePanel && rightPanel == .none {
                     rightPanel = .reflections
                 }
             }
@@ -74,7 +80,7 @@ struct MobileItemReaderView: View {
 
     @ViewBuilder
     private var mainLayout: some View {
-        if horizontalSizeClass == .regular && rightPanel != .none {
+        if usesSidePanel && rightPanel != .none {
             // iPad 2-panel
             GeometryReader { geo in
                 let panelWidth = min(max(geo.size.width * 0.4, 320), 480)
@@ -169,6 +175,16 @@ struct MobileItemReaderView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        if let onCloseRequested {
+            ToolbarItem(placement: .cancellationAction) {
+                Button {
+                    onCloseRequested()
+                } label: {
+                    Label("Back", systemImage: "chevron.left")
+                }
+            }
+        }
+
         ToolbarItemGroup(placement: .primaryAction) {
             // Find in page (articles only)
             if item.type != .note {
@@ -183,13 +199,16 @@ struct MobileItemReaderView: View {
 
             // Reflections button
             Button {
-                if horizontalSizeClass == .regular {
+                if usesSidePanel {
                     // iPad: toggle side panel
                     withAnimation {
                         rightPanel = isReflectionsPanelOpen ? .none : .reflections
                     }
                 } else {
                     // iPhone: open sheet
+                    if horizontalSizeClass == .regular {
+                        reflectionDetent = .large
+                    }
                     showReflections = true
                 }
             } label: {
@@ -199,7 +218,7 @@ struct MobileItemReaderView: View {
 
             // Chat button
             Button {
-                if horizontalSizeClass == .regular {
+                if usesSidePanel {
                     // iPad: toggle side panel
                     if isChatPanelOpen {
                         withAnimation { rightPanel = .none }
@@ -294,6 +313,10 @@ struct MobileItemReaderView: View {
         if horizontalSizeClass == .regular {
             MobileReflectionSheet(item: item)
                 .frame(minWidth: 400)
+                #if os(iOS)
+                .presentationDetents([.large], selection: $reflectionDetent)
+                .presentationDragIndicator(.visible)
+                #endif
         } else {
             MobileReflectionSheet(item: item)
                 #if os(iOS)

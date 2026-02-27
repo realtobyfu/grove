@@ -5,12 +5,16 @@ import SwiftData
 /// mirroring the macOS LibraryView pattern.
 struct MobileLibraryView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(iPadReaderCoordinator.self) private var readerCoordinator: iPadReaderCoordinator?
     @Query(sort: \Item.updatedAt, order: .reverse) private var allItems: [Item]
     @Query(sort: \Board.sortOrder) private var boards: [Board]
 
     @State private var searchText: String = ""
     @State private var selectedBoardID: UUID?
     @State private var showNewBoardSheet = false
+
+    var selectedItem: Binding<Item?>? = nil
+    var openedItem: Binding<Item?>? = nil
 
     // MARK: - Computed
 
@@ -82,7 +86,7 @@ struct MobileLibraryView: View {
 
             // Items
             ForEach(displayedItems) { item in
-                NavigationLink(value: item) {
+                openItemRow(item: item) {
                     MobileItemCardView(item: item)
                 }
                 .mobileItemContextMenu(item: item)
@@ -128,5 +132,30 @@ struct MobileLibraryView: View {
                 )
         }
         .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func openItemRow<Content: View>(item: Item, @ViewBuilder content: () -> Content) -> some View {
+        if let selectedItem, let openedItem {
+            Button {
+                selectedItem.wrappedValue = item
+                openedItem.wrappedValue = item
+            } label: {
+                content()
+            }
+            .buttonStyle(.plain)
+        } else if let readerCoordinator {
+            Button {
+                readerCoordinator.selectedItem = item
+                readerCoordinator.openedItem = item
+            } label: {
+                content()
+            }
+            .buttonStyle(.plain)
+        } else {
+            NavigationLink(value: item) {
+                content()
+            }
+        }
     }
 }

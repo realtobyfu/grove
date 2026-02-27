@@ -1,6 +1,14 @@
 import SwiftUI
 import Foundation
 
+enum RouteIntent: Equatable {
+    case item(UUID)
+    case board(UUID)
+    case chat(UUID)
+    case capture(prefillURL: String?)
+    case search(query: String?)
+}
+
 /// Parses grove:// deep links and provides navigation state for iOS views.
 ///
 /// Supported schemes:
@@ -16,6 +24,12 @@ final class DeepLinkRouter {
 
     /// The tab to select after routing.
     var selectedTab: TabRootView.Tab?
+
+    /// Monotonic value to drive onChange observers whenever a new route arrives.
+    var routeVersion: Int = 0
+
+    /// Consumable deep-link intent, cleared after `consumeRouteIntent()`.
+    private(set) var routeIntent: RouteIntent?
 
     /// UUID of an item to navigate to after selecting its tab.
     var pendingItemID: UUID?
@@ -48,6 +62,8 @@ final class DeepLinkRouter {
                   let uuid = UUID(uuidString: uuidString) else { return false }
             pendingItemID = uuid
             selectedTab = .home
+            routeIntent = .item(uuid)
+            routeVersion += 1
             return true
 
         case "board":
@@ -55,6 +71,8 @@ final class DeepLinkRouter {
                   let uuid = UUID(uuidString: uuidString) else { return false }
             pendingBoardID = uuid
             selectedTab = .library
+            routeIntent = .board(uuid)
+            routeVersion += 1
             return true
 
         case "chat":
@@ -62,23 +80,42 @@ final class DeepLinkRouter {
                   let uuid = UUID(uuidString: uuidString) else { return false }
             pendingConversationID = uuid
             selectedTab = .chat
+            routeIntent = .chat(uuid)
+            routeVersion += 1
             return true
 
         case "capture":
             let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
             pendingCaptureURL = components?.queryItems?.first(where: { $0.name == "url" })?.value
             selectedTab = .home
+            routeIntent = .capture(prefillURL: pendingCaptureURL)
+            routeVersion += 1
             return true
 
         case "search":
             let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
             pendingSearchQuery = components?.queryItems?.first(where: { $0.name == "q" })?.value
             selectedTab = .library
+            routeIntent = .search(query: pendingSearchQuery)
+            routeVersion += 1
             return true
 
         default:
             return false
         }
+    }
+
+    /// Returns and clears the pending route in a single operation.
+    func consumeRouteIntent() -> RouteIntent? {
+        defer {
+            routeIntent = nil
+            clearPendingItem()
+            clearPendingBoard()
+            clearPendingConversation()
+            clearPendingCapture()
+            clearPendingSearch()
+        }
+        return routeIntent
     }
 
     /// Clear pending navigation after it has been consumed by a view.

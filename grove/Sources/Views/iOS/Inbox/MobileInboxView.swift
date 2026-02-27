@@ -6,11 +6,15 @@ import SwiftData
 /// Leading swipe (left): Drop (.dismissed).
 struct MobileInboxView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(iPadReaderCoordinator.self) private var readerCoordinator: iPadReaderCoordinator?
     @Query(sort: \Item.createdAt, order: .reverse) private var allItems: [Item]
     @Query(sort: \Board.sortOrder) private var boards: [Board]
 
     @State private var showBoardPicker = false
     @State private var itemToAssign: Item?
+
+    var selectedItem: Binding<Item?>? = nil
+    var openedItem: Binding<Item?>? = nil
 
     private var inboxItems: [Item] {
         allItems.filter { $0.status == .inbox }
@@ -35,11 +39,13 @@ struct MobileInboxView: View {
     private var inboxList: some View {
         List {
             ForEach(inboxItems) { item in
-                MobileInboxCard(
-                    item: item,
-                    onConfirmTag: { tag in confirmTag(tag) },
-                    onDismissTag: { tag in dismissTag(tag, from: item) }
-                )
+                openItemRow(item: item) {
+                    MobileInboxCard(
+                        item: item,
+                        onConfirmTag: { tag in confirmTag(tag) },
+                        onDismissTag: { tag in dismissTag(tag, from: item) }
+                    )
+                }
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     Button {
                         keepItem(item)
@@ -159,5 +165,28 @@ struct MobileInboxView: View {
         item.tags.removeAll { $0.id == tag.id }
         item.updatedAt = .now
         try? modelContext.save()
+    }
+
+    @ViewBuilder
+    private func openItemRow<Content: View>(item: Item, @ViewBuilder content: () -> Content) -> some View {
+        if let selectedItem, let openedItem {
+            Button {
+                selectedItem.wrappedValue = item
+                openedItem.wrappedValue = item
+            } label: {
+                content()
+            }
+            .buttonStyle(.plain)
+        } else if let readerCoordinator {
+            Button {
+                readerCoordinator.selectedItem = item
+                readerCoordinator.openedItem = item
+            } label: {
+                content()
+            }
+            .buttonStyle(.plain)
+        } else {
+            content()
+        }
     }
 }

@@ -5,25 +5,47 @@ import SwiftData
 /// Tap navigates to MobileChatView. New conversation button in toolbar.
 struct MobileConversationListView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(EntitlementService.self) private var entitlement
+    @Environment(PaywallCoordinator.self) private var paywallCoordinator
     @Query(sort: \Conversation.updatedAt, order: .reverse) private var conversations: [Conversation]
 
     @State private var dialecticsService = DialecticsService()
     @State private var searchText = ""
+    @State private var routedConversation: Conversation?
+    @State private var paywallPresentation: PaywallPresentation?
+
+    var initialConversationID: UUID?
+
+    private var activeConversations: [Conversation] {
+        conversations.filter { !$0.isArchived }
+    }
+
+    private var visibleHistoryConversations: [Conversation] {
+        guard entitlement.hasAccess(to: .fullHistory) else {
+            return Array(activeConversations.prefix(20))
+        }
+        return activeConversations
+    }
+
+    private var isHistoryCapped: Bool {
+        !entitlement.hasAccess(to: .fullHistory) && activeConversations.count > visibleHistoryConversations.count
+    }
+
+    private var trimmedSearchText: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     private var filteredConversations: [Conversation] {
-        let active = conversations.filter { !$0.isArchived }
-        if searchText.isEmpty { return active }
-        return active.filter {
-            $0.displayTitle.localizedCaseInsensitiveContains(searchText) ||
-            $0.messages.contains { msg in
-                msg.content.localizedCaseInsensitiveContains(searchText)
-            }
+        let query = trimmedSearchText
+        guard !query.isEmpty else { return visibleHistoryConversations }
+        return visibleHistoryConversations.filter {
+            conversationMatchesSearch($0, query: query)
         }
     }
 
     var body: some View {
         Group {
-            if conversations.filter({ !$0.isArchived }).isEmpty {
+            if activeConversations.isEmpty {
                 ContentUnavailableView {
                     Label("No Conversations", systemImage: "bubble.left.and.bubble.right")
                 } description: {
@@ -34,7 +56,12 @@ struct MobileConversationListView: View {
             }
         }
         .navigationTitle("Chat")
-        .searchable(text: $searchText, prompt: "Search conversations")
+        .searchable(
+            text: $searchText,
+            prompt: entitlement.hasAccess(to: .fullHistory)
+                ? "Search by title or message..."
+                : "Search recent conversations..."
+        )
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -45,12 +72,35 @@ struct MobileConversationListView: View {
                 .accessibilityLabel("New conversation")
             }
         }
+        .sheet(item: $paywallPresentation) { presentation in
+            ProPaywallView(presentation: presentation)
+        }
+        .onAppear {
+            openInitialConversationIfNeeded()
+        }
+        .onChange(of: initialConversationID) { _, _ in
+            openInitialConversationIfNeeded()
+        }
+        .onChange(of: conversations.count) { _, _ in
+            openInitialConversationIfNeeded()
+        }
+        .navigationDestination(item: $routedConversation) { conversation in
+            MobileChatView(conversation: conversation)
+        }
     }
 
     // MARK: - List
 
     private var conversationList: some View {
         List {
+            if isHistoryCapped {
+                historyCappedBanner
+            }
+
+            if filteredConversations.isEmpty {
+                noSearchResultsRow
+            }
+
             ForEach(filteredConversations) { conversation in
                 NavigationLink(value: conversation) {
                     conversationRow(conversation)
@@ -70,6 +120,42 @@ struct MobileConversationListView: View {
         }
     }
 
+    private var historyCappedBanner: some View {
+        HStack(spacing: Spacing.sm) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Showing recent 20 conversations")
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textSecondary)
+                Text("Upgrade to Pro for full searchable history.")
+                    .font(.groveMeta)
+                    .foregroundStyle(Color.textTertiary)
+            }
+
+            Spacer()
+
+            Button("Unlock Pro") {
+                paywallPresentation = paywallCoordinator.present(
+                    feature: .fullHistory,
+                    source: .chatHistory
+                )
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(.vertical, Spacing.xs)
+    }
+
+    private var noSearchResultsRow: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            Text("No search results")
+                .font(.groveBody)
+                .foregroundStyle(Color.textSecondary)
+            Text("No matches for \"\(trimmedSearchText)\".")
+                .font(.groveBodySmall)
+                .foregroundStyle(Color.textTertiary)
+        }
+        .padding(.vertical, Spacing.sm)
+    }
+
     private func conversationRow(_ conversation: Conversation) -> some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
             HStack {
@@ -80,7 +166,7 @@ struct MobileConversationListView: View {
 
                 Spacer()
 
-                Text(conversation.updatedAt, style: .relative)
+                Text(compactRelativeTime(from: conversation.updatedAt))
                     .font(.groveMeta)
                     .foregroundStyle(Color.textMuted)
             }
@@ -99,16 +185,76 @@ struct MobileConversationListView: View {
     // MARK: - Actions
 
     private func startNewConversation() {
-        _ = dialecticsService.startConversation(
+        guard entitlement.canUse(.dialectics) else {
+            paywallPresentation = paywallCoordinator.present(
+                feature: .dialectics,
+                source: .dialecticsLimit
+            )
+            return
+        }
+        entitlement.recordUse(.dialectics)
+
+        let conversation = dialecticsService.startConversation(
             trigger: .userInitiated,
             seedItems: [],
             board: nil,
             context: modelContext
         )
+        routedConversation = conversation
     }
 
     private func deleteConversation(_ conversation: Conversation) {
+        if routedConversation?.id == conversation.id {
+            routedConversation = nil
+        }
         modelContext.delete(conversation)
         try? modelContext.save()
+    }
+
+    private func conversationMatchesSearch(_ conversation: Conversation, query: String) -> Bool {
+        if conversation.displayTitle.localizedStandardContains(query) {
+            return true
+        }
+        return conversation.visibleMessages.contains { message in
+            message.content.localizedStandardContains(query)
+        }
+    }
+
+    private func compactRelativeTime(from date: Date) -> String {
+        let elapsed = max(0, Int(Date.now.timeIntervalSince(date)))
+
+        if elapsed < 3600 {
+            let minutes = max(1, elapsed / 60)
+            return "\(minutes)m"
+        }
+
+        if elapsed < 86_400 {
+            let hours = elapsed / 3600
+            return "\(hours)h"
+        }
+
+        if elapsed < 604_800 {
+            let days = elapsed / 86_400
+            return "\(days)d"
+        }
+
+        if elapsed < 2_592_000 {
+            let weeks = elapsed / 604_800
+            return "\(weeks)w"
+        }
+
+        if elapsed < 31_536_000 {
+            let months = elapsed / 2_592_000
+            return "\(months)mo"
+        }
+
+        let years = elapsed / 31_536_000
+        return "\(years)y"
+    }
+
+    private func openInitialConversationIfNeeded() {
+        guard let initialConversationID else { return }
+        guard let conversation = conversations.first(where: { $0.id == initialConversationID }) else { return }
+        routedConversation = conversation
     }
 }

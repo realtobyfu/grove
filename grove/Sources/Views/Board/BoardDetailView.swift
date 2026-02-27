@@ -196,8 +196,14 @@ struct BoardDetailView: View {
             openSelectedItem()
             return .handled
         }
-        .task {
+        .task(id: board.id) {
             await starterService.refreshBoard(board.id, items: allItems)
+        }
+        .onChange(of: allItems.count) { _, newCount in
+            guard newCount > 0, boardDiscussionSuggestions.isEmpty else { return }
+            Task {
+                await starterService.refreshBoard(board.id, items: allItems)
+            }
         }
         .onChange(of: board.id, initial: true) {
             sortOption = .dateAdded

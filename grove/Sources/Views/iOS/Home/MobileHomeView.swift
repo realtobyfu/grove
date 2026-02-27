@@ -5,6 +5,7 @@ import SwiftData
 struct MobileHomeView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(DeepLinkRouter.self) private var deepLinkRouter
     @Query(sort: \Item.lastEngagedAt, order: .reverse) private var allItems: [Item]
     @Query(sort: \Item.createdAt, order: .reverse) private var allItemsByDate: [Item]
     @Query(sort: \Board.sortOrder) private var boards: [Board]
@@ -16,6 +17,9 @@ struct MobileHomeView: View {
     @State private var showSearch = false
     @State private var showBoardPicker = false
     @State private var itemToAssign: Item?
+
+    var selectedItem: Binding<Item?>? = nil
+    var openedItem: Binding<Item?>? = nil
 
     private var inboxItems: [Item] {
         allItemsByDate.filter { $0.status == .inbox }
@@ -67,6 +71,12 @@ struct MobileHomeView: View {
         .task {
             await starterService.refresh(items: allItems)
         }
+        .onChange(of: allItems.count) { _, newCount in
+            guard newCount > 0, starterService.bubbles.isEmpty else { return }
+            Task {
+                await starterService.forceRefresh(items: allItems)
+            }
+        }
     }
 
     // MARK: - Inbox section
@@ -76,28 +86,12 @@ struct MobileHomeView: View {
         if !inboxItems.isEmpty {
             Section {
                 ForEach(inboxItems) { item in
-                    Group {
-                        if let coordinator = readerCoordinator {
-                            Button {
-                                coordinator.openedItem = item
-                            } label: {
-                                MobileInboxCard(
-                                    item: item,
-                                    onConfirmTag: { tag in confirmTag(tag) },
-                                    onDismissTag: { tag in dismissTag(tag, from: item) }
-                                )
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            NavigationLink(value: item) {
-                                MobileInboxCard(
-                                    item: item,
-                                    onConfirmTag: { tag in confirmTag(tag) },
-                                    onDismissTag: { tag in dismissTag(tag, from: item) }
-                                )
-                            }
-                            .buttonStyle(.plain)
-                        }
+                    openItemRow(item: item) {
+                        MobileInboxCard(
+                            item: item,
+                            onConfirmTag: { tag in confirmTag(tag) },
+                            onDismissTag: { tag in dismissTag(tag, from: item) }
+                        )
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                         Button {
@@ -168,10 +162,14 @@ struct MobileHomeView: View {
                     }
                 }
             } header: {
-                Text("Conversation Starters")
+                Text(startersSectionTitle)
                     .sectionHeaderStyle()
             }
         }
+    }
+
+    private var startersSectionTitle: String {
+        horizontalSizeClass == .regular ? "Discussion Suggestions" : "Conversation Starters"
     }
 
     // MARK: - Recent items
@@ -181,21 +179,10 @@ struct MobileHomeView: View {
         if !recentItems.isEmpty {
             Section {
                 ForEach(recentItems) { item in
-                    if let coordinator = readerCoordinator {
-                        Button {
-                            coordinator.openedItem = item
-                        } label: {
-                            MobileItemCardView(item: item)
-                        }
-                        .buttonStyle(.plain)
-                        .mobileItemContextMenu(item: item)
-                    } else {
-                        NavigationLink(value: item) {
-                            MobileItemCardView(item: item)
-                        }
-                        .buttonStyle(.plain)
-                        .mobileItemContextMenu(item: item)
+                    openItemRow(item: item) {
+                        MobileItemCardView(item: item)
                     }
+                    .mobileItemContextMenu(item: item)
                 }
             } header: {
                 Text("Recent")
@@ -331,6 +318,36 @@ struct MobileHomeView: View {
                 conversation: conversation,
                 context: modelContext
             )
+        }
+
+        if let routeURL = URL(string: "grove://chat/\(conversation.id.uuidString)") {
+            deepLinkRouter.handle(routeURL)
+        }
+    }
+
+    @ViewBuilder
+    private func openItemRow<Content: View>(item: Item, @ViewBuilder content: () -> Content) -> some View {
+        if let selectedItem, let openedItem {
+            Button {
+                selectedItem.wrappedValue = item
+                openedItem.wrappedValue = item
+            } label: {
+                content()
+            }
+            .buttonStyle(.plain)
+        } else if let coordinator = readerCoordinator {
+            Button {
+                coordinator.selectedItem = item
+                coordinator.openedItem = item
+            } label: {
+                content()
+            }
+            .buttonStyle(.plain)
+        } else {
+            NavigationLink(value: item) {
+                content()
+            }
+            .buttonStyle(.plain)
         }
     }
 }

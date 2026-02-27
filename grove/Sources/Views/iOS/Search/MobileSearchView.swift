@@ -16,6 +16,7 @@ struct MobileSearchView: View {
 
     /// Optional board scope — when set, shows a removable chip and restricts results.
     var scopeBoard: Board?
+    var initialQuery: String? = nil
 
     var body: some View {
         NavigationStack {
@@ -62,6 +63,12 @@ struct MobileSearchView: View {
                 let vm = SearchViewModel(modelContext: modelContext)
                 vm.scopeBoard = scopeBoard
                 searchVM = vm
+            }
+            if searchText.isEmpty,
+               let initialQuery,
+               !initialQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                searchText = initialQuery
+                searchVM?.updateQuery(initialQuery)
             }
         }
     }
@@ -210,8 +217,17 @@ struct MobileSearchView: View {
                 navigateToBoard = board
             }
         case .tag:
-            // Navigate to library filtered by tag — for now, just dismiss
-            dismiss()
+            guard let tag = result.tag else {
+                dismiss()
+                return
+            }
+
+            if let mostRecentTaggedItem = tag.items.max(by: { $0.updatedAt < $1.updatedAt }) {
+                navigateToItem = mostRecentTaggedItem
+            } else {
+                searchText = tag.name
+                searchVM?.updateQuery(tag.name)
+            }
         }
     }
 }

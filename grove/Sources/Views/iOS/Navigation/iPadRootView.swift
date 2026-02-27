@@ -1,15 +1,15 @@
 import SwiftUI
 import SwiftData
 
-/// Shared state for iPad reader mode. Passed via @Environment.
+/// Shared iPad state for split interactions.
 @Observable
 final class iPadReaderCoordinator {
     var openedItem: Item?
+    var selectedItem: Item?
 }
 
-/// iPad 3-column layout: Sidebar | Content | Detail
-/// Matches the Mac app's NavigationSplitView structure.
-/// Used when horizontalSizeClass == .regular (iPad landscape / large window).
+/// iPad 3-column layout: Sidebar | Content | Detail.
+/// Mirrors the Mac app split layout semantics.
 struct iPadRootView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(DeepLinkRouter.self) private var deepLinkRouter
@@ -19,30 +19,79 @@ struct iPadRootView: View {
 
     enum SidebarSelection: Hashable {
         case home
+        case inbox
         case library
         case board(UUID)
         case chat
         case settings
+
+        var sceneStorageValue: String {
+            switch self {
+            case .home: "home"
+            case .inbox: "inbox"
+            case .library: "library"
+            case .board(let id): "board:\(id.uuidString)"
+            case .chat: "chat"
+            case .settings: "settings"
+            }
+        }
+
+        init?(sceneStorageValue: String) {
+            if sceneStorageValue == "home" { self = .home }
+            else if sceneStorageValue == "inbox" { self = .inbox }
+            else if sceneStorageValue == "library" { self = .library }
+            else if sceneStorageValue == "chat" { self = .chat }
+            else if sceneStorageValue == "settings" { self = .settings }
+            else if sceneStorageValue.hasPrefix("board:"),
+                    let uuid = UUID(uuidString: String(sceneStorageValue.dropFirst(6))) {
+                self = .board(uuid)
+            } else {
+                return nil
+            }
+        }
     }
 
     @State private var sidebarSelection: SidebarSelection? = .home
-    @State private var selectedItem: Item?
+    @State private var splitViewVisibility: NavigationSplitViewVisibility = .doubleColumn
     @State private var showCaptureSheet = false
+    @State private var capturePrefillURL: String?
+    @State private var showSearchSheet = false
+    @State private var searchInitialQuery: String?
+    @State private var deepLinkedConversationID: UUID?
     @State private var readerCoordinator = iPadReaderCoordinator()
 
-    // Board suggestion state (same as TabRootView)
+    // Board suggestion state (same behavior as TabRootView).
     @State private var pendingSuggestionItemID: UUID?
     @State private var pendingSuggestion: BoardSuggestionDecision?
     @State private var showBoardSuggestion = false
     @State private var showBoardPicker = false
+    @State private var showNewBoardSheet = false
     @State private var suggestionDismissTask: Task<Void, Never>?
 
     private var inboxCount: Int {
         allItems.filter { $0.status == .inbox }.count
     }
 
+    private var boardViewModel: BoardViewModel {
+        BoardViewModel(modelContext: modelContext)
+    }
+
+    private var selectedItemBinding: Binding<Item?> {
+        Binding(
+            get: { readerCoordinator.selectedItem },
+            set: { readerCoordinator.selectedItem = $0 }
+        )
+    }
+
+    private var openedItemBinding: Binding<Item?> {
+        Binding(
+            get: { readerCoordinator.openedItem },
+            set: { readerCoordinator.openedItem = $0 }
+        )
+    }
+
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $splitViewVisibility) {
             sidebar
         } content: {
             contentColumn
@@ -51,32 +100,18 @@ struct iPadRootView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .environment(readerCoordinator)
-        // Full-screen reader overlay — article left, notes right
         #if os(iOS)
-        .fullScreenCover(item: Binding(
-            get: { readerCoordinator.openedItem },
-            set: { readerCoordinator.openedItem = $0 }
-        )) { item in
+        .fullScreenCover(item: openedItemBinding) { item in
             NavigationStack {
-                MobileItemReaderView(item: item)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button {
-                                readerCoordinator.openedItem = nil
-                            } label: {
-                                HStack(spacing: Spacing.xs) {
-                                    Image(systemName: "chevron.left")
-                                    Text("Back")
-                                }
-                                .font(.groveBody)
-                                .foregroundStyle(Color.textPrimary)
-                            }
-                        }
+                MobileItemReaderView(
+                    item: item,
+                    onCloseRequested: {
+                        readerCoordinator.openedItem = nil
                     }
+                )
             }
         }
         #endif
-        // Board suggestion banner
         .overlay(alignment: .top) {
             if showBoardSuggestion, let decision = pendingSuggestion {
                 MobileBoardSuggestionBanner(
@@ -89,6 +124,30 @@ struct iPadRootView: View {
             }
         }
         .animation(.easeOut(duration: 0.2), value: showBoardSuggestion)
+        .onAppear {
+            // iPad default shell: Home in 2-column mode with sidebar collapsed.
+            sidebarSelection = .home
+            splitViewVisibility = .doubleColumn
+            consumeDeepLinkIntentIfNeeded()
+        }
+        .onChange(of: readerCoordinator.openedItem?.id) { _, _ in
+            if let opened = readerCoordinator.openedItem {
+                readerCoordinator.selectedItem = opened
+            }
+        }
+        .onChange(of: deepLinkRouter.routeVersion) { _, _ in
+            consumeDeepLinkIntentIfNeeded()
+        }
+        .onChange(of: deepLinkRouter.selectedTab) { _, newTab in
+            guard let newTab else { return }
+            switch newTab {
+            case .home: sidebarSelection = .home
+            case .library: sidebarSelection = .library
+            case .chat: sidebarSelection = .chat
+            case .settings: sidebarSelection = .settings
+            case .board(let id): sidebarSelection = .board(id)
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .groveNewBoardSuggestion)) { notification in
             guard let result = BoardSuggestionMetadata.decision(from: notification) else { return }
             pendingSuggestionItemID = result.itemID
@@ -123,19 +182,23 @@ struct iPadRootView: View {
                 )
             }
         }
-        .sheet(isPresented: $showCaptureSheet) {
-            CaptureSheetView()
-        }
-        .onChange(of: deepLinkRouter.selectedTab) { _, newTab in
-            if let newTab {
-                switch newTab {
-                case .home: sidebarSelection = .home
-                case .library: sidebarSelection = .library
-                case .chat: sidebarSelection = .chat
-                case .settings: sidebarSelection = .settings
-                case .board(let id): sidebarSelection = .board(id)
+        .sheet(isPresented: $showNewBoardSheet) {
+            BoardEditorSheet(
+                onSave: { title, icon, color, nudgeFreq in
+                    boardViewModel.createBoard(
+                        title: title,
+                        icon: icon,
+                        color: color,
+                        nudgeFrequencyHours: nudgeFreq
+                    )
                 }
-            }
+            )
+        }
+        .sheet(isPresented: $showCaptureSheet) {
+            CaptureSheetView(prefillURL: capturePrefillURL)
+        }
+        .sheet(isPresented: $showSearchSheet) {
+            MobileSearchView(initialQuery: searchInitialQuery)
         }
     }
 
@@ -148,14 +211,45 @@ struct iPadRootView: View {
                     .badge(inboxCount)
                     .tag(SidebarSelection.home)
 
+                Label("Inbox", systemImage: "tray")
+                    .badge(inboxCount)
+                    .tag(SidebarSelection.inbox)
+
                 Label("Library", systemImage: "books.vertical")
                     .tag(SidebarSelection.library)
             }
 
-            Section("Boards") {
+            Section {
                 ForEach(boards) { board in
                     Label(board.title, systemImage: board.icon ?? "folder")
+                        #if os(iOS)
+                        .padding(.leading, Spacing.md)
+                        #endif
                         .tag(SidebarSelection.board(board.id))
+                }
+            } header: {
+                HStack(spacing: Spacing.sm) {
+                    Text("Boards")
+                        .sectionHeaderStyle()
+
+                    Spacer()
+
+                    Button {
+                        showNewBoardSheet = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Color.textMuted)
+                            .frame(width: 16, height: 16)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("New board")
+                    .accessibilityHint("Create a board in the sidebar list.")
+                }
+                .contextMenu {
+                    Button("New Board...") {
+                        showNewBoardSheet = true
+                    }
                 }
             }
 
@@ -173,6 +267,7 @@ struct iPadRootView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
+                    capturePrefillURL = nil
                     showCaptureSheet = true
                 } label: {
                     Image(systemName: "square.and.pencil")
@@ -189,15 +284,32 @@ struct iPadRootView: View {
     private var contentColumn: some View {
         switch sidebarSelection {
         case .home, .none:
-            MobileHomeView()
+            MobileHomeView(
+                selectedItem: selectedItemBinding,
+                openedItem: openedItemBinding
+            )
+        case .inbox:
+            MobileInboxView(
+                selectedItem: selectedItemBinding,
+                openedItem: openedItemBinding
+            )
         case .library:
-            MobileLibraryView()
+            MobileLibraryView(
+                selectedItem: selectedItemBinding,
+                openedItem: openedItemBinding
+            )
         case .board(let boardID):
             if let board = boards.first(where: { $0.id == boardID }) {
-                MobileBoardDetailView(board: board)
+                MobileBoardDetailView(
+                    board: board,
+                    selectedItem: selectedItemBinding,
+                    openedItem: openedItemBinding
+                )
+            } else {
+                ContentUnavailableView("Board not found", systemImage: "folder")
             }
         case .chat:
-            MobileConversationListView()
+            MobileConversationListView(initialConversationID: deepLinkedConversationID)
         case .settings:
             MobileSettingsView()
         }
@@ -207,7 +319,7 @@ struct iPadRootView: View {
 
     @ViewBuilder
     private var detailColumn: some View {
-        if let item = selectedItem {
+        if let item = readerCoordinator.selectedItem ?? readerCoordinator.openedItem {
             ItemInspectorPanel(item: item)
         } else {
             ContentUnavailableView {
@@ -216,6 +328,42 @@ struct iPadRootView: View {
                 Text("Select an item to see its details.")
             }
         }
+    }
+
+    // MARK: - Deep Links
+
+    private func consumeDeepLinkIntentIfNeeded() {
+        guard let intent = deepLinkRouter.consumeRouteIntent() else { return }
+
+        switch intent {
+        case .item(let itemID):
+            guard let item = fetchItem(id: itemID) else { return }
+            readerCoordinator.selectedItem = item
+            readerCoordinator.openedItem = item
+            sidebarSelection = .home
+
+        case .board(let boardID):
+            sidebarSelection = .board(boardID)
+            readerCoordinator.openedItem = nil
+
+        case .chat(let conversationID):
+            sidebarSelection = .chat
+            deepLinkedConversationID = conversationID
+            readerCoordinator.openedItem = nil
+
+        case .capture(let prefillURL):
+            capturePrefillURL = prefillURL
+            showCaptureSheet = true
+
+        case .search(let query):
+            searchInitialQuery = query
+            showSearchSheet = true
+        }
+    }
+
+    private func fetchItem(id: UUID) -> Item? {
+        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == id })
+        return try? modelContext.fetch(descriptor).first
     }
 
     // MARK: - Board Suggestion Actions

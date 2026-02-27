@@ -9,6 +9,12 @@ struct TabRootView: View {
     @Query private var allItems: [Item]
     @Query(sort: \Board.sortOrder) private var boards: [Board]
     @State private var selectedTab: Tab = .home
+    @State private var showCaptureSheet = false
+    @State private var capturePrefillURL: String?
+    @State private var showSearchSheet = false
+    @State private var searchInitialQuery: String?
+    @State private var deepLinkedConversationID: UUID?
+    @State private var deepLinkedItem: Item?
 
     // Board suggestion state
     @State private var pendingSuggestionItemID: UUID?
@@ -72,7 +78,7 @@ struct TabRootView: View {
 
             SwiftUI.Tab("Chat", systemImage: "bubble.left.and.bubble.right", value: Tab.chat) {
                 NavigationStack {
-                    MobileConversationListView()
+                    MobileConversationListView(initialConversationID: deepLinkedConversationID)
                 }
             }
 
@@ -167,6 +173,23 @@ struct TabRootView: View {
                 selectedTab = newTab
             }
         }
+        .onAppear {
+            consumeDeepLinkIntentIfNeeded()
+        }
+        .onChange(of: deepLinkRouter.routeVersion) { _, _ in
+            consumeDeepLinkIntentIfNeeded()
+        }
+        .sheet(isPresented: $showCaptureSheet) {
+            CaptureSheetView(prefillURL: capturePrefillURL)
+        }
+        .sheet(isPresented: $showSearchSheet) {
+            MobileSearchView(initialQuery: searchInitialQuery)
+        }
+        .sheet(item: $deepLinkedItem) { item in
+            NavigationStack {
+                MobileItemReaderView(item: item)
+            }
+        }
     }
 
     // MARK: - Board Suggestion Actions
@@ -249,5 +272,43 @@ struct TabRootView: View {
                 dismissBoardSuggestion()
             }
         }
+    }
+
+    // MARK: - Deep Links
+
+    private func consumeDeepLinkIntentIfNeeded() {
+        guard let intent = deepLinkRouter.consumeRouteIntent() else { return }
+
+        switch intent {
+        case .item(let itemID):
+            selectedTab = .home
+            deepLinkedItem = fetchItem(id: itemID)
+
+        case .board(let boardID):
+            if boards.contains(where: { $0.id == boardID }) {
+                selectedTab = .board(boardID)
+            } else {
+                selectedTab = .library
+            }
+
+        case .chat(let conversationID):
+            selectedTab = .chat
+            deepLinkedConversationID = conversationID
+
+        case .capture(let prefillURL):
+            selectedTab = .home
+            capturePrefillURL = prefillURL
+            showCaptureSheet = true
+
+        case .search(let query):
+            selectedTab = .library
+            searchInitialQuery = query
+            showSearchSheet = true
+        }
+    }
+
+    private func fetchItem(id: UUID) -> Item? {
+        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == id })
+        return try? modelContext.fetch(descriptor).first
     }
 }

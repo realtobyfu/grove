@@ -164,6 +164,29 @@ struct GroveTests {
         #expect(scoped.first?.prompt == "P1")
     }
 
+    @MainActor
+    @Test func conversationStarterServiceBoardRefreshRetriesAfterEmptyInitialLoad() async {
+        UserDefaults.standard.removeObject(forKey: "grove.conversationStarters")
+
+        let provider = MockLLMProvider()
+        provider.responseContent = nil
+        let service = ConversationStarterService(provider: provider)
+
+        let board = Board(title: "Board")
+
+        await service.refreshBoard(board.id, items: [])
+        #expect(service.bubbles(for: board.id, maxResults: 3).isEmpty)
+
+        let item = Item(title: "Board Item", type: .note)
+        item.status = .active
+        item.createdAt = .now
+        item.updatedAt = .now
+        item.boards.append(board)
+
+        await service.refreshBoard(board.id, items: [item])
+        #expect(!service.bubbles(for: board.id, maxResults: 3).isEmpty)
+    }
+
     @Test func conversationPromptPayloadParsesSeedItemIDsFromNotification() {
         let expectedPrompt = "Organize these notes into a coherent board."
         let expectedSeedIDs = [UUID(), UUID(), UUID()]
@@ -245,6 +268,85 @@ struct GroveTests {
 
         try await Task.sleep(nanoseconds: 100_000_000)
         #expect(viewModel.totalResultCount == 0)
+    }
+
+    @MainActor
+    @Test func mobileBoardDetailEffectiveItemsFiltersSmartBoardAndStatus() {
+        let board = Board(title: "Smart")
+        board.isSmart = true
+        board.smartRuleLogic = .or
+
+        let topic = Tag(name: "swift", category: .technology)
+        board.smartRuleTags.append(topic)
+
+        let activeMatching = Item(title: "Active Match", type: .article)
+        activeMatching.status = .active
+        activeMatching.tags.append(topic)
+
+        let dismissedMatching = Item(title: "Dismissed Match", type: .article)
+        dismissedMatching.status = .dismissed
+        dismissedMatching.tags.append(topic)
+
+        let unrelatedActive = Item(title: "Unrelated", type: .article)
+        unrelatedActive.status = .active
+
+        let effective = MobileBoardDetailView.effectiveItems(
+            for: board,
+            allItems: [activeMatching, dismissedMatching, unrelatedActive]
+        )
+
+        #expect(effective.map(\.id) == [activeMatching.id])
+    }
+
+    @MainActor
+    @Test func mobileBoardDetailManualSortUsesBoardOrder() {
+        let board = Board(title: "Manual")
+        let first = Item(title: "First", type: .note)
+        let second = Item(title: "Second", type: .note)
+        let third = Item(title: "Third", type: .note)
+        first.status = .active
+        second.status = .active
+        third.status = .active
+
+        board.items.append(first)
+        board.items.append(second)
+        board.items.append(third)
+        board.setManualOrder([second.id, third.id, first.id])
+
+        let sorted = MobileBoardDetailView.sortedItems(
+            [first, second, third],
+            for: board,
+            sortOption: .manual
+        )
+
+        #expect(sorted.map(\.id) == [second.id, third.id, first.id])
+    }
+
+    @Test func deepLinkRouterConsumesAllRouteIntents() {
+        let router = DeepLinkRouter()
+        let itemID = UUID()
+        let boardID = UUID()
+        let chatID = UUID()
+
+        #expect(router.handle(URL(string: "grove://item/\(itemID.uuidString)")!))
+        #expect(router.consumeRouteIntent() == .item(itemID))
+        #expect(router.consumeRouteIntent() == nil)
+
+        #expect(router.handle(URL(string: "grove://board/\(boardID.uuidString)")!))
+        #expect(router.consumeRouteIntent() == .board(boardID))
+
+        #expect(router.handle(URL(string: "grove://chat/\(chatID.uuidString)")!))
+        #expect(router.consumeRouteIntent() == .chat(chatID))
+    }
+
+    @Test func deepLinkRouterConsumesCaptureAndSearchIntentPayloads() {
+        let router = DeepLinkRouter()
+        let encodedURL = "https%3A%2F%2Fexample.com%2Farticle"
+        #expect(router.handle(URL(string: "grove://capture?url=\(encodedURL)")!))
+        #expect(router.consumeRouteIntent() == .capture(prefillURL: "https://example.com/article"))
+
+        #expect(router.handle(URL(string: "grove://search?q=swiftui")!))
+        #expect(router.consumeRouteIntent() == .search(query: "swiftui"))
     }
 
     @Test func nudgeSettingsOnlyEnableActiveEngineCategories() {
