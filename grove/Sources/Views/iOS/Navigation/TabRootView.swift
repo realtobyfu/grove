@@ -6,6 +6,7 @@ import SwiftData
 /// Actual tab content views (MobileHomeView, MobileInboxView, etc.) will replace
 /// the placeholder Text views as they are implemented in P3–P9.
 struct TabRootView: View {
+    @Environment(DeepLinkRouter.self) private var deepLinkRouter
     @Query private var allItems: [Item]
     @State private var selectedTab: Tab = .home
 
@@ -74,6 +75,11 @@ struct TabRootView: View {
                 Label("More", systemImage: "ellipsis")
             }
             .tag(Tab.more)
+        }
+        .onChange(of: deepLinkRouter.selectedTab) { _, newTab in
+            if let newTab {
+                selectedTab = newTab
+            }
         }
     }
 }

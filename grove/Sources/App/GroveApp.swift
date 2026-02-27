@@ -10,6 +10,9 @@ struct GroveApp: App {
     @State private var onboardingService = OnboardingService.shared
     @State private var paywallCoordinator = PaywallCoordinator.shared
     @State private var storeKitService = StoreKitService.shared
+    #if os(iOS)
+    @State private var deepLinkRouter = DeepLinkRouter()
+    #endif
 
     init() {
         let schema = Schema([
@@ -157,6 +160,10 @@ struct GroveApp: App {
                     AnnotationMigrationService.migrateIfNeeded(context: context)
                     storeKitService.start()
                 }
+                .onOpenURL { url in
+                    deepLinkRouter.handle(url)
+                }
+                .environment(deepLinkRouter)
                 .environment(entitlementService)
                 .environment(onboardingService)
                 .environment(paywallCoordinator)

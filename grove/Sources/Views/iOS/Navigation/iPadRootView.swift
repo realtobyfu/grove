@@ -5,6 +5,7 @@ import SwiftData
 /// Sidebar routes selection to the content column. The detail column
 /// will show item reader / inspector once P5 is implemented.
 struct iPadRootView: View {
+    @Environment(DeepLinkRouter.self) private var deepLinkRouter
     @Query(sort: \Board.sortOrder) private var boards: [Board]
     @Query(sort: \Course.createdAt) private var courses: [Course]
 
@@ -20,6 +21,11 @@ struct iPadRootView: View {
             detailPlaceholder
         }
         .navigationSplitViewStyle(.balanced)
+        .onChange(of: deepLinkRouter.selectedSidebarItem) { _, newItem in
+            if let newItem {
+                selection = newItem
+            }
+        }
     }
 
     // MARK: - Content routing
