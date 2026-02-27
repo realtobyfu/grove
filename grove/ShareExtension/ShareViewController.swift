@@ -1,12 +1,13 @@
 import UIKit
+import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
 
 /// Share Extension entry point.
 ///
-/// Extracts a URL or plain text from the share sheet, saves it as an inbox
-/// Item in the App Group shared ModelContainer, and dismisses. The full
-/// SwiftUI ShareExtensionView (board picker, preview, notes) is wired in P2.3.
+/// Extracts a URL or plain text from the share sheet, then presents
+/// ShareExtensionView — a SwiftUI form with title/domain preview,
+/// board picker, and optional note — for the user to review before saving.
 final class ShareViewController: UIViewController {
 
     private var modelContainer: ModelContainer?
@@ -23,15 +24,15 @@ final class ShareViewController: UIViewController {
         }
 
         Task { @MainActor in
-            await self.extractAndSave()
+            await self.extractAndPresent()
         }
     }
 
     // MARK: - Content Extraction
 
     /// Walks through shared NSExtensionItems, extracts the first URL or text,
-    /// saves it to the shared store, and dismisses.
-    private func extractAndSave() async {
+    /// then presents the SwiftUI share view for user confirmation.
+    private func extractAndPresent() async {
         guard let extensionItems = extensionContext?.inputItems as? [NSExtensionItem] else {
             completeExtension()
             return
@@ -57,8 +58,7 @@ final class ShareViewController: UIViewController {
 
                         if let urlString {
                             let title = extensionItem.attributedContentText?.string
-                            saveItem(urlString: urlString, title: title)
-                            completeExtension()
+                            presentShareView(url: urlString, title: title)
                             return
                         }
                     }
@@ -70,8 +70,7 @@ final class ShareViewController: UIViewController {
                         forTypeIdentifier: UTType.plainText.identifier
                     ),
                        let text = result as? String {
-                        saveItem(urlString: text, title: nil)
-                        completeExtension()
+                        presentShareView(url: text, title: nil)
                         return
                     }
                 }
@@ -81,31 +80,37 @@ final class ShareViewController: UIViewController {
         completeExtension()
     }
 
-    // MARK: - Persistence
+    // MARK: - Present SwiftUI View
 
-    /// Creates an Item in the shared ModelContainer. URL inputs become
-    /// `.article` items; plain text becomes `.note` items. All start as `.inbox`.
     @MainActor
-    private func saveItem(urlString: String, title: String?) {
-        guard let container = modelContainer else { return }
-        let context = container.mainContext
-
-        let isURL = URL(string: urlString)?.scheme?.lowercased().hasPrefix("http") == true
-
-        let item = Item(
-            title: title ?? (isURL ? urlString : String(urlString.prefix(80))),
-            type: isURL ? .article : .note
-        )
-        item.status = .inbox
-
-        if isURL {
-            item.sourceURL = urlString
-        } else {
-            item.content = urlString
+    private func presentShareView(url: String, title: String?) {
+        guard let container = modelContainer else {
+            completeExtension()
+            return
         }
 
-        context.insert(item)
-        try? context.save()
+        let shareView = ShareExtensionView(
+            sharedURL: url,
+            sharedTitle: title,
+            onComplete: { [weak self] in
+                self?.completeExtension()
+            }
+        )
+        .modelContainer(container)
+
+        let hostingController = UIHostingController(rootView: shareView)
+        addChild(hostingController)
+        hostingController.view.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(hostingController.view)
+
+        NSLayoutConstraint.activate([
+            hostingController.view.topAnchor.constraint(equalTo: view.topAnchor),
+            hostingController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            hostingController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            hostingController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+
+        hostingController.didMove(toParent: self)
     }
 
     // MARK: - Dismiss
