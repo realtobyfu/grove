@@ -49,7 +49,7 @@ Last updated: 2026-02-26
 - [x] P1.4: Create `grove/Sources/Views/iOS/Navigation/MobileRootView.swift` — entry point that reads `@Environment(\.horizontalSizeClass)` and switches between TabRootView (compact) and iPadRootView (regular)
 - [x] P1.5: Wire MobileRootView into GroveApp.swift under `#if os(iOS)` WindowGroup with modelContainer, environment services, and .onOpenURL deep link handler
 - [x] P1.6: Add deep link routing — parse grove://item/{uuid}, grove://board/{uuid}, grove://chat/{uuid}, grove://capture?url={encoded}, grove://search?q={query} and navigate to correct tab/view; create `DeepLinkRouter.swift` in iOS/Navigation/
-- [ ] P1.7: Add `@SceneStorage` navigation state persistence for iPad multi-window support — save/restore selected sidebar item and content selection per scene
+- [x] P1.7: Add `@SceneStorage` navigation state persistence for iPad multi-window support — save/restore selected sidebar item and content selection per scene
 
 ## P2: Capture Flow
 

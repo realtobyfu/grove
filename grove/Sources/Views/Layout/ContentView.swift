@@ -1,7 +1,7 @@
 import SwiftUI
 import SwiftData
 
-enum SidebarItem: Hashable {
+enum SidebarItem: Hashable, Codable {
     case home
     case inbox
     case library
@@ -9,6 +9,37 @@ enum SidebarItem: Hashable {
     case graph
     case course(UUID)
     case settings
+
+    /// String encoding for @SceneStorage persistence.
+    var sceneStorageValue: String {
+        switch self {
+        case .home: "home"
+        case .inbox: "inbox"
+        case .library: "library"
+        case .board(let id): "board:\(id.uuidString)"
+        case .graph: "graph"
+        case .course(let id): "course:\(id.uuidString)"
+        case .settings: "settings"
+        }
+    }
+
+    /// Decode from @SceneStorage string. Returns nil for invalid values.
+    init?(sceneStorageValue: String) {
+        if sceneStorageValue == "home" { self = .home }
+        else if sceneStorageValue == "inbox" { self = .inbox }
+        else if sceneStorageValue == "library" { self = .library }
+        else if sceneStorageValue == "graph" { self = .graph }
+        else if sceneStorageValue == "settings" { self = .settings }
+        else if sceneStorageValue.hasPrefix("board:"),
+                let uuid = UUID(uuidString: String(sceneStorageValue.dropFirst(6))) {
+            self = .board(uuid)
+        } else if sceneStorageValue.hasPrefix("course:"),
+                  let uuid = UUID(uuidString: String(sceneStorageValue.dropFirst(7))) {
+            self = .course(uuid)
+        } else {
+            return nil
+        }
+    }
 }
 
 struct ContentView: View {

@@ -12,6 +12,9 @@ struct iPadRootView: View {
     @State private var selection: SidebarItem? = .home
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
 
+    /// Persists sidebar selection per scene for iPad multi-window support.
+    @SceneStorage("iPadSidebarSelection") private var storedSelection: String = "home"
+
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             iPadSidebarView(selection: $selection)
@@ -21,6 +24,18 @@ struct iPadRootView: View {
             detailPlaceholder
         }
         .navigationSplitViewStyle(.balanced)
+        .onAppear {
+            // Restore sidebar selection from scene storage on launch
+            if let restored = SidebarItem(sceneStorageValue: storedSelection) {
+                selection = restored
+            }
+        }
+        .onChange(of: selection) { _, newSelection in
+            // Persist sidebar selection changes to scene storage
+            if let newSelection {
+                storedSelection = newSelection.sceneStorageValue
+            }
+        }
         .onChange(of: deepLinkRouter.selectedSidebarItem) { _, newItem in
             if let newItem {
                 selection = newItem
