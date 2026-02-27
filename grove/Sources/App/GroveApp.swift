@@ -115,6 +115,7 @@ struct GroveApp: App {
                 .task {
                     let context = modelContainer.mainContext
                     AnnotationMigrationService.migrateIfNeeded(context: context)
+                    ExtensionItemProcessor.processIfNeeded(context: context)
                     storeKitService.start()
                 }
                 .onOpenURL { url in
