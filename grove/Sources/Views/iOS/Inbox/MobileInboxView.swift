@@ -1,0 +1,182 @@
+import SwiftUI
+import SwiftData
+
+/// iPhone/iPad inbox triage view with swipe actions.
+/// Trailing swipe: Queue (.active) and Move to Board.
+/// Leading swipe: Archive (.archived) and Dismiss (.dismissed).
+struct MobileInboxView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \Item.createdAt, order: .reverse) private var allItems: [Item]
+    @Query(sort: \Board.sortOrder) private var boards: [Board]
+
+    @State private var showBoardPicker = false
+    @State private var itemToAssign: Item?
+
+    private var inboxItems: [Item] {
+        allItems.filter { $0.status == .inbox }
+    }
+
+    var body: some View {
+        Group {
+            if inboxItems.isEmpty {
+                emptyState
+            } else {
+                inboxList
+            }
+        }
+        .navigationTitle("Inbox")
+        .sheet(isPresented: $showBoardPicker) {
+            boardPickerSheet
+        }
+    }
+
+    // MARK: - Inbox list
+
+    private var inboxList: some View {
+        List {
+            ForEach(inboxItems) { item in
+                MobileInboxCard(
+                    item: item,
+                    onConfirmTag: { tag in confirmTag(tag) },
+                    onDismissTag: { tag in dismissTag(tag, from: item) }
+                )
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button {
+                        queueItem(item)
+                    } label: {
+                        Label("Queue", systemImage: "text.badge.plus")
+                    }
+                    .tint(.blue)
+
+                    Button {
+                        itemToAssign = item
+                        showBoardPicker = true
+                    } label: {
+                        Label("Board", systemImage: "folder")
+                    }
+                    .tint(.purple)
+                }
+                .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                    Button {
+                        archiveItem(item)
+                    } label: {
+                        Label("Archive", systemImage: "archivebox")
+                    }
+                    .tint(.orange)
+
+                    Button(role: .destructive) {
+                        dismissItem(item)
+                    } label: {
+                        Label("Dismiss", systemImage: "xmark")
+                    }
+                }
+            }
+        }
+        .listStyle(.plain)
+    }
+
+    // MARK: - Empty state (P3.4)
+
+    private var emptyState: some View {
+        ContentUnavailableView {
+            Label("All Caught Up", systemImage: "checkmark.circle")
+        } description: {
+            Text("Items you capture will appear here.")
+        }
+    }
+
+    // MARK: - Board picker sheet
+
+    @ViewBuilder
+    private var boardPickerSheet: some View {
+        NavigationStack {
+            List {
+                ForEach(boards) { board in
+                    Button {
+                        if let item = itemToAssign {
+                            assignToBoard(item, board: board)
+                        }
+                        showBoardPicker = false
+                        itemToAssign = nil
+                    } label: {
+                        Label(board.title, systemImage: board.icon ?? "folder")
+                            .foregroundStyle(Color.textPrimary)
+                    }
+                }
+            }
+            .navigationTitle("Move to Board")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        showBoardPicker = false
+                        itemToAssign = nil
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Triage actions (P3.5)
+
+    private func queueItem(_ item: Item) {
+        #if os(iOS)
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
+        #endif
+        withAnimation {
+            item.status = .active
+            item.updatedAt = .now
+            try? modelContext.save()
+        }
+    }
+
+    private func archiveItem(_ item: Item) {
+        #if os(iOS)
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.impactOccurred()
+        #endif
+        withAnimation {
+            item.status = .archived
+            item.updatedAt = .now
+            try? modelContext.save()
+        }
+    }
+
+    private func dismissItem(_ item: Item) {
+        #if os(iOS)
+        let generator = UIImpactFeedbackGenerator(style: .rigid)
+        generator.impactOccurred()
+        #endif
+        withAnimation {
+            item.status = .dismissed
+            item.updatedAt = .now
+            try? modelContext.save()
+        }
+    }
+
+    private func assignToBoard(_ item: Item, board: Board) {
+        #if os(iOS)
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
+        #endif
+        let viewModel = ItemViewModel(modelContext: modelContext)
+        viewModel.assignToBoard(item, board: board)
+        item.status = .active
+        item.updatedAt = .now
+        try? modelContext.save()
+    }
+
+    private func confirmTag(_ tag: Tag) {
+        tag.isAutoGenerated = false
+        try? modelContext.save()
+    }
+
+    private func dismissTag(_ tag: Tag, from item: Item) {
+        item.tags.removeAll { $0.id == tag.id }
+        item.updatedAt = .now
+        try? modelContext.save()
+    }
+}

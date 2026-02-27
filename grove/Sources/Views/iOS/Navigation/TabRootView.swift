@@ -32,10 +32,7 @@ struct TabRootView: View {
             .tag(Tab.home)
 
             NavigationStack {
-                Text("Inbox")
-                    .font(.groveTitle)
-                    .foregroundStyle(Color.textSecondary)
-                    .navigationTitle("Inbox")
+                MobileInboxView()
             }
             .tabItem {
                 Label("Inbox", systemImage: "tray")

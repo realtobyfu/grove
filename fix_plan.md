@@ -62,11 +62,11 @@ Last updated: 2026-02-26
 
 ## P3: Inbox Triage
 
-- [ ] P3.1: Create `grove/Sources/Views/iOS/Inbox/MobileInboxView.swift` — List of inbox items (status == .inbox) with swipe actions: swipeActions(edge: .trailing) for Queue (.active) and Move to Board (board picker sheet); swipeActions(edge: .leading) for Archive (.archived) and Dismiss (.dismissed)
-- [ ] P3.2: Create `grove/Sources/Views/iOS/Inbox/MobileInboxCard.swift` — compact row showing item title, source domain, thumbnail (if available), auto-tag chips (confirm/dismiss), time since added
-- [ ] P3.3: Add inbox badge count — on the Inbox tab, show .badge(inboxCount) with @Query count of items where status == .inbox
-- [ ] P3.4: Create "All caught up" empty state view for MobileInboxView — celebratory illustration (SF Symbol checkmark.circle) with "All caught up" text and "Items you capture will appear here" subtitle
-- [ ] P3.5: Wire triage actions to services — Queue uses ItemViewModel to set status .active, Archive sets .archived, Dismiss sets .dismissed, Move to Board uses ItemViewModel.assignToBoard(); add haptic feedback (UIImpactFeedbackGenerator) on swipe completion
+- [x] P3.1: Create `grove/Sources/Views/iOS/Inbox/MobileInboxView.swift` — List of inbox items (status == .inbox) with swipe actions: swipeActions(edge: .trailing) for Queue (.active) and Move to Board (board picker sheet); swipeActions(edge: .leading) for Archive (.archived) and Dismiss (.dismissed)
+- [x] P3.2: Create `grove/Sources/Views/iOS/Inbox/MobileInboxCard.swift` — compact row showing item title, source domain, thumbnail (if available), auto-tag chips (confirm/dismiss), time since added
+- [x] P3.3: Add inbox badge count — on the Inbox tab, show .badge(inboxCount) with @Query count of items where status == .inbox
+- [x] P3.4: Create "All caught up" empty state view for MobileInboxView — celebratory illustration (SF Symbol checkmark.circle) with "All caught up" text and "Items you capture will appear here" subtitle
+- [x] P3.5: Wire triage actions to services — Queue uses ItemViewModel to set status .active, Archive sets .archived, Dismiss sets .dismissed, Move to Board uses ItemViewModel.assignToBoard(); add haptic feedback (UIImpactFeedbackGenerator) on swipe completion
 
 ## P4: Library + Boards
 

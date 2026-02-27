@@ -48,3 +48,5 @@
 <!-- Ralph updates this section as it learns -->
 - UIDevice.current is @MainActor in Swift 6. Font statics on iOS use @MainActor + Platform.isIPad helper. Safe because fonts are only read from SwiftUI view bodies.
 - Font.custom(_:size:relativeTo:) is the correct way to enable Dynamic Type for custom fonts on iOS. No @ScaledMetric needed for Font tokens (use @ScaledMetric for non-font CGFloat values like spacing).
+- Both targets (grove + grove-ios) compile ALL files in grove/Sources/. iOS-only modifiers (.keyboardType, .textInputAutocapitalization, .navigationBarTitleDisplayMode) need `#if os(iOS)` guards even in Views/iOS/ files.
+- SwiftData `#Predicate` does not support enum member access (`.inbox`). Use `@Query` without filter + computed property instead.

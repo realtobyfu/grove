@@ -54,10 +54,7 @@ struct iPadRootView: View {
                 .foregroundStyle(Color.textSecondary)
                 .navigationTitle("Home")
         case .inbox:
-            Text("Inbox")
-                .font(.groveTitle)
-                .foregroundStyle(Color.textSecondary)
-                .navigationTitle("Inbox")
+            MobileInboxView()
         case .library:
             Text("Library")
                 .font(.groveTitle)
