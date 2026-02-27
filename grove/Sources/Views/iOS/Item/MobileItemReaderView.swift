@@ -115,21 +115,32 @@ struct MobileItemReaderView: View {
                 .accessibilityLabel("Find in page")
             }
 
-            // Reflections
-            Button {
-                showReflections = true
-            } label: {
-                Image(systemName: "text.bubble")
-            }
-            .accessibilityLabel("Reflections")
+            // Reflect: iPad shows menu (write note or chat), iPhone opens sheet directly
+            if horizontalSizeClass == .regular {
+                Menu {
+                    Button {
+                        showReflections = true
+                    } label: {
+                        Label("Write a Reflection", systemImage: "text.bubble")
+                    }
 
-            // Discuss this
-            Button {
-                startDiscussion()
-            } label: {
-                Image(systemName: "bubble.left.and.bubble.right")
+                    Button {
+                        startDiscussion()
+                    } label: {
+                        Label("Discuss in Chat", systemImage: "bubble.left.and.bubble.right")
+                    }
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                }
+                .accessibilityLabel("Reflect on this item")
+            } else {
+                Button {
+                    showReflections = true
+                } label: {
+                    Image(systemName: "text.bubble")
+                }
+                .accessibilityLabel("Reflections")
             }
-            .accessibilityLabel("Discuss this item")
 
             #if os(iOS)
             // Share
