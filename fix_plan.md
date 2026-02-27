@@ -70,12 +70,12 @@ Last updated: 2026-02-26
 
 ## P4: Library + Boards
 
-- [ ] P4.1: Create `grove/Sources/Views/iOS/Library/MobileBoardListView.swift` — List of boards with title, icon, item count, sorted by sortOrder; tap navigates to board detail; context menu with Edit and Delete
-- [ ] P4.2: Create `grove/Sources/Views/iOS/Library/MobileBoardDetailView.swift` — iPhone: single-column List with sort picker in toolbar (manual/date/title/depth); iPad: adaptive LazyVGrid (minimum: 280pt) with sort picker; shows board title in navigationTitle
-- [ ] P4.3: Create `grove/Sources/Views/iOS/Library/MobileItemCardView.swift` — compact card for list: title (Newsreader), source domain (IBM Plex Mono), depth/growth indicator (seed/sprout/sapling/tree icon), optional thumbnail; 44pt minimum height
+- [x] P4.1: Create `grove/Sources/Views/iOS/Library/MobileBoardListView.swift` — List of boards with title, icon, item count, sorted by sortOrder; tap navigates to board detail; context menu with Edit and Delete (merged into MobileLibraryView)
+- [x] P4.2: Create `grove/Sources/Views/iOS/Library/MobileBoardDetailView.swift` — iPhone: single-column List with sort picker in toolbar (manual/date/title/depth); iPad: adaptive LazyVGrid (minimum: 280pt) with sort picker; shows board title in navigationTitle
+- [x] P4.3: Create `grove/Sources/Views/iOS/Library/MobileItemCardView.swift` — compact card for list: title (Newsreader), source domain (IBM Plex Mono), depth/growth indicator (seed/sprout/sapling/tree icon), optional thumbnail; 44pt minimum height
 - [ ] P4.4: Add context menu on item cards — .contextMenu with preview (title + source + first 3 lines): Open, Add to Board (sub-menu of boards), Archive, Discuss, Share (UIActivityViewController), Delete (with confirmation)
-- [ ] P4.5: Create `grove/Sources/Views/iOS/Library/MobileLibraryView.swift` — wrapper that shows MobileBoardListView with search bar (.searchable), filters boards by query; NavigationLink to MobileBoardDetailView
-- [ ] P4.6: Add board editor sheet — present BoardEditorSheet (adapt existing macOS sheet) for create/edit board with title, icon picker, optional color, nudge frequency; ensure 44pt touch targets
+- [x] P4.5: Create `grove/Sources/Views/iOS/Library/MobileLibraryView.swift` — wrapper that shows board list with search bar (.searchable), filters boards by query; NavigationLink to MobileBoardDetailView
+- [x] P4.6: Add board editor sheet — present BoardEditorSheet (adapt existing macOS sheet) for create/edit board with title, icon picker, optional color, nudge frequency; ensure 44pt touch targets (reused existing BoardEditorSheet which is cross-platform)
 
 ## P5: Item Reader
 

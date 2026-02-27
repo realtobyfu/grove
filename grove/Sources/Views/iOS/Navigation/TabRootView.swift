@@ -41,10 +41,7 @@ struct TabRootView: View {
             .badge(inboxCount)
 
             NavigationStack {
-                Text("Library")
-                    .font(.groveTitle)
-                    .foregroundStyle(Color.textSecondary)
-                    .navigationTitle("Library")
+                MobileLibraryView()
             }
             .tabItem {
                 Label("Library", systemImage: "books.vertical")

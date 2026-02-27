@@ -56,16 +56,10 @@ struct iPadRootView: View {
         case .inbox:
             MobileInboxView()
         case .library:
-            Text("Library")
-                .font(.groveTitle)
-                .foregroundStyle(Color.textSecondary)
-                .navigationTitle("Library")
+            MobileLibraryView()
         case .board(let boardID):
             if let board = boards.first(where: { $0.id == boardID }) {
-                Text(board.title)
-                    .font(.groveTitle)
-                    .foregroundStyle(Color.textSecondary)
-                    .navigationTitle(board.title)
+                MobileBoardDetailView(board: board)
             } else {
                 ContentUnavailableView("Board Not Found",
                                        systemImage: "folder",
