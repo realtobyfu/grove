@@ -197,16 +197,54 @@ enum Spacing {
 }
 
 // MARK: - Layout
+//
+// Layout dimensions per platform (from mobile-spec.md §6):
+//   Dimension            | macOS     | iPhone           | iPad
+//   Sidebar width        | 220pt     | — (tab bar)      | 280pt (collapsible)
+//   Inspector width      | 280pt     | — (sheet)        | 320pt or popover
+//   Chat panel width     | 380pt     | full width       | 380pt or half-screen
+//   Content padding H    | 28pt      | 16pt             | 28pt
+//   Card corner radius   | 8pt       | 12pt             | 10pt
+//   Section spacing      | 24pt      | 20pt             | 24pt
+//
+// On iOS, layout statics that differ between iPhone/iPad are @MainActor
+// (same pattern as Font tokens) because they read UIDevice idiom at init time.
 
 enum LayoutDimensions {
+    // -- Platform-conditional dimensions --
+
+    #if os(macOS)
     static let sidebarWidth: CGFloat = 220
     static let inspectorWidth: CGFloat = 280
+    static let contentPaddingH: CGFloat = 28
+    static let cardCornerRadius: CGFloat = 8
+    static let sectionSpacing: CGFloat = 24
+    static let chatPanelWidth: CGFloat = 380
+    #else
+    /// iPad sidebar width (280pt collapsible); iPhone uses tab bar navigation
+    @MainActor static let sidebarWidth: CGFloat = 280
+    /// iPad inspector width (320pt); iPhone uses sheets
+    @MainActor static let inspectorWidth: CGFloat = 320
+    /// 28pt (iPad) / 16pt (iPhone) — tighter on iPhone to maximize content area
+    @MainActor static let contentPaddingH: CGFloat = Platform.isIPad ? 28 : 16
+    /// 10pt (iPad) / 12pt (iPhone) — slightly larger on iPhone for thumb-friendliness
+    @MainActor static let cardCornerRadius: CGFloat = Platform.isIPad ? 10 : 12
+    /// 24pt (iPad) / 20pt (iPhone)
+    @MainActor static let sectionSpacing: CGFloat = Platform.isIPad ? 24 : 20
+    /// iPad chat panel (380pt); iPhone uses full width
+    @MainActor static let chatPanelWidth: CGFloat = 380
+    #endif
+
+    // -- Same on all platforms --
+
     static let sidebarPaddingH: CGFloat = 20
     static let sidebarPaddingTop: CGFloat = 28
-    static let contentPaddingH: CGFloat = 28
     static let contentPaddingTop: CGFloat = 24
     static let inspectorPaddingH: CGFloat = 16
     static let inspectorPaddingTop: CGFloat = 24
+
+    /// Minimum touch target size on iOS (44x44pt per HIG)
+    static let minTouchTarget: CGFloat = 44
 }
 
 // MARK: - View Modifiers
@@ -241,9 +279,10 @@ struct SelectedItemStyle: ViewModifier {
 }
 
 /// Card container modifier: rounded background + border overlay
+/// Default corner radius adapts per platform (8pt macOS, 10pt iPad, 12pt iPhone).
 struct CardStyle: ViewModifier {
-    var cornerRadius: CGFloat = 8
-    var background: Color = .bgCard
+    var cornerRadius: CGFloat
+    var background: Color
 
     func body(content: Content) -> some View {
         content
@@ -265,7 +304,16 @@ extension View {
         modifier(SelectedItemStyle(isSelected: isSelected))
     }
 
-    func cardStyle(cornerRadius: CGFloat = 8, background: Color = .bgCard) -> some View {
+    #if os(macOS)
+    func cardStyle(cornerRadius: CGFloat = LayoutDimensions.cardCornerRadius, background: Color = .bgCard) -> some View {
         modifier(CardStyle(cornerRadius: cornerRadius, background: background))
     }
+    #else
+    /// On iOS the default corner radius adapts to device (12pt iPhone, 10pt iPad).
+    /// Pass an explicit value to override.
+    @MainActor
+    func cardStyle(cornerRadius: CGFloat? = nil, background: Color = .bgCard) -> some View {
+        modifier(CardStyle(cornerRadius: cornerRadius ?? LayoutDimensions.cardCornerRadius, background: background))
+    }
+    #endif
 }
