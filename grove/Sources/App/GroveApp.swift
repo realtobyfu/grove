@@ -15,52 +15,7 @@ struct GroveApp: App {
     #endif
 
     init() {
-        let schema = Schema([
-            Item.self,
-            Board.self,
-            Tag.self,
-            Connection.self,
-            Annotation.self,
-            ReflectionBlock.self,
-            Nudge.self,
-            Course.self,
-            Conversation.self,
-            ChatMessage.self,
-            FeedSource.self,
-        ])
-
-        do {
-            if SyncSettings.syncEnabled {
-                // CloudKit-backed configuration for sync
-                let config = ModelConfiguration(
-                    "Grove",
-                    schema: schema,
-                    cloudKitDatabase: .automatic
-                )
-                modelContainer = try ModelContainer(for: schema, configurations: [config])
-            } else {
-                // Local-only configuration (default)
-                let config = ModelConfiguration(
-                    "Grove",
-                    schema: schema,
-                    cloudKitDatabase: .none
-                )
-                modelContainer = try ModelContainer(for: schema, configurations: [config])
-            }
-        } catch {
-            // CloudKit may fail if not configured — fall back to local-only
-            do {
-                let fallbackConfig = ModelConfiguration(
-                    "Grove",
-                    schema: schema,
-                    cloudKitDatabase: .none
-                )
-                modelContainer = try ModelContainer(for: schema, configurations: [fallbackConfig])
-                SyncSettings.syncEnabled = false
-            } catch {
-                fatalError("Failed to create ModelContainer: \(error)")
-            }
-        }
+        modelContainer = SharedModelContainer.makeForApp()
     }
 
     var body: some Scene {

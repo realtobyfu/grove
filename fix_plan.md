@@ -34,7 +34,7 @@ Last updated: 2026-02-26
 - [ ] P0.2: Add `GroveShareExtension` target to Project.swift as .appExtension with source path grove/ShareExtension/**, shared resources, and entitlements reference
 - [x] P0.3: Create `grove/grove-ios.entitlements` with App Group (group.dev.tuist.grove), iCloud container (iCloud.dev.tuist.grove), and aps-environment (development)
 - [ ] P0.4: Create `grove/share-extension.entitlements` with App Group (group.dev.tuist.grove)
-- [ ] P0.5: Create `grove/Sources/Utilities/SharedModelContainer.swift` — static factory that builds ModelContainer using App Group URL (FileManager.containerURL for group.dev.tuist.grove); used by both main app and Share Extension
+- [x] P0.5: Create `grove/Sources/Utilities/SharedModelContainer.swift` — static factory that builds ModelContainer using App Group URL (FileManager.containerURL for group.dev.tuist.grove); used by both main app and Share Extension. Also refactored GroveApp.init() to use SharedModelContainer.makeForApp() instead of inline container creation.
 - [x] P0.6: Add `#if os(iOS)` / `#if os(macOS)` guards to GroveApp.swift so the macOS scenes (MenuBarExtra, Quick Capture window, GroveMenuCommands) only compile on macOS, and a minimal iOS WindowGroup compiles for iOS
 - [x] P0.7: Add `#if os(iOS)` / `#if os(macOS)` guards to the 18 files with macOS-only APIs so they compile for the iOS target (wrap NSViewRepresentable, NSImage, NSSavePanel, NSPasteboard, NSWindow, NSScreen usages)
 - [x] P0.8: Add iOS platform conditionals to `DesignTokens.swift` — use `@ScaledMetric` wrappers and platform-conditional font sizes per the spec (e.g. groveBody 14pt macOS → 16pt iOS, groveItemTitle 20pt → 18pt iPhone / 20pt iPad)
