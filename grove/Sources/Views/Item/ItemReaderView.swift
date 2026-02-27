@@ -32,6 +32,8 @@ struct ItemReaderView: View {
     @State private var editableSummary = ""
     // Draggable split
     @State private var reflectionPanelWidth: CGFloat = 0
+    // Collapse/expand reflections panel (macOS only)
+    @State private var isReflectionPanelCollapsed = false
     // Find-in-page state
     @State private var showFindBar = false
     @State private var findQuery = ""
@@ -58,7 +60,7 @@ struct ItemReaderView: View {
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            if !sortedReflections.isEmpty || showReflectionEditor {
+            if (!sortedReflections.isEmpty || showReflectionEditor) && !isReflectionPanelCollapsed {
                 // Modes B and C: persistent split layout
                 GeometryReader { geo in
                     let minPanel: CGFloat = 280
@@ -181,8 +183,13 @@ struct ItemReaderView: View {
                         sourceContent
                             .padding()
                         Divider().padding(.horizontal)
-                        reflectionsSection
-                            .padding()
+                        if isReflectionPanelCollapsed && !sortedReflections.isEmpty {
+                            collapsedReflectionsSection
+                                .padding()
+                        } else if sortedReflections.isEmpty {
+                            reflectionsSection
+                                .padding()
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -202,6 +209,7 @@ struct ItemReaderView: View {
             showArticleWebView = false
             isEditingSummary = false
             editableSummary = ""
+            isReflectionPanelCollapsed = false
             closeFindBar()
         }
         .onChange(of: showArticleWebView) {
@@ -885,6 +893,96 @@ struct ItemReaderView: View {
         }
     }
 
+    /// Collapsed inline reflections list shown below content when the side panel is hidden.
+    private var collapsedReflectionsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("REFLECTIONS")
+                    .sectionHeaderStyle()
+
+                Text("\(item.reflections.count)")
+                    .font(.groveBadge)
+                    .foregroundStyle(Color.textMuted)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.accentBadge)
+                    .clipShape(Capsule())
+
+                Spacer()
+
+                Button {
+                    withAnimation(.easeOut(duration: 0.25)) {
+                        isReflectionPanelCollapsed = false
+                    }
+                } label: {
+                    Image(systemName: "chevron.down.circle")
+                        .font(.groveBody)
+                        .foregroundStyle(Color.textMuted)
+                }
+                .buttonStyle(.plain)
+                .help("Show reflections panel")
+
+                Menu {
+                    ForEach(ReflectionBlockType.allCases, id: \.self) { type in
+                        Button {
+                            openReflectionEditor(type: type, content: "", highlight: nil)
+                        } label: {
+                            Label(type.displayName, systemImage: type.systemImage)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "plus.circle")
+                        .font(.groveBody)
+                        .foregroundStyle(Color.textMuted)
+                }
+                .menuStyle(.borderlessButton)
+                .frame(width: 22)
+                .help("Add reflection")
+            }
+
+            Divider()
+                .padding(.top, 12)
+
+            ForEach(Array(sortedReflections.enumerated()), id: \.element.id) { index, block in
+                HStack(alignment: .top, spacing: 4) {
+                    Image(systemName: "line.3.horizontal")
+                        .font(.caption2)
+                        .foregroundStyle(Color.textTertiary)
+                        .frame(width: 12, height: 20)
+                        .padding(.top, 12)
+                        .onDrag {
+                            draggingBlock = block
+                            return NSItemProvider(object: block.id.uuidString as NSString)
+                        }
+
+                    ReflectionBlockRow(
+                        block: block,
+                        isVideoItem: isVideoItem,
+                        videoSeekTarget: $videoSeekTarget,
+                        onEdit: { openBlockForEditing($0) },
+                        onDelete: { blk in
+                            blockToDelete = blk
+                            showDeleteConfirmation = true
+                        },
+                        onNavigateToItemByTitle: { navigateToItemByTitle($0) },
+                        modelContext: modelContext
+                    )
+                }
+                .onDrop(of: [.text], delegate: BlockDropDelegate(
+                    targetBlock: block,
+                    allBlocks: sortedReflections,
+                    draggingBlock: $draggingBlock,
+                    modelContext: modelContext
+                ))
+
+                if index < sortedReflections.count - 1 {
+                    Divider()
+                        .padding(.horizontal, 16)
+                }
+            }
+        }
+    }
+
     // MARK: - Ghost Prompts
 
     private var ghostPrompts: some View {
@@ -951,6 +1049,18 @@ struct ItemReaderView: View {
                     .clipShape(Capsule())
 
                 Spacer()
+
+                Button {
+                    withAnimation(.easeOut(duration: 0.25)) {
+                        isReflectionPanelCollapsed = true
+                    }
+                } label: {
+                    Image(systemName: "chevron.up.circle")
+                        .font(.groveBody)
+                        .foregroundStyle(Color.textMuted)
+                }
+                .buttonStyle(.plain)
+                .help("Hide reflections panel")
 
                 Menu {
                     ForEach(ReflectionBlockType.allCases, id: \.self) { type in
@@ -1119,6 +1229,7 @@ struct ItemReaderView: View {
     // MARK: - Block CRUD
 
     private func openBlockForEditing(_ block: ReflectionBlock) {
+        if isReflectionPanelCollapsed { isReflectionPanelCollapsed = false }
         editingBlock = block
         withAnimation(.easeOut(duration: 0.25)) {
             showReflectionEditor = true
@@ -1131,6 +1242,7 @@ struct ItemReaderView: View {
     }
 
     private func openReflectionEditor(type: ReflectionBlockType, content: String, highlight: String?) {
+        if isReflectionPanelCollapsed { isReflectionPanelCollapsed = false }
         let nextPosition = (sortedReflections.last?.position ?? -1) + 1
         let timestamp: Int? = isVideoItem ? Int(videoCurrentTime) : nil
         let block = ReflectionBlock(
