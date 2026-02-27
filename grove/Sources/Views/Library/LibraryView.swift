@@ -482,14 +482,18 @@ struct LibraryView: View {
             withAnimation(.easeInOut(duration: 0.1)) {
                 toggleSelection(for: item)
             }
-        } else if NSEvent.modifierFlags.contains(.command) {
+            return
+        }
+        #if os(macOS)
+        if NSEvent.modifierFlags.contains(.command) {
             withAnimation(.easeInOut(duration: 0.15)) {
                 isMultiSelectMode = true
                 selectedIDs.insert(item.id)
             }
-        } else {
-            selectedItem = item
+            return
         }
+        #endif
+        selectedItem = item
     }
 
     @ViewBuilder

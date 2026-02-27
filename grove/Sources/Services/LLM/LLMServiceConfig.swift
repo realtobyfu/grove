@@ -58,7 +58,7 @@ struct LLMServiceConfig: Sendable {
 
     /// Whether Apple Intelligence is available on this OS version and hardware.
     static var isAppleIntelligenceSupported: Bool {
-        if #available(macOS 26, *) {
+        if #available(macOS 26, iOS 26, *) {
             return AppleIntelligenceProvider.isAvailable
         }
         return false
@@ -83,7 +83,7 @@ struct LLMServiceConfig: Sendable {
         enforceBuildPolicy()
         switch effectiveProviderType {
         case .appleIntelligence:
-            if #available(macOS 26, *) {
+            if #available(macOS 26, iOS 26, *) {
                 return AppleIntelligenceProvider()
             }
             return GroqProvider()

@@ -1,5 +1,7 @@
 import Foundation
+#if os(macOS)
 import AppKit
+#endif
 
 // MARK: - Export Service
 
@@ -21,6 +23,7 @@ final class ExportService: ExportServiceProtocol {
 
     // MARK: - Save Panel
 
+    #if os(macOS)
     static func showSavePanel(filename: String) -> URL? {
         let panel = NSSavePanel()
         panel.title = "Export as Markdown"
@@ -30,6 +33,7 @@ final class ExportService: ExportServiceProtocol {
         guard panel.runModal() == .OK else { return nil }
         return panel.url
     }
+    #endif
 
     // MARK: - Markdown Generation
 

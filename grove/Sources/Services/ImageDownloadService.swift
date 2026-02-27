@@ -1,5 +1,9 @@
 import Foundation
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 
 protocol ImageDownloadServiceProtocol: Sendable {
     func downloadAndCompress(urlString: String) async -> Data?
@@ -31,8 +35,7 @@ final class ImageDownloadService: ImageDownloadServiceProtocol, Sendable {
                   (200...299).contains(httpResponse.statusCode) else {
                 return nil
             }
-            guard let nsImage = NSImage(data: data) else { return nil }
-            return compressImage(nsImage)
+            return compressImageData(data)
         } catch {
             return nil
         }
@@ -40,17 +43,14 @@ final class ImageDownloadService: ImageDownloadServiceProtocol, Sendable {
 
     /// Compress raw image data (e.g. from LPMetadataProvider) using the same resize/JPEG pipeline.
     func compressImageData(_ data: Data) -> Data? {
-        guard let nsImage = NSImage(data: data) else { return nil }
-        return compressImage(nsImage)
-    }
-
-    private func compressImage(_ image: NSImage) -> Data? {
         let maxWidth: CGFloat = 600
         let maxHeight: CGFloat = 315
+
+        #if os(macOS)
+        guard let image = NSImage(data: data) else { return nil }
         let originalSize = image.size
         guard originalSize.width > 0 && originalSize.height > 0 else { return nil }
 
-        // Calculate target size — fit within max bounds, never upscale
         var targetSize = originalSize
         if originalSize.width > maxWidth || originalSize.height > maxHeight {
             let widthRatio = maxWidth / originalSize.width
@@ -62,7 +62,6 @@ final class ImageDownloadService: ImageDownloadServiceProtocol, Sendable {
             )
         }
 
-        // Draw resized image
         let resized = NSImage(size: targetSize)
         resized.lockFocus()
         NSGraphicsContext.current?.imageInterpolation = .high
@@ -74,12 +73,33 @@ final class ImageDownloadService: ImageDownloadServiceProtocol, Sendable {
         )
         resized.unlockFocus()
 
-        // Convert to JPEG via tiffRepresentation → NSBitmapImageRep
         guard let tiffData = resized.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData),
               let jpegData = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.7]) else {
             return nil
         }
         return jpegData
+        #else
+        guard let image = UIImage(data: data) else { return nil }
+        let originalSize = image.size
+        guard originalSize.width > 0 && originalSize.height > 0 else { return nil }
+
+        var targetSize = originalSize
+        if originalSize.width > maxWidth || originalSize.height > maxHeight {
+            let widthRatio = maxWidth / originalSize.width
+            let heightRatio = maxHeight / originalSize.height
+            let scale = min(widthRatio, heightRatio)
+            targetSize = CGSize(
+                width: floor(originalSize.width * scale),
+                height: floor(originalSize.height * scale)
+            )
+        }
+
+        let renderer = UIGraphicsImageRenderer(size: targetSize)
+        let resizedData = renderer.jpegData(withCompressionQuality: 0.7) { context in
+            image.draw(in: CGRect(origin: .zero, size: targetSize))
+        }
+        return resizedData
+        #endif
     }
 }

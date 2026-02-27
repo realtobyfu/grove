@@ -2,6 +2,15 @@ import SwiftUI
 import SwiftData
 import SpriteKit
 
+// Cross-platform label color: NSColor uses .labelColor, UIColor uses .label
+private extension SKColor {
+    #if os(macOS)
+    static var graphLabel: SKColor { .labelColor }
+    #else
+    static var graphLabel: SKColor { .label }
+    #endif
+}
+
 // MARK: - Graph Visualization View
 
 struct GraphVisualizationView: View {
@@ -297,7 +306,7 @@ private struct ConnectionTypeLegendLine: View {
             path.addLine(to: CGPoint(x: size.width, y: midY))
             context.stroke(
                 path,
-                with: .color(Color(nsColor: style.strokeColor)),
+                with: .color(Color(style.strokeColor)),
                 style: StrokeStyle(
                     lineWidth: style.lineWidth,
                     dash: style.isDashed ? [6, 4] : []
@@ -311,6 +320,7 @@ private struct ConnectionTypeLegendLine: View {
 
 // MARK: - SpriteKit Scene View Wrapper
 
+#if os(macOS)
 struct GraphSceneView: NSViewRepresentable {
     let items: [Item]
     let connections: [Connection]
@@ -323,7 +333,6 @@ struct GraphSceneView: NSViewRepresentable {
         skView.allowsTransparency = true
         skView.ignoresSiblingOrder = true
         if let scene {
-            // Defer to avoid presenting scene during layout pass
             Task { @MainActor in
                 skView.presentScene(scene)
             }
@@ -333,13 +342,41 @@ struct GraphSceneView: NSViewRepresentable {
 
     func updateNSView(_ skView: SKView, context: Context) {
         if let scene, skView.scene !== scene {
-            // Defer to avoid re-entrant layout from SpriteKit's presentScene
             Task { @MainActor in
                 skView.presentScene(scene)
             }
         }
     }
 }
+#else
+struct GraphSceneView: UIViewRepresentable {
+    let items: [Item]
+    let connections: [Connection]
+    let boards: [Board]
+    @Binding var selectedItem: Item?
+    @Binding var scene: GraphScene?
+
+    func makeUIView(context: Context) -> SKView {
+        let skView = SKView()
+        skView.allowsTransparency = true
+        skView.ignoresSiblingOrder = true
+        if let scene {
+            Task { @MainActor in
+                skView.presentScene(scene)
+            }
+        }
+        return skView
+    }
+
+    func updateUIView(_ skView: SKView, context: Context) {
+        if let scene, skView.scene !== scene {
+            Task { @MainActor in
+                skView.presentScene(scene)
+            }
+        }
+    }
+}
+#endif
 
 // MARK: - Graph Scene (SpriteKit)
 
@@ -349,7 +386,7 @@ class GraphScene: SKScene {
     private var graphNodes: [UUID: GraphNodeSprite] = [:]
     private var edgeNodes: [SKShapeNode] = []
     private var itemMap: [UUID: Item] = [:]
-    private var boardColors: [UUID: NSColor] = [:]
+    private var boardColors: [UUID: SKColor] = [:]
     private var draggedNode: GraphNodeSprite?
     private var isPanning = false
     private var lastPanLocation: CGPoint = .zero
@@ -373,8 +410,10 @@ class GraphScene: SKScene {
         super.didMove(to: view)
         backgroundColor = .clear
 
+        #if os(macOS)
         // Set up zoom with scroll wheel
         view.allowedTouchTypes = []
+        #endif
 
         // Start simulation timer
         isPaused = false
@@ -398,7 +437,7 @@ class GraphScene: SKScene {
         // Build board color map
         for board in boards {
             if let hex = board.color {
-                boardColors[board.id] = nsColor(fromHex: hex)
+                boardColors[board.id] = skColor(fromHex: hex)
             }
         }
 
@@ -559,6 +598,7 @@ class GraphScene: SKScene {
 
     // MARK: - Input Handling
 
+    #if os(macOS)
     override func mouseDown(with event: NSEvent) {
         let location = event.location(in: self)
 
@@ -615,10 +655,67 @@ class GraphScene: SKScene {
         let newScale = max(0.2, min(3.0, cameraNode.xScale - zoomDelta))
         cameraNode.setScale(newScale)
     }
+    #else
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let touch = touches.first else { return }
+        let location = touch.location(in: self)
+
+        // Check if a node was tapped
+        for (_, node) in graphNodes {
+            if node.contains(location) || node.frame.insetBy(dx: -10, dy: -10).contains(location) {
+                draggedNode = node
+                node.setHighlighted(true)
+                if let item = node.item {
+                    onNodeSelected?(item, false)
+                }
+                return
+            }
+        }
+
+        // Start panning
+        isPanning = true
+        lastPanLocation = location
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let touch = touches.first else { return }
+        let location = touch.location(in: self)
+
+        if let dragged = draggedNode {
+            dragged.position = location
+            velocities[dragged.item?.id ?? UUID()] = .zero
+        } else if isPanning {
+            let dx = location.x - lastPanLocation.x
+            let dy = location.y - lastPanLocation.y
+            cameraNode.position.x -= dx
+            cameraNode.position.y -= dy
+            lastPanLocation = location
+        }
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        let wasDragging = draggedNode != nil
+        if let dragged = draggedNode {
+            dragged.setHighlighted(false)
+        }
+        draggedNode = nil
+        isPanning = false
+
+        // Short settle after drag so neighbors adjust, then freeze
+        if wasDragging {
+            simulationSteps = maxSimulationSteps - 30
+            isSimulating = true
+        }
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        touchesEnded(touches, with: event)
+    }
+    #endif
 
     // MARK: - Helpers
 
-    private func nsColor(fromHex hex: String) -> NSColor {
+    private func skColor(fromHex hex: String) -> SKColor {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
         var int: UInt64 = 0
         Scanner(string: hex).scanHexInt64(&int)
@@ -631,12 +728,12 @@ class GraphScene: SKScene {
         default:
             r = 0.5; g = 0.5; b = 0.5
         }
-        return NSColor(red: r, green: g, blue: b, alpha: 1)
+        return SKColor(red: r, green: g, blue: b, alpha: 1)
     }
 }
 
 private struct GraphConnectionStyle {
-    let strokeColor: NSColor
+    let strokeColor: SKColor
     let lineWidth: CGFloat
     let isDashed: Bool
 }
@@ -646,31 +743,31 @@ private extension ConnectionType {
         switch self {
         case .buildsOn:
             GraphConnectionStyle(
-                strokeColor: NSColor.systemGreen.withAlphaComponent(0.72),
+                strokeColor: SKColor.systemGreen.withAlphaComponent(0.72),
                 lineWidth: 2,
                 isDashed: false
             )
         case .contradicts:
             GraphConnectionStyle(
-                strokeColor: NSColor.systemRed.withAlphaComponent(0.8),
+                strokeColor: SKColor.systemRed.withAlphaComponent(0.8),
                 lineWidth: 2,
                 isDashed: false
             )
         case .related:
             GraphConnectionStyle(
-                strokeColor: NSColor.labelColor.withAlphaComponent(0.45),
+                strokeColor: SKColor.graphLabel.withAlphaComponent(0.45),
                 lineWidth: 1,
                 isDashed: true
             )
         case .inspiredBy:
             GraphConnectionStyle(
-                strokeColor: NSColor.systemBlue.withAlphaComponent(0.72),
+                strokeColor: SKColor.systemBlue.withAlphaComponent(0.72),
                 lineWidth: 1.5,
                 isDashed: false
             )
         case .sameTopic:
             GraphConnectionStyle(
-                strokeColor: NSColor.systemOrange.withAlphaComponent(0.72),
+                strokeColor: SKColor.systemOrange.withAlphaComponent(0.72),
                 lineWidth: 1,
                 isDashed: true
             )
@@ -686,7 +783,7 @@ class GraphNodeSprite: SKNode {
     private let label: SKLabelNode
     private let baseRadius: CGFloat
 
-    init(item: Item, boardColors: [UUID: NSColor]) {
+    init(item: Item, boardColors: [UUID: SKColor]) {
         self.item = item
 
         // Size based on depth score (min 14, max 36)
@@ -695,8 +792,8 @@ class GraphNodeSprite: SKNode {
 
         // Monochromatic: opacity varies by depth score for visual hierarchy
         let depthOpacity = 0.5 + min(score / 10.0, 0.4)
-        let fillColor = NSColor.labelColor.withAlphaComponent(depthOpacity)
-        let strokeColor = NSColor.labelColor.withAlphaComponent(min(depthOpacity + 0.2, 1.0))
+        let fillColor = SKColor.graphLabel.withAlphaComponent(depthOpacity)
+        let strokeColor = SKColor.graphLabel.withAlphaComponent(min(depthOpacity + 0.2, 1.0))
 
         circle = SKShapeNode(circleOfRadius: baseRadius)
         circle.fillColor = fillColor
@@ -718,7 +815,7 @@ class GraphNodeSprite: SKNode {
 
         // Label below the node
         label.position = CGPoint(x: 0, y: -baseRadius - 12)
-        label.fontColor = NSColor.labelColor
+        label.fontColor = SKColor.graphLabel
         addChild(label)
 
         // Type icon inside the circle (monospace text symbols)

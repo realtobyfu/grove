@@ -1,4 +1,6 @@
+#if os(macOS)
 import AppKit
+#endif
 import Foundation
 import UserNotifications
 
@@ -138,7 +140,9 @@ extension NudgeNotificationService: UNUserNotificationCenterDelegate {
         let actionIdentifier = response.actionIdentifier
 
         await MainActor.run {
+            #if os(macOS)
             NSApplication.shared.activate(ignoringOtherApps: true)
+            #endif
 
             switch actionIdentifier {
             case NudgeNotificationRouting.dismissActionIdentifier:

@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 
 // MARK: - Grove Formatting Definition
@@ -96,3 +97,4 @@ struct GroveFormattingDefinition {
         }
     }
 }
+#endif

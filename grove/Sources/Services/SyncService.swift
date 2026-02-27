@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import CoreData
 
 /// Sync status states for the UI indicator.
 enum SyncStatus: Equatable, Sendable {

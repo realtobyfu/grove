@@ -12,9 +12,19 @@ struct CoverImageView: View {
     @AppStorage("grove.appearance.monochromeCoverImages")
     private var monochromeCoverImages = true
 
+    private var platformImage: Image? {
+        #if os(macOS)
+        guard let nsImage = NSImage(data: imageData) else { return nil }
+        return Image(nsImage: nsImage)
+        #else
+        guard let uiImage = UIImage(data: imageData) else { return nil }
+        return Image(uiImage: uiImage)
+        #endif
+    }
+
     var body: some View {
-        if let nsImage = NSImage(data: imageData) {
-            Image(nsImage: nsImage)
+        if let image = platformImage {
+            image
                 .resizable()
                 .interpolation(.high)
                 .aspectRatio(contentMode: contentMode)

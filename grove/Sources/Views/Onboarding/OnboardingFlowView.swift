@@ -134,6 +134,7 @@ struct OnboardingFlowView: View {
         VStack(spacing: Spacing.lg) {
             // App icon
             Group {
+                #if os(macOS)
                 if let nsImage = NSApplication.shared.applicationIconImage {
                     Image(nsImage: nsImage)
                         .resizable()
@@ -143,6 +144,11 @@ struct OnboardingFlowView: View {
                         .font(.system(size: 24))
                         .foregroundStyle(Color.textSecondary)
                 }
+                #else
+                Image(systemName: "leaf")
+                    .font(.system(size: 24))
+                    .foregroundStyle(Color.textSecondary)
+                #endif
             }
             .frame(width: 48, height: 48)
             .clipShape(.rect(cornerRadius: 11))

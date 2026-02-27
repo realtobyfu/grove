@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 import SwiftData
 
@@ -697,3 +698,4 @@ struct AttributedStringEditorView: View {
         }
     }
 }
+#endif

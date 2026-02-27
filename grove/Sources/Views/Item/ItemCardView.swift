@@ -1,4 +1,8 @@
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import SwiftUI
 
 // MARK: - Growth Stage Indicator
@@ -194,7 +198,11 @@ struct ItemCardView: View {
                         .foregroundStyle(Color.textTertiary)
                 } else if let urlString = item.sourceURL, let url = URL(string: urlString) {
                     Button {
+                        #if os(macOS)
                         NSWorkspace.shared.open(url)
+                        #else
+                        UIApplication.shared.open(url)
+                        #endif
                     } label: {
                         HStack(spacing: 3) {
                             Image(systemName: "arrow.up.right")

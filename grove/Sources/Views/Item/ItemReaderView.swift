@@ -110,7 +110,9 @@ struct ItemReaderView: View {
                                     .frame(width: 9)
                                     .contentShape(Rectangle())
                                     .onHover { hovering in
+                                        #if os(macOS)
                                         hovering ? NSCursor.resizeLeftRight.push() : NSCursor.pop()
+                                        #endif
                                     }
                                     .gesture(
                                         DragGesture(coordinateSpace: .global)
@@ -270,7 +272,11 @@ struct ItemReaderView: View {
                 .help("Open reflection panel")
 
                 Button {
+                    #if os(macOS)
                     NSWorkspace.shared.open(url)
+                    #else
+                    UIApplication.shared.open(url)
+                    #endif
                 } label: {
                     Image(systemName: "arrow.up.right.square")
                         .font(.groveBody)
@@ -288,6 +294,7 @@ struct ItemReaderView: View {
                 findBar
             }
 
+            #if os(macOS)
             ArticleWebView(
                 url: url,
                 findQuery: findQuery,
@@ -298,7 +305,11 @@ struct ItemReaderView: View {
                     findMatchCount = total
                 }
             )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            #else
+            Text("Web view not yet available on iOS")
+                .foregroundStyle(Color.textSecondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            #endif
         }
     }
 
@@ -313,7 +324,9 @@ struct ItemReaderView: View {
                     .textFieldStyle(.plain)
                     .font(.groveMeta)
                     .onSubmit { findForwardToken += 1 }
+                    #if os(macOS)
                     .onExitCommand { closeFindBar() }
+                    #endif
                 if !findQuery.isEmpty {
                     Text("\(findCurrentMatch)/\(findMatchCount)")
                         .font(.groveMeta)
@@ -1295,17 +1308,20 @@ private struct ReflectionBlockRow: View {
         )
         .onHover { hovering in
             isHovered = hovering
+            #if os(macOS)
             if hovering {
                 NSCursor.pointingHand.push()
             } else {
                 NSCursor.pop()
             }
+            #endif
         }
     }
 }
 
 // MARK: - Selectable Markdown View (NSTextView-backed for text selection)
 
+#if os(macOS)
 struct SelectableMarkdownView: NSViewRepresentable {
     let markdown: String
     var onSelectText: ((String) -> Void)?
@@ -1619,6 +1635,20 @@ struct SelectableMarkdownView: NSViewRepresentable {
         }
     }
 }
+#else
+/// iOS fallback: renders markdown as plain selectable text.
+struct SelectableMarkdownView: View {
+    let markdown: String
+    var onSelectText: ((String) -> Void)?
+
+    var body: some View {
+        Text(markdown)
+            .font(.body)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+#endif
 
 // MARK: - Markdown Text View
 

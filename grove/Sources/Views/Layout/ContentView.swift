@@ -320,6 +320,7 @@ struct ContentView: View {
                     .fill(Color.clear)
                     .frame(width: 9)
                     .contentShape(Rectangle())
+                    #if os(macOS)
                     .onHover { hovering in
                         if hovering {
                             NSCursor.resizeLeftRight.push()
@@ -336,6 +337,7 @@ struct ContentView: View {
                                 }
                             }
                     )
+                    #endif
             }
     }
 

@@ -322,8 +322,12 @@ struct DialecticalChatPanel: View {
     private func assistantActions(message: ChatMessage, conversation: Conversation) -> some View {
         HStack(spacing: Spacing.sm) {
             Button {
+                #if os(macOS)
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(message.content, forType: .string)
+                #else
+                UIPasteboard.general.string = message.content
+                #endif
             } label: {
                 Label("Copy", systemImage: "doc.on.doc")
                     .font(.groveBadge)

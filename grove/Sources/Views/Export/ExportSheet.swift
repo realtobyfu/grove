@@ -63,6 +63,7 @@ struct ItemExportSheet: View {
     }
 
     private func exportAsMarkdown() {
+        #if os(macOS)
         guard let url = ExportService.showSavePanel(filename: item.title) else { return }
 
         guard let data = ExportService.exportItem(item) else {
@@ -77,5 +78,8 @@ struct ItemExportSheet: View {
         } catch {
             exportResult = "Error: \(error.localizedDescription)"
         }
+        #else
+        exportResult = "Export not yet available on iOS."
+        #endif
     }
 }

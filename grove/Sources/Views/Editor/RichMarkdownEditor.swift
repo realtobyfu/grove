@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 import SwiftData
 import AppKit
@@ -1280,3 +1281,22 @@ class HighlightingTextView: NSTextView {
         }
     }
 }
+#else
+import SwiftUI
+import SwiftData
+
+/// iOS fallback: plain TextEditor wrapping the same markdown binding.
+/// The macOS version uses NSTextView for rich rendering; iOS uses basic TextEditor.
+struct RichMarkdownEditor: View {
+    @Binding var text: String
+    var sourceItem: Item?
+    var minHeight: CGFloat = 80
+    var proseMode: Bool = false
+
+    var body: some View {
+        TextEditor(text: $text)
+            .font(.body)
+            .frame(minHeight: minHeight)
+    }
+}
+#endif

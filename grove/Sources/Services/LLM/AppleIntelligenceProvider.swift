@@ -7,7 +7,7 @@ import FoundationModels
 /// Free, private, zero-config — no API key required.
 /// All calls are async, non-blocking, and failure-tolerant — returns nil on any error.
 /// On macOS < 26, all calls return nil (graceful degradation).
-@available(macOS 26, *)
+@available(macOS 26, iOS 26, *)
 final class AppleIntelligenceProvider: LLMProvider, Sendable {
 
     /// Check whether the on-device model is available on this machine.

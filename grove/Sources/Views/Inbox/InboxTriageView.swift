@@ -1,4 +1,8 @@
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
@@ -240,10 +244,14 @@ struct InboxTriageView: View {
     }
 
     private var isTextInputFocusedInKeyWindow: Bool {
+        #if os(macOS)
         guard let firstResponder = NSApp.keyWindow?.firstResponder else { return false }
         if firstResponder is NSTextView { return true }
         guard let responderView = firstResponder as? NSView else { return false }
         return responderView.conforms(to: NSTextInputClient.self)
+        #else
+        return false
+        #endif
     }
 
     private func handleTriageKeyPress(_ keyPress: KeyPress) -> KeyPress.Result {

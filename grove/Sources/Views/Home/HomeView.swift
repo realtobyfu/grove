@@ -335,7 +335,11 @@ struct HomeView: View {
     private func openSuggestionInBrowser(_ item: Item) {
         guard let urlString = item.sourceURL,
               let url = URL(string: urlString) else { return }
+        #if os(macOS)
         NSWorkspace.shared.open(url)
+        #else
+        UIApplication.shared.open(url)
+        #endif
     }
 
     // MARK: - Discussion Prompts Section

@@ -3,6 +3,7 @@ import AVKit
 import AVFoundation
 
 /// A video player wrapper that tracks playback time and supports seek-to-timestamp.
+#if os(macOS)
 struct VideoPlayerView: NSViewRepresentable {
     let url: URL
     @Binding var currentTime: Double
@@ -16,7 +17,6 @@ struct VideoPlayerView: NSViewRepresentable {
         playerView.controlsStyle = .floating
         playerView.showsFullScreenToggleButton = true
 
-        // Observe duration once asset is ready
         let asset = player.currentItem?.asset
         Task { @MainActor in
             if let asset = asset {
@@ -29,7 +29,6 @@ struct VideoPlayerView: NSViewRepresentable {
             }
         }
 
-        // Periodic time observer for tracking playback position
         let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
         let currentTimeBinding = _currentTime
         let observer = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
@@ -47,7 +46,6 @@ struct VideoPlayerView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: AVPlayerView, context: Context) {
-        // Handle seek requests
         if let seekTo = seekToTime, seekTo != context.coordinator.lastSeekTime {
             context.coordinator.lastSeekTime = seekTo
             let cmTime = CMTime(seconds: seekTo, preferredTimescale: 600)
@@ -73,6 +71,73 @@ struct VideoPlayerView: NSViewRepresentable {
         var lastSeekTime: Double?
     }
 }
+#else
+struct VideoPlayerView: UIViewControllerRepresentable {
+    let url: URL
+    @Binding var currentTime: Double
+    @Binding var duration: Double
+    let seekToTime: Double?
+
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
+        let player = AVPlayer(url: url)
+        controller.player = player
+
+        let asset = player.currentItem?.asset
+        Task { @MainActor in
+            if let asset = asset {
+                if let dur = try? await asset.load(.duration) {
+                    let secs = CMTimeGetSeconds(dur)
+                    if secs.isFinite {
+                        duration = secs
+                    }
+                }
+            }
+        }
+
+        let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
+        let currentTimeBinding = _currentTime
+        let observer = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
+            MainActor.assumeIsolated {
+                let secs = CMTimeGetSeconds(time)
+                if secs.isFinite {
+                    currentTimeBinding.wrappedValue = secs
+                }
+            }
+        }
+        context.coordinator.timeObserver = observer
+        context.coordinator.player = player
+
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {
+        if let seekTo = seekToTime, seekTo != context.coordinator.lastSeekTime {
+            context.coordinator.lastSeekTime = seekTo
+            let cmTime = CMTime(seconds: seekTo, preferredTimescale: 600)
+            uiViewController.player?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        }
+    }
+
+    static func dismantleUIViewController(_ uiViewController: AVPlayerViewController, coordinator: Coordinator) {
+        if let observer = coordinator.timeObserver, let player = coordinator.player {
+            player.removeTimeObserver(observer)
+        }
+        uiViewController.player?.pause()
+        uiViewController.player = nil
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    class Coordinator {
+        var player: AVPlayer?
+        var timeObserver: Any?
+        var lastSeekTime: Double?
+    }
+}
+#endif
 
 // MARK: - Timestamp Formatting
 
@@ -105,7 +170,6 @@ enum VideoThumbnailGenerator {
         if let time = time {
             targetTime = time
         } else {
-            // Try midpoint, fallback to 1 second
             if let duration = try? await asset.load(.duration) {
                 let mid = CMTimeGetSeconds(duration) / 2.0
                 targetTime = CMTime(seconds: max(mid, 0.5), preferredTimescale: 600)
@@ -116,6 +180,7 @@ enum VideoThumbnailGenerator {
 
         do {
             let (cgImage, _) = try await generator.image(at: targetTime)
+            #if os(macOS)
             let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
             guard let tiffData = nsImage.tiffRepresentation,
                   let bitmap = NSBitmapImageRep(data: tiffData),
@@ -123,6 +188,10 @@ enum VideoThumbnailGenerator {
                 return nil
             }
             return jpegData
+            #else
+            let uiImage = UIImage(cgImage: cgImage)
+            return uiImage.jpegData(compressionQuality: 0.7)
+            #endif
         } catch {
             return nil
         }

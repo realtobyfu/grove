@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 
 // MARK: - Custom Attributed String Keys
@@ -372,3 +373,4 @@ struct MarkdownAttributedStringConverter {
         return mdResult
     }
 }
+#endif

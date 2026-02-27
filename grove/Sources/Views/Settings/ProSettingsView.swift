@@ -1,3 +1,8 @@
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 import SwiftUI
 
 struct ProSettingsView: View {
@@ -45,7 +50,11 @@ struct ProSettingsView: View {
                     if entitlement.state.source == .storeKit {
                         Button("Manage Subscription") {
                             if let url = URL(string: "https://apps.apple.com/account/subscriptions") {
+                                #if os(macOS)
                                 NSWorkspace.shared.open(url)
+                                #else
+                                UIApplication.shared.open(url)
+                                #endif
                             }
                         }
                         .buttonStyle(.bordered)

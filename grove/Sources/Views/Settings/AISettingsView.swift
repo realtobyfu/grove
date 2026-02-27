@@ -286,11 +286,11 @@ struct AISettingsView: View {
 
     private var appleIntelligenceStatus: some View {
         Group {
-            if AppleIntelligenceProvider.isAvailable {
+            if #available(macOS 26, iOS 26, *), AppleIntelligenceProvider.isAvailable {
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(Color.textPrimary)
-                    Text("Apple Intelligence is available on this Mac.")
+                    Text("Apple Intelligence is available on this device.")
                         .font(.groveBodySmall)
                         .foregroundStyle(Color.textSecondary)
                 }

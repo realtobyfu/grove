@@ -41,9 +41,11 @@ struct NoteWriterPanelView: View {
                     }
                     isTitleFocused = true
                 }
+                #if os(macOS)
                 .onExitCommand {
                     dismiss()
                 }
+                #endif
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     topBar
@@ -66,9 +68,11 @@ struct NoteWriterPanelView: View {
                 .onAppear {
                     isTitleFocused = true
                 }
+                #if os(macOS)
                 .onExitCommand {
                     dismiss()
                 }
+                #endif
             }
         }
         .background {
@@ -179,7 +183,9 @@ struct NoteWriterPanelView: View {
         saveContent()
         // Resign first responder before animating out so macOS doesn't leave
         // the window in a state where clicks stop reaching underlying views.
+        #if os(macOS)
         NSApp.keyWindow?.makeFirstResponder(nil)
+        #endif
         withAnimation(.easeOut(duration: 0.2)) {
             isPresented = false
         }

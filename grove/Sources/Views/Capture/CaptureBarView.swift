@@ -520,9 +520,11 @@ struct CaptureBarOverlayView: View {
         .onAppear {
             isFocused = true
         }
+        #if os(macOS)
         .onExitCommand {
             dismiss()
         }
+        #endif
     }
 
     private func capture() {
