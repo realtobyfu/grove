@@ -46,7 +46,7 @@ final class CheckInTriggerService: CheckInTriggerServiceProtocol {
 
     /// Items with `.contradicts` connections or opposing reflections.
     private func checkContradictions(context: ModelContext) -> CheckInSuggestion? {
-        let allConnections = (try? context.fetch(FetchDescriptor<Connection>())) ?? []
+        let allConnections: [Connection] = context.fetchAll()
 
         let contradictions = allConnections.filter { $0.type == .contradicts }
         guard let connection = contradictions.first(where: { conn in
@@ -81,7 +81,7 @@ final class CheckInTriggerService: CheckInTriggerServiceProtocol {
 
     /// Boards with many items but few reflections.
     private func checkKnowledgeGaps(context: ModelContext) -> CheckInSuggestion? {
-        let allBoards = (try? context.fetch(FetchDescriptor<Board>())) ?? []
+        let allBoards: [Board] = context.fetchAll()
 
         for board in allBoards {
             let items = board.items.filter { $0.status == .active }
@@ -125,7 +125,7 @@ final class CheckInTriggerService: CheckInTriggerServiceProtocol {
 
     /// High depth-score items not engaged in 30+ days.
     private func checkStaleItems(context: ModelContext) -> CheckInSuggestion? {
-        let allItems = (try? context.fetch(FetchDescriptor<Item>())) ?? []
+        let allItems: [Item] = context.fetchAll()
         let cutoff = Calendar.current.date(byAdding: .day, value: -Self.staleThresholdDays, to: .now) ?? .now
 
         let staleHighValue = allItems.filter { item in
@@ -166,7 +166,7 @@ final class CheckInTriggerService: CheckInTriggerServiceProtocol {
             return nil
         }
 
-        let allBoards = (try? context.fetch(FetchDescriptor<Board>())) ?? []
+        let allBoards: [Board] = context.fetchAll()
         let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -7, to: .now) ?? .now
 
         // Find the board with most recent activity

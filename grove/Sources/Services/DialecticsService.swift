@@ -410,7 +410,7 @@ final class DialecticsService: DialecticsServiceProtocol {
         let matches = content.matches(of: pattern)
         guard !matches.isEmpty else { return [] }
 
-        let allItems = (try? context.fetch(FetchDescriptor<Item>())) ?? []
+        let allItems: [Item] = context.fetchAll()
         let titles = matches.map { String($0.1) }
 
         return titles.compactMap { title in
@@ -479,7 +479,7 @@ final class DialecticsService: DialecticsServiceProtocol {
         conversation: Conversation,
         context: ModelContext
     ) -> ReflectionBlock? {
-        let allItems = (try? context.fetch(FetchDescriptor<Item>())) ?? []
+        let allItems: [Item] = context.fetchAll()
         guard let item = allItems.first(where: { $0.title.lowercased() == itemTitle.lowercased() }) else {
             return nil
         }
@@ -518,7 +518,7 @@ final class DialecticsService: DialecticsServiceProtocol {
 
         // If conversation is item-anchored, create a connection from source item to new note
         if let sourceID = conversation.seedItemIDs.first {
-            let allItems = (try? context.fetch(FetchDescriptor<Item>())) ?? []
+            let allItems: [Item] = context.fetchAll()
             if let sourceItem = allItems.first(where: { $0.id == sourceID }), sourceItem.id != item.id {
                 let connection = Connection(sourceItem: sourceItem, targetItem: item, type: .related)
                 connection.note = "Created from dialectical conversation"
@@ -541,7 +541,7 @@ final class DialecticsService: DialecticsServiceProtocol {
         type: ConnectionType,
         context: ModelContext
     ) -> Connection? {
-        let allItems = (try? context.fetch(FetchDescriptor<Item>())) ?? []
+        let allItems: [Item] = context.fetchAll()
         guard let source = allItems.first(where: { $0.title.lowercased() == sourceTitle.lowercased() }),
               let target = allItems.first(where: { $0.title.lowercased() == targetTitle.lowercased() }) else {
             return nil

@@ -345,14 +345,14 @@ final class SearchViewModel {
         }
 
         let boardScopeID = scopeBoard?.id
-        var items = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
+        var items: [Item] = modelContext.fetchAll()
         if let boardScopeID {
             items = items.filter { item in
                 item.boards.contains(where: { $0.id == boardScopeID })
             }
         }
 
-        var reflections = (try? modelContext.fetch(FetchDescriptor<ReflectionBlock>())) ?? []
+        var reflections: [ReflectionBlock] = modelContext.fetchAll()
         if let boardScopeID {
             reflections = reflections.filter { block in
                 guard let parentItem = block.item else { return false }
@@ -360,8 +360,8 @@ final class SearchViewModel {
             }
         }
 
-        let tags = (try? modelContext.fetch(FetchDescriptor<Tag>())) ?? []
-        let boards = (try? modelContext.fetch(FetchDescriptor<Board>())) ?? []
+        let tags: [Tag] = modelContext.fetchAll()
+        let boards: [Board] = modelContext.fetchAll()
 
         let corpus = SearchCorpus(
             items: items,

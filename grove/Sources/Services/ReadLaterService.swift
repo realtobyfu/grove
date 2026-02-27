@@ -88,7 +88,7 @@ final class ReadLaterService: ReadLaterServiceProtocol {
 
     @discardableResult
     func restoreDueItems(referenceDate: Date = .now) -> Int {
-        let allItems = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
+        let allItems: [Item] = modelContext.fetchAll()
         let queuedItems = allItems.filter { $0.status == .queued }
         var restoredCount = 0
 

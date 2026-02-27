@@ -26,8 +26,8 @@ final class SmartNudgeService: SmartNudgeServiceProtocol {
     @MainActor func generateSmartNudge(context: ModelContext) async -> SmartNudge? {
         guard LLMServiceConfig.isConfigured else { return nil }
 
-        let boards = (try? context.fetch(FetchDescriptor<Board>())) ?? []
-        let allItems = (try? context.fetch(FetchDescriptor<Item>())) ?? []
+        let boards: [Board] = context.fetchAll()
+        let allItems: [Item] = context.fetchAll()
 
         let twoWeeksAgo = Calendar.current.date(byAdding: .day, value: -AppConstants.Days.stale, to: .now) ?? .now
         let recentItems = allItems.filter { $0.createdAt > twoWeeksAgo && $0.status != .dismissed }

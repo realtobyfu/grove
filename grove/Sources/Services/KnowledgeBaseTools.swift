@@ -198,7 +198,7 @@ final class KnowledgeBaseTools {
     }
 
     private func getBoardItems(boardName: String) -> String {
-        let allBoards = (try? modelContext.fetch(FetchDescriptor<Board>())) ?? []
+        let allBoards: [Board] = modelContext.fetchAll()
         guard let board = allBoards.first(where: { $0.title.lowercased() == boardName.lowercased() }) else {
             return "Board \"\(boardName)\" not found. Available boards: \(allBoards.map(\.title).joined(separator: ", "))"
         }
@@ -220,7 +220,7 @@ final class KnowledgeBaseTools {
             return "Error: board_name is required."
         }
 
-        let allBoards = (try? modelContext.fetch(FetchDescriptor<Board>())) ?? []
+        let allBoards: [Board] = modelContext.fetchAll()
         // Avoid creating duplicate boards
         if allBoards.contains(where: { $0.title.lowercased() == boardName.lowercased() }) {
             return "Board \"\(boardName)\" already exists. Items were not reassigned."
@@ -293,7 +293,7 @@ final class KnowledgeBaseTools {
     // MARK: - Helpers
 
     private func fetchAllItems() -> [Item] {
-        (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
+        modelContext.fetchAll()
     }
 
     private func item(_ item: Item) -> String {

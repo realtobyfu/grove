@@ -37,7 +37,7 @@ final class ResurfacingService: ResurfacingServiceProtocol {
 
     /// Check all items and reset intervals for those with 60+ days of no engagement.
     func resetStaleIntervals() {
-        let allItems = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
+        let allItems: [Item] = modelContext.fetchAll()
         let sixtyDaysAgo = Calendar.current.date(byAdding: .day, value: -AppConstants.Days.deepInactivity, to: .now) ?? .now
 
         for item in allItems where item.isResurfacingEligible && item.status == .active {
@@ -61,7 +61,7 @@ final class ResurfacingService: ResurfacingServiceProtocol {
     /// Get the next item eligible for resurfacing.
     /// Returns the most overdue item first.
     func nextResurfaceCandidate(excludingItemIDs: Set<UUID> = []) -> Item? {
-        let allItems = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
+        let allItems: [Item] = modelContext.fetchAll()
 
         return allItems
             .filter { item in
@@ -109,7 +109,7 @@ final class ResurfacingService: ResurfacingServiceProtocol {
 
     /// Compute queue statistics for the settings dashboard.
     func queueStats() -> QueueStats {
-        let allItems = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
+        let allItems: [Item] = modelContext.fetchAll()
 
         let eligible = allItems.filter { $0.isResurfacingEligible && $0.status == .active }
         let paused = eligible.filter { $0.isResurfacingPaused }.count
