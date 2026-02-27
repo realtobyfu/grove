@@ -21,10 +21,7 @@ struct TabRootView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             NavigationStack {
-                Text("Home")
-                    .font(.groveTitle)
-                    .foregroundStyle(Color.textSecondary)
-                    .navigationTitle("Home")
+                MobileHomeView()
             }
             .tabItem {
                 Label("Home", systemImage: "house")

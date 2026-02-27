@@ -49,10 +49,7 @@ struct iPadRootView: View {
     private var contentForSelection: some View {
         switch selection {
         case .home:
-            Text("Home")
-                .font(.groveTitle)
-                .foregroundStyle(Color.textSecondary)
-                .navigationTitle("Home")
+            MobileHomeView()
         case .inbox:
             MobileInboxView()
         case .library:

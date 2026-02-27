@@ -99,11 +99,11 @@ Last updated: 2026-02-26
 
 ## P7: Home Screen
 
-- [ ] P7.1: Create `grove/Sources/Views/iOS/Home/MobileHomeView.swift` — vertical ScrollView on iPhone: conversation starters section (max 3 cards), recent items section (6 items), nudge banners (swipe to dismiss); uses ConversationStarterService and @Query
-- [ ] P7.2: Create `grove/Sources/Views/iOS/Home/MobileStarterCard.swift` — tappable card showing conversation prompt text, label, mode icon; tap navigates to chat with seeded prompt
-- [ ] P7.3: Create `grove/Sources/Views/iOS/Home/MobileNudgeBanner.swift` — inline banner card with nudge message, item title, action buttons (Open, Snooze, Dismiss); swipe-to-dismiss gesture
-- [ ] P7.4: Add iPad home variant — when horizontalSizeClass == .regular, use two-column layout: starters + nudges in left column, recent items in right column (using HStack or LazyHGrid)
-- [ ] P7.5: Wire home data sources — ConversationStarterService.generateStarters() on appear, @Query for recent items (sorted by lastEngagedAt desc, limit 6), @Query for pending nudges (status == .pending)
+- [x] P7.1: Create `grove/Sources/Views/iOS/Home/MobileHomeView.swift` — vertical ScrollView on iPhone: conversation starters section (max 3 cards), recent items section (6 items), nudge banners (swipe to dismiss); uses ConversationStarterService and @Query
+- [x] P7.2: Create `grove/Sources/Views/iOS/Home/MobileStarterCard.swift` — tappable card showing conversation prompt text, label, mode icon; tap navigates to chat with seeded prompt
+- [x] P7.3: Create `grove/Sources/Views/iOS/Home/MobileNudgeBanner.swift` — inline banner card with nudge message, item title, action buttons (Open, Snooze, Dismiss); swipe-to-dismiss gesture
+- [x] P7.4: Add iPad home variant — when horizontalSizeClass == .regular, use two-column layout: starters + nudges in left column, recent items in right column (using HStack or LazyHGrid)
+- [x] P7.5: Wire home data sources — ConversationStarterService.generateStarters() on appear, @Query for recent items (sorted by lastEngagedAt desc, limit 6), @Query for pending nudges (status == .pending)
 
 ## P8: Search
 
