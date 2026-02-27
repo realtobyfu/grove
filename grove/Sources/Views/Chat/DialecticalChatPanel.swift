@@ -11,58 +11,95 @@ struct DialecticalChatPanel: View {
     var currentBoard: Board?
     var onNavigateToItem: ((Item) -> Void)?
 
-    @State private var dialecticsService = DialecticsService()
-    @State private var inputText = ""
-    @State private var showConversationList = false
-    @State private var connectionMessage: ChatMessage?
-    @State private var connectionSourceIdx = 0
-    @State private var connectionTargetIdx = 1
-    @State private var connectionType: ConnectionType = .related
-    @State private var reflectionMessage: ChatMessage?
-    @State private var reflectionConversation: Conversation?
-    @State private var noteMessage: ChatMessage?
-    @State private var conversationToDelete: Conversation?
-    @State private var conversationListQuery = ""
-    @State private var conversationListSelectionID: UUID?
-    @State private var paywallPresentation: PaywallPresentation?
-    @FocusState private var isConversationListSearchFocused: Bool
+    @State private var viewModel: DialecticalChatViewModel?
 
     private var activeConversation: Conversation? {
         selectedConversation
     }
 
-    private var activeConversations: [Conversation] {
-        conversations.filter { !$0.isArchived }
+    // MARK: - Bindings
+
+    private var connectionMessageBinding: Binding<ChatMessage?> {
+        Binding(
+            get: { viewModel?.connectionMessage },
+            set: { viewModel?.connectionMessage = $0 }
+        )
     }
 
-    private var visibleHistoryConversations: [Conversation] {
-        guard entitlement.hasAccess(to: .fullHistory) else {
-            return Array(activeConversations.prefix(20))
-        }
-        return activeConversations
+    private var reflectionMessageBinding: Binding<ChatMessage?> {
+        Binding(
+            get: { viewModel?.reflectionMessage },
+            set: { viewModel?.reflectionMessage = $0 }
+        )
     }
 
-    private var isHistoryCapped: Bool {
-        !entitlement.hasAccess(to: .fullHistory) && activeConversations.count > visibleHistoryConversations.count
+    private var noteMessageBinding: Binding<ChatMessage?> {
+        Binding(
+            get: { viewModel?.noteMessage },
+            set: { viewModel?.noteMessage = $0 }
+        )
     }
 
-    private var trimmedConversationListQuery: String {
-        conversationListQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    private var paywallBinding: Binding<PaywallPresentation?> {
+        Binding(
+            get: { viewModel?.paywallPresentation },
+            set: { viewModel?.paywallPresentation = $0 }
+        )
     }
 
-    private var filteredConversations: [Conversation] {
-        let query = trimmedConversationListQuery
-        guard !query.isEmpty else { return visibleHistoryConversations }
-        return visibleHistoryConversations.filter { conversation in
-            conversationMatchesSearch(conversation, query: query)
-        }
+    private var deleteAlertBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel?.conversationToDelete != nil },
+            set: { if !$0 { viewModel?.conversationToDelete = nil } }
+        )
     }
 
-    private var filteredConversationIDs: [UUID] {
-        filteredConversations.map(\.id)
+    private var showConversationListBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel?.showConversationList ?? false },
+            set: { viewModel?.showConversationList = $0 }
+        )
     }
+
+    // MARK: - Body
 
     var body: some View {
+        mainContent
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.bgInspector)
+            .onAppear {
+                if viewModel == nil {
+                    viewModel = DialecticalChatViewModel(modelContext: modelContext)
+                }
+            }
+            .sheet(item: connectionMessageBinding) { message in
+                connectionSheetContent(for: message)
+            }
+            .sheet(item: reflectionMessageBinding) { message in
+                reflectionSheetContent(for: message)
+            }
+            .sheet(item: noteMessageBinding) { message in
+                noteSheetContent(for: message)
+            }
+            .sheet(item: paywallBinding) { presentation in
+                ProPaywallView(presentation: presentation)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .groveDialecticsLimitReached)) { _ in
+                viewModel?.paywallPresentation = paywallCoordinator.present(
+                    feature: .dialectics,
+                    source: .dialecticsLimit
+                )
+            }
+            .alert("Delete Conversation Permanently?", isPresented: deleteAlertBinding) {
+                deleteAlertButtons
+            } message: {
+                deleteAlertMessage
+            }
+    }
+
+    // MARK: - Main Content
+
+    private var mainContent: some View {
         VStack(spacing: 0) {
             headerBar
             Divider()
@@ -73,45 +110,75 @@ struct DialecticalChatPanel: View {
                 emptyState
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.bgInspector)
-        .sheet(item: $connectionMessage) { message in
-            connectionSheet(for: message)
-        }
-        .sheet(item: $reflectionMessage) { message in
-            reflectionSheet(for: message)
-        }
-        .sheet(item: $noteMessage) { message in
-            saveNoteSheet(for: message)
-        }
-        .sheet(item: $paywallPresentation) { presentation in
-            ProPaywallView(presentation: presentation)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .groveDialecticsLimitReached)) { _ in
-            paywallPresentation = paywallCoordinator.present(
-                feature: .dialectics,
-                source: .dialecticsLimit
+    }
+
+    // MARK: - Sheet Contents
+
+    @ViewBuilder
+    private func connectionSheetContent(for message: ChatMessage) -> some View {
+        if let vm = viewModel {
+            ChatConnectionSheet(
+                message: message,
+                referencedItems: vm.referencedItems(for: message),
+                connectionType: Binding(
+                    get: { vm.connectionType },
+                    set: { vm.connectionType = $0 }
+                ),
+                onCreateConnection: {
+                    vm.createConnection(from: message, type: vm.connectionType)
+                },
+                onDismiss: { vm.connectionMessage = nil }
             )
         }
-        .alert(
-            "Delete Conversation Permanently?",
-            isPresented: Binding(
-                get: { conversationToDelete != nil },
-                set: { if !$0 { conversationToDelete = nil } }
+    }
+
+    @ViewBuilder
+    private func reflectionSheetContent(for message: ChatMessage) -> some View {
+        if let vm = viewModel {
+            SaveReflectionSheet(
+                message: message,
+                conversation: vm.reflectionConversation,
+                dialecticsService: vm.dialecticsService,
+                onDismiss: { vm.reflectionMessage = nil }
             )
-        ) {
-            Button("Cancel", role: .cancel) {
-                conversationToDelete = nil
+        }
+    }
+
+    @ViewBuilder
+    private func noteSheetContent(for message: ChatMessage) -> some View {
+        if let vm = viewModel {
+            SaveNoteSheet(
+                message: message,
+                conversation: activeConversation,
+                dialecticsService: vm.dialecticsService,
+                onDismiss: { vm.noteMessage = nil }
+            )
+        }
+    }
+
+    // MARK: - Alert
+
+    @ViewBuilder
+    private var deleteAlertButtons: some View {
+        Button("Cancel", role: .cancel) {
+            viewModel?.conversationToDelete = nil
+        }
+        Button("Delete", role: .destructive) {
+            if let conversation = viewModel?.conversationToDelete {
+                viewModel?.deleteConversation(
+                    conversation,
+                    selectedConversation: $selectedConversation,
+                    conversations: conversations
+                )
             }
-            Button("Delete", role: .destructive) {
-                if let conversation = conversationToDelete {
-                    deleteConversation(conversation)
-                }
-            }
-        } message: {
-            if let conversation = conversationToDelete {
-                Text("\"\(conversation.displayTitle)\" and \(conversation.messages.count) message(s) will be permanently deleted. This cannot be undone.")
-            }
+        }
+    }
+
+    @ViewBuilder
+    private var deleteAlertMessage: some View {
+        if let conversation = viewModel?.conversationToDelete {
+            let count = conversation.messages.count
+            Text("\"\(conversation.displayTitle)\" and \(count) message(s) will be permanently deleted. This cannot be undone.")
         }
     }
 
@@ -128,370 +195,220 @@ struct DialecticalChatPanel: View {
             Spacer()
 
             if let conversation = activeConversation {
-                Text(conversation.displayTitle)
-                    .font(.groveBodySmall)
-                    .foregroundStyle(Color.textSecondary)
-                    .lineLimit(1)
-
-                Button(role: .destructive) {
-                    conversationToDelete = conversation
-                } label: {
-                    Image(systemName: "trash")
-                        .font(.groveBody)
-                        .foregroundStyle(Color.textMuted)
-                }
-                .buttonStyle(.plain)
-                .help("Delete conversation")
-                .accessibilityLabel("Delete conversation \(conversation.displayTitle)")
-                .accessibilityHint("Permanently removes this conversation.")
+                headerConversationControls(conversation)
             }
 
-            Button {
-                showConversationList.toggle()
-            } label: {
-                Image(systemName: "list.bullet")
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textMuted)
-            }
-            .buttonStyle(.plain)
-            .help("All conversations")
-            .accessibilityLabel("Show all conversations")
-            .accessibilityHint("Opens the conversation history popover.")
-            .popover(isPresented: $showConversationList) {
-                conversationListPopover
-            }
-
-            Button {
-                startNewConversation()
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "plus")
-                        .font(.groveBody)
-                        .foregroundStyle(Color.textMuted)
-                    if !entitlement.isPro {
-                        Text("\(entitlement.remaining(.dialectics))/\(MeteredFeature.dialectics.freeLimit)")
-                            .font(.groveBadge)
-                            .foregroundStyle(Color.textTertiary)
-                    }
-                }
-            }
-            .buttonStyle(.plain)
-            .help("New conversation")
-            .accessibilityLabel("New conversation")
-            .accessibilityHint("Starts a fresh Dialectics conversation.")
-
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isVisible = false
-                }
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.textMuted)
-                    .padding(6)
-                    .background(Color.bgCard)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.borderPrimary, lineWidth: 1)
-                    )
-            }
-            .buttonStyle(.plain)
-            .help("Close chat")
-            .accessibilityLabel("Close Dialectics")
-            .accessibilityHint("Hides the Dialectics panel.")
+            conversationListButton
+            newConversationButton
+            closeButton
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
+    }
+
+    @ViewBuilder
+    private func headerConversationControls(_ conversation: Conversation) -> some View {
+        Text(conversation.displayTitle)
+            .font(.groveBodySmall)
+            .foregroundStyle(Color.textSecondary)
+            .lineLimit(1)
+
+        Button(role: .destructive) {
+            viewModel?.conversationToDelete = conversation
+        } label: {
+            Image(systemName: "trash")
+                .font(.groveBody)
+                .foregroundStyle(Color.textMuted)
+        }
+        .buttonStyle(.plain)
+        .help("Delete conversation")
+        .accessibilityLabel("Delete conversation \(conversation.displayTitle)")
+        .accessibilityHint("Permanently removes this conversation.")
+    }
+
+    private var conversationListButton: some View {
+        Button {
+            viewModel?.showConversationList.toggle()
+        } label: {
+            Image(systemName: "list.bullet")
+                .font(.groveBody)
+                .foregroundStyle(Color.textMuted)
+        }
+        .buttonStyle(.plain)
+        .help("All conversations")
+        .accessibilityLabel("Show all conversations")
+        .accessibilityHint("Opens the conversation history popover.")
+        .popover(isPresented: showConversationListBinding) {
+            conversationListPopoverContent
+        }
+    }
+
+    @ViewBuilder
+    private var conversationListPopoverContent: some View {
+        if let vm = viewModel {
+            let filtered = vm.filteredConversations(from: conversations, entitlement: entitlement)
+            let visible = vm.visibleHistoryConversations(from: conversations, entitlement: entitlement)
+            ConversationListPopover(
+                conversations: visible,
+                filteredConversations: filtered,
+                isHistoryCapped: vm.isHistoryCapped(conversations: conversations, entitlement: entitlement),
+                trimmedQuery: vm.trimmedConversationListQuery,
+                searchQuery: Binding(
+                    get: { vm.conversationListQuery },
+                    set: { vm.conversationListQuery = $0 }
+                ),
+                selectionID: Binding(
+                    get: { vm.conversationListSelectionID },
+                    set: { vm.conversationListSelectionID = $0 }
+                ),
+                entitlement: entitlement,
+                onSelectConversation: { conv in
+                    vm.openConversationFromList(conv, selectedConversation: $selectedConversation)
+                },
+                onDeleteConversation: { conv in
+                    vm.conversationToDelete = conv
+                },
+                onUnlockPro: {
+                    vm.paywallPresentation = paywallCoordinator.present(
+                        feature: .fullHistory,
+                        source: .chatHistory
+                    )
+                },
+                onPrepare: {
+                    vm.prepareConversationListPopover(selectedConversation: selectedConversation)
+                },
+                onSyncSelection: {
+                    vm.syncConversationListSelection(
+                        conversations: filtered,
+                        selectedConversation: selectedConversation
+                    )
+                }
+            )
+        }
+    }
+
+    private var newConversationButton: some View {
+        Button {
+            viewModel?.startNewConversation(
+                selectedConversation: $selectedConversation,
+                currentBoard: currentBoard,
+                entitlement: entitlement,
+                paywallCoordinator: paywallCoordinator
+            )
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "plus")
+                    .font(.groveBody)
+                    .foregroundStyle(Color.textMuted)
+                if !entitlement.isPro {
+                    Text("\(entitlement.remaining(.dialectics))/\(MeteredFeature.dialectics.freeLimit)")
+                        .font(.groveBadge)
+                        .foregroundStyle(Color.textTertiary)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .help("New conversation")
+        .accessibilityLabel("New conversation")
+        .accessibilityHint("Starts a fresh Dialectics conversation.")
+    }
+
+    private var closeButton: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isVisible = false
+            }
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.textMuted)
+                .padding(6)
+                .background(Color.bgCard)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.borderPrimary, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .help("Close chat")
+        .accessibilityLabel("Close Dialectics")
+        .accessibilityHint("Hides the Dialectics panel.")
     }
 
     // MARK: - Chat View
 
     private func chatView(for conversation: Conversation) -> some View {
         VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: Spacing.md) {
-                        ForEach(conversation.visibleMessages) { message in
-                            messageBubble(message, conversation: conversation)
-                                .id(message.id)
-                        }
-
-                        if dialecticsService.isGenerating {
-                            thinkingIndicator
-                        }
-
-                        if let error = dialecticsService.lastError {
-                            errorBubble(error)
-                        }
-                    }
-                    .padding(.horizontal, Spacing.md)
-                    .padding(.vertical, Spacing.sm)
-                }
-                .onChange(of: conversation.messages.count) {
-                    if let lastID = conversation.visibleMessages.last?.id {
-                        withAnimation {
-                            proxy.scrollTo(lastID, anchor: .bottom)
-                        }
-                    }
-                }
-            }
-
+            chatMessages(for: conversation)
             Divider()
-            inputArea(for: conversation)
+            chatInput(for: conversation)
         }
     }
 
-    // MARK: - Message Bubble
+    private func chatMessages(for conversation: Conversation) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: Spacing.md) {
+                    if let vm = viewModel {
+                        ForEach(conversation.visibleMessages) { message in
+                            ChatMessageBubble(
+                                message: message,
+                                conversation: conversation,
+                                dialecticsService: vm.dialecticsService,
+                                onWikiLinkTapped: { title in
+                                    vm.navigateToItemByTitle(title, onNavigateToItem: onNavigateToItem)
+                                },
+                                onConnectionRequest: { msg in
+                                    vm.connectionMessage = msg
+                                },
+                                onReflectionRequest: { msg, conv in
+                                    vm.reflectionConversation = conv
+                                    vm.reflectionMessage = msg
+                                },
+                                onNoteRequest: { msg in
+                                    vm.noteMessage = msg
+                                }
+                            )
+                            .id(message.id)
+                        }
+
+                        if vm.dialecticsService.isGenerating {
+                            ChatThinkingIndicator()
+                        }
+
+                        if let error = vm.dialecticsService.lastError {
+                            ChatErrorBubble(message: error)
+                        }
+                    }
+                }
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.sm)
+            }
+            .onChange(of: conversation.messages.count) {
+                if let lastID = conversation.visibleMessages.last?.id {
+                    withAnimation {
+                        proxy.scrollTo(lastID, anchor: .bottom)
+                    }
+                }
+            }
+        }
+    }
 
     @ViewBuilder
-    private func messageBubble(_ message: ChatMessage, conversation: Conversation) -> some View {
-        if message.role == .user {
-            userBubble(message)
-        } else if message.role == .system {
-            systemBubble(message)
-        } else if message.role == .assistant {
-            assistantBubble(message, conversation: conversation)
-        }
-    }
-
-    private func systemBubble(_ message: ChatMessage) -> some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                Text("DISCUSSION PROMPT")
-                    .font(.groveBadge)
-                    .tracking(0.8)
-                    .foregroundStyle(Color.textSecondary)
-                Text(message.content)
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textPrimary)
-                    .textSelection(.enabled)
-            }
-            .padding(Spacing.md)
-            .background(Color.bgCard)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.borderPrimary, lineWidth: 1)
+    private func chatInput(for conversation: Conversation) -> some View {
+        if let vm = viewModel {
+            ChatInputArea(
+                inputText: Binding(
+                    get: { vm.inputText },
+                    set: { vm.inputText = $0 }
+                ),
+                conversation: conversation,
+                isGenerating: vm.dialecticsService.isGenerating,
+                seeds: vm.seedItems(for: conversation),
+                onSend: { vm.sendMessage(to: conversation) },
+                onNavigateToItem: onNavigateToItem
             )
-
-            Spacer(minLength: 40)
-        }
-    }
-
-    private func userBubble(_ message: ChatMessage) -> some View {
-        HStack {
-            Spacer(minLength: 60)
-            Text(message.content)
-                .font(.groveBody)
-                .foregroundStyle(Color.textInverse)
-                .padding(Spacing.md)
-                .background(Color.accentSelection)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .textSelection(.enabled)
-        }
-    }
-
-    private func assistantBubble(_ message: ChatMessage, conversation: Conversation) -> some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                MarkdownTextView(markdown: message.content) { title in
-                    navigateToItemByTitle(title)
-                }
-                .textSelection(.enabled)
-
-                // Action buttons
-                assistantActions(message: message, conversation: conversation)
-            }
-            .padding(Spacing.md)
-            .background(Color.bgCard)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(alignment: .leading) {
-                Rectangle()
-                    .fill(Color.accentSelection)
-                    .frame(width: 2)
-                    .clipShape(RoundedRectangle(cornerRadius: 1))
-            }
-
-            Spacer(minLength: 40)
-        }
-    }
-
-    // MARK: - Assistant Actions
-
-    private func assistantActions(message: ChatMessage, conversation: Conversation) -> some View {
-        HStack(spacing: Spacing.sm) {
-            Button {
-                #if os(macOS)
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(message.content, forType: .string)
-                #else
-                UIPasteboard.general.string = message.content
-                #endif
-            } label: {
-                Label("Copy", systemImage: "doc.on.doc")
-                    .font(.groveBadge)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.textMuted)
-
-            Button {
-                noteMessage = message
-            } label: {
-                Label("Save as note", systemImage: "note.text.badge.plus")
-                    .font(.groveBadge)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.textMuted)
-
-            if !message.referencedItemIDs.isEmpty {
-                Button {
-                    reflectionConversation = conversation
-                    reflectionMessage = message
-                } label: {
-                    Label("Save as Reflection", systemImage: "text.badge.plus")
-                        .font(.groveBadge)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Color.textMuted)
-            }
-
-            if message.referencedItemIDs.count >= 2 {
-                Button {
-                    connectionMessage = message
-                } label: {
-                    Label("Create Connection", systemImage: "link.badge.plus")
-                        .font(.groveBadge)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Color.textMuted)
-            }
-        }
-        .padding(.top, 2)
-    }
-
-    // MARK: - Wiki-Link Navigation
-
-    private func navigateToItemByTitle(_ title: String) {
-        let allItems = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
-        if let item = allItems.first(where: { $0.title.localizedCaseInsensitiveCompare(title) == .orderedSame }) {
-            onNavigateToItem?(item)
-        }
-    }
-
-    // MARK: - Thinking Indicator
-
-    private var thinkingIndicator: some View {
-        HStack {
-            HStack(spacing: 4) {
-                Text("Thinking")
-                    .font(.groveMeta)
-                    .foregroundStyle(Color.textMuted)
-                ProgressView()
-                    .controlSize(.mini)
-            }
-            .padding(Spacing.sm)
-            .background(Color.bgCard)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            Spacer()
-        }
-    }
-
-    // MARK: - Error Bubble
-
-    private func errorBubble(_ message: String) -> some View {
-        HStack(alignment: .top, spacing: Spacing.sm) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.groveBody)
-                .foregroundStyle(Color.textMuted)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Unable to respond")
-                    .font(.groveBadge)
-                    .foregroundStyle(Color.textSecondary)
-                Text(message)
-                    .font(.groveBodySmall)
-                    .foregroundStyle(Color.textMuted)
-            }
-
-            Spacer()
-        }
-        .padding(Spacing.md)
-        .background(Color.bgCard)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.borderPrimary, lineWidth: 1)
-        )
-    }
-
-    // MARK: - Input Area
-
-    private func inputArea(for conversation: Conversation) -> some View {
-        VStack(spacing: Spacing.sm) {
-            // Seed item pills
-            if !conversation.seedItemIDs.isEmpty {
-                seedItemPills(for: conversation)
-            }
-
-            HStack(alignment: .bottom, spacing: Spacing.sm) {
-                TextField("Ask, challenge, or reflect...", text: $inputText, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(.groveBody)
-                    .lineLimit(1...5)
-                    .padding(Spacing.sm)
-                    .background(Color.bgInput)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.borderInput, lineWidth: 1)
-                    )
-                    .onSubmit {
-                        sendMessage(to: conversation)
-                    }
-
-                Button {
-                    sendMessage(to: conversation)
-                } label: {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 24))
-                        .foregroundStyle(inputText.trimmingCharacters(in: .whitespaces).isEmpty ? Color.textMuted : Color.textPrimary)
-                }
-                .buttonStyle(.plain)
-                .disabled(inputText.trimmingCharacters(in: .whitespaces).isEmpty || dialecticsService.isGenerating)
-                .accessibilityLabel("Send message")
-                .accessibilityHint("Submits your current prompt to Dialectics.")
-            }
-        }
-        .padding(Spacing.md)
-    }
-
-    private func seedItemPills(for conversation: Conversation) -> some View {
-        let allItems = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
-        let seeds = conversation.seedItemIDs.compactMap { id in
-            allItems.first(where: { $0.id == id })
-        }
-
-        return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: Spacing.xs) {
-                Text("Context:")
-                    .font(.groveBadge)
-                    .foregroundStyle(Color.textMuted)
-                ForEach(seeds, id: \.id) { item in
-                    Button {
-                        onNavigateToItem?(item)
-                    } label: {
-                        Text(item.title)
-                            .font(.groveBadge)
-                            .foregroundStyle(Color.textPrimary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(Color.accentBadge)
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
         }
     }
 
@@ -500,6 +417,15 @@ struct DialecticalChatPanel: View {
     private var emptyState: some View {
         VStack(spacing: Spacing.lg) {
             Spacer()
+            emptyStateHeader
+            emptyStateNewButton
+            emptyStateRecent
+            Spacer()
+        }
+    }
+
+    private var emptyStateHeader: some View {
+        VStack(spacing: Spacing.lg) {
             Image(systemName: "bubble.left.and.bubble.right")
                 .font(.system(size: 36))
                 .foregroundStyle(Color.textTertiary)
@@ -511,445 +437,71 @@ struct DialecticalChatPanel: View {
                 .foregroundStyle(Color.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, Spacing.xl)
-
-            Button {
-                startNewConversation()
-            } label: {
-                Label("New Conversation", systemImage: "plus")
-                    .font(.groveBodyMedium)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.regular)
-
-            if !activeConversations.isEmpty {
-                Divider().padding(.horizontal, Spacing.xxl)
-                Text("Recent")
-                    .sectionHeaderStyle()
-                ForEach(activeConversations.prefix(3)) { conv in
-                    Button {
-                        selectedConversation = conv
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(conv.displayTitle)
-                                    .font(.groveBody)
-                                    .foregroundStyle(Color.textPrimary)
-                                    .lineLimit(1)
-                                Text(conv.updatedAt.formatted(date: .abbreviated, time: .shortened))
-                                    .font(.groveMeta)
-                                    .foregroundStyle(Color.textTertiary)
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.groveBadge)
-                                .foregroundStyle(Color.textMuted)
-                        }
-                        .padding(.horizontal, Spacing.lg)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            Spacer()
         }
     }
 
-    // MARK: - Conversation List Popover
+    private var emptyStateNewButton: some View {
+        Button {
+            viewModel?.startNewConversation(
+                selectedConversation: $selectedConversation,
+                currentBoard: currentBoard,
+                entitlement: entitlement,
+                paywallCoordinator: paywallCoordinator
+            )
+        } label: {
+            Label("New Conversation", systemImage: "plus")
+                .font(.groveBodyMedium)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.regular)
+    }
 
-    private var conversationListPopover: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("CONVERSATIONS")
-                .sectionHeaderStyle()
-                .padding(.horizontal, Spacing.md)
-                .padding(.vertical, Spacing.sm)
+    @ViewBuilder
+    private var emptyStateRecent: some View {
+        if let vm = viewModel {
+            let active = vm.activeConversations(from: conversations)
+            if !active.isEmpty {
+                VStack(spacing: Spacing.lg) {
+                    Divider().padding(.horizontal, Spacing.xxl)
+                    Text("Recent")
+                        .sectionHeaderStyle()
+                    ForEach(active.prefix(3)) { conv in
+                        recentConversationRow(conv)
+                    }
+                }
+            }
+        }
+    }
 
-            Divider()
-
-            conversationSearchField
-
-            Divider()
-
-            if visibleHistoryConversations.isEmpty {
-                Text("No conversations yet.")
-                    .font(.groveBodySmall)
-                    .foregroundStyle(Color.textTertiary)
-                    .padding(Spacing.md)
-            } else if filteredConversations.isEmpty {
-                VStack(alignment: .leading, spacing: Spacing.xs) {
-                    Text("No search results")
+    private func recentConversationRow(_ conv: Conversation) -> some View {
+        Button {
+            selectedConversation = conv
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(conv.displayTitle)
                         .font(.groveBody)
-                        .foregroundStyle(Color.textSecondary)
-                    Text("No matches for \"\(trimmedConversationListQuery)\".")
-                        .font(.groveBodySmall)
+                        .foregroundStyle(Color.textPrimary)
+                        .lineLimit(1)
+                    Text(conv.updatedAt.formatted(date: .abbreviated, time: .shortened))
+                        .font(.groveMeta)
                         .foregroundStyle(Color.textTertiary)
                 }
-                .padding(Spacing.md)
-            } else {
-                if isHistoryCapped {
-                    HStack(spacing: Spacing.sm) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Showing recent 20 conversations")
-                                .font(.groveBodySmall)
-                                .foregroundStyle(Color.textSecondary)
-                            Text("Upgrade to Pro for full searchable history.")
-                                .font(.groveMeta)
-                                .foregroundStyle(Color.textTertiary)
-                        }
-                        Spacer()
-                        Button("Unlock Pro") {
-                            paywallPresentation = paywallCoordinator.present(
-                                feature: .fullHistory,
-                                source: .chatHistory
-                            )
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                    .padding(.horizontal, Spacing.md)
-                    .padding(.vertical, Spacing.xs)
-                    Divider()
-                }
-
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(filteredConversations) { conv in
-                                HStack(spacing: Spacing.xs) {
-                                    Button {
-                                        openConversationFromList(conv)
-                                    } label: {
-                                        HStack {
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text(conv.displayTitle)
-                                                    .font(.groveBody)
-                                                    .foregroundStyle(Color.textPrimary)
-                                                    .lineLimit(1)
-                                                HStack(spacing: 4) {
-                                                    Text(conv.trigger.rawValue)
-                                                        .font(.groveBadge)
-                                                        .foregroundStyle(Color.textTertiary)
-                                                    Text(conv.updatedAt.formatted(date: .abbreviated, time: .shortened))
-                                                        .font(.groveMeta)
-                                                        .foregroundStyle(Color.textTertiary)
-                                                }
-                                            }
-                                            Spacer()
-                                            Text("\(conv.visibleMessages.count) msgs")
-                                                .font(.groveBadge)
-                                                .foregroundStyle(Color.textMuted)
-                                        }
-                                        .padding(.horizontal, Spacing.md)
-                                        .padding(.vertical, Spacing.sm)
-                                        .contentShape(Rectangle())
-                                        .selectedItemStyle(conversationListSelectionID == conv.id)
-                                    }
-                                    .buttonStyle(.plain)
-
-                                    Button(role: .destructive) {
-                                        conversationToDelete = conv
-                                    } label: {
-                                        Image(systemName: "trash")
-                                            .font(.groveBodySmall)
-                                            .foregroundStyle(Color.textMuted)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .help("Delete conversation")
-                                    .accessibilityLabel("Delete conversation \(conv.displayTitle)")
-                                    .accessibilityHint("Permanently removes this conversation.")
-                                    .padding(.trailing, Spacing.sm)
-                                }
-                                .id(conv.id)
-                                Divider().padding(.leading, Spacing.md)
-                            }
-                        }
-                    }
-                    .onChange(of: conversationListSelectionID) {
-                        guard let selectedID = conversationListSelectionID else { return }
-                        withAnimation(.easeInOut(duration: 0.12)) {
-                            proxy.scrollTo(selectedID, anchor: .center)
-                        }
-                    }
-                }
-                .frame(maxHeight: 300)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.groveBadge)
+                    .foregroundStyle(Color.textMuted)
             }
+            .padding(.horizontal, Spacing.lg)
+            .contentShape(Rectangle())
         }
-        .frame(width: 320)
-        .onAppear {
-            prepareConversationListPopover()
-        }
-        .onChange(of: conversationListQuery) {
-            syncConversationListSelection()
-        }
-        .onChange(of: filteredConversationIDs) {
-            syncConversationListSelection()
-        }
-        .onKeyPress(.upArrow) {
-            moveConversationListSelection(offset: -1)
-            return .handled
-        }
-        .onKeyPress(.downArrow) {
-            moveConversationListSelection(offset: 1)
-            return .handled
-        }
-        .onKeyPress(.return) {
-            openSelectedConversationFromList()
-            return .handled
-        }
-    }
-
-    private var conversationSearchField: some View {
-        HStack(spacing: Spacing.xs) {
-            Image(systemName: "magnifyingglass")
-                .font(.groveBodySmall)
-                .foregroundStyle(Color.textSecondary)
-
-            TextField(
-                entitlement.hasAccess(to: .fullHistory)
-                    ? "Search by title or message..."
-                    : "Search recent conversations...",
-                text: $conversationListQuery
-            )
-                .textFieldStyle(.plain)
-                .font(.groveBody)
-                .focused($isConversationListSearchFocused)
-                .onSubmit {
-                    openSelectedConversationFromList()
-                }
-
-            if !conversationListQuery.isEmpty {
-                Button {
-                    conversationListQuery = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(Color.textSecondary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Clear conversation search")
-                .accessibilityHint("Clears the current conversation query.")
-            }
-        }
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.sm)
-    }
-
-    // MARK: - Actions
-
-    private func startNewConversation() {
-        guard entitlement.canUse(.dialectics) else {
-            paywallPresentation = paywallCoordinator.present(
-                feature: .dialectics,
-                source: .dialecticsLimit
-            )
-            return
-        }
-        entitlement.recordUse(.dialectics)
-
-        let seedItems: [Item]
-        if let board = currentBoard {
-            // Seed with up to 10 active items from the current board, sorted by depth score
-            seedItems = Array(
-                board.items
-                    .filter { $0.status == .active }
-                    .sorted { $0.depthScore > $1.depthScore }
-                    .prefix(10)
-            )
-        } else {
-            seedItems = []
-        }
-        let conversation = dialecticsService.startConversation(
-            trigger: .userInitiated,
-            seedItems: seedItems,
-            board: currentBoard,
-            context: modelContext
-        )
-        selectedConversation = conversation
-    }
-
-    private func sendMessage(to conversation: Conversation) {
-        let text = inputText.trimmingCharacters(in: .whitespaces)
-        guard !text.isEmpty else { return }
-        inputText = ""
-
-        Task {
-            _ = await dialecticsService.sendMessage(
-                userText: text,
-                conversation: conversation,
-                context: modelContext
-            )
-        }
-    }
-
-    private func deleteConversation(_ conversation: Conversation) {
-        let nextConversation = activeConversations.first { $0.id != conversation.id }
-        if selectedConversation?.id == conversation.id {
-            selectedConversation = nextConversation
-        }
-        modelContext.delete(conversation)
-        try? modelContext.save()
-        conversationToDelete = nil
-    }
-
-    private func conversationMatchesSearch(_ conversation: Conversation, query: String) -> Bool {
-        if conversation.displayTitle.localizedStandardContains(query) {
-            return true
-        }
-        return conversation.visibleMessages.contains { message in
-            message.content.localizedStandardContains(query)
-        }
-    }
-
-    private func prepareConversationListPopover() {
-        conversationListQuery = ""
-        syncConversationListSelection(preferredID: selectedConversation?.id)
-        Task { @MainActor in
-            isConversationListSearchFocused = true
-        }
-    }
-
-    private func syncConversationListSelection(preferredID: UUID? = nil) {
-        let conversations = filteredConversations
-        guard !conversations.isEmpty else {
-            conversationListSelectionID = nil
-            return
-        }
-
-        if let preferredID, conversations.contains(where: { $0.id == preferredID }) {
-            conversationListSelectionID = preferredID
-            return
-        }
-
-        if let currentID = conversationListSelectionID, conversations.contains(where: { $0.id == currentID }) {
-            return
-        }
-
-        if let selectedConversationID = selectedConversation?.id, conversations.contains(where: { $0.id == selectedConversationID }) {
-            conversationListSelectionID = selectedConversationID
-            return
-        }
-
-        conversationListSelectionID = conversations.first?.id
-    }
-
-    private func moveConversationListSelection(offset: Int) {
-        let ids = filteredConversationIDs
-        guard !ids.isEmpty else {
-            conversationListSelectionID = nil
-            return
-        }
-
-        guard let currentID = conversationListSelectionID,
-              let currentIndex = ids.firstIndex(of: currentID) else {
-            conversationListSelectionID = ids.first
-            return
-        }
-
-        let nextIndex = min(max(currentIndex + offset, 0), ids.count - 1)
-        conversationListSelectionID = ids[nextIndex]
-    }
-
-    private func openSelectedConversationFromList() {
-        guard let selectedID = conversationListSelectionID,
-              let conversation = filteredConversations.first(where: { $0.id == selectedID }) else { return }
-        openConversationFromList(conversation)
-    }
-
-    private func openConversationFromList(_ conversation: Conversation) {
-        selectedConversation = conversation
-        showConversationList = false
-    }
-
-    // MARK: - Save Note Sheet
-
-    private func saveNoteSheet(for message: ChatMessage) -> some View {
-        SaveNoteSheet(
-            message: message,
-            conversation: activeConversation,
-            dialecticsService: dialecticsService,
-            onDismiss: { noteMessage = nil }
-        )
-    }
-
-    // MARK: - Reflection Sheet
-
-    private func reflectionSheet(for message: ChatMessage) -> some View {
-        SaveReflectionSheet(
-            message: message,
-            conversation: reflectionConversation,
-            dialecticsService: dialecticsService,
-            onDismiss: { reflectionMessage = nil }
-        )
-    }
-
-    // MARK: - Connection Sheet
-
-    private func connectionSheet(for message: ChatMessage) -> some View {
-        let allItems = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
-        let referenced = message.referencedItemIDs.compactMap { id in
-            allItems.first(where: { $0.id == id })
-        }
-
-        return VStack(spacing: Spacing.lg) {
-            Text("Create Connection")
-                .font(.groveItemTitle)
-
-            if referenced.count >= 2 {
-                VStack(alignment: .leading, spacing: Spacing.sm) {
-                    Text("From:")
-                        .font(.groveBadge)
-                        .foregroundStyle(Color.textMuted)
-                    Text(referenced[0].title)
-                        .font(.groveBody)
-
-                    Text("To:")
-                        .font(.groveBadge)
-                        .foregroundStyle(Color.textMuted)
-                    Text(referenced.count > 1 ? referenced[1].title : "")
-                        .font(.groveBody)
-
-                    Picker("Type", selection: $connectionType) {
-                        ForEach(ConnectionType.allCases, id: \.self) { type in
-                            Text(type.displayLabel).tag(type)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                }
-
-                HStack {
-                    Button("Cancel") {
-                        connectionMessage = nil
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button("Create") {
-                        _ = dialecticsService.createConnection(
-                            sourceTitle: referenced[0].title,
-                            targetTitle: referenced[1].title,
-                            type: connectionType,
-                            context: modelContext
-                        )
-                        connectionMessage = nil
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-            } else {
-                Text("Need at least 2 referenced items to create a connection.")
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textSecondary)
-
-                Button("Close") {
-                    connectionMessage = nil
-                }
-                .buttonStyle(.bordered)
-            }
-        }
-        .padding(Spacing.xl)
-        .frame(width: 350)
+        .buttonStyle(.plain)
     }
 }
 
 // MARK: - Save Reflection Sheet
 
-private struct SaveReflectionSheet: View {
+struct SaveReflectionSheet: View {
     let message: ChatMessage
     let conversation: Conversation?
     let dialecticsService: DialecticsService
@@ -962,7 +514,7 @@ private struct SaveReflectionSheet: View {
     @State private var saved = false
 
     private var referencedItems: [Item] {
-        let allItems = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
+        let allItems: [Item] = modelContext.fetchAll()
         return message.referencedItemIDs.compactMap { id in
             allItems.first(where: { $0.id == id })
         }
@@ -974,110 +526,119 @@ private struct SaveReflectionSheet: View {
                 .font(.groveItemTitle)
                 .foregroundStyle(Color.textPrimary)
 
-            // Target item picker
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                Text("SAVE TO ITEM")
-                    .sectionHeaderStyle()
-
-                ForEach(referencedItems, id: \.id) { item in
-                    Button {
-                        selectedItemID = item.id
-                    } label: {
-                        HStack(spacing: Spacing.sm) {
-                            Image(systemName: selectedItemID == item.id ? "checkmark.circle.fill" : "circle")
-                                .font(.groveBody)
-                                .foregroundStyle(selectedItemID == item.id ? Color.textPrimary : Color.textMuted)
-                            Image(systemName: item.type.iconName)
-                                .font(.groveBadge)
-                                .foregroundStyle(Color.textSecondary)
-                            Text(item.title)
-                                .font(.groveBody)
-                                .foregroundStyle(Color.textPrimary)
-                                .lineLimit(1)
-                        }
-                        .padding(.vertical, Spacing.xs)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            // Block type picker
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                Text("REFLECTION TYPE")
-                    .sectionHeaderStyle()
-
-                HStack(spacing: Spacing.sm) {
-                    ForEach(ReflectionBlockType.allCases, id: \.self) { type in
-                        Button {
-                            selectedBlockType = type
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: type.systemImage)
-                                    .font(.groveBadge)
-                                Text(type.displayName)
-                                    .font(.groveBadge)
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(selectedBlockType == type ? Color.accentBadge : Color.bgCard)
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 4)
-                                    .stroke(Color.borderPrimary, lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(selectedBlockType == type ? Color.textPrimary : Color.textSecondary)
-                    }
-                }
-            }
-
-            // Content editor
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                Text("CONTENT")
-                    .sectionHeaderStyle()
-
-                TextEditor(text: $editedContent)
-                    .font(.groveBody)
-                    .frame(minHeight: 100, maxHeight: 200)
-                    .padding(Spacing.xs)
-                    .background(Color.bgInput)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.borderInput, lineWidth: 1)
-                    )
-            }
-
-            // Actions
-            HStack {
-                Button("Cancel") {
-                    onDismiss()
-                }
-                .buttonStyle(.bordered)
-
-                Spacer()
-
-                if saved {
-                    Label("Saved", systemImage: "checkmark.circle.fill")
-                        .font(.groveBadge)
-                        .foregroundStyle(Color.textSecondary)
-                }
-
-                Button("Save Reflection") {
-                    saveReflection()
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.accentSelection)
-                .disabled(selectedItemID == nil || editedContent.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
+            itemPicker
+            blockTypePicker
+            contentEditor
+            actionButtons
         }
         .padding(Spacing.xl)
         .frame(width: 420)
         .onAppear {
             editedContent = message.content
             selectedItemID = message.referencedItemIDs.first
+        }
+    }
+
+    private var itemPicker: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            Text("SAVE TO ITEM")
+                .sectionHeaderStyle()
+
+            ForEach(referencedItems, id: \.id) { item in
+                Button {
+                    selectedItemID = item.id
+                } label: {
+                    HStack(spacing: Spacing.sm) {
+                        Image(systemName: selectedItemID == item.id ? "checkmark.circle.fill" : "circle")
+                            .font(.groveBody)
+                            .foregroundStyle(selectedItemID == item.id ? Color.textPrimary : Color.textMuted)
+                        Image(systemName: item.type.iconName)
+                            .font(.groveBadge)
+                            .foregroundStyle(Color.textSecondary)
+                        Text(item.title)
+                            .font(.groveBody)
+                            .foregroundStyle(Color.textPrimary)
+                            .lineLimit(1)
+                    }
+                    .padding(.vertical, Spacing.xs)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var blockTypePicker: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            Text("REFLECTION TYPE")
+                .sectionHeaderStyle()
+
+            HStack(spacing: Spacing.sm) {
+                ForEach(ReflectionBlockType.allCases, id: \.self) { type in
+                    Button {
+                        selectedBlockType = type
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: type.systemImage)
+                                .font(.groveBadge)
+                            Text(type.displayName)
+                                .font(.groveBadge)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(selectedBlockType == type ? Color.accentBadge : Color.bgCard)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(Color.borderPrimary, lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(selectedBlockType == type ? Color.textPrimary : Color.textSecondary)
+                }
+            }
+        }
+    }
+
+    private var contentEditor: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            Text("CONTENT")
+                .sectionHeaderStyle()
+
+            TextEditor(text: $editedContent)
+                .font(.groveBody)
+                .frame(minHeight: 100, maxHeight: 200)
+                .padding(Spacing.xs)
+                .background(Color.bgInput)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.borderInput, lineWidth: 1)
+                )
+        }
+    }
+
+    private var actionButtons: some View {
+        HStack {
+            Button("Cancel") {
+                onDismiss()
+            }
+            .buttonStyle(.bordered)
+
+            Spacer()
+
+            if saved {
+                Label("Saved", systemImage: "checkmark.circle.fill")
+                    .font(.groveBadge)
+                    .foregroundStyle(Color.textSecondary)
+            }
+
+            Button("Save Reflection") {
+                saveReflection()
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Color.accentSelection)
+            .disabled(selectedItemID == nil || editedContent.trimmingCharacters(in: .whitespaces).isEmpty)
         }
     }
 
@@ -1094,7 +655,6 @@ private struct SaveReflectionSheet: View {
             context: modelContext
         )
         saved = true
-        // Dismiss after a brief moment so the user sees the confirmation
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(600))
             onDismiss()
@@ -1104,7 +664,7 @@ private struct SaveReflectionSheet: View {
 
 // MARK: - Save Note Sheet
 
-private struct SaveNoteSheet: View {
+struct SaveNoteSheet: View {
     let message: ChatMessage
     let conversation: Conversation?
     let dialecticsService: DialecticsService
@@ -1120,71 +680,78 @@ private struct SaveNoteSheet: View {
                 .font(.groveItemTitle)
                 .foregroundStyle(Color.textPrimary)
 
-            // Title field
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                Text("TITLE")
-                    .sectionHeaderStyle()
-
-                TextField("Note title", text: $editedTitle)
-                    .textFieldStyle(.plain)
-                    .font(.groveBody)
-                    .padding(Spacing.xs)
-                    .background(Color.bgInput)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.borderInput, lineWidth: 1)
-                    )
-            }
-
-            // Content preview
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                Text("CONTENT")
-                    .sectionHeaderStyle()
-
-                ScrollView {
-                    Text(message.content)
-                        .font(.groveBodySmall)
-                        .foregroundStyle(Color.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(maxHeight: 150)
-                .padding(Spacing.xs)
-                .background(Color.bgCard)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.borderInput, lineWidth: 1)
-                )
-            }
-
-            // Actions
-            HStack {
-                Button("Cancel") {
-                    onDismiss()
-                }
-                .buttonStyle(.bordered)
-
-                Spacer()
-
-                if saved {
-                    Label("Saved", systemImage: "checkmark.circle.fill")
-                        .font(.groveBadge)
-                        .foregroundStyle(Color.textSecondary)
-                }
-
-                Button("Save Note") {
-                    saveNote()
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.accentSelection)
-                .disabled(editedTitle.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
+            titleField
+            contentPreview
+            noteActionButtons
         }
         .padding(Spacing.xl)
         .frame(width: 420)
         .onAppear {
             editedTitle = extractTitle(from: message.content)
+        }
+    }
+
+    private var titleField: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            Text("TITLE")
+                .sectionHeaderStyle()
+
+            TextField("Note title", text: $editedTitle)
+                .textFieldStyle(.plain)
+                .font(.groveBody)
+                .padding(Spacing.xs)
+                .background(Color.bgInput)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.borderInput, lineWidth: 1)
+                )
+        }
+    }
+
+    private var contentPreview: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            Text("CONTENT")
+                .sectionHeaderStyle()
+
+            ScrollView {
+                Text(message.content)
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 150)
+            .padding(Spacing.xs)
+            .background(Color.bgCard)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.borderInput, lineWidth: 1)
+            )
+        }
+    }
+
+    private var noteActionButtons: some View {
+        HStack {
+            Button("Cancel") {
+                onDismiss()
+            }
+            .buttonStyle(.bordered)
+
+            Spacer()
+
+            if saved {
+                Label("Saved", systemImage: "checkmark.circle.fill")
+                    .font(.groveBadge)
+                    .foregroundStyle(Color.textSecondary)
+            }
+
+            Button("Save Note") {
+                saveNote()
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Color.accentSelection)
+            .disabled(editedTitle.trimmingCharacters(in: .whitespaces).isEmpty)
         }
     }
 
@@ -1204,7 +771,6 @@ private struct SaveNoteSheet: View {
     }
 
     private func extractTitle(from content: String) -> String {
-        // Take first sentence, capped at 100 characters
         let sentence = content.components(separatedBy: CharacterSet(charactersIn: ".?!")).first ?? ""
         let trimmed = sentence.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return "Note from conversation" }
