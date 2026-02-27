@@ -11,6 +11,7 @@ struct MobileHomeView: View {
 
     @State private var starterService = ConversationStarterService.shared
     @State private var dialecticsService = DialecticsService()
+    @State private var showSearch = false
 
     private var recentItems: [Item] {
         Array(allItems.filter { $0.status == .active || $0.status == .inbox }.prefix(6))
@@ -52,6 +53,19 @@ struct MobileHomeView: View {
         .navigationTitle("Home")
         .navigationDestination(for: Item.self) { item in
             MobileItemReaderView(item: item)
+        }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showSearch = true
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                }
+                .accessibilityLabel("Search")
+            }
+        }
+        .sheet(isPresented: $showSearch) {
+            MobileSearchView()
         }
         .task {
             await starterService.refresh(items: allItems)

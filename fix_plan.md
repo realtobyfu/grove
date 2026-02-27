@@ -107,10 +107,10 @@ Last updated: 2026-02-26
 
 ## P8: Search
 
-- [ ] P8.1: Create `grove/Sources/Views/iOS/Search/MobileSearchView.swift` — full-screen view with .searchable modifier, uses SearchViewModel; shows sections (Items, Boards, Tags) in List; tap navigates to result
-- [ ] P8.2: Add segmented result filtering — Picker with segments (All, Items, Boards, Tags) at top; filters SearchViewModel.results by SearchResultType
-- [ ] P8.3: Add board-scoped search — when entering search from within a board, set SearchViewModel.scopeBoard; show removable filter chip showing board name
-- [ ] P8.4: iPad keyboard support — .keyboardShortcut("f", modifiers: .command) to toggle search; arrow key navigation with @FocusState on result list
+- [x] P8.1: Create `grove/Sources/Views/iOS/Search/MobileSearchView.swift` — full-screen view with .searchable modifier, uses SearchViewModel; shows sections (Items, Boards, Tags) in List; tap navigates to result
+- [x] P8.2: Add segmented result filtering — Picker with segments (All, Items, Boards, Tags) at top; filters SearchViewModel.results by SearchResultType
+- [x] P8.3: Add board-scoped search — when entering search from within a board, set SearchViewModel.scopeBoard; show removable filter chip showing board name
+- [x] P8.4: iPad keyboard support — .keyboardShortcut("f", modifiers: .command) to toggle search; arrow key navigation with @FocusState on result list
 
 ## P9: Settings + Onboarding
 
