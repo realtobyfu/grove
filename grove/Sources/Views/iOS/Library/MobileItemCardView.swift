@@ -49,6 +49,10 @@ struct MobileItemCardView: View {
         }
         .frame(minHeight: LayoutDimensions.minTouchTarget)
         .padding(.vertical, Spacing.xs)
+        #if os(iOS)
+        .hoverEffect(.highlight)
+        .draggable(item.dragURL)
+        #endif
     }
 
     // MARK: - Helpers

@@ -62,6 +62,7 @@ struct MobileHomeView: View {
                     Image(systemName: "magnifyingglass")
                 }
                 .accessibilityLabel("Search")
+                .keyboardShortcut("f", modifiers: .command)
             }
         }
         .sheet(isPresented: $showSearch) {

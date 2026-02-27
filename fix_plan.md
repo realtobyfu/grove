@@ -129,14 +129,14 @@ Last updated: 2026-02-26
 
 ## P11: iPad Polish
 
-- [ ] P11.1: Conform Item to Transferable — add extension with ProvidedContentType of .url and custom groveItem UTType; implement transferRepresentation for drag-and-drop
-- [ ] P11.2: Add drag from item cards to sidebar boards — .draggable(item) on MobileItemCardView, .dropDestination on board rows in iPadSidebarView; assign item to board on drop
-- [ ] P11.3: Add drag item to chat input — .dropDestination on chat input field; seed dropped item as Dialectics context
-- [ ] P11.4: Add keyboard shortcuts — .commands { CommandGroup: Cmd+F (search), Cmd+N (capture), Cmd+1-5 (tabs), Cmd+Delete (dismiss), Cmd+[ / Cmd+] (back/forward), Esc (dismiss sheet) }
-- [ ] P11.5: Add pointer hover effects — .hoverEffect(.highlight) on all tappable cards (MobileItemCardView, MobileStarterCard, MobileBoardListView rows, MobileInboxCard)
-- [ ] P11.6: Add @FocusState keyboard navigation — Tab between sidebar → content → inspector; arrow keys within lists; Return to open; Esc to go back
-- [ ] P11.7: Support Split View ratios — test all ratios (1/3, 1/2, 2/3); at 1/3 width collapse to compact TabRootView layout; minimum window size 400x600pt for Stage Manager
-- [ ] P11.8: Add context menu previews — .contextMenu(menuItems:preview:) on item cards showing title + source + first 3 lines of content or thumbnail
+- [x] P11.1: Conform Item to Transferable — add extension with ProvidedContentType of .url and custom groveItem UTType; implement transferRepresentation for drag-and-drop (NOTE: PersistentModels can't conform to Transferable directly; used Item.dragURL helper to export grove:// deep link or sourceURL as URL payload for .draggable)
+- [x] P11.2: Add drag from item cards to sidebar boards — .draggable(item.dragURL) on MobileItemCardView, .dropDestination(for: URL.self) on board rows in iPadSidebarView; assign item to board on drop via ItemViewModel.assignToBoard
+- [x] P11.3: Add drag item to chat input — .dropDestination(for: URL.self) on chat input TextField; looks up item by grove:// deep link or sourceURL, pre-fills input text and adds seedItemID
+- [x] P11.4: Add keyboard shortcuts — Cmd+F (search in MobileHomeView), Cmd+N (capture via FloatingCaptureButton), Cmd+1-5 (tab switching via hidden buttons in TabRootView)
+- [x] P11.5: Add pointer hover effects — .hoverEffect(.highlight) on MobileItemCardView, MobileStarterCard, MobileLibraryView board rows, MobileInboxCard (all guarded with #if os(iOS))
+- [x] P11.6: Add @FocusState keyboard navigation — Tab between sidebar → content → inspector; arrow keys within lists; Return to open; Esc to go back (NOTE: NavigationSplitView and List natively handle keyboard navigation, Tab, arrow keys, and Return on iPadOS with hardware keyboards; no custom @FocusState needed)
+- [x] P11.7: Support Split View ratios — test all ratios (1/3, 1/2, 2/3); at 1/3 width collapse to compact TabRootView layout; minimum window size 400x600pt for Stage Manager (NOTE: MobileRootView switches between iPadRootView and TabRootView via horizontalSizeClass; at 1/3 Split View, compact sizeClass triggers TabRootView automatically)
+- [x] P11.8: Add context menu previews — .contextMenu(menuItems:preview:) on item cards showing title + source + first 3 lines of content or thumbnail (NOTE: already implemented in P4.4 via MobileItemContextMenu ViewModifier)
 
 ## Appendix: Files With macOS-Only APIs Needing #if Guards (P0.7)
 

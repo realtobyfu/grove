@@ -96,5 +96,8 @@ struct MobileLibraryView: View {
                 .foregroundStyle(Color.textMuted)
         }
         .frame(minHeight: LayoutDimensions.minTouchTarget)
+        #if os(iOS)
+        .hoverEffect(.highlight)
+        #endif
     }
 }

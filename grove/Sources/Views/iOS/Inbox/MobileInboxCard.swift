@@ -53,6 +53,9 @@ struct MobileInboxCard: View {
                 .lineLimit(1)
         }
         .padding(.vertical, Spacing.xs)
+        #if os(iOS)
+        .hoverEffect(.highlight)
+        #endif
     }
 
     // MARK: - Helpers

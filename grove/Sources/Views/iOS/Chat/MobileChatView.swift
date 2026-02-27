@@ -69,6 +69,11 @@ struct MobileChatView: View {
                 .padding(.vertical, Spacing.sm)
                 .background(Color.bgInput)
                 .clipShape(RoundedRectangle(cornerRadius: 20))
+                #if os(iOS)
+                .dropDestination(for: URL.self) { urls, _ in
+                    handleItemDrop(urls: urls)
+                }
+                #endif
 
             Button {
                 sendMessage()
@@ -135,6 +140,37 @@ struct MobileChatView: View {
                 proxy.scrollTo(lastMessage.id, anchor: .bottom)
             }
         }
+    }
+
+    // MARK: - Drop handling (P11.3)
+
+    private func handleItemDrop(urls: [URL]) -> Bool {
+        for url in urls {
+            if url.scheme == "grove", url.host == "item" {
+                if let uuid = UUID(uuidString: url.lastPathComponent) {
+                    let allItems = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
+                    if let item = allItems.first(where: { $0.id == uuid }) {
+                        inputText = "Let's discuss \"\(item.title)\"."
+                        if !conversation.seedItemIDs.contains(item.id) {
+                            conversation.seedItemIDs.append(item.id)
+                        }
+                        return true
+                    }
+                }
+            } else {
+                // Regular URL — find item by sourceURL
+                let urlString = url.absoluteString
+                let allItems = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
+                if let item = allItems.first(where: { $0.sourceURL == urlString }) {
+                    inputText = "Let's discuss \"\(item.title)\"."
+                    if !conversation.seedItemIDs.contains(item.id) {
+                        conversation.seedItemIDs.append(item.id)
+                    }
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     // MARK: - Message actions (P6.7)

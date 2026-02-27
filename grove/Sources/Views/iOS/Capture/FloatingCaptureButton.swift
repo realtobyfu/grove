@@ -20,6 +20,7 @@ struct FloatingCaptureButton: View {
         }
         .accessibilityLabel("Capture")
         .accessibilityHint("Add a new link or note")
+        .keyboardShortcut("n", modifiers: .command)
         .sheet(isPresented: $showCaptureSheet) {
             CaptureSheetView()
         }

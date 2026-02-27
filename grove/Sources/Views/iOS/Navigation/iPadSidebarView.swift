@@ -62,6 +62,11 @@ struct iPadSidebarView: View {
                             .foregroundStyle(board.color.map { Color(hex: $0) } ?? Color.textSecondary)
                     }
                     .tag(SidebarItem.board(board.id))
+                    #if os(iOS)
+                    .dropDestination(for: URL.self) { urls, _ in
+                        handleItemDrop(urls: urls, onto: board)
+                    }
+                    #endif
                     .contextMenu {
                         Button("Edit Board...") {
                             boardToEdit = board
@@ -150,6 +155,8 @@ struct iPadSidebarView: View {
                 }
             )
         }
+        // MARK: - Drop handling
+
         .alert(
             "Delete Board",
             isPresented: Binding(
@@ -174,5 +181,28 @@ struct iPadSidebarView: View {
                 Text("Are you sure you want to delete \"\(board.title)\"? Items in this board will not be deleted.")
             }
         }
+    }
+
+    // MARK: - Drop handling
+
+    private func handleItemDrop(urls: [URL], onto board: Board) -> Bool {
+        let itemVM = ItemViewModel(modelContext: modelContext)
+        var handled = false
+        for url in urls {
+            var item: Item?
+            if url.scheme == "grove", url.host == "item" {
+                if let uuid = UUID(uuidString: url.lastPathComponent) {
+                    item = allItems.first { $0.id == uuid }
+                }
+            } else {
+                let urlString = url.absoluteString
+                item = allItems.first { $0.sourceURL == urlString }
+            }
+            if let item {
+                itemVM.assignToBoard(item, board: board)
+                handled = true
+            }
+        }
+        return handled
     }
 }

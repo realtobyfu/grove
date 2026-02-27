@@ -31,5 +31,8 @@ struct MobileStarterCard: View {
             }
         }
         .buttonStyle(.plain)
+        #if os(iOS)
+        .hoverEffect(.highlight)
+        #endif
     }
 }

@@ -61,6 +61,24 @@ struct TabRootView: View {
             }
             .tag(Tab.more)
         }
+        // Hidden buttons for iPad keyboard shortcuts (Cmd+1–5)
+        .background {
+            VStack {
+                Button("") { selectedTab = .home }
+                    .keyboardShortcut("1", modifiers: .command)
+                Button("") { selectedTab = .inbox }
+                    .keyboardShortcut("2", modifiers: .command)
+                Button("") { selectedTab = .library }
+                    .keyboardShortcut("3", modifiers: .command)
+                Button("") { selectedTab = .chat }
+                    .keyboardShortcut("4", modifiers: .command)
+                Button("") { selectedTab = .more }
+                    .keyboardShortcut("5", modifiers: .command)
+            }
+            .frame(width: 0, height: 0)
+            .opacity(0)
+            .allowsHitTesting(false)
+        }
         .overlay(alignment: .bottomTrailing) {
             // Show floating capture button on content tabs (not Chat or More)
             if [Tab.home, .inbox, .library].contains(selectedTab) {
