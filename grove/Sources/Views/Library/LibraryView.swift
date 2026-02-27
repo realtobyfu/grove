@@ -80,11 +80,62 @@ struct LibraryView: View {
 
     private var libraryLayout: some View {
         VStack(spacing: 0) {
-            searchBar
-            revisitSection
-            boardFilterSection
+            LibrarySearchBar(
+                searchQuery: $searchQuery,
+                isSearching: isSearching,
+                isMultiSelectMode: isMultiSelectMode,
+                onToggleMultiSelect: {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        if isMultiSelectMode {
+                            exitMultiSelect()
+                        } else {
+                            isMultiSelectMode = true
+                        }
+                    }
+                }
+            )
+
+            if !overdueItems.isEmpty {
+                LibraryRevisitBanner(
+                    overdueCount: overdueItems.count,
+                    showingRevisitFilter: $showingRevisitFilter,
+                    selectedBoardID: $selectedBoardID,
+                    searchQuery: $searchQuery
+                )
+            }
+
+            if !allBoards.isEmpty && !showingRevisitFilter {
+                LibraryBoardFilterBar(
+                    boards: allBoards,
+                    selectedBoardID: $selectedBoardID
+                )
+            }
+
             Divider()
-            itemListWithToolbar
+
+            ZStack(alignment: .bottom) {
+                LibraryListView(
+                    displayedItems: displayedItems,
+                    searchQuery: searchQuery,
+                    isMultiSelectMode: isMultiSelectMode,
+                    selectedIDs: selectedIDs,
+                    selectedItem: $selectedItem,
+                    openedItem: $openedItem,
+                    onToggleSelection: { toggleSelection(for: $0) },
+                    onEnterMultiSelect: { item in
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            isMultiSelectMode = true
+                            selectedIDs.insert(item.id)
+                        }
+                    },
+                    onDeleteRequest: { itemToDelete = $0 }
+                )
+
+                if isMultiSelectMode && !selectedIDs.isEmpty {
+                    multiSelectToolbar
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
         }
         .navigationTitle("Library")
         .onChange(of: searchQuery) { _, newValue in
@@ -118,30 +169,6 @@ struct LibraryView: View {
             get: { itemToDelete != nil },
             set: { if !$0 { itemToDelete = nil } }
         )
-    }
-
-    @ViewBuilder
-    private var revisitSection: some View {
-        if !overdueItems.isEmpty {
-            revisitBanner
-        }
-    }
-
-    @ViewBuilder
-    private var boardFilterSection: some View {
-        if !allBoards.isEmpty && !showingRevisitFilter {
-            boardFilterBar
-        }
-    }
-
-    private var itemListWithToolbar: some View {
-        ZStack(alignment: .bottom) {
-            itemList
-            if isMultiSelectMode && !selectedIDs.isEmpty {
-                multiSelectToolbar
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
     }
 
     @ViewBuilder
@@ -303,248 +330,6 @@ struct LibraryView: View {
         .frame(width: 320, height: min(CGFloat(moveTargetBoards.count + 1) * 48 + 60, 400))
     }
 
-    // MARK: - Revisit Banner
-
-    private var revisitBanner: some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                showingRevisitFilter.toggle()
-                if showingRevisitFilter {
-                    selectedBoardID = nil
-                    searchQuery = ""
-                }
-            }
-        } label: {
-            HStack(spacing: Spacing.sm) {
-                Image(systemName: "clock.arrow.circlepath")
-                    .font(.groveMeta)
-                    .foregroundStyle(Color.textSecondary)
-                Text("\(overdueItems.count) item\(overdueItems.count == 1 ? "" : "s") to revisit")
-                    .font(.groveBodySmall)
-                    .foregroundStyle(Color.textSecondary)
-                Spacer()
-                if showingRevisitFilter {
-                    Text("Show all")
-                        .font(.groveMeta)
-                        .foregroundStyle(Color.textTertiary)
-                }
-                Image(systemName: showingRevisitFilter ? "xmark" : "chevron.right")
-                    .font(.groveMeta)
-                    .foregroundStyle(Color.textTertiary)
-            }
-            .padding(.horizontal, Spacing.md)
-            .padding(.vertical, Spacing.xs)
-            .background(showingRevisitFilter ? Color.bgCard : Color.bgPrimary)
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: - Search Bar
-
-    private var searchBar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: isSearching ? "hourglass" : "magnifyingglass")
-                .font(.groveBody)
-                .foregroundStyle(Color.textSecondary)
-                .animation(.easeInOut(duration: 0.15), value: isSearching)
-
-            TextField("Search titles, content, tags, reflections\u{2026}", text: $searchQuery)
-                .textFieldStyle(.plain)
-                .font(.groveBody)
-                .foregroundStyle(Color.textPrimary)
-
-            if !searchQuery.isEmpty {
-                Button {
-                    searchQuery = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.groveBodySecondary)
-                        .foregroundStyle(Color.textMuted)
-                }
-                .buttonStyle(.plain)
-            }
-
-            // Select mode toggle
-            Button {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    if isMultiSelectMode {
-                        exitMultiSelect()
-                    } else {
-                        isMultiSelectMode = true
-                    }
-                }
-            } label: {
-                Text(isMultiSelectMode ? "Cancel" : "Select")
-                    .font(.groveBodySmall)
-                    .foregroundStyle(isMultiSelectMode ? Color.textPrimary : Color.textSecondary)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, 10)
-        .background(Color.bgPrimary)
-    }
-
-    // MARK: - Board Filter Bar
-
-    private var boardFilterBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: Spacing.sm) {
-                // "All" chip
-                boardChip(title: "All", boardID: nil)
-
-                ForEach(allBoards) { board in
-                    boardChip(title: board.title, boardID: board.id)
-                }
-            }
-            .padding(.horizontal, Spacing.md)
-            .padding(.vertical, Spacing.sm)
-        }
-        .background(Color.bgPrimary)
-    }
-
-    private func boardChip(title: String, boardID: UUID?) -> some View {
-        let isActive = selectedBoardID == boardID
-        return Button {
-            selectedBoardID = boardID
-        } label: {
-            Text(title)
-                .font(.groveTag)
-                .foregroundStyle(isActive ? Color.textInverse : Color.textPrimary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(isActive ? Color.bgTagActive : Color.bgCard)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(isActive ? Color.clear : Color.borderTag, lineWidth: 1)
-                )
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: - Item List
-
-    @ViewBuilder
-    private var itemList: some View {
-        if displayedItems.isEmpty {
-            emptyState
-        } else {
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(displayedItems) { item in
-                        selectableRow(for: item)
-                        Divider()
-                            .padding(.leading, isMultiSelectMode ? 68 : 40)
-                    }
-                }
-                .padding(.vertical, Spacing.xs)
-                if isMultiSelectMode && !selectedIDs.isEmpty {
-                    Spacer().frame(height: 52)
-                }
-            }
-        }
-    }
-
-    private func selectableRow(for item: Item) -> some View {
-        let isItemSelected = selectedIDs.contains(item.id)
-        let isHighlighted = isMultiSelectMode ? isItemSelected : selectedItem?.id == item.id
-
-        return HStack(spacing: 0) {
-            if isMultiSelectMode {
-                Image(systemName: isItemSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.groveBody)
-                    .foregroundStyle(isItemSelected ? Color.textPrimary : Color.textMuted)
-                    .frame(width: 28)
-                    .padding(.leading, Spacing.sm)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
-            }
-            LibraryRowView(item: item)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-            if !isMultiSelectMode {
-                openedItem = item
-                selectedItem = item
-            }
-        }
-        .onTapGesture(count: 1) {
-            handleRowTap(item: item)
-        }
-        .selectedItemStyle(isHighlighted)
-        .contextMenu {
-            rowContextMenu(for: item)
-        }
-    }
-
-    private func handleRowTap(item: Item) {
-        if isMultiSelectMode {
-            withAnimation(.easeInOut(duration: 0.1)) {
-                toggleSelection(for: item)
-            }
-            return
-        }
-        #if os(macOS)
-        if NSEvent.modifierFlags.contains(.command) {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                isMultiSelectMode = true
-                selectedIDs.insert(item.id)
-            }
-            return
-        }
-        #endif
-        selectedItem = item
-    }
-
-    @ViewBuilder
-    private func rowContextMenu(for item: Item) -> some View {
-        Button {
-            openedItem = item
-            selectedItem = item
-        } label: {
-            Label("Open", systemImage: "doc.text")
-        }
-        Button {
-            NotificationCenter.default.postDiscussItem(DiscussItemPayload(item: item))
-        } label: {
-            Label("Discuss", systemImage: "bubble.left.and.bubble.right")
-        }
-        Divider()
-        Button("Delete Item", role: .destructive) {
-            itemToDelete = item
-        }
-    }
-
-    // MARK: - Empty State
-
-    private var emptyState: some View {
-        VStack(spacing: Spacing.md) {
-            Image(systemName: searchQuery.isEmpty ? "books.vertical" : "magnifyingglass")
-                .font(.system(size: 40))
-                .foregroundStyle(Color.textTertiary)
-
-            if searchQuery.isEmpty {
-                Text("Your Library")
-                    .font(.groveItemTitle)
-                    .foregroundStyle(Color.textPrimary)
-                Text("Capture items to start building your knowledge base.")
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
-            } else {
-                Text("No results for \"\(searchQuery)\"")
-                    .font(.groveItemTitle)
-                    .foregroundStyle(Color.textPrimary)
-                Text("Try different keywords or clear the board filter.")
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textSecondary)
-                    .multilineTextAlignment(.center)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
     // MARK: - Debounced Search
 
     private func scheduleSearch(query: String) {
@@ -646,120 +431,5 @@ struct LibraryView: View {
             return 0.55
         }
         return 0
-    }
-}
-
-// MARK: - Library Row View
-
-private struct LibraryRowView: View {
-    let item: Item
-    @State private var isHovered = false
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: item.type.iconName)
-                .font(.groveMeta)
-                .foregroundStyle(Color.textMuted)
-                .frame(width: 20)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.title)
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textPrimary)
-                    .lineLimit(1)
-
-                HStack(spacing: 4) {
-                    if let firstBoard = item.boards.first {
-                        Text(firstBoard.title)
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                    } else {
-                        Text("Unfiled")
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                    }
-                    if !item.tags.isEmpty {
-                        Text("\u{00B7}")
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                    }
-                    ForEach(Array(item.tags.prefix(2)), id: \.id) { tag in
-                        Text(tag.name)
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textSecondary)
-                    }
-                    if item.tags.count > 2 {
-                        Text("+\(item.tags.count - 2)")
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                    }
-                }
-            }
-
-            Spacer()
-
-            // Discuss button — visible on hover
-            if isHovered {
-                Button {
-                    NotificationCenter.default.postDiscussItem(DiscussItemPayload(item: item))
-                } label: {
-                    Label("Discuss", systemImage: "bubble.left.and.bubble.right")
-                        .font(.groveBadge)
-                        .foregroundStyle(Color.textSecondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Color.bgCard)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 4)
-                                .stroke(Color.borderPrimary, lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
-                .transition(.opacity)
-            }
-
-            Text(item.updatedAt.relativeShort)
-                .font(.groveMeta)
-                .foregroundStyle(Color.textTertiary)
-
-            GrowthStageIndicator(stage: item.growthStage)
-                .help("\(item.growthStage.displayName) — \(item.depthScore) pts")
-
-            let connectionCount = item.outgoingConnections.count + item.incomingConnections.count
-            if connectionCount > 0 {
-                Label("\(connectionCount)", systemImage: "link")
-                    .font(.groveMeta)
-                    .foregroundStyle(Color.textSecondary)
-            }
-            if item.reflections.count > 0 {
-                Label("\(item.reflections.count)", systemImage: "text.alignleft")
-                    .font(.groveMeta)
-                    .foregroundStyle(Color.textSecondary)
-            }
-        }
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, 8)
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.1)) {
-                isHovered = hovering
-            }
-        }
-    }
-}
-
-// MARK: - Date Extension
-
-private extension Date {
-    var relativeShort: String {
-        let now = Date()
-        let diff = now.timeIntervalSince(self)
-        if diff < 60 { return "now" }
-        if diff < 3600 { return "\(Int(diff / 60))m" }
-        if diff < 86400 { return "\(Int(diff / 3600))h" }
-        if diff < 86400 * 7 { return "\(Int(diff / 86400))d" }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d"
-        return formatter.string(from: self)
     }
 }
