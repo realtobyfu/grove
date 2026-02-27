@@ -149,9 +149,9 @@ struct GroveApp: App {
             .environment(storeKitService)
         }
         #else
-        // iOS: MobileRootView will replace this Text in P1.5
+        // iOS: MobileRootView switches between TabRootView (iPhone) and iPadRootView (iPad)
         WindowGroup {
-            Text("Grove")
+            MobileRootView()
                 .task {
                     let context = modelContainer.mainContext
                     AnnotationMigrationService.migrateIfNeeded(context: context)
