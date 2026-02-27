@@ -109,7 +109,7 @@ struct GroveApp: App {
             .environment(storeKitService)
         }
         #else
-        // iOS: MobileRootView switches between TabRootView (iPhone) and iPadRootView (iPad)
+        // iOS: MobileRootView uses TabRootView with .sidebarAdaptable (sidebar on iPad landscape, tabs elsewhere)
         WindowGroup {
             MobileRootView()
                 .task {

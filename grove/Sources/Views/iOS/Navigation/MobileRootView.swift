@@ -1,23 +1,15 @@
 import SwiftUI
 
-/// Top-level iOS entry point that switches between iPhone and iPad layouts
-/// based on horizontal size class. Compact → TabRootView, Regular → iPadRootView.
-/// Presents onboarding as a full-screen cover when OnboardingService.isPresented is true.
+/// Top-level iOS entry point. Uses unified TabRootView with `.sidebarAdaptable`
+/// which automatically shows sidebar on iPad landscape and tabs on iPhone/iPad portrait.
 struct MobileRootView: View {
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.modelContext) private var modelContext
     @Environment(OnboardingService.self) private var onboarding
     @State private var showOnboarding = false
     @State private var nudgeEngine: NudgeEngine?
 
     var body: some View {
-        Group {
-            if horizontalSizeClass == .regular {
-                iPadRootView()
-            } else {
-                TabRootView()
-            }
-        }
+        TabRootView()
         #if os(iOS)
         .fullScreenCover(isPresented: $showOnboarding) {
             MobileOnboardingView()

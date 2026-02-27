@@ -14,11 +14,8 @@ final class DeepLinkRouter {
 
     // MARK: - Navigation state
 
-    /// The tab to select (iPhone) or sidebar item (iPad) after routing.
+    /// The tab to select after routing.
     var selectedTab: TabRootView.Tab?
-
-    /// The sidebar item to select (iPad).
-    var selectedSidebarItem: SidebarItem?
 
     /// UUID of an item to navigate to after selecting its tab.
     var pendingItemID: UUID?
@@ -50,8 +47,7 @@ final class DeepLinkRouter {
             guard let uuidString = pathComponents.first,
                   let uuid = UUID(uuidString: uuidString) else { return false }
             pendingItemID = uuid
-            selectedTab = .library
-            selectedSidebarItem = .library
+            selectedTab = .home
             return true
 
         case "board":
@@ -59,7 +55,6 @@ final class DeepLinkRouter {
                   let uuid = UUID(uuidString: uuidString) else { return false }
             pendingBoardID = uuid
             selectedTab = .library
-            selectedSidebarItem = .board(uuid)
             return true
 
         case "chat":
@@ -67,23 +62,18 @@ final class DeepLinkRouter {
                   let uuid = UUID(uuidString: uuidString) else { return false }
             pendingConversationID = uuid
             selectedTab = .chat
-            // iPad: chat tab doesn't have a dedicated sidebar item yet;
-            // the conversation list will pick up pendingConversationID
             return true
 
         case "capture":
             let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
             pendingCaptureURL = components?.queryItems?.first(where: { $0.name == "url" })?.value
             selectedTab = .home
-            selectedSidebarItem = .home
             return true
 
         case "search":
             let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
             pendingSearchQuery = components?.queryItems?.first(where: { $0.name == "q" })?.value
-            // Search is accessible from any tab; stay on current or go to library
             selectedTab = .library
-            selectedSidebarItem = .library
             return true
 
         default:

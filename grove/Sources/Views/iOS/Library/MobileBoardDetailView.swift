@@ -2,10 +2,9 @@ import SwiftUI
 import SwiftData
 
 /// Board detail view for iOS — shows items in a board with sort picker.
-/// iPhone: single-column List. iPad: adaptive LazyVGrid.
+/// Uses adaptive LazyVGrid that adjusts column count based on available width.
 struct MobileBoardDetailView: View {
     let board: Board
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Item.createdAt, order: .reverse) private var allItems: [Item]
 
@@ -30,8 +29,7 @@ struct MobileBoardDetailView: View {
                 } description: {
                     Text("Items added to this board will appear here.")
                 }
-            } else if horizontalSizeClass == .regular {
-                // iPad: adaptive grid
+            } else {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: Spacing.md) {
                         ForEach(boardItems) { item in
@@ -47,17 +45,6 @@ struct MobileBoardDetailView: View {
                     .padding(.horizontal, LayoutDimensions.contentPaddingH)
                     .padding(.top, Spacing.md)
                 }
-            } else {
-                // iPhone: single-column list
-                List {
-                    ForEach(boardItems) { item in
-                        NavigationLink(value: item) {
-                            MobileItemCardView(item: item)
-                        }
-                        .mobileItemContextMenu(item: item)
-                    }
-                }
-                .listStyle(.plain)
             }
         }
         .navigationTitle(board.title)

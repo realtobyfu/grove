@@ -1,10 +1,8 @@
 import SwiftUI
 import SwiftData
 
-/// iPhone tab-based navigation with 5 tabs.
-/// Each tab wraps a NavigationStack so that pushed views get their own nav bar.
-/// Actual tab content views (MobileHomeView, MobileInboxView, etc.) will replace
-/// the placeholder Text views as they are implemented in P3–P9.
+/// Unified iPhone/iPad navigation using iOS 18 `Tab` API.
+/// iPad landscape: sidebar. iPhone & iPad portrait: tab bar.
 struct TabRootView: View {
     @Environment(DeepLinkRouter.self) private var deepLinkRouter
     @Environment(\.modelContext) private var modelContext
@@ -23,74 +21,74 @@ struct TabRootView: View {
         allItems.filter { $0.status == .inbox }.count
     }
 
-    enum Tab: String, Hashable {
-        case home, inbox, library, chat, more
+    enum Tab: Hashable {
+        case home, library, chat, settings
+        case board(UUID)
     }
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            NavigationStack {
-                MobileHomeView()
-            }
-            .tabItem {
-                Label("Home", systemImage: "house")
-            }
-            .tag(Tab.home)
+            // MARK: - Main tabs
 
-            NavigationStack {
-                MobileInboxView()
+            SwiftUI.Tab("Home", systemImage: "house", value: Tab.home) {
+                NavigationStack {
+                    MobileHomeView()
+                }
             }
-            .tabItem {
-                Label("Inbox", systemImage: "tray")
-            }
-            .tag(Tab.inbox)
             .badge(inboxCount)
 
-            NavigationStack {
-                MobileLibraryView()
+            SwiftUI.Tab("Library", systemImage: "books.vertical", value: Tab.library) {
+                NavigationStack {
+                    MobileLibraryView()
+                }
             }
-            .tabItem {
-                Label("Library", systemImage: "books.vertical")
-            }
-            .tag(Tab.library)
 
-            NavigationStack {
-                MobileConversationListView()
+            SwiftUI.Tab("Chat", systemImage: "bubble.left.and.bubble.right", value: Tab.chat) {
+                NavigationStack {
+                    MobileConversationListView()
+                }
             }
-            .tabItem {
-                Label("Chat", systemImage: "bubble.left.and.bubble.right")
-            }
-            .tag(Tab.chat)
 
-            NavigationStack {
-                MobileSettingsView()
+            SwiftUI.Tab("Settings", systemImage: "gearshape", value: Tab.settings) {
+                NavigationStack {
+                    MobileSettingsView()
+                }
             }
-            .tabItem {
-                Label("More", systemImage: "ellipsis")
+
+            // MARK: - Sidebar-only: Boards
+
+            TabSection("Boards") {
+                ForEach(boards) { board in
+                    SwiftUI.Tab(board.title, systemImage: board.icon ?? "folder", value: Tab.board(board.id)) {
+                        NavigationStack {
+                            MobileBoardDetailView(board: board)
+                        }
+                    }
+                }
             }
-            .tag(Tab.more)
         }
-        // Hidden buttons for iPad keyboard shortcuts (Cmd+1–5)
+        #if os(iOS)
+        .tabViewStyle(.sidebarAdaptable)
+        #endif
+        // Hidden buttons for iPad keyboard shortcuts (Cmd+1–4)
         .background {
             VStack {
                 Button("") { selectedTab = .home }
                     .keyboardShortcut("1", modifiers: .command)
-                Button("") { selectedTab = .inbox }
-                    .keyboardShortcut("2", modifiers: .command)
                 Button("") { selectedTab = .library }
-                    .keyboardShortcut("3", modifiers: .command)
+                    .keyboardShortcut("2", modifiers: .command)
                 Button("") { selectedTab = .chat }
+                    .keyboardShortcut("3", modifiers: .command)
+                Button("") { selectedTab = .settings }
                     .keyboardShortcut("4", modifiers: .command)
-                Button("") { selectedTab = .more }
-                    .keyboardShortcut("5", modifiers: .command)
             }
             .frame(width: 0, height: 0)
             .opacity(0)
             .allowsHitTesting(false)
         }
         .overlay(alignment: .bottomTrailing) {
-            // Show floating capture button on content tabs (not Chat or More)
-            if [Tab.home, .inbox, .library].contains(selectedTab) {
+            // Show floating capture button on content tabs (not Chat or Settings)
+            if [Tab.home, .library].contains(selectedTab) {
                 FloatingCaptureButton()
                     .padding(.trailing, Spacing.lg)
                     .padding(.bottom, Spacing.xl)
