@@ -53,8 +53,8 @@ Last updated: 2026-02-26
 
 ## P2: Capture Flow
 
-- [ ] P2.1: Create `grove/Sources/Views/iOS/Capture/CaptureSheetView.swift` — sheet with URL text field + paste button, title preview, board picker (Picker or menu), optional note field, Cancel/Save buttons; uses CaptureService to create Item with .inbox status
-- [ ] P2.2: Create `grove/Sources/Views/iOS/Capture/FloatingCaptureButton.swift` — circular "+" button (bottom-right, above tab bar safe area) with .shadow; shows on Home/Inbox/Library tabs; taps present CaptureSheetView as .sheet
+- [x] P2.1: Create `grove/Sources/Views/iOS/Capture/CaptureSheetView.swift` — sheet with URL text field + paste button, title preview, board picker (Picker or menu), optional note field, Cancel/Save buttons; uses CaptureService to create Item with .inbox status
+- [x] P2.2: Create `grove/Sources/Views/iOS/Capture/FloatingCaptureButton.swift` — circular "+" button (bottom-right, above tab bar safe area) with .shadow; shows on Home/Inbox/Library tabs; taps present CaptureSheetView as .sheet
 - [ ] P2.3: Create `grove/ShareExtension/` directory with ShareExtensionView.swift — SwiftUI view that extracts URL + title from NSExtensionItem, shows title/domain preview, board picker from shared store, optional note, Save/Cancel; writes Item to shared ModelContainer
 - [ ] P2.4: Create `grove/ShareExtension/Info.plist` with NSExtensionPointIdentifier (com.apple.share-services), NSExtensionActivationRule for URLs and text, and ShareExtensionView as principal class
 - [ ] P2.5: Wire auto-tag processing — when main app launches or receives Darwin notification (CFNotificationCenterGetDarwinNotifyCenter), query for new .inbox items without tags and run AutoTagService.tagItem() on each

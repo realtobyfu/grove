@@ -76,6 +76,14 @@ struct TabRootView: View {
             }
             .tag(Tab.more)
         }
+        .overlay(alignment: .bottomTrailing) {
+            // Show floating capture button on content tabs (not Chat or More)
+            if [Tab.home, .inbox, .library].contains(selectedTab) {
+                FloatingCaptureButton()
+                    .padding(.trailing, Spacing.lg)
+                    .padding(.bottom, Spacing.xl)
+            }
+        }
         .onChange(of: deepLinkRouter.selectedTab) { _, newTab in
             if let newTab {
                 selectedTab = newTab
