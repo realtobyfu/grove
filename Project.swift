@@ -6,7 +6,7 @@ let project = Project(
         // MARK: - grove-ios (iPhone + iPad)
         .target(
             name: "grove-ios",
-            destinations: .iOS,
+            destinations: [.iPhone, .iPad],
             product: .app,
             bundleId: "dev.tuist.grove",
             deploymentTargets: .iOS("18.0"),
@@ -52,7 +52,7 @@ let project = Project(
         // MARK: - GroveShareExtension (iOS Share Extension)
         .target(
             name: "GroveShareExtension",
-            destinations: .iOS,
+            destinations: [.iPhone, .iPad],
             product: .appExtension,
             bundleId: "dev.tuist.grove.share-extension",
             deploymentTargets: .iOS("18.0"),
