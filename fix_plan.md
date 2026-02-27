@@ -79,13 +79,13 @@ Last updated: 2026-02-26
 
 ## P5: Item Reader
 
-- [ ] P5.1: Create `grove/Sources/Views/iOS/Item/MobileItemReaderView.swift` — full-screen article reader with WKWebView (UIViewRepresentable wrapper for iOS); toolbar with title, back button, "Discuss" button, share button, reflections button
-- [ ] P5.2: Create `grove/Sources/Views/iOS/Item/MobileArticleWebView.swift` — UIViewRepresentable wrapping WKWebView with same JavaScript injection as macOS ArticleWebView (text selection, find-in-page, link interception) but using UIKit APIs
-- [ ] P5.3: Create `grove/Sources/Views/iOS/Item/MobileReflectionSheet.swift` — bottom sheet (.sheet with detents: .medium, .large) showing reflection blocks list, add button, type picker (keyInsight/connection/disagreement), content editor; on iPad, present as inspector trailing column instead
-- [ ] P5.4: Add "Discuss this" button — toolbar button that creates a new Conversation seeded with item context via DialecticsService, then navigates to chat view
-- [ ] P5.5: Add wiki-link tapping — detect [[Item Title]] in content/reflections, tap to push-navigate to the linked item's reader view
-- [ ] P5.6: Add Find in page — toolbar button that shows a search bar overlay, uses WKWebView.evaluateJavaScript for find/highlight/navigate (same JS as macOS version)
-- [ ] P5.7: Create `grove/Sources/Views/iOS/Item/MobileNoteEditorView.swift` — full-screen note editor with title field, board chips, and a TextEditor (iOS equivalent of RichMarkdownEditor); basic markdown support
+- [x] P5.1: Create `grove/Sources/Views/iOS/Item/MobileItemReaderView.swift` — full-screen article reader with WKWebView (UIViewRepresentable wrapper for iOS); toolbar with title, back button, "Discuss" button, share button, reflections button
+- [x] P5.2: Create `grove/Sources/Views/iOS/Item/MobileArticleWebView.swift` — UIViewRepresentable wrapping WKWebView with same JavaScript injection as macOS ArticleWebView (text selection, find-in-page, link interception) but using UIKit APIs
+- [x] P5.3: Create `grove/Sources/Views/iOS/Item/MobileReflectionSheet.swift` — bottom sheet (.sheet with detents: .medium, .large) showing reflection blocks list, add button, type picker (keyInsight/connection/disagreement), content editor; on iPad, present as inspector trailing column instead
+- [x] P5.4: Add "Discuss this" button — toolbar button that creates a new Conversation seeded with item context via DialecticsService, then navigates to chat view
+- [x] P5.5: Add wiki-link tapping — detect [[Item Title]] in content/reflections, tap to push-navigate to the linked item's reader view
+- [x] P5.6: Add Find in page — toolbar button that shows a search bar overlay, uses WKWebView.evaluateJavaScript for find/highlight/navigate (same JS as macOS version)
+- [x] P5.7: Create `grove/Sources/Views/iOS/Item/MobileNoteEditorView.swift` — full-screen note editor with title field, board chips, and a TextEditor (iOS equivalent of RichMarkdownEditor); basic markdown support
 
 ## P6: Dialectics Chat
 

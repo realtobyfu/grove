@@ -1,0 +1,226 @@
+import SwiftUI
+import SwiftData
+
+/// Bottom sheet for viewing and editing reflections on an item.
+/// iPhone: presented as sheet with .medium/.large detents.
+/// iPad: presented as inspector trailing column (caller uses .inspector modifier).
+struct MobileReflectionSheet: View {
+    let item: Item
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var editingBlock: ReflectionBlock?
+    @State private var newBlockType: ReflectionBlockType = .keyInsight
+    @State private var newBlockContent = ""
+    @State private var isAddingNew = false
+    @FocusState private var isEditorFocused: Bool
+
+    private var sortedReflections: [ReflectionBlock] {
+        item.reflections.sorted { $0.position < $1.position }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if sortedReflections.isEmpty && !isAddingNew {
+                    emptyState
+                } else {
+                    reflectionList
+                }
+            }
+            .navigationTitle("Reflections")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        isAddingNew = true
+                        isEditorFocused = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("Add reflection")
+                }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    // MARK: - Empty state
+
+    private var emptyState: some View {
+        ContentUnavailableView {
+            Label("No Reflections", systemImage: "text.bubble")
+        } description: {
+            Text("Add reflections to deepen your understanding of this item.")
+        } actions: {
+            Button("Add Reflection") {
+                isAddingNew = true
+                isEditorFocused = true
+            }
+        }
+    }
+
+    // MARK: - Reflection list
+
+    private var reflectionList: some View {
+        List {
+            if isAddingNew {
+                newReflectionEditor
+            }
+
+            ForEach(sortedReflections) { block in
+                if editingBlock?.id == block.id {
+                    editBlockView(block)
+                } else {
+                    reflectionRow(block)
+                }
+            }
+            .onDelete(perform: deleteBlocks)
+        }
+        .listStyle(.plain)
+    }
+
+    // MARK: - Reflection row
+
+    private func reflectionRow(_ block: ReflectionBlock) -> some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            HStack(spacing: Spacing.sm) {
+                Image(systemName: block.blockType.systemImage)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.textTertiary)
+                Text(block.blockType.displayName)
+                    .font(.groveMeta)
+                    .foregroundStyle(Color.textTertiary)
+                Spacer()
+                Text(block.createdAt, style: .relative)
+                    .font(.groveMeta)
+                    .foregroundStyle(Color.textMuted)
+            }
+
+            if let highlight = block.highlight, !highlight.isEmpty {
+                Text(highlight)
+                    .font(.groveBodySecondary)
+                    .foregroundStyle(Color.textSecondary)
+                    .italic()
+                    .lineLimit(3)
+                    .padding(.leading, Spacing.sm)
+                    .overlay(alignment: .leading) {
+                        Rectangle()
+                            .fill(Color.textMuted.opacity(0.3))
+                            .frame(width: 2)
+                    }
+            }
+
+            Text(block.content)
+                .font(.groveBody)
+                .foregroundStyle(Color.textPrimary)
+        }
+        .frame(minHeight: LayoutDimensions.minTouchTarget)
+        .padding(.vertical, Spacing.xs)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            editingBlock = block
+        }
+    }
+
+    // MARK: - New reflection editor
+
+    private var newReflectionEditor: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Picker("Type", selection: $newBlockType) {
+                ForEach(ReflectionBlockType.allCases, id: \.self) { type in
+                    Label(type.displayName, systemImage: type.systemImage)
+                        .tag(type)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            TextEditor(text: $newBlockContent)
+                .font(.groveBody)
+                .frame(minHeight: 80)
+                .focused($isEditorFocused)
+
+            HStack {
+                Button("Cancel") {
+                    isAddingNew = false
+                    newBlockContent = ""
+                    isEditorFocused = false
+                }
+                Spacer()
+                Button("Save") {
+                    saveNewReflection()
+                }
+                .disabled(newBlockContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(.vertical, Spacing.xs)
+    }
+
+    // MARK: - Edit existing block
+
+    private func editBlockView(_ block: ReflectionBlock) -> some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Picker("Type", selection: Binding(
+                get: { block.blockType },
+                set: { block.blockType = $0 }
+            )) {
+                ForEach(ReflectionBlockType.allCases, id: \.self) { type in
+                    Label(type.displayName, systemImage: type.systemImage)
+                        .tag(type)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            TextEditor(text: Binding(
+                get: { block.content },
+                set: { block.content = $0 }
+            ))
+            .font(.groveBody)
+            .frame(minHeight: 80)
+
+            HStack {
+                Button("Cancel") {
+                    editingBlock = nil
+                }
+                Spacer()
+                Button("Done") {
+                    try? modelContext.save()
+                    editingBlock = nil
+                }
+            }
+        }
+        .padding(.vertical, Spacing.xs)
+    }
+
+    // MARK: - Actions
+
+    private func saveNewReflection() {
+        let trimmed = newBlockContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        let block = ReflectionBlock(
+            item: item,
+            blockType: newBlockType,
+            content: trimmed,
+            position: item.reflections.count
+        )
+        modelContext.insert(block)
+        try? modelContext.save()
+
+        newBlockContent = ""
+        isAddingNew = false
+        isEditorFocused = false
+    }
+
+    private func deleteBlocks(at offsets: IndexSet) {
+        let blocks = sortedReflections
+        for index in offsets {
+            modelContext.delete(blocks[index])
+        }
+        try? modelContext.save()
+    }
+}

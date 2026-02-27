@@ -35,9 +35,12 @@ struct MobileBoardDetailView: View {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: Spacing.md) {
                         ForEach(boardItems) { item in
-                            MobileItemCardView(item: item)
-                                .cardStyle()
-                                .padding(.horizontal, Spacing.xs)
+                            NavigationLink(value: item) {
+                                MobileItemCardView(item: item)
+                                    .cardStyle()
+                                    .padding(.horizontal, Spacing.xs)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal, LayoutDimensions.contentPaddingH)
@@ -47,13 +50,18 @@ struct MobileBoardDetailView: View {
                 // iPhone: single-column list
                 List {
                     ForEach(boardItems) { item in
-                        MobileItemCardView(item: item)
+                        NavigationLink(value: item) {
+                            MobileItemCardView(item: item)
+                        }
                     }
                 }
                 .listStyle(.plain)
             }
         }
         .navigationTitle(board.title)
+        .navigationDestination(for: Item.self) { item in
+            MobileItemReaderView(item: item)
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {

@@ -50,6 +50,9 @@ struct MobileHomeView: View {
             }
         }
         .navigationTitle("Home")
+        .navigationDestination(for: Item.self) { item in
+            MobileItemReaderView(item: item)
+        }
         .task {
             await starterService.refresh(items: allItems)
         }
@@ -84,7 +87,10 @@ struct MobileHomeView: View {
                     .sectionHeaderStyle()
 
                 ForEach(recentItems) { item in
-                    MobileItemCardView(item: item)
+                    NavigationLink(value: item) {
+                        MobileItemCardView(item: item)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
