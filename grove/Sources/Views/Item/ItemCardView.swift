@@ -1,7 +1,5 @@
 #if os(macOS)
 import AppKit
-#else
-import UIKit
 #endif
 import SwiftUI
 
@@ -37,6 +35,7 @@ struct ItemCardView: View {
     var showTags: Bool = true
     /// Called when the user chooses "Read in App" from the thumbnail context menu or the badge button.
     var onReadInApp: (() -> Void)? = nil
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         if item.type == .note {
@@ -201,7 +200,7 @@ struct ItemCardView: View {
                         #if os(macOS)
                         NSWorkspace.shared.open(url)
                         #else
-                        UIApplication.shared.open(url)
+                        openURL(url)
                         #endif
                     } label: {
                         HStack(spacing: 3) {

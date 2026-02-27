@@ -1,7 +1,5 @@
 #if os(macOS)
 import AppKit
-#else
-import UIKit
 #endif
 import SwiftUI
 import SwiftData
@@ -45,6 +43,7 @@ struct BoardDetailView: View {
     @Binding var selectedItem: Item?
     @Binding var openedItem: Item?
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.openURL) private var openURL
     @Environment(EntitlementService.self) private var entitlement
     @Environment(PaywallCoordinator.self) private var paywallCoordinator
     @Query private var allItems: [Item]
@@ -542,7 +541,7 @@ struct BoardDetailView: View {
                 #if os(macOS)
                 NSWorkspace.shared.open(url)
                 #else
-                UIApplication.shared.open(url)
+                openURL(url)
                 #endif
             } label: {
                 Label("Open in Browser", systemImage: "safari")

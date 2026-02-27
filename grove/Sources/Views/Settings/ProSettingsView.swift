@@ -1,7 +1,5 @@
 #if os(macOS)
 import AppKit
-#else
-import UIKit
 #endif
 import SwiftUI
 
@@ -9,6 +7,7 @@ struct ProSettingsView: View {
     @Environment(EntitlementService.self) private var entitlement
     @Environment(PaywallCoordinator.self) private var paywallCoordinator
     @Environment(StoreKitService.self) private var storeKit
+    @Environment(\.openURL) private var openURL
     @State private var paywallPresentation: PaywallPresentation?
 
     var body: some View {
@@ -53,7 +52,7 @@ struct ProSettingsView: View {
                                 #if os(macOS)
                                 NSWorkspace.shared.open(url)
                                 #else
-                                UIApplication.shared.open(url)
+                                openURL(url)
                                 #endif
                             }
                         }

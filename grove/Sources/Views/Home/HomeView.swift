@@ -40,6 +40,7 @@ struct HomeView: View {
     @Binding var selectedItem: Item?
     @Binding var openedItem: Item?
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.openURL) private var openURL
     @Environment(EntitlementService.self) private var entitlement
     @Environment(OnboardingService.self) private var onboarding
     @Environment(PaywallCoordinator.self) private var paywallCoordinator
@@ -338,7 +339,7 @@ struct HomeView: View {
         #if os(macOS)
         NSWorkspace.shared.open(url)
         #else
-        UIApplication.shared.open(url)
+        openURL(url)
         #endif
     }
 

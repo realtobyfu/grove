@@ -50,3 +50,5 @@
 - Font.custom(_:size:relativeTo:) is the correct way to enable Dynamic Type for custom fonts on iOS. No @ScaledMetric needed for Font tokens (use @ScaledMetric for non-font CGFloat values like spacing).
 - Both targets (grove + grove-ios) compile ALL files in grove/Sources/. iOS-only modifiers (.keyboardType, .textInputAutocapitalization, .navigationBarTitleDisplayMode) need `#if os(iOS)` guards even in Views/iOS/ files.
 - SwiftData `#Predicate` does not support enum member access (`.inbox`). Use `@Query` without filter + computed property instead.
+- GroveShareExtension target compiles ALL of grove/Sources/ (via buildableFolders). `@main` in GroveApp.swift is guarded with `#if !SHARE_EXTENSION`. `UIApplication.shared` is unavailable in extensions — use `@Environment(\.openURL)` instead (or pass `OpenURLAction` to coordinators).
+- Tuist does not support mixing `sources` (glob) and `buildableFolders` for overlapping paths in the same project. Use `buildableFolders` consistently + compilation conditions for exclusions.

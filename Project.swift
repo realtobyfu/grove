@@ -37,12 +37,47 @@ let project = Project(
                 "grove/Resources",
             ],
             entitlements: .file(path: "grove/grove-ios.entitlements"),
-            dependencies: [],
+            dependencies: [.target(name: "GroveShareExtension")],
             settings: .settings(base: [
                 "SWIFT_STRICT_CONCURRENCY": "complete",
                 "SWIFT_VERSION": "6.0",
                 "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
                 "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
+                "CODE_SIGN_STYLE": "Automatic",
+                "DEVELOPMENT_TEAM": "679K683SQ5",
+                "MARKETING_VERSION": "1.0.0",
+                "CURRENT_PROJECT_VERSION": "1",
+            ])
+        ),
+        // MARK: - GroveShareExtension (iOS Share Extension)
+        .target(
+            name: "GroveShareExtension",
+            destinations: .iOS,
+            product: .appExtension,
+            bundleId: "dev.tuist.grove.share-extension",
+            deploymentTargets: .iOS("18.0"),
+            infoPlist: .extendingDefault(with: [
+                "CFBundleDisplayName": "Save to Grove",
+                "NSExtension": [
+                    "NSExtensionPointIdentifier": "com.apple.share-services",
+                    "NSExtensionPrincipalClass": "$(PRODUCT_MODULE_NAME).ShareViewController",
+                    "NSExtensionActivationRule": [
+                        "NSExtensionActivationSupportsWebURLWithMaxCount": 1,
+                        "NSExtensionActivationSupportsText": true,
+                    ],
+                ],
+            ]),
+            buildableFolders: [
+                "grove/Sources",
+                "grove/ShareExtension",
+                "grove/Resources",
+            ],
+            entitlements: .file(path: "grove/share-extension.entitlements"),
+            dependencies: [],
+            settings: .settings(base: [
+                "SWIFT_STRICT_CONCURRENCY": "complete",
+                "SWIFT_VERSION": "6.0",
+                "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "SHARE_EXTENSION",
                 "CODE_SIGN_STYLE": "Automatic",
                 "DEVELOPMENT_TEAM": "679K683SQ5",
                 "MARKETING_VERSION": "1.0.0",

@@ -8,6 +8,7 @@ struct ItemReaderView: View {
     @Binding var isWebViewActive: Bool
     var onNavigateToItem: ((Item) -> Void)?
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.openURL) private var openURL
     @State private var isEditingContent = false
     @State private var showItemExportSheet = false
     // Video playback state
@@ -275,7 +276,7 @@ struct ItemReaderView: View {
                     #if os(macOS)
                     NSWorkspace.shared.open(url)
                     #else
-                    UIApplication.shared.open(url)
+                    openURL(url)
                     #endif
                 } label: {
                     Image(systemName: "arrow.up.right.square")

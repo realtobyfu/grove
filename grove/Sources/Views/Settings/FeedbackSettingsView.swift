@@ -1,12 +1,12 @@
 #if os(macOS)
 import AppKit
-#else
-import UIKit
 #endif
 import SwiftUI
 
 /// Settings view for sending feedback via email.
 struct FeedbackSettingsView: View {
+    @Environment(\.openURL) private var openURL
+
     var body: some View {
         Form {
             Section("Feedback") {
@@ -17,7 +17,7 @@ struct FeedbackSettingsView: View {
                         #if os(macOS)
                         NSWorkspace.shared.open(url)
                         #else
-                        UIApplication.shared.open(url)
+                        openURL(url)
                         #endif
                     }
                 }

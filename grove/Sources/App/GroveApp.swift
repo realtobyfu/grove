@@ -2,7 +2,9 @@ import SwiftUI
 import SwiftData
 import StoreKit
 
+#if !SHARE_EXTENSION
 @main
+#endif
 struct GroveApp: App {
     let modelContainer: ModelContainer
     @State private var syncService = SyncService()

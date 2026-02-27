@@ -13,9 +13,10 @@ struct MobileArticleWebView: UIViewRepresentable {
     var findForwardToken: Int = 0
     var findBackwardToken: Int = 0
     var onFindResult: ((Int, Int) -> Void)?
+    @Environment(\.openURL) private var openURL
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self)
+        Coordinator(parent: self, openURL: openURL)
     }
 
     func makeUIView(context: Context) -> WKWebView {
@@ -87,21 +88,24 @@ struct MobileArticleWebView: UIViewRepresentable {
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         let parent: MobileArticleWebView
+        let openURL: OpenURLAction
         var lastFindQuery = ""
         var lastForwardToken = 0
         var lastBackwardToken = 0
 
-        init(parent: MobileArticleWebView) {
+        init(parent: MobileArticleWebView, openURL: OpenURLAction) {
             self.parent = parent
+            self.openURL = openURL
         }
 
         // Intercept links — open externally instead of navigating in-app
-        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
+        @MainActor
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) -> WKNavigationActionPolicy {
             guard navigationAction.navigationType == .linkActivated,
                   let linkURL = navigationAction.request.url else {
                 return .allow
             }
-            await UIApplication.shared.open(linkURL)
+            openURL(linkURL)
             return .cancel
         }
 

@@ -4,6 +4,7 @@ import SwiftUI
 /// Subscription, and About. Wired into the "More" tab.
 struct MobileSettingsView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.openURL) private var openURL
     @State private var entitlement = EntitlementService.shared
     @State private var onboarding = OnboardingService.shared
     @State private var showPaywall = false
@@ -108,7 +109,7 @@ struct MobileSettingsView: View {
                 Button {
                     if let url = URL(string: "https://apps.apple.com/account/subscriptions") {
                         #if os(iOS)
-                        UIApplication.shared.open(url)
+                        openURL(url)
                         #endif
                     }
                 } label: {
@@ -139,7 +140,7 @@ struct MobileSettingsView: View {
             Button {
                 if let url = URL(string: "mailto:3tobiasfu@gmail.com?subject=Grove%20Feedback") {
                     #if os(iOS)
-                    UIApplication.shared.open(url)
+                    openURL(url)
                     #endif
                 }
             } label: {
@@ -149,7 +150,7 @@ struct MobileSettingsView: View {
             Button {
                 if let url = URL(string: "https://grove.dev/privacy") {
                     #if os(iOS)
-                    UIApplication.shared.open(url)
+                    openURL(url)
                     #endif
                 }
             } label: {
