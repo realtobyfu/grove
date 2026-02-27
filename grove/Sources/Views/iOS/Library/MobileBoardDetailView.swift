@@ -41,6 +41,7 @@ struct MobileBoardDetailView: View {
                                     .padding(.horizontal, Spacing.xs)
                             }
                             .buttonStyle(.plain)
+                            .mobileItemContextMenu(item: item)
                         }
                     }
                     .padding(.horizontal, LayoutDimensions.contentPaddingH)
@@ -53,6 +54,7 @@ struct MobileBoardDetailView: View {
                         NavigationLink(value: item) {
                             MobileItemCardView(item: item)
                         }
+                        .mobileItemContextMenu(item: item)
                     }
                 }
                 .listStyle(.plain)

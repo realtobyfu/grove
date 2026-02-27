@@ -105,6 +105,7 @@ struct MobileHomeView: View {
                         MobileItemCardView(item: item)
                     }
                     .buttonStyle(.plain)
+                    .mobileItemContextMenu(item: item)
                 }
             }
         }
