@@ -21,6 +21,14 @@ struct TabRootView: View {
         allItems.filter { $0.status == .inbox }.count
     }
 
+    private var showFloatingCapture: Bool {
+        switch selectedTab {
+        case .home, .library: return true
+        case .board(_): return true
+        default: return false
+        }
+    }
+
     enum Tab: Hashable {
         case home, library, chat, settings
         case board(UUID)
@@ -30,7 +38,7 @@ struct TabRootView: View {
         TabView(selection: $selectedTab) {
             // MARK: - Main tabs
 
-            SwiftUI.Tab("Home", systemImage: "house", value: Tab.home) {
+            SwiftUI.Tab("Home", systemImage: "envelope", value: Tab.home) {
                 NavigationStack {
                     MobileHomeView()
                 }
@@ -43,18 +51,6 @@ struct TabRootView: View {
                 }
             }
 
-            SwiftUI.Tab("Chat", systemImage: "bubble.left.and.bubble.right", value: Tab.chat) {
-                NavigationStack {
-                    MobileConversationListView()
-                }
-            }
-
-            SwiftUI.Tab("Settings", systemImage: "gearshape", value: Tab.settings) {
-                NavigationStack {
-                    MobileSettingsView()
-                }
-            }
-
             // MARK: - Sidebar-only: Boards
 
             TabSection("Boards") {
@@ -64,6 +60,18 @@ struct TabRootView: View {
                             MobileBoardDetailView(board: board)
                         }
                     }
+                }
+            }
+
+            SwiftUI.Tab("Chat", systemImage: "bubble.left.and.bubble.right", value: Tab.chat) {
+                NavigationStack {
+                    MobileConversationListView()
+                }
+            }
+
+            SwiftUI.Tab("Settings", systemImage: "gearshape", value: Tab.settings) {
+                NavigationStack {
+                    MobileSettingsView()
                 }
             }
         }
@@ -88,7 +96,7 @@ struct TabRootView: View {
         }
         .overlay(alignment: .bottomTrailing) {
             // Show floating capture button on content tabs (not Chat or Settings)
-            if [Tab.home, .library].contains(selectedTab) {
+            if showFloatingCapture {
                 FloatingCaptureButton()
                     .padding(.trailing, Spacing.lg)
                     .padding(.bottom, Spacing.xl)

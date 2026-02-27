@@ -9,6 +9,26 @@ struct MobileItemReaderView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
+    // MARK: - Right panel (iPad 2-panel)
+
+    enum RightPanel: Equatable {
+        case none
+        case reflections
+        case chat(Conversation)
+
+        static func == (lhs: RightPanel, rhs: RightPanel) -> Bool {
+            switch (lhs, rhs) {
+            case (.none, .none): return true
+            case (.reflections, .reflections): return true
+            case (.chat(let a), .chat(let b)): return a.id == b.id
+            default: return false
+            }
+        }
+    }
+
+    @State private var rightPanel: RightPanel = .none
+    @State private var panelConversation: Conversation?
+
     @State private var dialecticsService = DialecticsService()
     @State private var showReflections = false
     @State private var showFindBar = false
@@ -21,24 +41,63 @@ struct MobileItemReaderView: View {
     @State private var navigateToChat: Conversation?
     @FocusState private var findBarFocused: Bool
 
+    private var isReflectionsPanelOpen: Bool { rightPanel == .reflections }
+    private var isChatPanelOpen: Bool {
+        if case .chat = rightPanel { return true }
+        return false
+    }
+
     var body: some View {
-        ZStack(alignment: .top) {
-            contentView
-            if showFindBar {
-                findBar
-                    .transition(.move(edge: .top).combined(with: .opacity))
+        mainLayout
+            .navigationTitle(item.title)
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar { toolbarContent }
+            .sheet(isPresented: $showReflections) {
+                reflectionSheetContent
             }
-        }
-        .navigationTitle(item.title)
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .toolbar { toolbarContent }
-        .sheet(isPresented: $showReflections) {
-            reflectionSheetContent
-        }
-        .navigationDestination(item: $navigateToChat) { conversation in
-            MobileChatView(conversation: conversation)
+            .navigationDestination(item: $navigateToChat) { conversation in
+                MobileChatView(conversation: conversation)
+            }
+            .animation(.easeInOut(duration: 0.25), value: rightPanel)
+    }
+
+    // MARK: - Main Layout
+
+    @ViewBuilder
+    private var mainLayout: some View {
+        if horizontalSizeClass == .regular && rightPanel != .none {
+            // iPad 2-panel
+            GeometryReader { geo in
+                let panelWidth = min(max(geo.size.width * 0.4, 320), 480)
+                HStack(spacing: 0) {
+                    ZStack(alignment: .top) {
+                        contentView
+                        if showFindBar {
+                            findBar
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    Divider()
+
+                    rightPanelContent
+                        .frame(width: panelWidth)
+                        .frame(maxHeight: .infinity)
+                        .background(Color.bgPrimary)
+                }
+            }
+        } else {
+            // iPhone or no panel open
+            ZStack(alignment: .top) {
+                contentView
+                if showFindBar {
+                    findBar
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
         }
     }
 
@@ -115,32 +174,39 @@ struct MobileItemReaderView: View {
                 .accessibilityLabel("Find in page")
             }
 
-            // Reflect: iPad shows menu (write note or chat), iPhone opens sheet directly
-            if horizontalSizeClass == .regular {
-                Menu {
-                    Button {
-                        showReflections = true
-                    } label: {
-                        Label("Write a Reflection", systemImage: "text.bubble")
+            // Reflections button
+            Button {
+                if horizontalSizeClass == .regular {
+                    // iPad: toggle side panel
+                    withAnimation {
+                        rightPanel = isReflectionsPanelOpen ? .none : .reflections
                     }
-
-                    Button {
-                        startDiscussion()
-                    } label: {
-                        Label("Discuss in Chat", systemImage: "bubble.left.and.bubble.right")
-                    }
-                } label: {
-                    Image(systemName: "square.and.pencil")
-                }
-                .accessibilityLabel("Reflect on this item")
-            } else {
-                Button {
+                } else {
+                    // iPhone: open sheet
                     showReflections = true
-                } label: {
-                    Image(systemName: "text.bubble")
                 }
-                .accessibilityLabel("Reflections")
+            } label: {
+                Image(systemName: isReflectionsPanelOpen ? "text.bubble.fill" : "text.bubble")
             }
+            .accessibilityLabel("Reflections")
+
+            // Chat button
+            Button {
+                if horizontalSizeClass == .regular {
+                    // iPad: toggle side panel
+                    if isChatPanelOpen {
+                        withAnimation { rightPanel = .none }
+                    } else {
+                        startDiscussionForPanel()
+                    }
+                } else {
+                    // iPhone: navigate push
+                    startDiscussion()
+                }
+            } label: {
+                Image(systemName: isChatPanelOpen ? "bubble.left.and.bubble.right.fill" : "bubble.left.and.bubble.right")
+            }
+            .accessibilityLabel("Discuss")
 
             #if os(iOS)
             // Share
@@ -230,7 +296,49 @@ struct MobileItemReaderView: View {
         }
     }
 
+    // MARK: - Right panel content (iPad)
+
+    @ViewBuilder
+    private var rightPanelContent: some View {
+        switch rightPanel {
+        case .none:
+            EmptyView()
+        case .reflections:
+            MobileReflectionSheet(item: item, onDismiss: {
+                withAnimation { rightPanel = .none }
+            })
+        case .chat(let conversation):
+            NavigationStack {
+                MobileChatView(conversation: conversation)
+            }
+        }
+    }
+
     // MARK: - Actions
+
+    private func startDiscussionForPanel() {
+        // Reuse existing panel conversation if it belongs to this item
+        if let existing = panelConversation,
+           existing.seedItemIDs.contains(item.id) {
+            withAnimation { rightPanel = .chat(existing) }
+            return
+        }
+        let conversation = dialecticsService.startConversation(
+            trigger: .userInitiated,
+            seedItems: [item],
+            board: item.boards.first,
+            context: modelContext
+        )
+        Task {
+            _ = await dialecticsService.sendMessage(
+                userText: "Let's discuss \"\(item.title)\".",
+                conversation: conversation,
+                context: modelContext
+            )
+        }
+        panelConversation = conversation
+        withAnimation { rightPanel = .chat(conversation) }
+    }
 
     private func startDiscussion() {
         let conversation = dialecticsService.startConversation(

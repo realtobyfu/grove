@@ -6,6 +6,7 @@ import SwiftData
 /// iPad: presented as inspector trailing column (caller uses .inspector modifier).
 struct MobileReflectionSheet: View {
     let item: Item
+    var onDismiss: (() -> Void)? = nil
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
@@ -43,7 +44,9 @@ struct MobileReflectionSheet: View {
                     .accessibilityLabel("Add reflection")
                 }
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
+                    Button("Done") {
+                        if let onDismiss { onDismiss() } else { dismiss() }
+                    }
                 }
             }
         }

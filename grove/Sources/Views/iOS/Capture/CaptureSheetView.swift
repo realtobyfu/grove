@@ -1,7 +1,7 @@
 import SwiftUI
 import SwiftData
 
-/// Capture sheet for iOS — URL entry with paste, board picker, and optional note.
+/// Capture sheet for iOS — URL/text entry with paste and board picker.
 /// Presented as a .sheet from FloatingCaptureButton or deep link.
 struct CaptureSheetView: View {
     @Environment(\.modelContext) private var modelContext
@@ -12,7 +12,6 @@ struct CaptureSheetView: View {
     var prefillURL: String?
 
     @State private var urlText: String = ""
-    @State private var noteText: String = ""
     @State private var selectedBoardID: UUID?
     @State private var isSaving = false
 
@@ -62,14 +61,6 @@ struct CaptureSheetView: View {
                         .sectionHeaderStyle()
                 }
 
-                // MARK: - Optional note
-                Section {
-                    TextField("Add a note...", text: $noteText, axis: .vertical)
-                        .lineLimit(3...6)
-                } header: {
-                    Text("Note")
-                        .sectionHeaderStyle()
-                }
             }
             .navigationTitle("Capture")
             #if os(iOS)
@@ -114,12 +105,6 @@ struct CaptureSheetView: View {
 
         let captureService = CaptureService(modelContext: modelContext)
         let item = captureService.captureItem(input: trimmed)
-
-        // Append note to content if provided
-        let trimmedNote = noteText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedNote.isEmpty {
-            item.content = (item.content ?? "") + "\n\n---\n" + trimmedNote
-        }
 
         // Assign to selected board if chosen
         if let boardID = selectedBoardID,
