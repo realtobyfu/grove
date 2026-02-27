@@ -39,11 +39,11 @@ Last updated: 2026-02-26
 - [x] P0.7: Add `#if os(iOS)` / `#if os(macOS)` guards to the 18 files with macOS-only APIs so they compile for the iOS target (wrap NSViewRepresentable, NSImage, NSSavePanel, NSPasteboard, NSWindow, NSScreen usages)
 - [x] P0.8: Add iOS platform conditionals to `DesignTokens.swift` — use `@ScaledMetric` wrappers and platform-conditional font sizes per the spec (e.g. groveBody 14pt macOS → 16pt iOS, groveItemTitle 20pt → 18pt iPhone / 20pt iPad)
 - [x] P0.9: Add iOS layout dimensions to `DesignTokens.swift` — platform-conditional contentPaddingH (28pt macOS → 16pt iOS), card cornerRadius (8pt → 12pt iPhone / 10pt iPad), adjust LayoutDimensions for iPad sidebar (280pt) and inspector (320pt)
-- [ ] P0.10: Run `tuist generate` and `xcode_build(scheme: "grove-ios")` — fix all compilation errors until the iOS target builds clean with no views (just an empty WindowGroup)
+- [x] P0.10: Run `tuist generate` and `xcode_build(scheme: "grove-ios")` — fix all compilation errors until the iOS target builds clean with no views (just an empty WindowGroup)
 
 ## P1: Navigation Shell
 
-- [ ] P1.1: Create `grove/Sources/Views/iOS/Navigation/TabRootView.swift` — iPhone TabView with 5 tabs (Home, Inbox, Library, Chat, More) using SF Symbols (.house, .tray, .books.vertical, .bubble.left.and.bubble.right, .ellipsis); each tab is a NavigationStack with placeholder text
+- [x] P1.1: Create `grove/Sources/Views/iOS/Navigation/TabRootView.swift` — iPhone TabView with 5 tabs (Home, Inbox, Library, Chat, More) using SF Symbols (.house, .tray, .books.vertical, .bubble.left.and.bubble.right, .ellipsis); each tab is a NavigationStack with placeholder text
 - [ ] P1.2: Create `grove/Sources/Views/iOS/Navigation/iPadSidebarView.swift` — iPad NavigationSplitView sidebar with sections: Home, Inbox (badge count), Library, Boards list, Courses list, Graph; with Settings at bottom
 - [ ] P1.3: Create `grove/Sources/Views/iOS/Navigation/iPadRootView.swift` — NavigationSplitView 3-column layout (sidebar, content, inspector) that shows iPadSidebarView and routes selection to content area
 - [ ] P1.4: Create `grove/Sources/Views/iOS/Navigation/MobileRootView.swift` — entry point that reads `@Environment(\.horizontalSizeClass)` and switches between TabRootView (compact) and iPadRootView (regular)
