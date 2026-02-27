@@ -91,14 +91,14 @@ final class NudgeEngine: NudgeEngineProtocol {
 
     private func nudgesCreatedToday() -> Int {
         let startOfDay = Calendar.current.startOfDay(for: .now)
-        let allNudges = (try? modelContext.fetch(FetchDescriptor<Nudge>())) ?? []
+        let allNudges: [Nudge] = modelContext.fetchAll()
         return allNudges.filter { $0.createdAt >= startOfDay }.count
     }
 
     /// High engagement = user has acted on 3+ nudges in the past 7 days.
     private func userHasHighEngagement() -> Bool {
         let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -AppConstants.Days.recent, to: .now) ?? .now
-        let allNudges = (try? modelContext.fetch(FetchDescriptor<Nudge>())) ?? []
+        let allNudges: [Nudge] = modelContext.fetchAll()
         let recentActedOn = allNudges.filter { $0.status == .actedOn && $0.createdAt > sevenDaysAgo }
         return recentActedOn.count >= AppConstants.Nudge.highEngagementThreshold
     }
@@ -118,7 +118,7 @@ final class NudgeEngine: NudgeEngineProtocol {
         guard canCreateNudge() else { return }
         guard !NudgeSettings.spacedResurfacingGlobalPause else { return }
 
-        let allNudges = (try? modelContext.fetch(FetchDescriptor<Nudge>())) ?? []
+        let allNudges: [Nudge] = modelContext.fetchAll()
 
         // Don't create if there's already a pending/shown resurface nudge
         let hasPending = allNudges.contains {
@@ -163,7 +163,7 @@ final class NudgeEngine: NudgeEngineProtocol {
         let fourteenDaysAgo = Calendar.current.date(byAdding: .day, value: -AppConstants.Days.stale, to: .now) ?? .now
         let thirtyDaysAgo = Calendar.current.date(byAdding: .day, value: -AppConstants.Days.cooldown, to: .now) ?? .now
 
-        let allItems = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
+        let allItems: [Item] = modelContext.fetchAll()
         let staleActiveItems = allItems.filter {
             $0.status == .active && $0.updatedAt < fourteenDaysAgo &&
             !$0.isResurfacingEligible // Only items not in the spaced queue
@@ -200,13 +200,13 @@ final class NudgeEngine: NudgeEngineProtocol {
         let fourteenDaysAgo = Calendar.current.date(byAdding: .day, value: -AppConstants.Days.stale, to: .now) ?? .now
         let thirtyDaysAgo = Calendar.current.date(byAdding: .day, value: -AppConstants.Days.cooldown, to: .now) ?? .now
 
-        let allItems = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
+        let allItems: [Item] = modelContext.fetchAll()
         let staleInboxItems = allItems.filter {
             $0.status == .inbox && $0.createdAt < fourteenDaysAgo
         }
         guard staleInboxItems.count >= AppConstants.Nudge.staleInboxMinCount else { return }
 
-        let allNudges = (try? modelContext.fetch(FetchDescriptor<Nudge>())) ?? []
+        let allNudges: [Nudge] = modelContext.fetchAll()
 
         let hasPending = allNudges.contains {
             $0.type == .staleInbox && ($0.status == .pending || $0.status == .shown)

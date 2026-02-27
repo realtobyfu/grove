@@ -43,9 +43,6 @@ struct BoardDetailView: View {
     @Binding var selectedItem: Item?
     @Binding var openedItem: Item?
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.openURL) private var openURL
-    @Environment(EntitlementService.self) private var entitlement
-    @Environment(PaywallCoordinator.self) private var paywallCoordinator
     @Query private var allItems: [Item]
     @State private var viewMode: BoardViewMode = .grid
     @State private var sortOption: BoardSortOption = .manual
@@ -81,6 +78,28 @@ struct BoardDetailView: View {
         starterService.bubbles(for: board.id, maxResults: Self.maxDiscussionSuggestions)
     }
 
+    // MARK: - Header Helper
+
+    private var headerView: BoardDetailHeaderView {
+        BoardDetailHeaderView(
+            board: board,
+            effectiveItems: effectiveItems,
+            boardDiscussionSuggestions: boardDiscussionSuggestions,
+            sortOption: sortOption,
+            viewMode: $viewMode,
+            sortOptionBinding: $sortOption,
+            showItemPicker: $showItemPicker,
+            isSuggestionsCollapsed: $isSuggestionsCollapsed,
+            paywallPresentation: $paywallPresentation,
+            onSelectSuggestion: presentPromptActions(for:),
+            onRefreshSuggestions: {
+                Task {
+                    await starterService.forceRefreshBoard(board.id, items: allItems)
+                }
+            }
+        )
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -91,44 +110,23 @@ struct BoardDetailView: View {
                 }
 
                 if effectiveItems.isEmpty {
-                    emptyState
+                    headerView.emptyState
                 } else {
-                    if !boardDiscussionSuggestions.isEmpty {
-                        BoardSuggestionsView(
-                            suggestions: boardDiscussionSuggestions,
-                            isSuggestionsCollapsed: $isSuggestionsCollapsed,
-                            onSelectSuggestion: presentPromptActions(for:),
-                            onRefresh: {
-                                Task {
-                                    await starterService.forceRefreshBoard(board.id, items: allItems)
-                                }
-                            }
-                        )
-                    }
+                    headerView.suggestionsBar
 
-                    switch viewMode {
-                    case .grid:
-                        BoardGridView(
-                            items: sortedFilteredItems,
-                            sections: weekSections,
-                            canReorder: sortOption == .manual && !board.isSmart,
-                            selectedItem: $selectedItem,
-                            openedItem: $openedItem,
-                            draggingItemID: $draggingItemID,
-                            itemContextMenu: { item in AnyView(itemContextMenu(for: item)) },
-                            onReorder: moveGridItem
-                        )
-                    case .list:
-                        BoardListView(
-                            items: sortedFilteredItems,
-                            sections: weekSections,
-                            canReorder: sortOption == .manual && !board.isSmart,
-                            selectedItem: $selectedItem,
-                            openedItem: $openedItem,
-                            itemContextMenu: { item in AnyView(itemContextMenu(for: item)) },
-                            onMove: moveListItems
-                        )
-                    }
+                    BoardItemListView(
+                        board: board,
+                        sortedFilteredItems: sortedFilteredItems,
+                        weekSections: weekSections,
+                        canReorder: sortOption == .manual && !board.isSmart,
+                        viewMode: viewMode,
+                        selectedItem: $selectedItem,
+                        openedItem: $openedItem,
+                        draggingItemID: $draggingItemID,
+                        itemToDelete: $itemToDelete,
+                        onMoveGrid: moveGridItem,
+                        onMoveList: moveListItems
+                    )
                 }
             }
 
@@ -137,10 +135,20 @@ struct BoardDetailView: View {
                     .fill(Color.borderPrimary)
                     .frame(width: 1)
 
-                promptModePanel(for: selection)
-                    .frame(width: 330)
-                    .frame(maxHeight: .infinity)
-                    .transition(.move(edge: .trailing))
+                BoardPromptModePanel(
+                    label: selection.label,
+                    prompt: selection.prompt,
+                    onClose: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            promptModeSelection = nil
+                        }
+                    },
+                    onDialectic: { startDialectic(with: selection) },
+                    onWrite: { startWriting(with: selection.prompt) }
+                )
+                .frame(width: 330)
+                .frame(maxHeight: .infinity)
+                .transition(.move(edge: .trailing))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -177,7 +185,7 @@ struct BoardDetailView: View {
         }
         .toolbar {
             ToolbarItem(placement: .secondaryAction) {
-                boardToolbarCluster
+                headerView.toolbarCluster
             }
         }
         .onKeyPress(phases: [.down]) { keyPress in
@@ -231,102 +239,6 @@ struct BoardDetailView: View {
                 scopedSeedItemIDs: scopedSeedItemIDs(for: bubble)
             )
         }
-    }
-
-    private func promptModePanel(for selection: PromptModeSelection) -> some View {
-        VStack(alignment: .leading, spacing: Spacing.lg) {
-            HStack(spacing: Spacing.sm) {
-                Text("PROMPT ACTIONS")
-                    .sectionHeaderStyle()
-
-                Spacer()
-
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        promptModeSelection = nil
-                    }
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.textSecondary)
-                        .padding(8)
-                        .background(Color.bgCard)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color.borderPrimary, lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close prompt actions")
-                .accessibilityHint("Return to board without opening an action.")
-            }
-            .padding(.horizontal, Spacing.md)
-            .padding(.top, Spacing.md)
-
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                Text(selection.label.uppercased())
-                    .font(.groveBadge)
-                    .tracking(0.8)
-                    .foregroundStyle(Color.textSecondary)
-
-                Text(selection.prompt)
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(Spacing.md)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.bgCard)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.borderPrimary, lineWidth: 1)
-            )
-            .padding(.horizontal, Spacing.md)
-
-            VStack(spacing: Spacing.sm) {
-                Button {
-                    startDialectic(with: selection)
-                } label: {
-                    Label("Open Dialectics", systemImage: "bubble.left.and.bubble.right")
-                        .font(.groveBody)
-                        .foregroundStyle(Color.textPrimary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, Spacing.md)
-                        .padding(.vertical, Spacing.sm)
-                        .background(Color.bgCard)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.borderPrimary, lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    startWriting(with: selection.prompt)
-                } label: {
-                    Label("Start Writing", systemImage: "square.and.pencil")
-                        .font(.groveBody)
-                        .foregroundStyle(Color.textPrimary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, Spacing.md)
-                        .padding(.vertical, Spacing.sm)
-                        .background(Color.bgCard)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.borderPrimary, lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, Spacing.md)
-
-            Spacer(minLength: 0)
-        }
-        .background(Color.bgInspector)
     }
 
     private func startDialectic(with selection: PromptModeSelection) {
@@ -413,157 +325,6 @@ struct BoardDetailView: View {
     private func openSelectedItem() {
         guard let item = selectedItem else { return }
         openedItem = item
-    }
-
-    // MARK: - Empty State
-
-    private var emptyState: some View {
-        VStack(spacing: Spacing.md) {
-            Image(systemName: board.isSmart ? "sparkles.rectangle.stack" : (board.icon ?? "square.grid.2x2"))
-                .font(.system(size: 48))
-                .foregroundStyle(Color.textTertiary)
-            Text(board.title)
-                .font(.groveItemTitle)
-                .foregroundStyle(Color.textPrimary)
-            if board.isSmart {
-                Text("No items match the tag rules yet. Tag items to see them appear here automatically.")
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
-
-                if !board.smartRuleTags.isEmpty {
-                    HStack(spacing: 4) {
-                        Text("Rules:")
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                        Text(board.smartRuleTags.map(\.name).joined(separator: board.smartRuleLogic == .and ? " AND " : " OR "))
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textSecondary)
-                    }
-                }
-            } else {
-                Text("No items yet. Add items to this board to get started.")
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textSecondary)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    // MARK: - Toolbar
-
-    private var synthesisButton: some View {
-        Button {
-            guard entitlement.canUse(.synthesis) else {
-                paywallPresentation = paywallCoordinator.present(
-                    feature: .synthesis,
-                    source: .synthesisAction
-                )
-                return
-            }
-            pickedItems = []
-            showItemPicker = true
-        } label: {
-            Label("Synthesize", systemImage: "sparkles")
-        }
-        .buttonStyle(.bordered)
-        .help("Generate an AI synthesis note from items in this board")
-        .disabled(effectiveItems.count < AppConstants.Activity.synthesisMinItems)
-    }
-
-    private var sortPicker: some View {
-        Menu {
-            ForEach(BoardSortOption.allCases, id: \.self) { option in
-                if option == .manual && board.isSmart { EmptyView() } else {
-                    Button {
-                        sortOption = option
-                    } label: {
-                        HStack {
-                            Text(option.rawValue)
-                            if sortOption == option {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-            }
-        } label: {
-            Label("Sort", systemImage: "arrow.up.arrow.down")
-        }
-        .buttonStyle(.bordered)
-        .help("Sort items (\(sortOption.rawValue))")
-    }
-
-    private var viewModeButton: some View {
-        Button {
-            viewMode = viewMode == .grid ? .list : .grid
-        } label: {
-            Label(viewMode == .grid ? "List" : "Grid", systemImage: viewMode.iconName)
-        }
-        .buttonStyle(.bordered)
-        .help(viewMode == .grid ? "Switch to list view" : "Switch to grid view")
-    }
-
-    @ViewBuilder
-    private var boardToolbarCluster: some View {
-        HStack(spacing: Spacing.sm) {
-            sortPicker
-            viewModeButton
-            synthesisButton
-            if board.isSmart && !board.smartRuleTags.isEmpty {
-                Image(systemName: "gearshape.2")
-                    .help("Smart board rules: \(board.smartRuleTags.map(\.name).joined(separator: board.smartRuleLogic == .and ? " AND " : " OR "))")
-            }
-        }
-    }
-
-    // MARK: - Item Context Menu
-
-    @ViewBuilder
-    private func itemContextMenu(for item: Item) -> some View {
-        Button {
-            openedItem = item
-            selectedItem = item
-        } label: {
-            Label("Open", systemImage: "doc.text")
-        }
-
-        if let urlString = item.sourceURL, let url = URL(string: urlString),
-           item.metadata["videoLocalFile"] != "true" {
-            Button {
-                openedItem = item
-                selectedItem = item
-            } label: {
-                Label("Read in App", systemImage: "doc.text.magnifyingglass")
-            }
-            Button {
-                #if os(macOS)
-                NSWorkspace.shared.open(url)
-                #else
-                openURL(url)
-                #endif
-            } label: {
-                Label("Open in Browser", systemImage: "safari")
-            }
-        }
-
-        Divider()
-
-        if !board.isSmart {
-            Button {
-                let viewModel = ItemViewModel(modelContext: modelContext)
-                viewModel.removeFromBoard(item, board: board)
-            } label: {
-                Label("Remove from Board", systemImage: "folder.badge.minus")
-            }
-        }
-
-        Button(role: .destructive) {
-            itemToDelete = item
-        } label: {
-            Label("Delete Item", systemImage: "trash")
-        }
     }
 
     // MARK: - Video Drag-and-Drop

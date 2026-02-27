@@ -305,7 +305,7 @@ struct InspectorPanelView: View {
                 try? modelContext.save()
 
                 Task { @MainActor in
-                    let allItems = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
+                    let allItems: [Item] = modelContext.fetchAll()
                     await ConversationStarterService.shared.forceRefresh(items: allItems)
                 }
             } label: {

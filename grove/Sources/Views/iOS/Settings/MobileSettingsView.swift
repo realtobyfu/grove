@@ -5,8 +5,8 @@ import SwiftUI
 struct MobileSettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openURL) private var openURL
-    @State private var entitlement = EntitlementService.shared
-    @State private var onboarding = OnboardingService.shared
+    @Environment(EntitlementService.self) private var entitlement
+    @Environment(OnboardingService.self) private var onboarding
     @State private var showPaywall = false
 
     var body: some View {

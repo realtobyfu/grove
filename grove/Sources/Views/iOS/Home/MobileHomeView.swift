@@ -9,7 +9,7 @@ struct MobileHomeView: View {
     @Query(sort: \Board.sortOrder) private var boards: [Board]
     @Query(sort: \Nudge.createdAt, order: .reverse) private var allNudges: [Nudge]
 
-    @State private var starterService = ConversationStarterService.shared
+    @Environment(ConversationStarterService.self) private var starterService
     @State private var dialecticsService = DialecticsService()
     @State private var showSearch = false
     @State private var showBoardPicker = false

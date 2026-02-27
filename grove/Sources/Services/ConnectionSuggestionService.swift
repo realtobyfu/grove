@@ -58,7 +58,7 @@ final class ConnectionSuggestionService: ConnectionSuggestionServiceProtocol {
         // Try LLM first if configured
         if LLMServiceConfig.isConfigured,
            sourceItem.content != nil || !sourceItem.reflections.isEmpty {
-            let allItems = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
+            let allItems: [Item] = modelContext.fetchAll()
             let candidates = filterCandidates(for: sourceItem, from: allItems)
 
             if !candidates.isEmpty {
@@ -175,7 +175,7 @@ final class ConnectionSuggestionService: ConnectionSuggestionServiceProtocol {
     /// Analyze a source item against all other items and return top suggestions.
     /// Synchronous heuristic fallback — used when LLM is unavailable.
     func suggestConnections(for sourceItem: Item, maxResults: Int = 3) -> [ConnectionSuggestion] {
-        let allItems = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
+        let allItems: [Item] = modelContext.fetchAll()
 
         // Existing connection target IDs (both directions)
         let connectedIDs = Set(
@@ -268,7 +268,7 @@ final class ConnectionSuggestionService: ConnectionSuggestionServiceProtocol {
     /// Caps at 2 auto-connections per item. Requires at least 5 other items for signal.
     func autoConnect(item: Item, in context: ModelContext) async {
         guard EntitlementService.shared.canUse(.connectionSuggestions) else { return }
-        let allItems = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
+        let allItems: [Item] = modelContext.fetchAll()
 
         // Need at least 5 other items for meaningful signal
         let otherItems = allItems.filter { $0.id != item.id }

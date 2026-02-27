@@ -50,46 +50,19 @@ struct ContentView: View {
     @Query(sort: \Course.createdAt) private var courses: [Course]
     @Query private var allItemsForOnboarding: [Item]
     @Query private var allConversationsForOnboarding: [Conversation]
-    @State private var selection: SidebarItem? = .home
-    @State private var inspectorUserOverride: Bool?
-    @State private var selectedItem: Item?
-    @State private var openedItem: Item?
-    @State private var showWritePanel = false
-    @State private var writePanelPrompt: String? = nil
-    @State private var writePanelEditItem: Item? = nil
-    @State private var writePanelWidth: CGFloat = 480
-    @State private var showSearch = false
-    @State private var showCaptureOverlay = false
-    @State private var nudgeEngine: NudgeEngine?
-    @State private var showItemExportSheet = false
-    @State private var showChatPanel = false
-    @State private var selectedConversation: Conversation?
-    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
-    @State private var savedColumnVisibility: NavigationSplitViewVisibility?
-    @State private var savedInspectorOverride: Bool?
-    @State private var savedChatPanel: Bool?
-    @State private var chatPanelWidth: CGFloat = 380
-    @State private var inspectorWidth: CGFloat = 360
-    @State private var isArticleWebViewActive = false
-
-    private var isInspectorVisible: Bool {
-        if let override = inspectorUserOverride {
-            return override
-        }
-        return selectedItem != nil || openedItem != nil
-    }
+    @State private var viewModel = ContentViewModel()
 
     var syncService: SyncService
 
     private var currentBoardID: UUID? {
-        if case .board(let boardID) = selection {
+        if case .board(let boardID) = viewModel.selection {
             return boardID
         }
         return nil
     }
 
     private var searchScopeBoard: Board? {
-        if case .board(let boardID) = selection {
+        if case .board(let boardID) = viewModel.selection {
             return boards.first(where: { $0.id == boardID })
         }
         return nil
@@ -110,68 +83,36 @@ struct ContentView: View {
     }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            SidebarView(selection: $selection, selectedConversation: $selectedConversation)
+        @Bindable var vm = viewModel
+        NavigationSplitView(columnVisibility: $vm.columnVisibility) {
+            SidebarView(selection: $vm.selection, selectedConversation: $vm.selectedConversation)
         } detail: {
             detailZStack
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 900, minHeight: 600)
         .modifier(ContentViewEventHandlers(
-            selection: $selection,
-            selectedItem: $selectedItem,
-            openedItem: $openedItem,
-            showWritePanel: $showWritePanel,
-            writePanelPrompt: $writePanelPrompt,
-            showSearch: $showSearch,
-            showCaptureOverlay: $showCaptureOverlay,
-            showItemExportSheet: $showItemExportSheet,
-            showChatPanel: $showChatPanel,
-            selectedConversation: $selectedConversation,
-            inspectorUserOverride: $inspectorUserOverride,
-            nudgeEngine: $nudgeEngine,
-            columnVisibility: $columnVisibility,
-            savedColumnVisibility: $savedColumnVisibility,
-            savedInspectorOverride: $savedInspectorOverride,
-            savedChatPanel: $savedChatPanel,
-            isInspectorVisible: isInspectorVisible,
-            isArticleWebViewActive: isArticleWebViewActive,
+            viewModel: viewModel,
             searchScopeBoard: searchScopeBoard,
             boards: boards,
             modelContext: modelContext
         ))
-        .onChange(of: openedItem) {
-            if let item = openedItem, item.type == .note {
-                writePanelEditItem = item
-                selectedItem = item
-                openedItem = nil
+        .onChange(of: viewModel.openedItem) {
+            if let item = viewModel.openedItem, item.type == .note {
+                viewModel.writePanelEditItem = item
+                viewModel.selectedItem = item
+                viewModel.openedItem = nil
                 withAnimation(.easeOut(duration: 0.2)) {
-                    showWritePanel = true
+                    viewModel.showWritePanel = true
                 }
-            } else if let item = openedItem, !item.reflections.isEmpty {
+            } else if let item = viewModel.openedItem, !item.reflections.isEmpty {
                 // Save current panel state and collapse for reader (only when item has reflections)
-                if savedColumnVisibility == nil {
-                    savedColumnVisibility = columnVisibility
-                    savedInspectorOverride = inspectorUserOverride
-                    savedChatPanel = showChatPanel
-                }
-                withAnimation(.easeOut(duration: 0.25)) {
-                    columnVisibility = .detailOnly
-                    inspectorUserOverride = false
-                    showChatPanel = false
-                }
-            } else if openedItem == nil {
-                isArticleWebViewActive = false
-                if savedColumnVisibility != nil {
+                viewModel.enterFocusMode()
+            } else if viewModel.openedItem == nil {
+                viewModel.isArticleWebViewActive = false
+                if viewModel.savedColumnVisibility != nil {
                     // Restore saved panel state when leaving reader
-                    withAnimation(.easeOut(duration: 0.25)) {
-                        columnVisibility = savedColumnVisibility ?? .automatic
-                        inspectorUserOverride = savedInspectorOverride
-                        showChatPanel = savedChatPanel ?? false
-                    }
-                    savedColumnVisibility = nil
-                    savedInspectorOverride = nil
-                    savedChatPanel = nil
+                    viewModel.exitFocusMode()
                 }
             }
         }
@@ -205,11 +146,12 @@ struct ContentView: View {
     }
 
     private var mainContentArea: some View {
-        HStack(spacing: 0) {
+        @Bindable var vm = viewModel
+        return HStack(spacing: 0) {
             detailContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .overlay {
-                    if isInspectorVisible && selectedItem != nil && openedItem == nil {
+                    if viewModel.isInspectorVisible && viewModel.selectedItem != nil && viewModel.openedItem == nil {
                         Color.black.opacity(0.04)
                             .allowsHitTesting(false)
                     }
@@ -220,10 +162,10 @@ struct ContentView: View {
             sidePanel
         }
         .toolbar {
-            if openedItem != nil {
+            if viewModel.openedItem != nil {
                 ToolbarItem(placement: .navigation) {
                     Button {
-                        openedItem = nil
+                        viewModel.openedItem = nil
                     } label: {
                         Label("Back", systemImage: "chevron.left")
                     }
@@ -232,20 +174,20 @@ struct ContentView: View {
             }
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
-                    if openedItem != nil {
+                    if viewModel.openedItem != nil {
                         NotificationCenter.default.post(name: .groveOpenReflectMode, object: nil)
                     } else {
                         withAnimation(.easeOut(duration: 0.2)) {
-                            writePanelPrompt = nil
-                            showWritePanel.toggle()
+                            viewModel.writePanelPrompt = nil
+                            viewModel.showWritePanel.toggle()
                         }
                     }
                 } label: {
-                    Image(systemName: openedItem != nil
+                    Image(systemName: viewModel.openedItem != nil
                         ? "square.and.pencil"
-                        : (showWritePanel ? "square.and.pencil.circle.fill" : "square.and.pencil"))
+                        : (viewModel.showWritePanel ? "square.and.pencil.circle.fill" : "square.and.pencil"))
                 }
-                .help(openedItem != nil ? "Reflect on this item" : showWritePanel ? "Close Write Panel" : "Write a note")
+                .help(viewModel.openedItem != nil ? "Reflect on this item" : viewModel.showWritePanel ? "Close Write Panel" : "Write a note")
                 chatToolbarButton
                 inspectorToolbarButton
             }
@@ -254,45 +196,46 @@ struct ContentView: View {
 
     private var chatToolbarButton: some View {
         Button {
-            withAnimation { showChatPanel.toggle() }
+            withAnimation { viewModel.showChatPanel.toggle() }
         } label: {
-            Image(systemName: showChatPanel ? "bubble.left.and.bubble.right.fill" : "bubble.left.and.bubble.right")
+            Image(systemName: viewModel.showChatPanel ? "bubble.left.and.bubble.right.fill" : "bubble.left.and.bubble.right")
         }
-        .help(showChatPanel ? "Hide Chat" : "Show Chat")
+        .help(viewModel.showChatPanel ? "Hide Chat" : "Show Chat")
     }
 
     private var inspectorToolbarButton: some View {
         Button {
-            withAnimation { inspectorUserOverride = !isInspectorVisible }
+            withAnimation { viewModel.inspectorUserOverride = !viewModel.isInspectorVisible }
         } label: {
             Image(systemName: "sidebar.trailing")
         }
-        .help(isInspectorVisible ? "Hide Inspector" : "Show Inspector")
+        .help(viewModel.isInspectorVisible ? "Hide Inspector" : "Show Inspector")
     }
 
     // MARK: - Overlays
 
     @ViewBuilder
     private var searchOverlay: some View {
-        if showSearch {
+        if viewModel.showSearch {
             Color.black.opacity(0.2)
                 .ignoresSafeArea()
                 .onTapGesture {
                     withAnimation(.easeOut(duration: 0.2)) {
-                        showSearch = false
+                        viewModel.showSearch = false
                     }
                 }
 
             VStack {
+                @Bindable var vm = viewModel
                 SearchOverlayView(
-                    isPresented: $showSearch,
+                    isPresented: $vm.showSearch,
                     scopeBoard: searchScopeBoard,
                     onSelectItem: { item in
-                        selectedItem = item
-                        openedItem = item
+                        viewModel.selectedItem = item
+                        viewModel.openedItem = item
                     },
                     onSelectBoard: { board in
-                        selection = .board(board.id)
+                        viewModel.selection = .board(board.id)
                     },
                     onSelectTag: { _ in }
                 )
@@ -305,18 +248,19 @@ struct ContentView: View {
 
     @ViewBuilder
     private var captureOverlay: some View {
-        if showCaptureOverlay {
+        if viewModel.showCaptureOverlay {
             Color.black.opacity(0.2)
                 .ignoresSafeArea()
                 .onTapGesture {
                     withAnimation(.easeOut(duration: 0.2)) {
-                        showCaptureOverlay = false
+                        viewModel.showCaptureOverlay = false
                     }
                 }
 
             VStack {
+                @Bindable var vm = viewModel
                 CaptureBarOverlayView(
-                    isPresented: $showCaptureOverlay,
+                    isPresented: $vm.showCaptureOverlay,
                     currentBoardID: currentBoardID
                 )
                 .padding(.top, 80)
@@ -336,9 +280,10 @@ struct ContentView: View {
 
     @ViewBuilder
     private var coachMarkOverlay: some View {
+        @Bindable var vm = viewModel
         CoachMarkOverlay(
             coachMarks: coachMarks,
-            showChatPanel: $showChatPanel
+            showChatPanel: $vm.showChatPanel
         )
     }
 
@@ -376,25 +321,26 @@ struct ContentView: View {
 
     @ViewBuilder
     private var writePanelSection: some View {
-        if showWritePanel {
-            draggableDivider(width: $writePanelWidth, min: 360, max: 700)
+        if viewModel.showWritePanel {
+            @Bindable var vm = viewModel
+            draggableDivider(width: $vm.writePanelWidth, min: 360, max: 700)
             NoteWriterPanelView(
-                isPresented: $showWritePanel,
+                isPresented: $vm.showWritePanel,
                 currentBoardID: currentBoardID,
-                prompt: writePanelPrompt,
-                editingItem: writePanelEditItem,
+                prompt: viewModel.writePanelPrompt,
+                editingItem: viewModel.writePanelEditItem,
                 isSidePanel: true
             ) { note in
-                writePanelPrompt = nil
-                writePanelEditItem = nil
-                selectedItem = note
+                viewModel.writePanelPrompt = nil
+                viewModel.writePanelEditItem = nil
+                viewModel.selectedItem = note
             }
-            .frame(width: writePanelWidth)
+            .frame(width: viewModel.writePanelWidth)
             .transition(.move(edge: .trailing))
-            .onChange(of: showWritePanel) {
-                if !showWritePanel {
-                    writePanelPrompt = nil
-                    writePanelEditItem = nil
+            .onChange(of: viewModel.showWritePanel) {
+                if !viewModel.showWritePanel {
+                    viewModel.writePanelPrompt = nil
+                    viewModel.writePanelEditItem = nil
                 }
             }
         }
@@ -402,28 +348,30 @@ struct ContentView: View {
 
     @ViewBuilder
     private var sidePanel: some View {
-        if showChatPanel {
-            draggableDivider(width: $chatPanelWidth, min: 300, max: .infinity)
+        if viewModel.showChatPanel {
+            @Bindable var vm = viewModel
+            draggableDivider(width: $vm.chatPanelWidth, min: 300, max: .infinity)
             DialecticalChatPanel(
-                selectedConversation: $selectedConversation,
-                isVisible: $showChatPanel,
+                selectedConversation: $vm.selectedConversation,
+                isVisible: $vm.showChatPanel,
                 currentBoard: searchScopeBoard,
                 onNavigateToItem: { item in
-                    selectedItem = item
-                    openedItem = item
+                    viewModel.selectedItem = item
+                    viewModel.openedItem = item
                 }
             )
-            .frame(width: chatPanelWidth)
+            .frame(width: viewModel.chatPanelWidth)
             .transition(.move(edge: .trailing))
-        } else if isInspectorVisible {
-            draggableDivider(width: $inspectorWidth, min: 300, max: 520)
-            if let inspectorItem = selectedItem ?? openedItem {
+        } else if viewModel.isInspectorVisible {
+            @Bindable var vm = viewModel
+            draggableDivider(width: $vm.inspectorWidth, min: 300, max: 520)
+            if let inspectorItem = viewModel.selectedItem ?? viewModel.openedItem {
                 InspectorPanelView(item: inspectorItem)
-                    .frame(width: inspectorWidth)
+                    .frame(width: viewModel.inspectorWidth)
                     .transition(.move(edge: .trailing))
             } else {
                 InspectorEmptyView()
-                    .frame(width: inspectorWidth)
+                    .frame(width: viewModel.inspectorWidth)
                     .transition(.move(edge: .trailing))
             }
         }
@@ -433,28 +381,29 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detailContent: some View {
-        if let openedItemValue = openedItem {
-            ItemReaderView(item: openedItemValue, isWebViewActive: $isArticleWebViewActive, onNavigateToItem: { item in
-                selectedItem = item
-                openedItem = item
+        @Bindable var vm = viewModel
+        if let openedItemValue = viewModel.openedItem {
+            ItemReaderView(item: openedItemValue, isWebViewActive: $vm.isArticleWebViewActive, onNavigateToItem: { item in
+                viewModel.selectedItem = item
+                viewModel.openedItem = item
             })
         } else {
-            switch selection {
+            switch viewModel.selection {
             case .home:
-                HomeView(selectedItem: $selectedItem, openedItem: $openedItem)
+                HomeView(selectedItem: $vm.selectedItem, openedItem: $vm.openedItem)
             case .library:
-                LibraryView(selectedItem: $selectedItem, openedItem: $openedItem)
+                LibraryView(selectedItem: $vm.selectedItem, openedItem: $vm.openedItem)
             case .board(let boardID):
                 if let board = boards.first(where: { $0.id == boardID }) {
-                    BoardDetailView(board: board, selectedItem: $selectedItem, openedItem: $openedItem)
+                    BoardDetailView(board: board, selectedItem: $vm.selectedItem, openedItem: $vm.openedItem)
                 } else {
                     PlaceholderView(icon: "square.grid.2x2", title: "Board", message: "Board not found.")
                 }
             case .graph:
-                GraphVisualizationView(selectedItem: $selectedItem, openedItem: $openedItem)
+                GraphVisualizationView(selectedItem: $vm.selectedItem, openedItem: $vm.openedItem)
             case .course(let courseID):
                 if let course = courses.first(where: { $0.id == courseID }) {
-                    CourseDetailView(course: course, selectedItem: $selectedItem, openedItem: $openedItem)
+                    CourseDetailView(course: course, selectedItem: $vm.selectedItem, openedItem: $vm.openedItem)
                 } else {
                     PlaceholderView(icon: "graduationcap", title: "Course", message: "Course not found.")
                 }

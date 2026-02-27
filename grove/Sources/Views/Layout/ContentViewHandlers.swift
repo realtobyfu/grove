@@ -4,57 +4,23 @@ import SwiftData
 // MARK: - Content View Event Handlers
 
 struct ContentViewEventHandlers: ViewModifier {
-    @Binding var selection: SidebarItem?
-    @Binding var selectedItem: Item?
-    @Binding var openedItem: Item?
-    @Binding var showWritePanel: Bool
-    @Binding var writePanelPrompt: String?
-    @Binding var showSearch: Bool
-    @Binding var showCaptureOverlay: Bool
-    @Binding var showItemExportSheet: Bool
-    @Binding var showChatPanel: Bool
-    @Binding var selectedConversation: Conversation?
-    @Binding var inspectorUserOverride: Bool?
-    @Binding var nudgeEngine: NudgeEngine?
-    @Binding var columnVisibility: NavigationSplitViewVisibility
-    @Binding var savedColumnVisibility: NavigationSplitViewVisibility?
-    @Binding var savedInspectorOverride: Bool?
-    @Binding var savedChatPanel: Bool?
-    let isInspectorVisible: Bool
-    let isArticleWebViewActive: Bool
+    @Bindable var viewModel: ContentViewModel
     let searchScopeBoard: Board?
     let boards: [Board]
     let modelContext: ModelContext
 
     func body(content: Content) -> some View {
         content
-            .onChange(of: selection) {
-                selectedItem = nil
-                openedItem = nil
-                inspectorUserOverride = nil
+            .onChange(of: viewModel.selection) {
+                viewModel.selectedItem = nil
+                viewModel.openedItem = nil
+                viewModel.inspectorUserOverride = nil
             }
-            .onChange(of: selectedItem) {
-                inspectorUserOverride = nil
+            .onChange(of: viewModel.selectedItem) {
+                viewModel.inspectorUserOverride = nil
             }
             .modifier(ContentViewNotificationHandlers(
-                showWritePanel: $showWritePanel,
-                writePanelPrompt: $writePanelPrompt,
-                showSearch: $showSearch,
-                showCaptureOverlay: $showCaptureOverlay,
-                showItemExportSheet: $showItemExportSheet,
-                showChatPanel: $showChatPanel,
-                selectedConversation: $selectedConversation,
-                inspectorUserOverride: $inspectorUserOverride,
-                selection: $selection,
-                selectedItem: $selectedItem,
-                openedItem: $openedItem,
-                nudgeEngine: $nudgeEngine,
-                columnVisibility: $columnVisibility,
-                savedColumnVisibility: $savedColumnVisibility,
-                savedInspectorOverride: $savedInspectorOverride,
-                savedChatPanel: $savedChatPanel,
-                isInspectorVisible: isInspectorVisible,
-                isArticleWebViewActive: isArticleWebViewActive,
+                viewModel: viewModel,
                 searchScopeBoard: searchScopeBoard,
                 boards: boards,
                 modelContext: modelContext
@@ -63,24 +29,7 @@ struct ContentViewEventHandlers: ViewModifier {
 }
 
 struct ContentViewNotificationHandlers: ViewModifier {
-    @Binding var showWritePanel: Bool
-    @Binding var writePanelPrompt: String?
-    @Binding var showSearch: Bool
-    @Binding var showCaptureOverlay: Bool
-    @Binding var showItemExportSheet: Bool
-    @Binding var showChatPanel: Bool
-    @Binding var selectedConversation: Conversation?
-    @Binding var inspectorUserOverride: Bool?
-    @Binding var selection: SidebarItem?
-    @Binding var selectedItem: Item?
-    @Binding var openedItem: Item?
-    @Binding var nudgeEngine: NudgeEngine?
-    @Binding var columnVisibility: NavigationSplitViewVisibility
-    @Binding var savedColumnVisibility: NavigationSplitViewVisibility?
-    @Binding var savedInspectorOverride: Bool?
-    @Binding var savedChatPanel: Bool?
-    let isInspectorVisible: Bool
-    let isArticleWebViewActive: Bool
+    @Bindable var viewModel: ContentViewModel
     let searchScopeBoard: Board?
     let boards: [Board]
     let modelContext: ModelContext
@@ -89,54 +38,54 @@ struct ContentViewNotificationHandlers: ViewModifier {
         let step1 = content
             .onReceive(NotificationCenter.default.publisher(for: .groveNewNote)) { _ in
                 withAnimation(.easeOut(duration: 0.2)) {
-                    writePanelPrompt = nil
-                    showWritePanel = true
+                    viewModel.writePanelPrompt = nil
+                    viewModel.showWritePanel = true
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveNewNoteWithPrompt)) { notification in
                 withAnimation(.easeOut(duration: 0.2)) {
-                    writePanelPrompt = notification.object as? String
-                    showWritePanel = true
+                    viewModel.writePanelPrompt = notification.object as? String
+                    viewModel.showWritePanel = true
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveToggleSearch)) { _ in
-                if isArticleWebViewActive {
+                if viewModel.isArticleWebViewActive {
                     NotificationCenter.default.post(name: .groveFindInArticle, object: nil)
                 } else {
                     withAnimation(.easeOut(duration: 0.2)) {
-                        if !showSearch { showCaptureOverlay = false }
-                        showSearch.toggle()
+                        if !viewModel.showSearch { viewModel.showCaptureOverlay = false }
+                        viewModel.showSearch.toggle()
                     }
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveToggleInspector)) { _ in
-                withAnimation { inspectorUserOverride = !isInspectorVisible }
+                withAnimation { viewModel.inspectorUserOverride = !viewModel.isInspectorVisible }
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveCaptureBar)) { _ in
                 withAnimation(.easeOut(duration: 0.2)) {
-                    if !showCaptureOverlay { showSearch = false }
-                    showCaptureOverlay.toggle()
+                    if !viewModel.showCaptureOverlay { viewModel.showSearch = false }
+                    viewModel.showCaptureOverlay.toggle()
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveGoToHome)) { _ in
-                selection = .home
+                viewModel.selection = .home
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveGoToBoard)) { notification in
                 if let index = notification.object as? Int, index >= 1, index <= boards.count {
-                    selection = .board(boards[index - 1].id)
+                    viewModel.selection = .board(boards[index - 1].id)
                 }
             }
         return step1
             .onReceive(NotificationCenter.default.publisher(for: .groveExportItem)) { _ in
-                if selectedItem != nil { showItemExportSheet = true }
+                if viewModel.selectedItem != nil { viewModel.showItemExportSheet = true }
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveToggleChat)) { _ in
-                withAnimation { showChatPanel.toggle() }
+                withAnimation { viewModel.showChatPanel.toggle() }
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveOpenConversation)) { notification in
                 if let conversation = notification.object as? Conversation {
-                    selectedConversation = conversation
-                    withAnimation { showChatPanel = true }
+                    viewModel.selectedConversation = conversation
+                    withAnimation { viewModel.showChatPanel = true }
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveStartCheckIn)) { notification in
@@ -168,47 +117,32 @@ struct ContentViewNotificationHandlers: ViewModifier {
                 dismissNudgeFromNotification(id: nudgeID)
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveEnterFocusMode)) { _ in
-                if savedColumnVisibility == nil {
-                    savedColumnVisibility = columnVisibility
-                    savedInspectorOverride = inspectorUserOverride
-                    savedChatPanel = showChatPanel
-                }
-                withAnimation(.easeOut(duration: 0.25)) {
-                    columnVisibility = .detailOnly
-                    inspectorUserOverride = false
-                    showChatPanel = false
-                }
+                viewModel.enterFocusMode()
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveExitFocusMode)) { _ in
-                withAnimation(.easeOut(duration: 0.25)) {
-                    columnVisibility = savedColumnVisibility ?? .automatic
-                    inspectorUserOverride = savedInspectorOverride
-                    showChatPanel = savedChatPanel ?? false
-                }
-                savedColumnVisibility = nil
-                savedInspectorOverride = nil
-                savedChatPanel = nil
+                viewModel.exitFocusMode()
             }
-            .sheet(isPresented: $showItemExportSheet) {
-                if let item = selectedItem {
+            .sheet(isPresented: $viewModel.showItemExportSheet) {
+                if let item = viewModel.selectedItem {
                     ItemExportSheet(item: item)
                 }
             }
             .onAppear {
                 NudgeNotificationService.shared.configure()
-                guard nudgeEngine == nil else { return }
+                guard viewModel.nudgeEngine == nil else { return }
                 let engine = NudgeEngine(modelContext: modelContext)
                 engine.startSchedule()
-                nudgeEngine = engine
+                viewModel.nudgeEngine = engine
             }
             .onDisappear {
-                nudgeEngine?.stopSchedule()
-                nudgeEngine = nil
+                viewModel.nudgeEngine?.stopSchedule()
+                viewModel.nudgeEngine = nil
             }
     }
 
     private func openNudgeFromNotification(id: UUID) {
-        guard let nudge = nudge(withID: id),
+        let allNudges: [Nudge] = modelContext.fetchAll()
+        guard let nudge = allNudges.first(where: { $0.id == id }),
               nudge.status == .pending || nudge.status == .shown
         else {
             NudgeNotificationService.shared.cancel(for: id)
@@ -224,12 +158,12 @@ struct ContentViewNotificationHandlers: ViewModifier {
         case .resurface, .continueCourse, .reflectionPrompt, .contradiction,
              .knowledgeGap, .synthesisPrompt:
             guard let item = nudge.targetItem else { return }
-            selectedItem = item
-            openedItem = item
+            viewModel.selectedItem = item
+            viewModel.openedItem = item
         case .staleInbox:
-            openedItem = nil
-            selectedItem = nil
-            selection = .library
+            viewModel.openedItem = nil
+            viewModel.selectedItem = nil
+            viewModel.selection = .library
         case .dialecticalCheckIn:
             startCheckInConversation(from: nudge)
         case .connectionPrompt, .streak:
@@ -238,7 +172,8 @@ struct ContentViewNotificationHandlers: ViewModifier {
     }
 
     private func dismissNudgeFromNotification(id: UUID) {
-        guard let nudge = nudge(withID: id),
+        let allNudges: [Nudge] = modelContext.fetchAll()
+        guard let nudge = allNudges.first(where: { $0.id == id }),
               nudge.status == .pending || nudge.status == .shown
         else {
             NudgeNotificationService.shared.cancel(for: id)
@@ -251,11 +186,6 @@ struct ContentViewNotificationHandlers: ViewModifier {
         try? modelContext.save()
     }
 
-    private func nudge(withID id: UUID) -> Nudge? {
-        let allNudges = (try? modelContext.fetch(FetchDescriptor<Nudge>())) ?? []
-        return allNudges.first(where: { $0.id == id })
-    }
-
     private func startConversation(
         withPrompt prompt: String,
         seedItemIDs: [UUID] = [],
@@ -263,7 +193,7 @@ struct ContentViewNotificationHandlers: ViewModifier {
     ) {
         let entitlement = EntitlementService.shared
         guard entitlement.canUse(.dialectics) else {
-            // Post paywall presentation via notification — the sheet binding is on DialecticalChatPanel
+            // Post paywall presentation via notification -- the sheet binding is on DialecticalChatPanel
             NotificationCenter.default.post(name: .groveDialecticsLimitReached, object: nil)
             return
         }
@@ -271,7 +201,7 @@ struct ContentViewNotificationHandlers: ViewModifier {
 
         var seedItems: [Item] = []
         if !seedItemIDs.isEmpty {
-            let all = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
+            let all: [Item] = modelContext.fetchAll()
             seedItems = all.filter { seedItemIDs.contains($0.id) }
         }
         let service = DialecticsService()
@@ -318,16 +248,16 @@ struct ContentViewNotificationHandlers: ViewModifier {
             }
         }
 
-        selectedConversation = conversation
-        withAnimation { showChatPanel = true }
+        viewModel.selectedConversation = conversation
+        withAnimation { viewModel.showChatPanel = true }
     }
 
     private func startDiscussion(item: Item) {
         let service = DialecticsService()
-        withAnimation { showChatPanel = true }
+        withAnimation { viewModel.showChatPanel = true }
         Task { @MainActor in
             let conversation = await service.startDiscussion(item: item, context: modelContext)
-            selectedConversation = conversation
+            viewModel.selectedConversation = conversation
         }
     }
 
@@ -336,7 +266,7 @@ struct ContentViewNotificationHandlers: ViewModifier {
         let openingPrompt = nudge.checkInOpeningPrompt ?? ""
         let seedIDs = nudge.relatedItemIDs ?? []
 
-        let allItems = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
+        let allItems: [Item] = modelContext.fetchAll()
         let seedItems = seedIDs.compactMap { id in
             allItems.first(where: { $0.id == id })
         }
@@ -362,8 +292,8 @@ struct ContentViewNotificationHandlers: ViewModifier {
             try? modelContext.save()
         }
 
-        selectedConversation = conversation
-        withAnimation { showChatPanel = true }
+        viewModel.selectedConversation = conversation
+        withAnimation { viewModel.showChatPanel = true }
     }
 
     private func startDialecticWithDisplayPrompt(_ prompt: String) {
@@ -386,7 +316,7 @@ struct ContentViewNotificationHandlers: ViewModifier {
             conversation.updatedAt = .now
             try? modelContext.save()
         }
-        selectedConversation = conversation
-        withAnimation { showChatPanel = true }
+        viewModel.selectedConversation = conversation
+        withAnimation { viewModel.showChatPanel = true }
     }
 }

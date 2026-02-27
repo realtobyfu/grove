@@ -12,6 +12,11 @@ struct GroveApp: App {
     @State private var onboardingService = OnboardingService.shared
     @State private var paywallCoordinator = PaywallCoordinator.shared
     @State private var storeKitService = StoreKitService.shared
+    @State private var conversationStarterService = ConversationStarterService.shared
+    @State private var coachMarkService = CoachMarkService.shared
+    @State private var feedDiscoveryService = FeedDiscoveryService.shared
+    @State private var feedFetchService = FeedFetchService.shared
+    @State private var suggestionRankingService = SuggestionRankingService.shared
     #if os(iOS)
     @State private var deepLinkRouter = DeepLinkRouter()
     #endif
@@ -34,6 +39,11 @@ struct GroveApp: App {
                 .environment(onboardingService)
                 .environment(paywallCoordinator)
                 .environment(storeKitService)
+                .environment(conversationStarterService)
+                .environment(coachMarkService)
+                .environment(feedDiscoveryService)
+                .environment(feedFetchService)
+                .environment(suggestionRankingService)
         }
         .modelContainer(modelContainer)
         .defaultSize(width: 1200, height: 800)
@@ -47,6 +57,11 @@ struct GroveApp: App {
                 .environment(onboardingService)
                 .environment(paywallCoordinator)
                 .environment(storeKitService)
+                .environment(conversationStarterService)
+                .environment(coachMarkService)
+                .environment(feedDiscoveryService)
+                .environment(feedFetchService)
+                .environment(suggestionRankingService)
         } label: {
             Label("Grove", systemImage: "leaf")
                 .labelStyle(.iconOnly)
@@ -61,6 +76,11 @@ struct GroveApp: App {
                 .environment(onboardingService)
                 .environment(paywallCoordinator)
                 .environment(storeKitService)
+                .environment(conversationStarterService)
+                .environment(coachMarkService)
+                .environment(feedDiscoveryService)
+                .environment(feedFetchService)
+                .environment(suggestionRankingService)
         }
         .modelContainer(modelContainer)
         .windowStyle(.hiddenTitleBar)
@@ -107,6 +127,11 @@ struct GroveApp: App {
             .environment(onboardingService)
             .environment(paywallCoordinator)
             .environment(storeKitService)
+            .environment(conversationStarterService)
+            .environment(coachMarkService)
+            .environment(feedDiscoveryService)
+            .environment(feedFetchService)
+            .environment(suggestionRankingService)
         }
         #else
         // iOS: MobileRootView uses TabRootView with .sidebarAdaptable (sidebar on iPad landscape, tabs elsewhere)
@@ -126,6 +151,11 @@ struct GroveApp: App {
                 .environment(onboardingService)
                 .environment(paywallCoordinator)
                 .environment(storeKitService)
+                .environment(conversationStarterService)
+                .environment(coachMarkService)
+                .environment(feedDiscoveryService)
+                .environment(feedFetchService)
+                .environment(suggestionRankingService)
         }
         .modelContainer(modelContainer)
         #endif

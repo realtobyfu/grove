@@ -26,16 +26,22 @@ protocol ReflectionPromptServiceProtocol {
 /// Sends the current item's context plus related items and existing reflections
 /// from the same board to produce personalized, wiki-link-enriched prompts.
 /// Returns empty array on failure — never throws.
+@MainActor
 final class ReflectionPromptService: ReflectionPromptServiceProtocol {
     private let provider: LLMProvider
+    private let entitlement: EntitlementService
 
-    init(provider: LLMProvider = LLMServiceConfig.makeProvider()) {
+    init(
+        provider: LLMProvider = LLMServiceConfig.makeProvider(),
+        entitlement: EntitlementService = .shared
+    ) {
         self.provider = provider
+        self.entitlement = entitlement
     }
 
     @MainActor func generatePrompts(for item: Item, in context: ModelContext) async -> [ReflectionPrompt] {
         guard LLMServiceConfig.isConfigured else { return [] }
-        guard EntitlementService.shared.canUse(.reflectionPrompts) else { return [] }
+        guard entitlement.canUse(.reflectionPrompts) else { return [] }
 
         // Only generate if the item has no existing reflections
         guard item.reflections.isEmpty else { return [] }
@@ -107,7 +113,7 @@ final class ReflectionPromptService: ReflectionPromptServiceProtocol {
         }
 
         if !results.isEmpty {
-            EntitlementService.shared.recordUse(.reflectionPrompts)
+            entitlement.recordUse(.reflectionPrompts)
         }
 
         return results

@@ -3,7 +3,7 @@ import SwiftUI
 /// Multi-step onboarding adapted for mobile — full-screen presentation.
 /// Pages: Welcome, Capture type, Organize style, Goals, Ready.
 struct MobileOnboardingView: View {
-    @State private var onboarding = OnboardingService.shared
+    @Environment(OnboardingService.self) private var onboarding
     @State private var page: OnboardingPage = .welcome
     @State private var selectedCapture: Set<CaptureType> = []
     @State private var selectedOrganize: OrganizeStyle?

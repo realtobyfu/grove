@@ -3,7 +3,7 @@ import SwiftData
 
 // MARK: - Home Primary Button Style
 
-private struct HomePrimaryButtonStyle: ButtonStyle {
+struct HomePrimaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
@@ -94,23 +94,58 @@ struct HomeView: View {
                             .padding(.bottom, Spacing.xl)
                     }
 
-                    inboxSection
-                        .padding(.bottom, Spacing.xl)
+                    HomeInboxSection(
+                        selectedItem: $selectedItem,
+                        openedItem: $openedItem,
+                        inboxCount: inboxCount,
+                        isCollapsed: $isInboxCollapsed
+                    )
+                    .padding(.bottom, Spacing.xl)
 
                     if !rankedSuggestions.isEmpty {
-                        suggestedReadingSection
-                            .padding(.bottom, Spacing.xl)
+                        HomeSuggestionsSection(
+                            rankedSuggestions: rankedSuggestions,
+                            isCollapsed: $isSuggestionsCollapsed,
+                            onAdd: { addSuggestionToInbox($0) },
+                            onDismiss: { dismissSuggestion($0) },
+                            onOpen: { openSuggestionInBrowser($0) },
+                            onExplorePro: {
+                                paywallPresentation = paywallCoordinator.present(
+                                    feature: .suggestedArticles,
+                                    source: .suggestedArticles
+                                )
+                            }
+                        )
+                        .padding(.bottom, Spacing.xl)
                     }
 
-                    discussionSection
-                        .padding(.bottom, Spacing.xl)
+                    HomeDiscussionSection(
+                        discussionBubbles: discussionBubbles,
+                        maxCards: Self.maxDiscussionCards,
+                        isCollapsed: $isDiscussionCollapsed,
+                        onNewConversation: {
+                            promptModeSelection = nil
+                            openConversation(with: "")
+                        },
+                        onBubbleTap: { presentModePanel(for: $0) },
+                        allItems: allItems,
+                        starterService: starterService
+                    )
+                    .padding(.bottom, Spacing.xl)
 
-                    recentItemsSection
-                        .padding(.bottom, Spacing.xl)
+                    HomeRecentItemsSection(
+                        recentItems: recentItems,
+                        isCollapsed: $isItemsCollapsed,
+                        onOpen: { openedItem = $0 }
+                    )
+                    .padding(.bottom, Spacing.xl)
 
                     if !recentConversations.isEmpty {
-                        recentConversationsSection
-                            .padding(.bottom, Spacing.xl)
+                        HomeRecentConversationsSection(
+                            recentConversations: recentConversations,
+                            isCollapsed: $isConversationsCollapsed
+                        )
+                        .padding(.bottom, Spacing.xl)
                     }
 
                     Spacer(minLength: Spacing.xxxl)
@@ -234,82 +269,7 @@ struct HomeView: View {
         )
     }
 
-    // MARK: - Inbox Section
-
-    private var inboxSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HomeSectionHeader(title: "INBOX", count: inboxCount, isCollapsed: $isInboxCollapsed)
-            if !isInboxCollapsed {
-                InboxTriageView(selectedItem: $selectedItem, openedItem: $openedItem, isEmbedded: true)
-            }
-        }
-    }
-
-    // MARK: - Suggested Reading Section
-
-    private var suggestedReadingSection: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            HomeSectionHeader(
-                title: "SUGGESTED READING",
-                count: rankedSuggestions.count,
-                isCollapsed: $isSuggestionsCollapsed
-            )
-
-            if !isSuggestionsCollapsed {
-                if !entitlement.canUse(.suggestedArticles) {
-                    suggestionsPaywallTeaser
-                } else {
-                    LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 320, maximum: 400), spacing: Spacing.md)],
-                        spacing: Spacing.md
-                    ) {
-                        ForEach(Array(rankedSuggestions.prefix(5))) { scored in
-                            SuggestedArticleCard(
-                                item: scored.item,
-                                score: scored.score,
-                                onAdd: { addSuggestionToInbox(scored.item) },
-                                onDismiss: { dismissSuggestion(scored.item) },
-                                onOpen: { openSuggestionInBrowser(scored.item) }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private var suggestionsPaywallTeaser: some View {
-        HStack(alignment: .top, spacing: Spacing.md) {
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                Text("PRO")
-                    .font(.groveBadge)
-                    .tracking(0.8)
-                    .foregroundStyle(Color.textSecondary)
-                Text("Unlock suggested articles")
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textPrimary)
-                Text("Get AI-curated articles from sources you already trust.")
-                    .font(.groveBodySmall)
-                    .foregroundStyle(Color.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-            Button("Explore Pro") {
-                paywallPresentation = paywallCoordinator.present(
-                    feature: .suggestedArticles,
-                    source: .suggestedArticles
-                )
-            }
-            .buttonStyle(HomePrimaryButtonStyle())
-        }
-        .padding(Spacing.md)
-        .background(Color.bgCard)
-        .clipShape(.rect(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.borderPrimary, lineWidth: 1)
-        )
-    }
+    // MARK: - Suggestion Actions
 
     private func addSuggestionToInbox(_ item: Item) {
         guard entitlement.canUse(.suggestedArticles) else {
@@ -343,228 +303,7 @@ struct HomeView: View {
         #endif
     }
 
-    // MARK: - Discussion Prompts Section
-
-    private var discussionSection: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            HStack {
-                HomeSectionHeader(
-                    title: "DISCUSSION SUGGESTIONS",
-                    count: min(Self.maxDiscussionCards, 1 + discussionBubbles.count),
-                    isCollapsed: $isDiscussionCollapsed
-                )
-
-                Spacer()
-
-                #if DEBUG
-                debugRefreshButton
-                #endif
-            }
-
-            if !isDiscussionCollapsed {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 320, maximum: 400), spacing: Spacing.md)],
-                    spacing: Spacing.md
-                ) {
-                    SuggestedConversationCard(
-                        label: "CHAT",
-                        title: "New Conversation",
-                        subtitle: "Start an open-ended dialectical session",
-                        icon: "bubble.left.and.bubble.right"
-                    ) {
-                        promptModeSelection = nil
-                        openConversation(with: "")
-                    }
-
-                    ForEach(discussionBubbles) { bubble in
-                        SuggestedConversationCard(
-                            label: bubble.label,
-                            title: bubble.prompt
-                        ) {
-                            presentModePanel(for: bubble)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    #if DEBUG
-    private var debugRefreshButton: some View {
-        Button {
-            Task {
-                await starterService.forceRefresh(items: allItems)
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "arrow.clockwise")
-                Text("Refresh")
-            }
-            .font(.groveMeta)
-            .foregroundStyle(Color.textTertiary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Color.bgCard)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-            .overlay(
-                RoundedRectangle(cornerRadius: 4)
-                    .strokeBorder(Color.borderPrimary, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .help("Force-refresh discussion suggestions (debug)")
-    }
-    #endif
-
-    // MARK: - Recent Items Section
-
-    private var recentItemsSection: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            HomeSectionHeader(
-                title: "RECENT ITEMS",
-                count: recentItems.count,
-                isCollapsed: $isItemsCollapsed
-            )
-
-            if !isItemsCollapsed {
-                if recentItems.isEmpty {
-                    Text("No items yet. Capture something to get started.")
-                        .font(.groveBodySmall)
-                        .foregroundStyle(Color.textTertiary)
-                        .padding(.vertical, Spacing.sm)
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(recentItems) { item in
-                            compactItemRow(item)
-                            if item.id != recentItems.last?.id {
-                                Divider().padding(.leading, Spacing.xl + Spacing.sm)
-                            }
-                        }
-                    }
-                    .background(Color.bgCard)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.borderPrimary, lineWidth: 1)
-                    )
-                }
-            }
-        }
-    }
-
-    private func compactItemRow(_ item: Item) -> some View {
-        Button {
-            openedItem = item
-        } label: {
-            HStack(spacing: Spacing.md) {
-                Image(systemName: item.type.iconName)
-                    .font(.groveBodySecondary)
-                    .foregroundStyle(Color.textSecondary)
-                    .frame(width: 18)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(item.title)
-                        .font(.groveBody)
-                        .foregroundStyle(Color.textPrimary)
-                        .lineLimit(1)
-                    if let board = item.boards.first {
-                        Text(board.title)
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                    } else {
-                        Text("Unfiled")
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                    }
-                }
-
-                Spacer()
-
-                Text(item.updatedAt.formatted(date: .abbreviated, time: .omitted))
-                    .font(.groveMeta)
-                    .foregroundStyle(Color.textMuted)
-            }
-            .padding(.horizontal, Spacing.md)
-            .padding(.vertical, Spacing.sm)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: - Recent Conversations Section
-
-    private var recentConversationsSection: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            HomeSectionHeader(
-                title: "RECENT CONVERSATIONS",
-                count: recentConversations.count,
-                isCollapsed: $isConversationsCollapsed
-            )
-
-            if !isConversationsCollapsed {
-                VStack(spacing: 0) {
-                    ForEach(recentConversations) { conversation in
-                        conversationRow(conversation)
-                        if conversation.id != recentConversations.last?.id {
-                            Divider().padding(.leading, Spacing.xl + Spacing.sm)
-                        }
-                    }
-                }
-                .background(Color.bgCard)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.borderPrimary, lineWidth: 1)
-                )
-            }
-        }
-    }
-
-    private func conversationRow(_ conversation: Conversation) -> some View {
-        Button {
-            NotificationCenter.default.post(
-                name: .groveOpenConversation,
-                object: conversation
-            )
-        } label: {
-            HStack(spacing: Spacing.md) {
-                Image(systemName: "bubble.left.and.bubble.right")
-                    .font(.groveBodySecondary)
-                    .foregroundStyle(Color.textSecondary)
-                    .frame(width: 18)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(conversation.displayTitle)
-                        .font(.groveBody)
-                        .foregroundStyle(Color.textPrimary)
-                        .lineLimit(1)
-                    if let last = conversation.visibleMessages.last {
-                        Text(last.content)
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                            .lineLimit(1)
-                    }
-                }
-
-                Spacer()
-
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(conversation.updatedAt.formatted(date: .abbreviated, time: .omitted))
-                        .font(.groveMeta)
-                        .foregroundStyle(Color.textMuted)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(Color.textMuted)
-                }
-            }
-            .padding(.horizontal, Spacing.md)
-            .padding(.vertical, Spacing.sm)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: - Actions
+    // MARK: - Prompt Mode Panel & Actions
 
     private func promptModePanel(for selection: PromptModeSelection) -> some View {
         VStack(alignment: .leading, spacing: Spacing.lg) {

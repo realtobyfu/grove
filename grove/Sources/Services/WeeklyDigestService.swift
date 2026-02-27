@@ -22,8 +22,8 @@ final class WeeklyDigestService: WeeklyDigestServiceProtocol {
         guard EntitlementService.shared.isPro else { return nil }
         let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -AppConstants.Days.recent, to: .now) ?? .now
 
-        let allItems = (try? context.fetch(FetchDescriptor<Item>())) ?? []
-        let boards = (try? context.fetch(FetchDescriptor<Board>())) ?? []
+        let allItems: [Item] = context.fetchAll()
+        let boards: [Board] = context.fetchAll()
 
         // Items added this week (excluding dismissed)
         let newItems = allItems.filter { $0.createdAt > sevenDaysAgo && $0.status != .dismissed }

@@ -36,16 +36,22 @@ protocol AutoTagServiceProtocol {
 /// Generates tags, a one-line summary, and a suggested board for an Item using the LLM.
 /// Gracefully degrades — if the LLM is unavailable or returns bad data,
 /// the item is left unchanged.
+@MainActor
 final class AutoTagService: AutoTagServiceProtocol {
     private let provider: LLMProvider
+    private let entitlement: EntitlementService
 
-    init(provider: LLMProvider = LLMServiceConfig.makeProvider()) {
+    init(
+        provider: LLMProvider = LLMServiceConfig.makeProvider(),
+        entitlement: EntitlementService = .shared
+    ) {
         self.provider = provider
+        self.entitlement = entitlement
     }
 
     @MainActor func tagItem(_ item: Item, in context: ModelContext) async {
         guard LLMServiceConfig.isConfigured else { return }
-        guard EntitlementService.shared.canUse(.autoTagging) else { return }
+        guard entitlement.canUse(.autoTagging) else { return }
 
         // Gather existing board names to help the LLM suggest one
         let boardDescriptor = FetchDescriptor<Board>()
@@ -108,7 +114,7 @@ final class AutoTagService: AutoTagServiceProtocol {
             }
         }
 
-        EntitlementService.shared.recordUse(.autoTagging)
+        entitlement.recordUse(.autoTagging)
 
         // Apply one-line summary
         if let summary = parsed.one_line_summary, !summary.isEmpty {

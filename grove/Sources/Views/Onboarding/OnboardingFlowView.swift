@@ -31,6 +31,7 @@ private enum OnboardingPage: Int, CaseIterable {
 
 struct OnboardingFlowView: View {
     @Environment(OnboardingService.self) private var onboarding
+    @Environment(CoachMarkService.self) private var coachMarks
 
     @State private var page: OnboardingPage = .welcome
     @State private var selectedCapture: Set<CaptureType> = []
@@ -357,7 +358,7 @@ struct OnboardingFlowView: View {
                 OnboardingPreferences.goals = selectedGoals
                 OnboardingPreferences.selectedUseCases = derivedUseCases()
                 onboarding.complete()
-                CoachMarkService.shared.startGuide()
+                coachMarks.startGuide()
             }
             .buttonStyle(OnboardingPrimaryButtonStyle())
             .keyboardShortcut(.return, modifiers: [])

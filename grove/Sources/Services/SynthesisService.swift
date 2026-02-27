@@ -22,13 +22,19 @@ protocol SynthesisServiceProtocol {
 final class SynthesisService: SynthesisServiceProtocol {
     private let modelContext: ModelContext
     private let provider: LLMProvider
+    private let entitlement: EntitlementService
     var isGenerating = false
     var progress: String = ""
     var lastError: String?
 
-    init(modelContext: ModelContext, provider: LLMProvider = LLMServiceConfig.makeProvider()) {
+    init(
+        modelContext: ModelContext,
+        provider: LLMProvider = LLMServiceConfig.makeProvider(),
+        entitlement: EntitlementService = .shared
+    ) {
         self.modelContext = modelContext
         self.provider = provider
+        self.entitlement = entitlement
     }
 
     /// Validate whether synthesis can be performed on the given items.
@@ -49,7 +55,7 @@ final class SynthesisService: SynthesisServiceProtocol {
     /// Generate a synthesis note from the given items.
     /// Uses LLM when configured, falls back to local heuristic.
     func generateSynthesis(items: [Item], scopeTitle: String) async -> SynthesisResult? {
-        guard EntitlementService.shared.canUse(.synthesis) else {
+        guard entitlement.canUse(.synthesis) else {
             lastError = "Synthesis requires Grove Pro."
             return nil
         }
@@ -67,7 +73,7 @@ final class SynthesisService: SynthesisServiceProtocol {
         }
 
         if result != nil {
-            EntitlementService.shared.recordUse(.synthesis)
+            entitlement.recordUse(.synthesis)
         }
 
         isGenerating = false

@@ -7,7 +7,7 @@ struct MobileAISettingsView: View {
     @AppStorage("grove.ai.providerType") private var providerType = "appleIntelligence"
     @AppStorage("grove.ai.apiKey") private var apiKey = ""
     @AppStorage("grove.ai.model") private var model = "llama-3.3-70b-versatile"
-    @State private var entitlement = EntitlementService.shared
+    @Environment(EntitlementService.self) private var entitlement
     @State private var tracker = TokenTracker.shared
 
     private var isCloudProvider: Bool {

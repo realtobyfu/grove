@@ -14,7 +14,12 @@ enum ExtensionItemProcessor {
     /// processing pipeline: metadata fetch (for URLs) and auto-tagging.
     ///
     /// Safe to call on every launch — returns immediately if no pending items.
-    static func processIfNeeded(context: ModelContext) {
+    static func processIfNeeded(
+        context: ModelContext,
+        metadataFetcher: URLMetadataFetcherProtocol = URLMetadataFetcher.shared,
+        imageDownloader: ImageDownloadServiceProtocol = ImageDownloadService.shared,
+        autoTagService: AutoTagServiceProtocol = AutoTagService()
+    ) {
         let descriptor = FetchDescriptor<Item>()
         guard let items = try? context.fetch(descriptor) else { return }
 
@@ -32,11 +37,17 @@ enum ExtensionItemProcessor {
             Task {
                 // Step 1: Fetch metadata for URL items (title, description, thumbnail)
                 if needsMetadata, let urlString = sourceURL {
-                    await fetchMetadata(itemID: itemID, urlString: urlString, context: context)
+                    await fetchMetadata(
+                        itemID: itemID,
+                        urlString: urlString,
+                        context: context,
+                        metadataFetcher: metadataFetcher,
+                        imageDownloader: imageDownloader
+                    )
                 }
 
                 // Step 2: Auto-tag with LLM (runs after metadata so LLM has full context)
-                await autoTag(itemID: itemID, context: context)
+                await autoTag(itemID: itemID, context: context, autoTagService: autoTagService)
             }
         }
 
@@ -50,11 +61,10 @@ enum ExtensionItemProcessor {
     private static func fetchMetadata(
         itemID: UUID,
         urlString: String,
-        context: ModelContext
+        context: ModelContext,
+        metadataFetcher: URLMetadataFetcherProtocol,
+        imageDownloader: ImageDownloadServiceProtocol
     ) async {
-        let metadataFetcher = URLMetadataFetcher.shared
-        let imageDownloader = ImageDownloadService.shared
-
         guard let metadata = await metadataFetcher.fetch(urlString: urlString) else {
             // Clear loading flag even on failure
             let desc = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
@@ -94,13 +104,12 @@ enum ExtensionItemProcessor {
     // MARK: - Auto-Tagging
 
     /// Runs LLM auto-tagging on the item if AI is configured.
-    private static func autoTag(itemID: UUID, context: ModelContext) async {
+    private static func autoTag(itemID: UUID, context: ModelContext, autoTagService: AutoTagServiceProtocol) async {
         guard LLMServiceConfig.isConfigured else { return }
 
         let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
         guard let item = try? context.fetch(descriptor).first else { return }
 
-        let service = AutoTagService()
-        await service.tagItem(item, in: context)
+        await autoTagService.tagItem(item, in: context)
     }
 }

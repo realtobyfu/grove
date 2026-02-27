@@ -148,7 +148,7 @@ struct MobileChatView: View {
         for url in urls {
             if url.scheme == "grove", url.host == "item" {
                 if let uuid = UUID(uuidString: url.lastPathComponent) {
-                    let allItems = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
+                    let allItems: [Item] = modelContext.fetchAll()
                     if let item = allItems.first(where: { $0.id == uuid }) {
                         inputText = "Let's discuss \"\(item.title)\"."
                         if !conversation.seedItemIDs.contains(item.id) {
@@ -160,7 +160,7 @@ struct MobileChatView: View {
             } else {
                 // Regular URL — find item by sourceURL
                 let urlString = url.absoluteString
-                let allItems = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
+                let allItems: [Item] = modelContext.fetchAll()
                 if let item = allItems.first(where: { $0.sourceURL == urlString }) {
                     inputText = "Let's discuss \"\(item.title)\"."
                     if !conversation.seedItemIDs.contains(item.id) {
@@ -178,7 +178,7 @@ struct MobileChatView: View {
     private func saveAsReflection(_ message: ChatMessage) {
         // Save to the first seed item if available
         let seedItem = conversation.seedItemIDs.first.flatMap { seedID in
-            let allItems = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
+            let allItems: [Item] = modelContext.fetchAll()
             return allItems.first { $0.id == seedID }
         }
         if let item = seedItem {
