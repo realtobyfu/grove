@@ -134,7 +134,7 @@ import Observation
 
     /// Lazily generates board-scoped starters. Returns cached results immediately if available.
     func refreshBoard(_ boardID: UUID, items: [Item]) async {
-        guard !loadedBoards.contains(boardID) else { return }
+        guard !loadedBoards.contains(boardID) || (boardBubbles[boardID]?.isEmpty ?? true) else { return }
         loadedBoards.insert(boardID)
 
         // Try loading from disk cache first

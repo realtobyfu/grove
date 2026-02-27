@@ -7,6 +7,10 @@ struct MobileInboxCard: View {
     var onConfirmTag: ((Tag) -> Void)?
     var onDismissTag: ((Tag) -> Void)?
 
+    private var isFetchingMetadata: Bool {
+        item.metadata["fetchingMetadata"] == "true"
+    }
+
     var body: some View {
         HStack(spacing: Spacing.md) {
             // Thumbnail
@@ -34,6 +38,26 @@ struct MobileInboxCard: View {
                         .lineLimit(1)
                 }
 
+                if isFetchingMetadata {
+                    HStack(spacing: 4) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Fetching metadata…")
+                            .font(.groveMeta)
+                            .foregroundStyle(Color.textMuted)
+                    }
+                } else if let summary = item.metadata["summary"], !summary.isEmpty {
+                    Text(summary)
+                        .font(.groveBodySecondary)
+                        .foregroundStyle(Color.textSecondary)
+                        .lineLimit(2)
+                } else if let content = item.content, !content.isEmpty {
+                    Text(content)
+                        .font(.groveBodySecondary)
+                        .foregroundStyle(Color.textSecondary)
+                        .lineLimit(2)
+                }
+
                 // Auto-tag chips
                 if !autoTags.isEmpty {
                     HStack(spacing: Spacing.xs) {
@@ -47,7 +71,7 @@ struct MobileInboxCard: View {
             Spacer(minLength: 0)
 
             // Time since added
-            Text(item.createdAt, style: .relative)
+            Text(compactRelativeTime(from: item.createdAt))
                 .font(.groveMeta)
                 .foregroundStyle(Color.textMuted)
                 .lineLimit(1)
@@ -109,5 +133,37 @@ struct MobileInboxCard: View {
         }
         #endif
         return Image(systemName: "photo")
+    }
+
+    private func compactRelativeTime(from date: Date) -> String {
+        let elapsed = max(0, Int(Date.now.timeIntervalSince(date)))
+
+        if elapsed < 3600 {
+            let minutes = max(1, elapsed / 60)
+            return "\(minutes)m"
+        }
+
+        if elapsed < 86_400 {
+            let hours = elapsed / 3600
+            return "\(hours)h"
+        }
+
+        if elapsed < 604_800 {
+            let days = elapsed / 86_400
+            return "\(days)d"
+        }
+
+        if elapsed < 2_592_000 {
+            let weeks = elapsed / 604_800
+            return "\(weeks)w"
+        }
+
+        if elapsed < 31_536_000 {
+            let months = elapsed / 2_592_000
+            return "\(months)mo"
+        }
+
+        let years = elapsed / 31_536_000
+        return "\(years)y"
     }
 }

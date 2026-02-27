@@ -47,6 +47,7 @@ struct LLMServiceConfig: Sendable {
     private static let managedAPIKeyEnvKey = "GROVE_MANAGED_CLOUD_API_KEY"
     private static let managedModelEnvKey = "GROVE_MANAGED_CLOUD_MODEL"
     private static let managedBaseURLEnvKey = "GROVE_MANAGED_CLOUD_BASE_URL"
+    private static let legacyAPIKeyEnvKey = "GROQ_API_KEY"
 
     static var providerType: LLMProviderType {
         get {
@@ -98,9 +99,11 @@ struct LLMServiceConfig: Sendable {
             if isBYOAllowed {
                 let stored = UserDefaults.standard.string(forKey: apiKeyKey) ?? ""
                 if !stored.isEmpty { return stored }
-                return envFileValue(forKey: "GROQ_API_KEY") ?? ""
+                return envFileValue(forKey: legacyAPIKeyEnvKey) ?? ""
             }
-            return envFileValue(forKey: "GROQ_API_KEY") ?? ""
+            return envFileValue(forKey: managedAPIKeyEnvKey)
+                ?? envFileValue(forKey: legacyAPIKeyEnvKey)
+                ?? ""
         }
         set {
             if isBYOAllowed {
