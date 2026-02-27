@@ -44,7 +44,7 @@ Last updated: 2026-02-26
 ## P1: Navigation Shell
 
 - [x] P1.1: Create `grove/Sources/Views/iOS/Navigation/TabRootView.swift` — iPhone TabView with 5 tabs (Home, Inbox, Library, Chat, More) using SF Symbols (.house, .tray, .books.vertical, .bubble.left.and.bubble.right, .ellipsis); each tab is a NavigationStack with placeholder text
-- [ ] P1.2: Create `grove/Sources/Views/iOS/Navigation/iPadSidebarView.swift` — iPad NavigationSplitView sidebar with sections: Home, Inbox (badge count), Library, Boards list, Courses list, Graph; with Settings at bottom
+- [x] P1.2: Create `grove/Sources/Views/iOS/Navigation/iPadSidebarView.swift` — iPad NavigationSplitView sidebar with sections: Home, Inbox (badge count), Library, Boards list, Courses list, Graph; with Settings at bottom
 - [ ] P1.3: Create `grove/Sources/Views/iOS/Navigation/iPadRootView.swift` — NavigationSplitView 3-column layout (sidebar, content, inspector) that shows iPadSidebarView and routes selection to content area
 - [ ] P1.4: Create `grove/Sources/Views/iOS/Navigation/MobileRootView.swift` — entry point that reads `@Environment(\.horizontalSizeClass)` and switches between TabRootView (compact) and iPadRootView (regular)
 - [ ] P1.5: Wire MobileRootView into GroveApp.swift under `#if os(iOS)` WindowGroup with modelContainer, environment services, and .onOpenURL deep link handler

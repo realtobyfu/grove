@@ -3,10 +3,12 @@ import SwiftData
 
 enum SidebarItem: Hashable {
     case home
+    case inbox
     case library
     case board(UUID)
     case graph
     case course(UUID)
+    case settings
 }
 
 struct ContentView: View {
@@ -425,6 +427,9 @@ struct ContentView: View {
                 } else {
                     PlaceholderView(icon: "graduationcap", title: "Course", message: "Course not found.")
                 }
+            case .inbox, .settings:
+                // iPad-only sidebar items; unused on macOS
+                PlaceholderView(icon: "leaf", title: "Grove", message: "Select an item from the sidebar to get started.")
             case nil:
                 PlaceholderView(icon: "leaf", title: "Grove", message: "Select an item from the sidebar to get started.")
             }
