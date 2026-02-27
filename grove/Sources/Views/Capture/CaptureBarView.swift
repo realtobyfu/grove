@@ -368,12 +368,10 @@ struct CaptureBarView: View {
 
     private func scheduleAutoDismiss() {
         suggestionDismissTask?.cancel()
-        suggestionDismissTask = Task {
-            try? await Task.sleep(for: .seconds(AppConstants.Capture.boardSuggestionAutoDismissSeconds))
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                dismissBoardSuggestion()
-            }
+        suggestionDismissTask = MainActorTaskScheduler.schedule(
+            after: .seconds(AppConstants.Capture.boardSuggestionAutoDismissSeconds)
+        ) {
+            dismissBoardSuggestion()
         }
     }
 }
@@ -658,13 +656,11 @@ struct CaptureBarOverlayView: View {
 
     private func scheduleAutoDismiss() {
         suggestionDismissTask?.cancel()
-        suggestionDismissTask = Task {
-            try? await Task.sleep(for: .seconds(AppConstants.Capture.boardSuggestionAutoDismissSeconds))
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                dismissBoardSuggestion()
-                dismiss()
-            }
+        suggestionDismissTask = MainActorTaskScheduler.schedule(
+            after: .seconds(AppConstants.Capture.boardSuggestionAutoDismissSeconds)
+        ) {
+            dismissBoardSuggestion()
+            dismiss()
         }
     }
 }

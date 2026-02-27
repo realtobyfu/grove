@@ -100,7 +100,7 @@ struct MobileArticleWebView: UIViewRepresentable {
 
         // Intercept links — open externally instead of navigating in-app
         @MainActor
-        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) -> WKNavigationActionPolicy {
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
             guard navigationAction.navigationType == .linkActivated,
                   let linkURL = navigationAction.request.url else {
                 return .allow

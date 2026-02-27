@@ -334,6 +334,7 @@ struct LibraryView: View {
 
     private func scheduleSearch(query: String) {
         searchTask?.cancel()
+        searchTask = nil
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             filteredResults = []
@@ -345,22 +346,13 @@ struct LibraryView: View {
         let candidates = boardFilteredItems
         let ctx = modelContext
 
-        searchTask = Task {
-            // 300ms debounce
-            try? await Task.sleep(nanoseconds: 300_000_000)
-            guard !Task.isCancelled else { return }
-
-            let results = await performSearch(query: trimmed, candidates: candidates, context: ctx)
-            guard !Task.isCancelled else { return }
-
-            await MainActor.run {
-                filteredResults = results
-                isSearching = false
-            }
+        searchTask = MainActorTaskScheduler.schedule(after: .milliseconds(300)) {
+            filteredResults = performSearch(query: trimmed, candidates: candidates, context: ctx)
+            isSearching = false
         }
     }
 
-    private func performSearch(query: String, candidates: [Item], context: ModelContext) async -> [Item] {
+    private func performSearch(query: String, candidates: [Item], context: ModelContext) -> [Item] {
         let lower = query.lowercased()
 
         // Score each item
@@ -377,25 +369,25 @@ struct LibraryView: View {
             var score: Double = 0
 
             // Title match (highest weight)
-            let titleScore = fuzzyScore(lower, in: item.title.lowercased()) * 1.0
+            let titleScore = FuzzySearchScorer.score(normalizedQuery: lower, in: item.title.lowercased()) * 1.0
             score = max(score, titleScore)
 
             // Content match
             if let content = item.content {
-                let contentScore = fuzzyScore(lower, in: content.lowercased()) * 0.7
+                let contentScore = FuzzySearchScorer.score(normalizedQuery: lower, in: content.lowercased()) * 0.7
                 score = max(score, contentScore)
             }
 
             // Tag match
             for tag in item.tags {
-                let tagScore = fuzzyScore(lower, in: tag.name.lowercased()) * 0.8
+                let tagScore = FuzzySearchScorer.score(normalizedQuery: lower, in: tag.name.lowercased()) * 0.8
                 score = max(score, tagScore)
             }
 
             // Reflection content match
             if let reflections = reflectionsByItem[item.id] {
                 for block in reflections {
-                    let reflScore = fuzzyScore(lower, in: block.content.lowercased()) * 0.6
+                    let reflScore = FuzzySearchScorer.score(normalizedQuery: lower, in: block.content.lowercased()) * 0.6
                     score = max(score, reflScore)
                 }
             }
@@ -408,28 +400,5 @@ struct LibraryView: View {
         return scored
             .sorted { $0.score > $1.score }
             .map(\.item)
-    }
-
-    /// Simple fuzzy scorer: exact > prefix > substring > word-level
-    private func fuzzyScore(_ query: String, in text: String) -> Double {
-        guard !query.isEmpty, !text.isEmpty else { return 0 }
-        if text == query { return 1.0 }
-        if text.hasPrefix(query) { return 0.95 }
-        if text.contains(query) {
-            if let range = text.range(of: query) {
-                let idx = text.distance(from: text.startIndex, to: range.lowerBound)
-                if idx == 0 { return 0.9 }
-                let before = text[text.index(range.lowerBound, offsetBy: -1)]
-                if before == " " || before == "-" || before == "_" { return 0.85 }
-                let penalty = Double(idx) / Double(text.count) * 0.2
-                return max(0.6 - penalty, 0.4)
-            }
-            return 0.5
-        }
-        let queryWords = query.split(separator: " ")
-        if queryWords.count > 1 && queryWords.allSatisfy({ text.contains($0) }) {
-            return 0.55
-        }
-        return 0
     }
 }

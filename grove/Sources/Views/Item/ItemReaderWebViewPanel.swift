@@ -117,7 +117,7 @@ struct ItemReaderFindBar: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .background(Color.bgCard)
-            .cornerRadius(6)
+            .clipShape(.rect(cornerRadius: 6))
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
                     .stroke(Color.borderPrimary, lineWidth: 1)

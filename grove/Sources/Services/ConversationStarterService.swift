@@ -66,7 +66,7 @@ import Observation
         defer { isLoading = false }
 
         let context = StarterContextBuilder.buildContext(from: items)
-        let isPro = await EntitlementService.shared.isPro
+        let isPro = EntitlementService.shared.isPro
         let cap = isPro ? Self.maxBubbleCountPro : Self.maxBubbleCountFree
 
         if isPro {
@@ -146,7 +146,7 @@ import Observation
         // Generate board-specific starters
         let boardItems = items.filter { $0.boards.contains(where: { $0.id == boardID }) }
         let context = StarterContextBuilder.buildContext(from: boardItems)
-        let isPro = await EntitlementService.shared.isPro
+        let isPro = EntitlementService.shared.isPro
         let cap = isPro ? Self.maxBubbleCountPro : Self.maxBubbleCountFree
 
         var result: [PromptBubble] = []

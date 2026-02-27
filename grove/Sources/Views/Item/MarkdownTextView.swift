@@ -383,7 +383,7 @@ private struct SyntaxHighlightedCodeView: View {
         let tokens = tokenize(code: code, language: normalizedLanguage)
         return tokens.reduce(Text("")) { result, token in
             result + Text(token.text)
-                .foregroundColor(token.color)
+                .foregroundStyle(token.color)
         }
     }
 

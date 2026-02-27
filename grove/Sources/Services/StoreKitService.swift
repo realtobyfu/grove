@@ -5,7 +5,7 @@ enum PurchaseState: Sendable {
     case purchasing
     case purchased
     case pending
-    case failed(Error)
+    case failed(String)
 }
 
 @MainActor
@@ -30,6 +30,7 @@ final class StoreKitService {
     // MARK: - Lifecycle
 
     func start() {
+        transactionListener.task?.cancel()
         transactionListener.task = listenForTransactions()
         Task { await loadProduct() }
         Task { await refreshEntitlementStatus() }
@@ -71,7 +72,7 @@ final class StoreKitService {
                 purchaseState = .idle
             }
         } catch {
-            purchaseState = .failed(error)
+            purchaseState = .failed(error.localizedDescription)
         }
     }
 
@@ -82,7 +83,7 @@ final class StoreKitService {
             try await AppStore.sync()
             await refreshEntitlementStatus()
         } catch {
-            purchaseState = .failed(error)
+            purchaseState = .failed(error.localizedDescription)
         }
     }
 
@@ -114,7 +115,7 @@ final class StoreKitService {
     // MARK: - Transaction Listener
 
     private func listenForTransactions() -> Task<Void, Never> {
-        Task.detached { [weak self] in
+        Task { [weak self] in
             for await result in Transaction.updates {
                 guard let self else { return }
                 if let transaction = try? self.checkVerified(result) {

@@ -182,8 +182,10 @@ final class SearchViewModel {
         var scored: [SearchResult] = []
 
         for item in items {
-            let titleScore = fuzzyScore(queryLower, in: item.title.lowercased())
-            let contentScore = item.content.map { fuzzyScore(queryLower, in: $0.lowercased()) * 0.7 } ?? 0
+            let titleScore = FuzzySearchScorer.score(normalizedQuery: queryLower, in: item.title.lowercased())
+            let contentScore = item.content.map {
+                FuzzySearchScorer.score(normalizedQuery: queryLower, in: $0.lowercased()) * 0.7
+            } ?? 0
 
             let bestScore = max(titleScore, contentScore)
             guard bestScore > 0 else { continue }
@@ -217,7 +219,7 @@ final class SearchViewModel {
         var scored: [SearchResult] = []
 
         for block in reflections {
-            let contentScore = fuzzyScore(queryLower, in: block.content.lowercased())
+            let contentScore = FuzzySearchScorer.score(normalizedQuery: queryLower, in: block.content.lowercased())
             guard contentScore > 0 else { continue }
 
             let parentTitle = block.item?.title ?? "Unknown item"
@@ -243,7 +245,7 @@ final class SearchViewModel {
         var scored: [SearchResult] = []
 
         for tag in tags {
-            let nameScore = fuzzyScore(queryLower, in: tag.name.lowercased())
+            let nameScore = FuzzySearchScorer.score(normalizedQuery: queryLower, in: tag.name.lowercased())
             guard nameScore > 0 else { continue }
 
             scored.append(SearchResult(
@@ -266,8 +268,10 @@ final class SearchViewModel {
         var scored: [SearchResult] = []
 
         for board in boards {
-            let titleScore = fuzzyScore(queryLower, in: board.title.lowercased())
-            let descScore = board.boardDescription.map { fuzzyScore(queryLower, in: $0.lowercased()) * 0.6 } ?? 0
+            let titleScore = FuzzySearchScorer.score(normalizedQuery: queryLower, in: board.title.lowercased())
+            let descScore = board.boardDescription.map {
+                FuzzySearchScorer.score(normalizedQuery: queryLower, in: $0.lowercased()) * 0.6
+            } ?? 0
             let bestScore = max(titleScore, descScore)
             guard bestScore > 0 else { continue }
 
@@ -284,59 +288,6 @@ final class SearchViewModel {
         }
 
         return scored.sorted { $0.score > $1.score }.prefix(5).map { $0 }
-    }
-
-    // MARK: - Fuzzy Scoring
-
-    /// Returns a score 0.0–1.0 for how well `query` matches within `text`.
-    /// Uses substring matching with bonuses for prefix match and word boundary match.
-    private func fuzzyScore(_ query: String, in text: String) -> Double {
-        guard !query.isEmpty, !text.isEmpty else { return 0 }
-
-        // Exact match — highest score
-        if text == query { return 1.0 }
-
-        // Prefix match
-        if text.hasPrefix(query) { return 0.95 }
-
-        // Contains — basic substring match
-        if text.contains(query) {
-            // Bonus if it starts at a word boundary
-            if let range = text.range(of: query) {
-                let idx = text.distance(from: text.startIndex, to: range.lowerBound)
-                if idx == 0 {
-                    return 0.9
-                }
-                // Check if preceded by space/punctuation (word boundary)
-                let charBefore = text[text.index(range.lowerBound, offsetBy: -1)]
-                if charBefore == " " || charBefore == "-" || charBefore == "_" || charBefore == "/" {
-                    return 0.85
-                }
-                // General substring match, penalize by position
-                let positionPenalty = Double(idx) / Double(text.count) * 0.2
-                return max(0.6 - positionPenalty, 0.4)
-            }
-            return 0.5
-        }
-
-        // Word-level matching: check if all query words appear in text
-        let queryWords = query.split(separator: " ")
-        if queryWords.count > 1 {
-            let allFound = queryWords.allSatisfy { word in
-                text.contains(word)
-            }
-            if allFound {
-                return 0.55
-            }
-        }
-
-        // Fuzzy character matching — allow typos/partial matches
-        let matchScore = subsequenceMatch(query, in: text)
-        if matchScore > 0.5 {
-            return matchScore * 0.5
-        }
-
-        return 0
     }
 
     private func loadSearchCorpus() -> SearchCorpus {
@@ -373,20 +324,4 @@ final class SearchViewModel {
         return corpus
     }
 
-    /// Character-by-character subsequence match score
-    private func subsequenceMatch(_ query: String, in text: String) -> Double {
-        var queryIdx = query.startIndex
-        var textIdx = text.startIndex
-        var matched = 0
-
-        while queryIdx < query.endIndex && textIdx < text.endIndex {
-            if query[queryIdx] == text[textIdx] {
-                matched += 1
-                queryIdx = query.index(after: queryIdx)
-            }
-            textIdx = text.index(after: textIdx)
-        }
-
-        return Double(matched) / Double(query.count)
-    }
 }
