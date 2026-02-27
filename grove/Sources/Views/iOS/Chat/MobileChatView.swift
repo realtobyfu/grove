@@ -1,0 +1,131 @@
+import SwiftUI
+import SwiftData
+
+/// Messages-like chat UI for iOS Dialectics conversations.
+/// Shows message bubbles in a ScrollView with text input at bottom.
+struct MobileChatView: View {
+    @Bindable var conversation: Conversation
+    @Environment(\.modelContext) private var modelContext
+
+    @State private var dialecticsService = DialecticsService()
+    @State private var inputText = ""
+    @State private var scrollProxy: ScrollViewProxy?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Messages
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: Spacing.sm) {
+                        ForEach(conversation.visibleMessages) { message in
+                            MobileChatBubble(message: message)
+                                .id(message.id)
+                        }
+
+                        // Streaming indicator
+                        if dialecticsService.isGenerating {
+                            streamingIndicator
+                        }
+                    }
+                    .padding(.horizontal, LayoutDimensions.contentPaddingH)
+                    .padding(.vertical, Spacing.md)
+                }
+                .onAppear {
+                    scrollProxy = proxy
+                    scrollToBottom(proxy: proxy)
+                }
+                .onChange(of: conversation.messages.count) { _, _ in
+                    scrollToBottom(proxy: proxy)
+                }
+            }
+
+            Divider()
+
+            // Input area
+            inputArea
+        }
+        .navigationTitle(conversation.displayTitle)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+    }
+
+    // MARK: - Input area
+
+    private var inputArea: some View {
+        HStack(alignment: .bottom, spacing: Spacing.sm) {
+            TextField("Message...", text: $inputText, axis: .vertical)
+                .font(.groveBody)
+                .lineLimit(1...5)
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.sm)
+                .background(Color.bgInput)
+                .clipShape(RoundedRectangle(cornerRadius: 20))
+
+            Button {
+                sendMessage()
+            } label: {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 32))
+                    .foregroundStyle(canSend ? Color.textPrimary : Color.textMuted)
+            }
+            .disabled(!canSend)
+            .frame(minWidth: LayoutDimensions.minTouchTarget,
+                   minHeight: LayoutDimensions.minTouchTarget)
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
+    }
+
+    // MARK: - Streaming indicator
+
+    private var streamingIndicator: some View {
+        HStack {
+            if !dialecticsService.streamingText.isEmpty {
+                Text(dialecticsService.streamingText)
+                    .font(.groveBody)
+                    .foregroundStyle(Color.textSecondary)
+                    .padding(.horizontal, Spacing.md)
+                    .padding(.vertical, Spacing.sm)
+                    .background(Color.bgCard)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(Color.borderPrimary, lineWidth: 1)
+                    }
+            } else {
+                ProgressView()
+                    .padding(Spacing.md)
+            }
+            Spacer(minLength: 60)
+        }
+    }
+
+    // MARK: - Helpers
+
+    private var canSend: Bool {
+        !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !dialecticsService.isGenerating
+    }
+
+    private func sendMessage() {
+        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        inputText = ""
+
+        Task {
+            _ = await dialecticsService.sendMessage(
+                userText: text,
+                conversation: conversation,
+                context: modelContext
+            )
+        }
+    }
+
+    private func scrollToBottom(proxy: ScrollViewProxy) {
+        if let lastMessage = conversation.visibleMessages.last {
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo(lastMessage.id, anchor: .bottom)
+            }
+        }
+    }
+}

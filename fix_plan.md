@@ -89,10 +89,10 @@ Last updated: 2026-02-26
 
 ## P6: Dialectics Chat
 
-- [ ] P6.1: Create `grove/Sources/Views/iOS/Chat/MobileChatView.swift` — Messages-like UI: ScrollView of message bubbles (user right-aligned, assistant left-aligned), text input field at bottom with send button; uses DialecticsService for turns
-- [ ] P6.2: Create `grove/Sources/Views/iOS/Chat/MobileChatBubble.swift` — individual message bubble component with role-based styling (user: dark bg, assistant: light bg), markdown rendering, wiki-link detection, timestamp
-- [ ] P6.3: Add dialectical mode selection — toolbar picker or segmented control (Socratic/Hegelian/Nietzschean) in navigation bar; updates DialecticsService mode
-- [ ] P6.4: Create `grove/Sources/Views/iOS/Chat/MobileConversationListView.swift` — list of past conversations with search bar (.searchable), sorted by updatedAt desc; shows title, trigger icon, last message preview, date
+- [x] P6.1: Create `grove/Sources/Views/iOS/Chat/MobileChatView.swift` — Messages-like UI: ScrollView of message bubbles (user right-aligned, assistant left-aligned), text input field at bottom with send button; uses DialecticsService for turns
+- [x] P6.2: Create `grove/Sources/Views/iOS/Chat/MobileChatBubble.swift` — individual message bubble component with role-based styling (user: dark bg, assistant: light bg), markdown rendering, wiki-link detection, timestamp
+- [ ] P6.3: Add dialectical mode selection — toolbar picker or segmented control (Socratic/Hegelian/Nietzschean) in navigation bar; updates DialecticsService mode (NOTE: modes are implicit in system prompt, not user-selectable)
+- [x] P6.4: Create `grove/Sources/Views/iOS/Chat/MobileConversationListView.swift` — list of past conversations with search bar (.searchable), sorted by updatedAt desc; shows title, trigger icon, last message preview, date
 - [ ] P6.5: Wire wiki-links in chat messages — detect [[Item Title]] in message content, render as tappable links that navigate to item reader
 - [ ] P6.6: iPad side-by-side reading + chat — when horizontalSizeClass == .regular, show reader (60%) + chat (40%) in HStack; triggered by "Discuss this" from reader or tapping wiki-link from chat
 - [ ] P6.7: Add message action sheets — long-press on assistant message shows: Save as Reflection, Save as Note, Create Connection; uses DialecticsService.saveAsReflection(), saveAsNote(), createConnection()

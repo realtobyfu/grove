@@ -49,10 +49,7 @@ struct TabRootView: View {
             .tag(Tab.library)
 
             NavigationStack {
-                Text("Chat")
-                    .font(.groveTitle)
-                    .foregroundStyle(Color.textSecondary)
-                    .navigationTitle("Chat")
+                MobileConversationListView()
             }
             .tabItem {
                 Label("Chat", systemImage: "bubble.left.and.bubble.right")
