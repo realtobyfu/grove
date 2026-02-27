@@ -18,8 +18,16 @@ struct MobileChatView: View {
                 ScrollView {
                     LazyVStack(spacing: Spacing.sm) {
                         ForEach(conversation.visibleMessages) { message in
-                            MobileChatBubble(message: message)
-                                .id(message.id)
+                            MobileChatBubble(
+                                message: message,
+                                onSaveAsReflection: message.role == .assistant ? {
+                                    saveAsReflection(message)
+                                } : nil,
+                                onSaveAsNote: message.role == .assistant ? {
+                                    saveAsNote(message)
+                                } : nil
+                            )
+                            .id(message.id)
                         }
 
                         // Streaming indicator
@@ -127,5 +135,34 @@ struct MobileChatView: View {
                 proxy.scrollTo(lastMessage.id, anchor: .bottom)
             }
         }
+    }
+
+    // MARK: - Message actions (P6.7)
+
+    private func saveAsReflection(_ message: ChatMessage) {
+        // Save to the first seed item if available
+        let seedItem = conversation.seedItemIDs.first.flatMap { seedID in
+            let allItems = (try? modelContext.fetch(FetchDescriptor<Item>())) ?? []
+            return allItems.first { $0.id == seedID }
+        }
+        if let item = seedItem {
+            _ = dialecticsService.saveAsReflection(
+                content: message.content,
+                itemTitle: item.title,
+                blockType: .keyInsight,
+                conversation: conversation,
+                context: modelContext
+            )
+        }
+    }
+
+    private func saveAsNote(_ message: ChatMessage) {
+        let title = String(message.content.prefix(60))
+        _ = dialecticsService.saveAsNote(
+            content: message.content,
+            title: title,
+            conversation: conversation,
+            context: modelContext
+        )
     }
 }

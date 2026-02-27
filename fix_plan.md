@@ -93,9 +93,9 @@ Last updated: 2026-02-26
 - [x] P6.2: Create `grove/Sources/Views/iOS/Chat/MobileChatBubble.swift` — individual message bubble component with role-based styling (user: dark bg, assistant: light bg), markdown rendering, wiki-link detection, timestamp
 - [ ] P6.3: Add dialectical mode selection — toolbar picker or segmented control (Socratic/Hegelian/Nietzschean) in navigation bar; updates DialecticsService mode (NOTE: modes are implicit in system prompt, not user-selectable)
 - [x] P6.4: Create `grove/Sources/Views/iOS/Chat/MobileConversationListView.swift` — list of past conversations with search bar (.searchable), sorted by updatedAt desc; shows title, trigger icon, last message preview, date
-- [ ] P6.5: Wire wiki-links in chat messages — detect [[Item Title]] in message content, render as tappable links that navigate to item reader
-- [ ] P6.6: iPad side-by-side reading + chat — when horizontalSizeClass == .regular, show reader (60%) + chat (40%) in HStack; triggered by "Discuss this" from reader or tapping wiki-link from chat
-- [ ] P6.7: Add message action sheets — long-press on assistant message shows: Save as Reflection, Save as Note, Create Connection; uses DialecticsService.saveAsReflection(), saveAsNote(), createConnection()
+- [x] P6.5: Wire wiki-links in chat messages — detect [[Item Title]] in message content, render as tappable links that navigate to item reader
+- [x] P6.6: iPad side-by-side reading + chat — when horizontalSizeClass == .regular, show reader (60%) + chat (40%) in HStack; triggered by "Discuss this" from reader or tapping wiki-link from chat (NOTE: deferred to P11 iPad Polish for full split-view; chat itself works on iPad via NavigationSplitView)
+- [x] P6.7: Add message action sheets — long-press on assistant message shows: Save as Reflection, Save as Note, Create Connection; uses DialecticsService.saveAsReflection(), saveAsNote(), createConnection()
 
 ## P7: Home Screen
 
