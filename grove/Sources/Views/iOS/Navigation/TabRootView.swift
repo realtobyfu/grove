@@ -54,10 +54,7 @@ struct TabRootView: View {
             .tag(Tab.chat)
 
             NavigationStack {
-                Text("More")
-                    .font(.groveTitle)
-                    .foregroundStyle(Color.textSecondary)
-                    .navigationTitle("More")
+                MobileSettingsView()
             }
             .tabItem {
                 Label("More", systemImage: "ellipsis")

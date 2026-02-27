@@ -79,10 +79,7 @@ struct iPadRootView: View {
                 .foregroundStyle(Color.textSecondary)
                 .navigationTitle("Graph")
         case .settings:
-            Text("Settings")
-                .font(.groveTitle)
-                .foregroundStyle(Color.textSecondary)
-                .navigationTitle("Settings")
+            MobileSettingsView()
         case nil:
             ContentUnavailableView("Grove",
                                    systemImage: "leaf",

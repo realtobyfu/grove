@@ -114,10 +114,10 @@ Last updated: 2026-02-26
 
 ## P9: Settings + Onboarding
 
-- [ ] P9.1: Create `grove/Sources/Views/iOS/Settings/MobileSettingsView.swift` — List with sections: AI Provider (link to AI settings), Sync (iCloud toggle + status), Appearance (monochrome images toggle), Subscription (current plan + manage), About (version, privacy, support links)
-- [ ] P9.2: Create `grove/Sources/Views/iOS/Settings/MobileAISettingsView.swift` — provider picker (Apple Intelligence / Groq), API key field for Groq, model selection, token usage display from TokenTracker
-- [ ] P9.3: Create `grove/Sources/Views/iOS/Onboarding/MobileOnboardingView.swift` — multi-step onboarding adapted for mobile: welcome, use case selection, capture type, organize style, AI intro; uses OnboardingService; full-screen presentation
-- [ ] P9.4: Wire StoreKit 2 paywall — adapt ProPaywallView for iOS (ensure 44pt buttons, proper sheet sizing); wire StoreKitService.purchase(), .restore(); test with GroveProAnnual.storekit configuration
+- [x] P9.1: Create `grove/Sources/Views/iOS/Settings/MobileSettingsView.swift` — List with sections: AI Provider (link to AI settings), Sync (iCloud toggle + status), Appearance (monochrome images toggle), Subscription (current plan + manage), About (version, privacy, support links)
+- [x] P9.2: Create `grove/Sources/Views/iOS/Settings/MobileAISettingsView.swift` — provider picker (Apple Intelligence / Groq), API key field for Groq, model selection, token usage display from TokenTracker
+- [x] P9.3: Create `grove/Sources/Views/iOS/Onboarding/MobileOnboardingView.swift` — multi-step onboarding adapted for mobile: welcome, use case selection, capture type, organize style, AI intro; uses OnboardingService; full-screen presentation
+- [x] P9.4: Wire StoreKit 2 paywall — adapt ProPaywallView for iOS (ensure 44pt buttons, proper sheet sizing); wire StoreKitService.purchase(), .restore(); test with GroveProAnnual.storekit configuration
 
 ## P10: Push Nudges
 
