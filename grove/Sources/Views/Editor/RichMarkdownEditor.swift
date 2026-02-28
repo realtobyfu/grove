@@ -1284,6 +1284,7 @@ class HighlightingTextView: NSTextView {
 #else
 import SwiftUI
 import SwiftData
+import UIKit
 
 /// iOS rich markdown editor using UITextView for live syntax highlighting,
 /// formatting toolbar, keyboard shortcuts, wiki-link autocomplete, and
@@ -1300,6 +1301,10 @@ struct RichMarkdownEditor: View {
     @State private var showWikiPopover = false
     @State private var wikiSearchText = ""
 
+    private var showsInlineToolbar: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad
+    }
+
     private var wikiSearchResults: [Item] {
         allItems.filter { candidate in
             if let sourceItem, candidate.id == sourceItem.id { return false }
@@ -1310,6 +1315,12 @@ struct RichMarkdownEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if showsInlineToolbar {
+                formattingToolbar
+                    .padding(.horizontal, proseMode ? 20 : 8)
+                    .padding(.bottom, 6)
+            }
+
             MarkdownUITextView(
                 text: $text,
                 minHeight: minHeight,
@@ -1334,6 +1345,101 @@ struct RichMarkdownEditor: View {
                     .padding(.horizontal, proseMode ? 20 : 8)
             }
         }
+    }
+
+    // MARK: - iPad Inline Formatting Toolbar
+
+    private var formattingToolbar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 2) {
+                toolbarButton("Bold", icon: "bold") {
+                    wrapSelection(prefix: "**", suffix: "**")
+                }
+                toolbarButton("Italic", icon: "italic") {
+                    wrapSelection(prefix: "*", suffix: "*")
+                }
+
+                Divider()
+                    .frame(height: 16)
+                    .padding(.horizontal, 4)
+
+                toolbarButton("Heading", icon: "number") {
+                    insertPrefix("## ")
+                }
+                toolbarButton("List", icon: "list.bullet") {
+                    insertPrefix("- ")
+                }
+                toolbarButton("Quote", icon: "text.quote") {
+                    insertPrefix("> ")
+                }
+
+                Divider()
+                    .frame(height: 16)
+                    .padding(.horizontal, 4)
+
+                toolbarButton("Code", icon: "chevron.left.forwardslash.chevron.right") {
+                    wrapSelection(prefix: "`", suffix: "`")
+                }
+                toolbarButton("Link", icon: "link") {
+                    wrapSelection(prefix: "[", suffix: "](url)")
+                }
+                toolbarButton("Wiki Link", icon: "link.badge.plus") {
+                    insertText("[[]]", cursorOffset: -2)
+                }
+                toolbarButton("Strikethrough", icon: "strikethrough") {
+                    wrapSelection(prefix: "~~", suffix: "~~")
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+        }
+        .background(Color.bgCard)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(Color.borderInput, lineWidth: 1)
+        )
+    }
+
+    private func toolbarButton(_ label: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .medium))
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Color.textSecondary)
+        .help(label)
+    }
+
+    private func withFocusedEditor(_ action: (HighlightingUITextView) -> Void, fallback: () -> Void) {
+        if let focusedEditor = HighlightingUITextView.focusedEditor {
+            action(focusedEditor)
+        } else {
+            fallback()
+        }
+    }
+
+    private func wrapSelection(prefix: String, suffix: String) {
+        withFocusedEditor(
+            { $0.wrapSelectionWith(prefix: prefix, suffix: suffix) },
+            fallback: { text += prefix + suffix }
+        )
+    }
+
+    private func insertPrefix(_ prefix: String) {
+        withFocusedEditor(
+            { $0.insertPrefixAtCurrentLine(prefix) },
+            fallback: { text += "\n" + prefix }
+        )
+    }
+
+    private func insertText(_ insertion: String, cursorOffset: Int) {
+        withFocusedEditor(
+            { $0.insertTextAtSelection(insertion, cursorOffset: cursorOffset) },
+            fallback: { text += insertion }
+        )
     }
 
     // MARK: - Wiki Link Dropdown

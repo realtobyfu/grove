@@ -42,6 +42,7 @@ struct MobileItemReaderView: View {
     @State private var selectedText: String?
     @State private var navigateToChat: Conversation?
     @State private var reflectionDetent: PresentationDetent = .medium
+    @State private var zoomLevel: CGFloat = 1.0
     @FocusState private var findBarFocused: Bool
 
     private var usesSidePanel: Bool {
@@ -139,7 +140,8 @@ struct MobileItemReaderView: View {
                 onFindResult: { current, total in
                     findCurrentMatch = current
                     findTotalMatches = total
-                }
+                },
+                zoomLevel: zoomLevel
             )
             .ignoresSafeArea(edges: .bottom)
             #else
@@ -186,6 +188,31 @@ struct MobileItemReaderView: View {
         }
 
         ToolbarItemGroup(placement: .primaryAction) {
+            // Zoom controls (articles only)
+            if item.type != .note {
+                Menu {
+                    Button { zoomLevel = min(zoomLevel + 0.1, 2.0) } label: {
+                        Label("Zoom In", systemImage: "plus.magnifyingglass")
+                    }
+                    .disabled(zoomLevel >= 2.0)
+
+                    Button { zoomLevel = max(zoomLevel - 0.1, 0.5) } label: {
+                        Label("Zoom Out", systemImage: "minus.magnifyingglass")
+                    }
+                    .disabled(zoomLevel <= 0.5)
+
+                    Divider()
+
+                    Button { zoomLevel = 1.0 } label: {
+                        Label("Reset (\(Int(round(zoomLevel * 100)))%)", systemImage: "arrow.counterclockwise")
+                    }
+                    .disabled(zoomLevel == 1.0)
+                } label: {
+                    Image(systemName: "textformat.size")
+                }
+                .accessibilityLabel("Zoom")
+            }
+
             // Find in page (articles only)
             if item.type != .note {
                 Button {

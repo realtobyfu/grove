@@ -317,7 +317,8 @@ struct ItemReaderView: View {
                     .buttonStyle(.plain)
                     .keyboardShortcut(.return, modifiers: .command)
                 }
-                .padding(.horizontal, 40)
+                .padding(.leading, 24)
+                .padding(.trailing, 12)
                 .padding(.top, 20)
                 .padding(.bottom, 8)
 

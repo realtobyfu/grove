@@ -16,6 +16,7 @@ struct ArticleWebView: NSViewRepresentable {
     var findForwardToken: Int = 0
     var findBackwardToken: Int = 0
     var onFindResult: ((Int, Int) -> Void)?
+    var zoomLevel: CGFloat = 1.0
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onTextSelected: onTextSelected, onFindResult: onFindResult)
@@ -63,6 +64,9 @@ struct ArticleWebView: NSViewRepresentable {
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.onTextSelected = onTextSelected
         context.coordinator.onFindResult = onFindResult
+
+        // Apply zoom level
+        webView.pageZoom = zoomLevel
 
         // Reload only when the URL changes
         if webView.url?.absoluteString != url.absoluteString, !webView.isLoading {

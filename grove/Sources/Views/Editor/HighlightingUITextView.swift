@@ -47,19 +47,38 @@ class HighlightingUITextView: UITextView {
 
     override var keyCommands: [UIKeyCommand]? {
         [
-            UIKeyCommand(input: "b", modifierFlags: .command, action: #selector(toggleBold)),
-            UIKeyCommand(input: "i", modifierFlags: .command, action: #selector(toggleItalic)),
-            UIKeyCommand(input: "e", modifierFlags: .command, action: #selector(toggleCode)),
-            UIKeyCommand(input: "k", modifierFlags: .command, action: #selector(insertLink)),
+            shortcut("b", modifiers: .command, action: #selector(toggleBold), title: "Bold"),
+            shortcut("i", modifiers: .command, action: #selector(toggleItalic), title: "Italic"),
+            shortcut("e", modifiers: .command, action: #selector(toggleCode), title: "Inline Code"),
+            shortcut("k", modifiers: .command, action: #selector(insertLink), title: "Link"),
+            shortcut("k", modifiers: [.command, .shift], action: #selector(insertWikiLink), title: "Wiki Link"),
+            shortcut("l", modifiers: [.command, .shift], action: #selector(insertList), title: "List"),
+            shortcut("q", modifiers: [.command, .shift], action: #selector(insertQuote), title: "Quote"),
+            shortcut("x", modifiers: [.command, .shift], action: #selector(toggleStrikethrough), title: "Strikethrough"),
         ]
+    }
+
+    private func shortcut(_ input: String, modifiers: UIKeyModifierFlags, action: Selector, title: String) -> UIKeyCommand {
+        let command = UIKeyCommand(input: input, modifierFlags: modifiers, action: action)
+        command.discoverabilityTitle = title
+        command.wantsPriorityOverSystemBehavior = true
+        return command
     }
 
     @objc private func toggleBold() {
         wrapSelectionWith(prefix: "**", suffix: "**")
     }
 
+    override func toggleBoldface(_ sender: Any?) {
+        toggleBold()
+    }
+
     @objc private func toggleItalic() {
         wrapSelectionWith(prefix: "*", suffix: "*")
+    }
+
+    override func toggleItalics(_ sender: Any?) {
+        toggleItalic()
     }
 
     @objc private func toggleCode() {
@@ -68,6 +87,22 @@ class HighlightingUITextView: UITextView {
 
     @objc private func insertLink() {
         wrapSelectionWith(prefix: "[", suffix: "](url)")
+    }
+
+    @objc private func insertWikiLink() {
+        insertTextAtSelection("[[]]", cursorOffset: -2)
+    }
+
+    @objc private func insertList() {
+        insertPrefixAtCurrentLine("- ")
+    }
+
+    @objc private func insertQuote() {
+        insertPrefixAtCurrentLine("> ")
+    }
+
+    @objc private func toggleStrikethrough() {
+        wrapSelectionWith(prefix: "~~", suffix: "~~")
     }
 
     // MARK: - Text Manipulation

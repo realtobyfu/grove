@@ -33,6 +33,37 @@ struct ItemReaderWebViewPanel: View {
 
                 Spacer()
 
+                // Zoom controls
+                HStack(spacing: 4) {
+                    Button { vm.zoomOut() } label: {
+                        Image(systemName: "minus.magnifyingglass")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Color.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Zoom out (⌘−)")
+                    .disabled(vm.webViewZoomLevel <= 0.5)
+
+                    Text("\(vm.zoomPercentage)%")
+                        .font(.groveMeta)
+                        .foregroundStyle(Color.textTertiary)
+                        .monospacedDigit()
+                        .frame(minWidth: 36, alignment: .center)
+                        .onTapGesture { vm.resetZoom() }
+                        .help("Reset zoom")
+
+                    Button { vm.zoomIn() } label: {
+                        Image(systemName: "plus.magnifyingglass")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Color.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Zoom in (⌘+)")
+                    .disabled(vm.webViewZoomLevel >= 2.0)
+                }
+
+                Divider().frame(height: 12)
+
                 Button {
                     vm.openReflectionEditor(type: .keyInsight, content: "", highlight: nil, focusTrigger: focusTrigger)
                 } label: {
@@ -75,7 +106,8 @@ struct ItemReaderWebViewPanel: View {
                 onFindResult: { current, total in
                     vm.findCurrentMatch = current
                     vm.findMatchCount = total
-                }
+                },
+                zoomLevel: vm.webViewZoomLevel
             )
             #else
             Text("Web view not yet available on iOS")
@@ -83,6 +115,21 @@ struct ItemReaderWebViewPanel: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             #endif
         }
+        #if os(macOS)
+        .background {
+            // Hidden buttons for keyboard shortcuts
+            Group {
+                Button("") { vm.zoomIn() }
+                    .keyboardShortcut("+", modifiers: .command)
+                Button("") { vm.zoomOut() }
+                    .keyboardShortcut("-", modifiers: .command)
+                Button("") { vm.resetZoom() }
+                    .keyboardShortcut("0", modifiers: .command)
+            }
+            .frame(width: 0, height: 0)
+            .opacity(0)
+        }
+        #endif
     }
 }
 

@@ -28,6 +28,10 @@ final class ItemReaderViewModel {
     var videoDuration: Double = 0
     var videoSeekTarget: Double? = nil
 
+    // MARK: - Zoom State
+
+    var webViewZoomLevel: CGFloat = 1.0
+
     // MARK: - Find State
 
     var showFindBar = false
@@ -59,8 +63,20 @@ final class ItemReaderViewModel {
     var articleURL: URL? {
         guard item.type == .article,
               item.metadata["videoLocalFile"] != "true",
-              let urlStr = item.sourceURL else { return nil }
-        return URL(string: urlStr)
+              let rawSourceURL = item.sourceURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawSourceURL.isEmpty else { return nil }
+
+        if let parsed = URL(string: rawSourceURL), parsed.scheme != nil {
+            return parsed
+        }
+
+        if let encoded = rawSourceURL.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+           let encodedURL = URL(string: encoded),
+           encodedURL.scheme != nil {
+            return encodedURL
+        }
+
+        return URL(string: "https://\(rawSourceURL)")
     }
 
     /// Resolve the local video file URL for this item
@@ -87,6 +103,24 @@ final class ItemReaderViewModel {
         }
         let lines = breakdown.map { "\($0.label): +\($0.points)" }
         return "\(item.growthStage.displayName) -- \(item.depthScore) pts\n" + lines.joined(separator: "\n")
+    }
+
+    // MARK: - Zoom
+
+    func zoomIn() {
+        webViewZoomLevel = min(webViewZoomLevel + 0.1, 2.0)
+    }
+
+    func zoomOut() {
+        webViewZoomLevel = max(webViewZoomLevel - 0.1, 0.5)
+    }
+
+    func resetZoom() {
+        webViewZoomLevel = 1.0
+    }
+
+    var zoomPercentage: Int {
+        Int(round(webViewZoomLevel * 100))
     }
 
     // MARK: - Find Bar
@@ -273,6 +307,7 @@ final class ItemReaderViewModel {
         isEditingSummary = false
         editableSummary = ""
         isReflectionPanelCollapsed = false
+        webViewZoomLevel = 1.0
         closeFindBar()
     }
 }

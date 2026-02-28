@@ -13,6 +13,7 @@ struct MobileArticleWebView: UIViewRepresentable {
     var findForwardToken: Int = 0
     var findBackwardToken: Int = 0
     var onFindResult: ((Int, Int) -> Void)?
+    var zoomLevel: CGFloat = 1.0
     @Environment(\.openURL) private var openURL
 
     func makeCoordinator() -> Coordinator {
@@ -44,9 +45,16 @@ struct MobileArticleWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
-        // Handle find-in-page updates
         let coordinator = context.coordinator
 
+        // Apply zoom level via CSS zoom
+        if zoomLevel != coordinator.lastZoomLevel {
+            coordinator.lastZoomLevel = zoomLevel
+            let pct = Int(round(zoomLevel * 100))
+            webView.evaluateJavaScript("document.body.style.zoom = '\(pct)%';", completionHandler: nil)
+        }
+
+        // Handle find-in-page updates
         if findQuery != coordinator.lastFindQuery {
             coordinator.lastFindQuery = findQuery
             if findQuery.isEmpty {
@@ -92,6 +100,7 @@ struct MobileArticleWebView: UIViewRepresentable {
         var lastFindQuery = ""
         var lastForwardToken = 0
         var lastBackwardToken = 0
+        var lastZoomLevel: CGFloat = 1.0
 
         init(parent: MobileArticleWebView, openURL: OpenURLAction) {
             self.parent = parent
