@@ -1423,8 +1423,23 @@ struct RichMarkdownEditor: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var allItems: [Item]
 
+    @State private var editorMode: MarkdownEditorMode
+    @State private var editingProxy = MarkdownEditingProxy()
     @State private var showWikiPopover = false
     @State private var wikiSearchText = ""
+
+    init(
+        text: Binding<String>,
+        sourceItem: Item?,
+        minHeight: CGFloat = 80,
+        proseMode: Bool = false
+    ) {
+        _text = text
+        self.sourceItem = sourceItem
+        self.minHeight = minHeight
+        self.proseMode = proseMode
+        _editorMode = State(initialValue: AppearanceSettings.defaultMarkdownEditorMode)
+    }
 
     private var showsInlineToolbar: Bool {
         UIDevice.current.userInterfaceIdiom == .pad
@@ -1439,84 +1454,114 @@ struct RichMarkdownEditor: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if showsInlineToolbar {
-                formattingToolbar
-                    .padding(.horizontal, proseMode ? 20 : 8)
-                    .padding(.bottom, 6)
-            }
-
-            MarkdownUITextView(
-                text: $text,
-                minHeight: minHeight,
-                fontSize: proseMode ? 18 : 16,
-                textInset: proseMode
-                    ? UIEdgeInsets(top: 24, left: 20, bottom: 24, right: 20)
-                    : UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8),
-                onWikiTrigger: { searchText in
-                    if let searchText {
-                        wikiSearchText = searchText
-                        showWikiPopover = true
-                    } else {
-                        showWikiPopover = false
-                        wikiSearchText = ""
-                    }
+        Group {
+            VStack(alignment: .leading, spacing: 0) {
+                if showsInlineToolbar {
+                    formattingToolbar
+                        .padding(.horizontal, proseMode ? 20 : 8)
+                        .padding(.bottom, 6)
                 }
-            )
-            .frame(minHeight: minHeight)
 
-            if showWikiPopover {
-                wikiLinkDropdown
-                    .padding(.horizontal, proseMode ? 20 : 8)
+                MarkdownUITextView(
+                    text: $text,
+                    minHeight: minHeight,
+                    fontSize: proseMode ? 18 : 16,
+                    textInset: proseMode
+                        ? UIEdgeInsets(top: 24, left: 20, bottom: 24, right: 20)
+                        : UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8),
+                    editorMode: editorMode,
+                    onWikiTrigger: { searchText in
+                        if let searchText {
+                            wikiSearchText = searchText
+                            showWikiPopover = true
+                        } else {
+                            showWikiPopover = false
+                            wikiSearchText = ""
+                        }
+                    },
+                    onEditorModeChange: { newMode in
+                        editorMode = newMode
+                    },
+                    editorProxy: editingProxy
+                )
+                .frame(minHeight: minHeight)
+
+                if showWikiPopover {
+                    wikiLinkDropdown
+                        .padding(.horizontal, proseMode ? 20 : 8)
+                }
             }
+        }
+        .onChange(of: editorMode) { _, newValue in
+            AppearanceSettings.defaultMarkdownEditorMode = newValue
+        }
+        .onDisappear {
+            editingProxy.clear()
         }
     }
 
     // MARK: - iPad Inline Formatting Toolbar
 
     private var formattingToolbar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 2) {
-                toolbarButton("Bold", icon: "bold") {
-                    wrapSelection(prefix: "**", suffix: "**")
-                }
-                toolbarButton("Italic", icon: "italic") {
-                    wrapSelection(prefix: "*", suffix: "*")
-                }
+        HStack(spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 2) {
+                    toolbarButton("Bold", icon: "bold") {
+                        editingProxy.wrapSelection(prefix: "**", suffix: "**")
+                    }
+                    toolbarButton("Italic", icon: "italic") {
+                        editingProxy.wrapSelection(prefix: "*", suffix: "*")
+                    }
 
-                Divider()
-                    .frame(height: 16)
-                    .padding(.horizontal, 4)
+                    Divider()
+                        .frame(height: 16)
+                        .padding(.horizontal, 4)
 
-                toolbarButton("Heading", icon: "number") {
-                    insertPrefix("## ")
-                }
-                toolbarButton("List", icon: "list.bullet") {
-                    insertPrefix("- ")
-                }
-                toolbarButton("Quote", icon: "text.quote") {
-                    insertPrefix("> ")
-                }
+                    Menu {
+                        Button("# Title") { editingProxy.setHeading(level: 1) }
+                        Button("## Heading") { editingProxy.setHeading(level: 2) }
+                        Button("### Subheading") { editingProxy.setHeading(level: 3) }
+                        Divider()
+                        Button("Clear Heading") { editingProxy.setHeading(level: 0) }
+                    } label: {
+                        Image(systemName: "number")
+                            .font(.system(size: 12, weight: .medium))
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .menuStyle(.button)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.textSecondary)
 
-                Divider()
-                    .frame(height: 16)
-                    .padding(.horizontal, 4)
+                    toolbarButton("List", icon: "list.bullet") {
+                        editingProxy.toggleListItem()
+                    }
+                    toolbarButton("Quote", icon: "text.quote") {
+                        editingProxy.toggleBlockQuote()
+                    }
 
-                toolbarButton("Code", icon: "chevron.left.forwardslash.chevron.right") {
-                    wrapSelection(prefix: "`", suffix: "`")
+                    Divider()
+                        .frame(height: 16)
+                        .padding(.horizontal, 4)
+
+                    toolbarButton("Code", icon: "chevron.left.forwardslash.chevron.right") {
+                        editingProxy.wrapSelection(prefix: "`", suffix: "`")
+                    }
+                    toolbarButton("Link", icon: "link") {
+                        editingProxy.insertLink()
+                    }
+                    toolbarButton("Wiki Link", icon: "link.badge.plus") {
+                        editingProxy.insertWikiLink()
+                    }
+                    toolbarButton("Strikethrough", icon: "strikethrough") {
+                        editingProxy.wrapSelection(prefix: "~~", suffix: "~~")
+                    }
                 }
-                toolbarButton("Link", icon: "link") {
-                    wrapSelection(prefix: "[", suffix: "](url)")
-                }
-                toolbarButton("Wiki Link", icon: "link.badge.plus") {
-                    insertText("[[]]", cursorOffset: -2)
-                }
-                toolbarButton("Strikethrough", icon: "strikethrough") {
-                    wrapSelection(prefix: "~~", suffix: "~~")
-                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+
+            modePicker
         }
         .background(Color.bgCard)
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
@@ -1538,33 +1583,13 @@ struct RichMarkdownEditor: View {
         .help(label)
     }
 
-    private func withFocusedEditor(_ action: (HighlightingUITextView) -> Void, fallback: () -> Void) {
-        if let focusedEditor = HighlightingUITextView.focusedEditor {
-            action(focusedEditor)
-        } else {
-            fallback()
+    private var modePicker: some View {
+        Picker("Editor mode", selection: $editorMode) {
+            Text("Live").tag(MarkdownEditorMode.livePreview)
+            Text("Source").tag(MarkdownEditorMode.source)
         }
-    }
-
-    private func wrapSelection(prefix: String, suffix: String) {
-        withFocusedEditor(
-            { $0.wrapSelectionWith(prefix: prefix, suffix: suffix) },
-            fallback: { text += prefix + suffix }
-        )
-    }
-
-    private func insertPrefix(_ prefix: String) {
-        withFocusedEditor(
-            { $0.insertPrefixAtCurrentLine(prefix) },
-            fallback: { text += "\n" + prefix }
-        )
-    }
-
-    private func insertText(_ insertion: String, cursorOffset: Int) {
-        withFocusedEditor(
-            { $0.insertTextAtSelection(insertion, cursorOffset: cursorOffset) },
-            fallback: { text += insertion }
-        )
+        .pickerStyle(.segmented)
+        .frame(width: 140)
     }
 
     // MARK: - Wiki Link Dropdown
@@ -1638,11 +1663,11 @@ struct RichMarkdownEditor: View {
     }
 
     private func insertWikiLink(for target: Item) {
-        if let focusedEditor = HighlightingUITextView.focusedEditor {
-            focusedEditor.replaceActiveWikiQuery(with: target.title)
-        } else if let range = text.range(of: "[[", options: .backwards) {
-            let before = text[text.startIndex..<range.lowerBound]
-            text = before + "[[" + target.title + "]]"
+        let originalText = text
+        editingProxy.replaceActiveWikiQuery(with: target.title)
+
+        if text == originalText {
+            replaceTrailingWikiQueryFallback(with: target.title)
         }
 
         // Auto-create connection
@@ -1657,6 +1682,15 @@ struct RichMarkdownEditor: View {
 
         showWikiPopover = false
         wikiSearchText = ""
+    }
+
+    private func replaceTrailingWikiQueryFallback(with title: String) {
+        guard let openRange = text.range(of: "[[", options: .backwards) else { return }
+
+        let suffix = text[openRange.upperBound...]
+        guard !suffix.contains("]]"), !suffix.contains("\n") else { return }
+
+        text.replaceSubrange(openRange.lowerBound..<text.endIndex, with: "[[\(title)]]")
     }
 }
 #endif

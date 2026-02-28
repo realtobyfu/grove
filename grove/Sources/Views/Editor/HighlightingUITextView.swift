@@ -23,6 +23,7 @@ protocol MarkdownFormattingDelegate: AnyObject {
 /// iOS counterpart of macOS `HighlightingTextView` (NSTextView subclass).
 class HighlightingUITextView: UITextView {
     static weak var focusedEditor: HighlightingUITextView?
+    var showsMarkdownDecorations = false
 
     // MARK: - First Responder Tracking
 
@@ -94,11 +95,11 @@ class HighlightingUITextView: UITextView {
     }
 
     @objc private func insertList() {
-        insertPrefixAtCurrentLine("- ")
+        toggleLinePrefix("- ")
     }
 
     @objc private func insertQuote() {
-        insertPrefixAtCurrentLine("> ")
+        toggleLinePrefix("> ")
     }
 
     @objc private func toggleStrikethrough() {
@@ -213,10 +214,72 @@ class HighlightingUITextView: UITextView {
         delegate?.textViewDidChange?(self)
     }
 
+    func toggleLinePrefix(_ prefix: String) {
+        let sel = selectedRange
+        let nsText = textStorage.string as NSString
+        let lineBlockRange = selectedLineBlockRange(in: nsText, selection: sel)
+        let lines = nsText.substring(with: lineBlockRange).components(separatedBy: "\n")
+        let nonEmptyLines = lines.filter { !$0.isEmpty }
+        let shouldRemovePrefix = !nonEmptyLines.isEmpty && nonEmptyLines.allSatisfy { $0.hasPrefix(prefix) }
+
+        let transformed = lines.map { line -> String in
+            guard !line.isEmpty else { return line }
+            if shouldRemovePrefix {
+                return line.hasPrefix(prefix) ? String(line.dropFirst(prefix.count)) : line
+            }
+            return prefix + line
+        }
+
+        let replacement = transformed.joined(separator: "\n")
+        textStorage.replaceCharacters(in: lineBlockRange, with: replacement)
+
+        if sel.length == 0 {
+            let location = min(
+                lineBlockRange.location + (shouldRemovePrefix ? 0 : utf16Length(of: prefix)),
+                lineBlockRange.location + utf16Length(of: replacement)
+            )
+            selectedRange = NSRange(location: location, length: 0)
+        } else {
+            selectedRange = NSRange(location: lineBlockRange.location, length: utf16Length(of: replacement))
+        }
+
+        delegate?.textViewDidChange?(self)
+    }
+
+    func setHeadingLevel(_ level: Int) {
+        let clampedLevel = min(max(level, 0), 6)
+        let prefix = clampedLevel > 0 ? String(repeating: "#", count: clampedLevel) + " " : ""
+        let sel = selectedRange
+        let nsText = textStorage.string as NSString
+        let lineBlockRange = selectedLineBlockRange(in: nsText, selection: sel)
+        let lines = nsText.substring(with: lineBlockRange).components(separatedBy: "\n")
+
+        let transformed = lines.map { line -> String in
+            guard !line.isEmpty else { return line }
+            return prefix + lineRemovingHeadingPrefix(line)
+        }
+
+        let replacement = transformed.joined(separator: "\n")
+        textStorage.replaceCharacters(in: lineBlockRange, with: replacement)
+
+        if sel.length == 0 {
+            let location = min(
+                lineBlockRange.location + utf16Length(of: prefix),
+                lineBlockRange.location + utf16Length(of: replacement)
+            )
+            selectedRange = NSRange(location: location, length: 0)
+        } else {
+            selectedRange = NSRange(location: lineBlockRange.location, length: utf16Length(of: replacement))
+        }
+
+        delegate?.textViewDidChange?(self)
+    }
+
     // MARK: - Custom Drawing
 
     override func draw(_ rect: CGRect) {
         super.draw(rect)
+        guard showsMarkdownDecorations else { return }
         drawMarkdownListBullets(in: rect)
         drawMarkdownQuoteRails(in: rect)
     }
@@ -400,6 +463,38 @@ class HighlightingUITextView: UITextView {
 
     private func utf16Length(of text: String) -> Int {
         (text as NSString).length
+    }
+
+    private func selectedLineBlockRange(in text: NSString, selection: NSRange) -> NSRange {
+        let safeStart = min(max(0, selection.location), text.length)
+        let startLine = text.lineRange(for: NSRange(location: safeStart, length: 0))
+
+        let endAnchor: Int
+        if selection.length > 0 {
+            endAnchor = max(selection.location, selection.location + selection.length - 1)
+        } else {
+            endAnchor = safeStart
+        }
+        let safeEnd = min(max(0, endAnchor), max(0, text.length - (text.length == 0 ? 0 : 1)))
+        let endLine = text.lineRange(for: NSRange(location: safeEnd, length: 0))
+
+        let upperBound = endLine.location + endLine.length
+        return NSRange(location: startLine.location, length: upperBound - startLine.location)
+    }
+
+    private func lineRemovingHeadingPrefix(_ line: String) -> String {
+        var index = line.startIndex
+        var hashCount = 0
+        while index < line.endIndex && line[index] == "#" && hashCount < 6 {
+            hashCount += 1
+            index = line.index(after: index)
+        }
+
+        guard hashCount > 0, index < line.endIndex, line[index] == " " else {
+            return line
+        }
+
+        return String(line[line.index(after: index)...])
     }
 }
 #endif

@@ -10,7 +10,10 @@ struct MarkdownUITextView: UIViewRepresentable {
     var minHeight: CGFloat
     var fontSize: CGFloat = 16
     var textInset: UIEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+    var editorMode: MarkdownEditorMode = .livePreview
     var onWikiTrigger: ((String?) -> Void)?
+    var onEditorModeChange: ((MarkdownEditorMode) -> Void)?
+    var editorProxy: MarkdownEditingProxy? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -32,26 +35,22 @@ struct MarkdownUITextView: UIViewRepresentable {
             ?? UIFont.systemFont(ofSize: fontSize)
         textView.font = defaultFont
         textView.textColor = .label
+        textView.showsMarkdownDecorations = false
 
-        var typingAttrs: [NSAttributedString.Key: Any] = [
-            .font: defaultFont,
-            .foregroundColor: UIColor.label,
-        ]
-        if fontSize >= 17 {
-            let paragraphStyle = NSMutableParagraphStyle()
-            paragraphStyle.lineSpacing = 2
-            paragraphStyle.paragraphSpacing = 6
-            typingAttrs[.paragraphStyle] = paragraphStyle
-        }
-        textView.typingAttributes = typingAttrs
+        textView.typingAttributes = context.coordinator.baseTypingAttributes()
 
         // Set up formatting toolbar
         let accessoryView = MarkdownFormattingAccessoryView()
         accessoryView.formattingDelegate = textView
+        accessoryView.editorMode = editorMode
+        accessoryView.onModeChange = { newMode in
+            context.coordinator.parent.onEditorModeChange?(newMode)
+        }
         textView.inputAccessoryView = accessoryView
 
         textView.delegate = context.coordinator
         context.coordinator.textView = textView
+        context.coordinator.registerEditorProxy()
 
         // Set initial text and apply highlighting
         textView.text = text
@@ -61,6 +60,20 @@ struct MarkdownUITextView: UIViewRepresentable {
     }
 
     func updateUIView(_ textView: HighlightingUITextView, context: Context) {
+        context.coordinator.parent = self
+        context.coordinator.textView = textView
+        context.coordinator.registerEditorProxy()
+
+        textView.showsMarkdownDecorations = false
+
+        if let accessoryView = textView.inputAccessoryView as? MarkdownFormattingAccessoryView {
+            accessoryView.formattingDelegate = textView
+            accessoryView.editorMode = editorMode
+            accessoryView.onModeChange = { newMode in
+                context.coordinator.parent.onEditorModeChange?(newMode)
+            }
+        }
+
         if textView.text != text && !context.coordinator.isUpdating {
             let selectedRange = textView.selectedRange
             textView.text = text
@@ -71,6 +84,8 @@ struct MarkdownUITextView: UIViewRepresentable {
                 let clampedLength = min(selectedRange.length, maxLocation - selectedRange.location)
                 textView.selectedRange = NSRange(location: min(selectedRange.location, maxLocation), length: clampedLength)
             }
+        } else {
+            context.coordinator.applyHighlighting(textView)
         }
     }
 
@@ -183,369 +198,271 @@ struct MarkdownUITextView: UIViewRepresentable {
         // MARK: - Syntax Highlighting
 
         func applyHighlighting(_ textView: UITextView) {
+            guard let textView = textView as? HighlightingUITextView else { return }
             let storage = textView.textStorage
-            let fullRange = NSRange(location: 0, length: storage.length)
-            guard fullRange.length > 0 else { return }
             let text = storage.string
-            let cursorLocation = min(max(0, textView.selectedRange.location), (text as NSString).length)
+            let fullRange = NSRange(location: 0, length: storage.length)
+            let selectedRange = textView.selectedRange
 
-            let size = parent.fontSize
-            let defaultFont = UIFont(name: "IBMPlexSans-Regular", size: size)
-                ?? UIFont.systemFont(ofSize: size)
-            let monoFont = UIFont(name: "IBMPlexMono-Regular", size: size - 2)
-                ?? UIFont.monospacedSystemFont(ofSize: size - 2, weight: .regular)
-            let boldFont = UIFont(name: "IBMPlexSans-Medium", size: size)
-                ?? UIFont.boldSystemFont(ofSize: size)
-            let headingFont = UIFont(name: "Newsreader-Medium", size: round(size * 1.55))
-                ?? UIFont.systemFont(ofSize: round(size * 1.55), weight: .medium)
-            let headingSmallFont = UIFont(name: "Newsreader-Medium", size: round(size * 1.22))
-                ?? UIFont.systemFont(ofSize: round(size * 1.22), weight: .medium)
-            let headingMidFont = UIFont(name: "Newsreader-Medium", size: round(size * 1.08))
-                ?? UIFont.systemFont(ofSize: round(size * 1.08), weight: .medium)
-            let quoteColor = UIColor.label.withAlphaComponent(0.92)
+            let defaultAttrs = baseTypingAttributes()
+            textView.showsMarkdownDecorations = false
 
+            storage.beginEditing()
+            storage.setAttributedString(NSAttributedString(string: text, attributes: defaultAttrs))
+
+            guard fullRange.length > 0 else {
+                storage.endEditing()
+                textView.typingAttributes = defaultAttrs
+                return
+            }
+
+            if parent.editorMode == .livePreview {
+                applyLivePreview(in: storage, text: text)
+            }
+
+            storage.endEditing()
+
+            let maxLocation = (text as NSString).length
+            let clampedLocation = min(selectedRange.location, maxLocation)
+            let clampedLength = min(selectedRange.length, max(0, maxLocation - clampedLocation))
+            textView.selectedRange = NSRange(location: clampedLocation, length: clampedLength)
+            textView.typingAttributes = defaultAttrs
+        }
+
+        func registerEditorProxy() {
+            parent.editorProxy?.update(
+                .init(
+                    wrapSelection: { [weak textView] prefix, suffix in
+                        textView?.wrapSelectionWith(prefix: prefix, suffix: suffix)
+                    },
+                    insertPrefix: { [weak textView] prefix in
+                        textView?.insertPrefixAtCurrentLine(prefix)
+                    },
+                    insertText: { [weak textView] text, cursorOffset in
+                        textView?.insertTextAtSelection(text, cursorOffset: cursorOffset)
+                    },
+                    setHeading: { [weak textView] level in
+                        textView?.setHeadingLevel(level)
+                    },
+                    toggleBlockQuote: { [weak textView] in
+                        textView?.toggleLinePrefix("> ")
+                    },
+                    toggleListItem: { [weak textView] in
+                        textView?.toggleLinePrefix("- ")
+                    },
+                    insertLink: { [weak textView] in
+                        textView?.wrapSelectionWith(prefix: "[", suffix: "](url)")
+                    },
+                    insertWikiLink: { [weak textView] in
+                        textView?.insertTextAtSelection("[[]]", cursorOffset: -2)
+                    },
+                    replaceActiveWikiQuery: { [weak textView] title in
+                        textView?.replaceActiveWikiQuery(with: title)
+                    }
+                )
+            )
+        }
+
+        func baseTypingAttributes() -> [NSAttributedString.Key: Any] {
+            var attributes: [NSAttributedString.Key: Any] = [
+                .font: bodyFont(),
+                .foregroundColor: UIColor.label,
+            ]
+            if let paragraphStyle = proseParagraphStyle() {
+                attributes[.paragraphStyle] = paragraphStyle
+            }
+            return attributes
+        }
+
+        private func applyLivePreview(in storage: NSTextStorage, text: String) {
+            let document = MarkdownDocument(text)
             let primaryColor = UIColor.label
             let secondaryColor = UIColor.secondaryLabel
             let tertiaryColor = UIColor.tertiaryLabel
             let codeBackground = UIColor.quaternaryLabel.withAlphaComponent(0.15)
 
-            let proseParagraph: NSParagraphStyle? = {
-                guard size >= 17 else { return nil }
-                let style = NSMutableParagraphStyle()
-                style.lineSpacing = 2
-                style.paragraphSpacing = 6
-                return style
-            }()
+            for block in document.blocks {
+                switch block.kind {
+                case .heading(let heading):
+                    applyAttributes([.foregroundColor: tertiaryColor], to: heading.markerRange, in: text, storage: storage)
+                    applyAttributes([.foregroundColor: tertiaryColor], to: heading.spacingRange, in: text, storage: storage)
+                    applyAttributes(
+                        [.paragraphStyle: headingParagraphStyle(for: heading.level)],
+                        to: block.range,
+                        in: text,
+                        storage: storage
+                    )
+                    applyAttributes(
+                        [
+                            .font: headingFont(for: heading.level),
+                            .foregroundColor: primaryColor,
+                        ],
+                        to: heading.contentRange,
+                        in: text,
+                        storage: storage
+                    )
 
-            storage.beginEditing()
-            storage.removeAttribute(.groveListPrefix, range: fullRange)
-            storage.removeAttribute(.groveQuotePrefix, range: fullRange)
-
-            // Reset to default
-            var defaultAttrs: [NSAttributedString.Key: Any] = [
-                .font: defaultFont,
-                .foregroundColor: primaryColor,
-            ]
-            if let proseParagraph {
-                defaultAttrs[.paragraphStyle] = proseParagraph
-            }
-            storage.addAttributes(defaultAttrs, range: fullRange)
-
-            let hiddenDelimiterAttrs: [NSAttributedString.Key: Any] = [
-                .foregroundColor: UIColor.clear,
-                .font: UIFont.systemFont(ofSize: 0.1),
-            ]
-            let hiddenListPrefixAttrs: [NSAttributedString.Key: Any] = [
-                .foregroundColor: UIColor.clear,
-            ]
-            let hiddenQuotePrefixAttrs: [NSAttributedString.Key: Any] = [
-                .foregroundColor: UIColor.clear,
-            ]
-
-            // Bold + italic: ***text***
-            applyPattern(
-                #"\*\*\*(?=\S)(.+?)(?<=\S)\*\*\*"#,
-                in: text, storage: storage,
-                contentAttributes: [
-                    .font: boldFont,
-                    .obliqueness: 0.2 as NSNumber,
-                    .foregroundColor: primaryColor,
-                ],
-                delimiterAttributes: [.font: defaultFont, .foregroundColor: tertiaryColor],
-                hiddenDelimiterAttributes: hiddenDelimiterAttrs,
-                cursorLocation: cursorLocation
-            )
-
-            // Bold: **text**
-            applyPattern(
-                #"\*\*(?=\S)(.+?)(?<=\S)\*\*"#,
-                in: text, storage: storage,
-                contentAttributes: [.font: boldFont, .foregroundColor: primaryColor],
-                delimiterAttributes: [.font: defaultFont, .foregroundColor: tertiaryColor],
-                hiddenDelimiterAttributes: hiddenDelimiterAttrs,
-                cursorLocation: cursorLocation
-            )
-
-            // Italic: *text* (but not **)
-            applyPattern(
-                #"(?<!\*)\*(?!\*)(?=\S)(.+?)(?<=\S)(?<!\*)\*(?!\*)"#,
-                in: text, storage: storage,
-                contentAttributes: [.obliqueness: 0.2 as NSNumber, .foregroundColor: primaryColor],
-                delimiterAttributes: [.foregroundColor: tertiaryColor],
-                hiddenDelimiterAttributes: hiddenDelimiterAttrs,
-                cursorLocation: cursorLocation
-            )
-
-            // Inline code: `text`
-            applyPattern(
-                #"`([^`]+)`"#,
-                in: text, storage: storage,
-                contentAttributes: [
-                    .font: monoFont,
-                    .backgroundColor: codeBackground,
-                    .foregroundColor: primaryColor,
-                ],
-                delimiterAttributes: [
-                    .font: monoFont,
-                    .foregroundColor: tertiaryColor,
-                    .backgroundColor: codeBackground,
-                ],
-                hiddenDelimiterAttributes: hiddenDelimiterAttrs.merging([.backgroundColor: UIColor.clear]) { _, new in new },
-                cursorLocation: cursorLocation
-            )
-
-            // Markdown links: [text](url)
-            applyPattern(
-                #"\[(?!\[)(.+?)\]\((.+?)\)"#,
-                in: text, storage: storage,
-                contentAttributes: [
-                    .underlineStyle: NSUnderlineStyle.single.rawValue,
-                    .foregroundColor: secondaryColor,
-                ],
-                delimiterAttributes: [.foregroundColor: tertiaryColor],
-                hiddenDelimiterAttributes: hiddenDelimiterAttrs,
-                cursorLocation: cursorLocation
-            )
-
-            // Strikethrough: ~~text~~
-            applyPattern(
-                #"~~(?=\S)(.+?)(?<=\S)~~"#,
-                in: text, storage: storage,
-                contentAttributes: [
-                    .strikethroughStyle: NSUnderlineStyle.single.rawValue,
-                    .foregroundColor: secondaryColor,
-                ],
-                delimiterAttributes: [.foregroundColor: tertiaryColor],
-                hiddenDelimiterAttributes: hiddenDelimiterAttrs,
-                cursorLocation: cursorLocation
-            )
-
-            // Headings: #, ##, ### at start of line
-            applyHeadingLinePattern(
-                in: text,
-                storage: storage,
-                cursorLocation: cursorLocation,
-                prefixAttributes: [.foregroundColor: tertiaryColor],
-                hiddenPrefixAttributes: hiddenDelimiterAttrs,
-                h1Attributes: [.font: headingFont, .foregroundColor: primaryColor],
-                h2Attributes: [.font: headingSmallFont, .foregroundColor: primaryColor],
-                h3Attributes: [.font: headingMidFont, .foregroundColor: primaryColor],
-                proseParagraph: proseParagraph
-            )
-
-            // Block quote: > text
-            applyPrefixLinePattern(
-                #"^(>[ \t]*)(.*)$"#,
-                in: text,
-                storage: storage,
-                cursorLocation: cursorLocation,
-                prefixAttributes: [.foregroundColor: tertiaryColor],
-                hiddenPrefixAttributes: hiddenQuotePrefixAttrs,
-                contentAttributes: [
-                    .font: defaultFont,
-                    .foregroundColor: quoteColor,
-                ],
-                prefixMarkerAttributes: [.groveQuotePrefix: true],
-                lineTransform: { style, _ in
-                    self.quoteParagraphStyle(from: style)
-                }
-            )
-
-            // List item: - item or * item
-            applyPrefixLinePattern(
-                #"^([-\*]\s+)(.*)$"#,
-                in: text,
-                storage: storage,
-                cursorLocation: cursorLocation,
-                prefixAttributes: [.foregroundColor: tertiaryColor],
-                hiddenPrefixAttributes: hiddenListPrefixAttrs,
-                contentAttributes: [.foregroundColor: primaryColor],
-                prefixMarkerAttributes: [.groveListPrefix: true],
-                lineTransform: { style, _ in
-                    self.listParagraphStyle(from: style)
-                }
-            )
-
-            // Wiki-links: [[text]]
-            applyPattern(
-                #"\[\[(.+?)\]\]"#,
-                in: text, storage: storage,
-                contentAttributes: [
-                    .underlineStyle: NSUnderlineStyle.single.rawValue,
-                    .foregroundColor: secondaryColor,
-                ],
-                delimiterAttributes: [.foregroundColor: tertiaryColor],
-                hiddenDelimiterAttributes: hiddenDelimiterAttrs,
-                cursorLocation: cursorLocation
-            )
-
-            storage.endEditing()
-        }
-
-        // MARK: - Pattern Helpers
-
-        private func applyPattern(
-            _ pattern: String,
-            in text: String,
-            storage: NSTextStorage,
-            contentAttributes: [NSAttributedString.Key: Any],
-            delimiterAttributes: [NSAttributedString.Key: Any],
-            hiddenDelimiterAttributes: [NSAttributedString.Key: Any],
-            cursorLocation: Int
-        ) {
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return }
-            let nsText = text as NSString
-            let fullRange = NSRange(location: 0, length: nsText.length)
-
-            regex.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
-                guard let match else { return }
-                let isEditingMatch = self.rangeContainsCursor(match.range, cursorLocation: cursorLocation)
-                let tokenAttributes = isEditingMatch ? delimiterAttributes : hiddenDelimiterAttributes
-
-                if match.numberOfRanges > 1 {
-                    let contentRange = match.range(at: 1)
-                    if contentRange.location != NSNotFound {
-                        let matchStart = match.range.location
-                        let matchEnd = match.range.location + match.range.length
-                        let contentStart = contentRange.location
-                        let contentEnd = contentRange.location + contentRange.length
-
-                        if contentStart > matchStart {
-                            storage.addAttributes(
-                                tokenAttributes,
-                                range: NSRange(location: matchStart, length: contentStart - matchStart)
-                            )
-                        }
-                        if contentEnd < matchEnd {
-                            storage.addAttributes(
-                                tokenAttributes,
-                                range: NSRange(location: contentEnd, length: matchEnd - contentEnd)
-                            )
-                        }
-
-                        storage.addAttributes(contentAttributes, range: contentRange)
-                        return
+                case .blockquote(let blockquote):
+                    for line in blockquote.lines {
+                        applyAttributes([.foregroundColor: tertiaryColor], to: line.prefixRange, in: text, storage: storage)
+                        applyAttributes([.foregroundColor: secondaryColor], to: line.contentRange, in: text, storage: storage)
+                        applyAttributes([.paragraphStyle: baseParagraphStyle()], to: line.lineRange, in: text, storage: storage)
                     }
-                }
 
-                storage.addAttributes(tokenAttributes, range: match.range)
-            }
-        }
-
-        private func applyHeadingLinePattern(
-            in text: String,
-            storage: NSTextStorage,
-            cursorLocation: Int,
-            prefixAttributes: [NSAttributedString.Key: Any],
-            hiddenPrefixAttributes: [NSAttributedString.Key: Any],
-            h1Attributes: [NSAttributedString.Key: Any],
-            h2Attributes: [NSAttributedString.Key: Any],
-            h3Attributes: [NSAttributedString.Key: Any],
-            proseParagraph: NSParagraphStyle?
-        ) {
-            guard let regex = try? NSRegularExpression(pattern: #"^(#{1,6})(\s*)(.*)$"#, options: [.anchorsMatchLines]) else { return }
-            let nsText = text as NSString
-            let fullRange = NSRange(location: 0, length: nsText.length)
-
-            regex.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
-                guard let match, match.numberOfRanges >= 4 else { return }
-
-                let prefixRange = match.range(at: 1)
-                let spacingRange = match.range(at: 2)
-                let contentRange = match.range(at: 3)
-                let isEditingLine = self.rangeContainsCursor(match.range, cursorLocation: cursorLocation)
-                let effectivePrefixAttrs = isEditingLine ? prefixAttributes : hiddenPrefixAttributes
-
-                if prefixRange.location != NSNotFound {
-                    storage.addAttributes(effectivePrefixAttrs, range: prefixRange)
-                }
-                if spacingRange.location != NSNotFound {
-                    storage.addAttributes(effectivePrefixAttrs, range: spacingRange)
-                }
-
-                guard contentRange.location != NSNotFound else { return }
-                let prefix = nsText.substring(with: prefixRange)
-                let level = prefix.count
-                let contentAttrs: [NSAttributedString.Key: Any]
-                switch level {
-                case 1, 4, 5, 6: contentAttrs = h1Attributes
-                case 2: contentAttrs = h2Attributes
-                default: contentAttrs = h3Attributes
-                }
-                storage.addAttributes(contentAttrs, range: contentRange)
-
-                if let proseParagraph {
-                    storage.addAttribute(.paragraphStyle, value: proseParagraph, range: match.range)
-                }
-            }
-        }
-
-        private func applyPrefixLinePattern(
-            _ pattern: String,
-            in text: String,
-            storage: NSTextStorage,
-            cursorLocation: Int,
-            prefixAttributes: [NSAttributedString.Key: Any],
-            hiddenPrefixAttributes: [NSAttributedString.Key: Any],
-            contentAttributes: [NSAttributedString.Key: Any],
-            prefixMarkerAttributes: [NSAttributedString.Key: Any] = [:],
-            lineTransform: (NSParagraphStyle, Bool) -> NSParagraphStyle
-        ) {
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines]) else { return }
-            let fullRange = NSRange(location: 0, length: (text as NSString).length)
-
-            regex.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
-                guard let match, match.numberOfRanges >= 3 else { return }
-
-                let prefixRange = match.range(at: 1)
-                let contentRange = match.range(at: 2)
-                let lineRange = match.range
-                let isEditingPrefix = prefixRange.location != NSNotFound
-                    && cursorLocation >= prefixRange.location
-                    && cursorLocation <= (prefixRange.location + prefixRange.length)
-                let effectivePrefixAttrs = isEditingPrefix ? prefixAttributes : hiddenPrefixAttributes
-
-                if prefixRange.location != NSNotFound {
-                    storage.addAttributes(effectivePrefixAttrs, range: prefixRange)
-                    if !prefixMarkerAttributes.isEmpty {
-                        storage.addAttributes(prefixMarkerAttributes, range: prefixRange)
+                case .bulletList(let list):
+                    for item in list.items {
+                        applyAttributes([.foregroundColor: tertiaryColor], to: item.prefixRange, in: text, storage: storage)
+                        applyAttributes([.foregroundColor: primaryColor], to: item.contentRange, in: text, storage: storage)
+                        applyAttributes([.paragraphStyle: baseParagraphStyle()], to: item.lineRange, in: text, storage: storage)
                     }
+
+                case .codeBlock(let codeBlock):
+                    applyAttributes(
+                        [.foregroundColor: tertiaryColor, .font: monoFont()],
+                        to: codeBlock.openingFenceRange,
+                        in: text,
+                        storage: storage
+                    )
+                    if let closingFenceRange = codeBlock.closingFenceRange {
+                        applyAttributes(
+                            [.foregroundColor: tertiaryColor, .font: monoFont()],
+                            to: closingFenceRange,
+                            in: text,
+                            storage: storage
+                        )
+                    }
+                    if let contentRange = codeBlock.contentRange {
+                        applyAttributes(
+                            [
+                                .font: monoFont(),
+                                .foregroundColor: primaryColor,
+                                .backgroundColor: codeBackground,
+                            ],
+                            to: contentRange,
+                            in: text,
+                            storage: storage
+                        )
+                    }
+
+                case .paragraph:
+                    break
                 }
-                if contentRange.location != NSNotFound {
-                    storage.addAttributes(contentAttributes, range: contentRange)
+            }
+
+            for span in document.inlineSpans {
+                for markerRange in span.markerRanges {
+                    applyAttributes([.foregroundColor: tertiaryColor], to: markerRange, in: text, storage: storage)
                 }
 
-                let existingStyle = (storage.attribute(.paragraphStyle, at: lineRange.location, effectiveRange: nil) as? NSParagraphStyle)
-                    ?? NSParagraphStyle.default
-                let updatedStyle = lineTransform(existingStyle, isEditingPrefix)
-                storage.addAttribute(.paragraphStyle, value: updatedStyle, range: lineRange)
+                guard let nsRange = nsRange(for: span.contentRange, in: text) else { continue }
+
+                switch span.kind {
+                case .bold:
+                    applyFontTraits([.traitBold], to: nsRange, in: storage)
+                case .italic:
+                    applyFontTraits([.traitItalic], to: nsRange, in: storage)
+                case .boldItalic:
+                    applyFontTraits([.traitBold, .traitItalic], to: nsRange, in: storage)
+                case .strikethrough:
+                    storage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: nsRange)
+                case .inlineCode:
+                    storage.addAttributes(
+                        [
+                            .font: monoFont(),
+                            .backgroundColor: codeBackground,
+                        ],
+                        range: nsRange
+                    )
+                case .wikiLink, .link:
+                    storage.addAttributes(
+                        [
+                            .underlineStyle: NSUnderlineStyle.single.rawValue,
+                            .foregroundColor: secondaryColor,
+                        ],
+                        range: nsRange
+                    )
+                }
             }
         }
 
-        private func rangeContainsCursor(_ range: NSRange, cursorLocation: Int) -> Bool {
-            if range.location == NSNotFound { return false }
-            let upperBound = range.location + range.length
-            return cursorLocation >= range.location && cursorLocation <= upperBound
+        private func applyAttributes(
+            _ attributes: [NSAttributedString.Key: Any],
+            to characterRange: Range<Int>,
+            in text: String,
+            storage: NSTextStorage
+        ) {
+            guard let nsRange = nsRange(for: characterRange, in: text), nsRange.length > 0 else { return }
+            storage.addAttributes(attributes, range: nsRange)
         }
 
-        // MARK: - Paragraph Styles
+        private func nsRange(for characterRange: Range<Int>, in text: String) -> NSRange? {
+            guard characterRange.lowerBound >= 0,
+                  characterRange.upperBound >= characterRange.lowerBound,
+                  characterRange.upperBound <= text.count else {
+                return nil
+            }
 
-        private func quoteParagraphStyle(from baseStyle: NSParagraphStyle) -> NSParagraphStyle {
-            let style = baseStyle.mutableCopy() as! NSMutableParagraphStyle
-            let indent: CGFloat = 11
-            let markerAdvance: CGFloat = 9
-            style.firstLineHeadIndent = indent
-            style.headIndent = indent + markerAdvance
-            style.paragraphSpacing = 0
-            style.paragraphSpacingBefore = 0
+            let lower = text.index(text.startIndex, offsetBy: characterRange.lowerBound)
+            let upper = text.index(text.startIndex, offsetBy: characterRange.upperBound)
+            return NSRange(lower..<upper, in: text)
+        }
+
+        private func applyFontTraits(
+            _ traits: UIFontDescriptor.SymbolicTraits,
+            to nsRange: NSRange,
+            in storage: NSTextStorage
+        ) {
+            storage.enumerateAttribute(.font, in: nsRange, options: []) { value, range, _ in
+                let baseFont = (value as? UIFont) ?? self.bodyFont()
+                let descriptor = baseFont.fontDescriptor.withSymbolicTraits(
+                    baseFont.fontDescriptor.symbolicTraits.union(traits)
+                ) ?? baseFont.fontDescriptor
+                let font = UIFont(descriptor: descriptor, size: baseFont.pointSize)
+                storage.addAttribute(.font, value: font, range: range)
+            }
+        }
+
+        private func bodyFont() -> UIFont {
+            UIFont(name: "IBMPlexSans-Regular", size: parent.fontSize)
+                ?? UIFont.systemFont(ofSize: parent.fontSize)
+        }
+
+        private func monoFont() -> UIFont {
+            UIFont(name: "IBMPlexMono-Regular", size: parent.fontSize - 2)
+                ?? UIFont.monospacedSystemFont(ofSize: parent.fontSize - 2, weight: .regular)
+        }
+
+        private func headingFont(for level: Int) -> UIFont {
+            let size: CGFloat
+            switch level {
+            case 1:
+                size = round(parent.fontSize * 1.55)
+            case 2:
+                size = round(parent.fontSize * 1.22)
+            default:
+                size = round(parent.fontSize * 1.08)
+            }
+
+            return UIFont(name: "Newsreader-Medium", size: size)
+                ?? UIFont.systemFont(ofSize: size, weight: .medium)
+        }
+
+        private func proseParagraphStyle() -> NSMutableParagraphStyle? {
+            guard parent.fontSize >= 17 else { return nil }
+            let style = NSMutableParagraphStyle()
+            style.lineSpacing = 2
+            style.paragraphSpacing = 6
             return style
         }
 
-        private func listParagraphStyle(from baseStyle: NSParagraphStyle) -> NSParagraphStyle {
-            let style = baseStyle.mutableCopy() as! NSMutableParagraphStyle
-            style.firstLineHeadIndent = 0
-            style.headIndent = 12
-            style.paragraphSpacing = max(style.paragraphSpacing, 6)
+        private func baseParagraphStyle() -> NSParagraphStyle {
+            proseParagraphStyle() ?? NSParagraphStyle.default
+        }
+
+        private func headingParagraphStyle(for level: Int) -> NSParagraphStyle {
+            let style = (proseParagraphStyle() ?? NSMutableParagraphStyle())
+            style.paragraphSpacingBefore = level == 1 ? 10 : 6
+            style.paragraphSpacing = max(style.paragraphSpacing, 4)
             return style
         }
 
