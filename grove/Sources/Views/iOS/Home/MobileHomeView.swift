@@ -1,11 +1,15 @@
 import SwiftUI
 import SwiftData
 
-/// iOS Home screen — inbox triage, conversation starters, recent items, and nudge banners.
+/// iOS Home screen — inbox triage, discussion suggestions, recent items, and nudge banners.
 struct MobileHomeView: View {
+    private static let maxDiscussionCards = 3
+
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(DeepLinkRouter.self) private var deepLinkRouter
+    @Environment(EntitlementService.self) private var entitlement
+    @Environment(PaywallCoordinator.self) private var paywallCoordinator
     @Query(sort: \Item.lastEngagedAt, order: .reverse) private var allItems: [Item]
     @Query(sort: \Item.createdAt, order: .reverse) private var allItemsByDate: [Item]
     @Query(sort: \Board.sortOrder) private var boards: [Board]
@@ -17,7 +21,9 @@ struct MobileHomeView: View {
     @State private var showSearch = false
     @State private var showBoardPicker = false
     @State private var itemToAssign: Item?
+    @State private var paywallPresentation: PaywallPresentation?
 
+    var onOpenItem: ((Item) -> Void)? = nil
     var selectedItem: Binding<Item?>? = nil
     var openedItem: Binding<Item?>? = nil
 
@@ -33,6 +39,11 @@ struct MobileHomeView: View {
         allNudges.filter { $0.status == .pending || $0.status == .shown }
     }
 
+    private var discussionBubbles: [PromptBubble] {
+        let dynamicSlotCount = max(0, Self.maxDiscussionCards - 1)
+        return Array(starterService.bubbles.prefix(dynamicSlotCount))
+    }
+
     var body: some View {
         List {
             Section {
@@ -42,7 +53,7 @@ struct MobileHomeView: View {
             .listSectionSeparator(.hidden)
 
             inboxSection
-            startersSection
+            discussionSuggestionsSection
             recentItemsSection
             nudgesSection
         }
@@ -67,6 +78,9 @@ struct MobileHomeView: View {
         }
         .sheet(isPresented: $showBoardPicker) {
             boardPickerSheet
+        }
+        .sheet(item: $paywallPresentation) { presentation in
+            ProPaywallView(presentation: presentation)
         }
         .task {
             await starterService.refresh(items: allItems)
@@ -124,52 +138,67 @@ struct MobileHomeView: View {
         }
     }
 
-    // MARK: - Conversation starters
+    // MARK: - Discussion suggestions
 
     @ViewBuilder
-    private var startersSection: some View {
-        let bubbles = Array(starterService.bubbles.prefix(3))
-        if !bubbles.isEmpty {
-            Section {
-                if horizontalSizeClass == .regular {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: Spacing.md) {
-                            ForEach(bubbles) { bubble in
-                                VStack(spacing: 0) {
-                                    MobileStarterCard(bubble: bubble) {
-                                        startConversation(with: bubble)
-                                    }
-                                    HStack {
-                                        Spacer()
-                                        Image(systemName: "arrow.right")
-                                            .font(.system(size: 12, weight: .medium))
-                                            .foregroundStyle(Color.textMuted)
-                                    }
-                                    .padding(.top, Spacing.xs)
-                                    .padding(.trailing, Spacing.sm)
-                                }
-                                .frame(width: 300)
-                            }
+    private var discussionSuggestionsSection: some View {
+        Section {
+            if horizontalSizeClass == .regular {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Spacing.md) {
+                        discussionCard(
+                            bubble: PromptBubble(
+                                prompt: "New Conversation",
+                                label: "CHAT"
+                            ),
+                            onTap: { startNewConversation() }
+                        )
+
+                        ForEach(discussionBubbles) { bubble in
+                            discussionCard(
+                                bubble: bubble,
+                                onTap: { startConversation(with: bubble) }
+                            )
                         }
-                        .padding(.horizontal, LayoutDimensions.contentPaddingH)
                     }
-                    .listRowInsets(EdgeInsets())
-                } else {
-                    ForEach(bubbles) { bubble in
-                        MobileStarterCard(bubble: bubble) {
-                            startConversation(with: bubble)
-                        }
+                    .padding(.horizontal, LayoutDimensions.contentPaddingH)
+                }
+                .listRowInsets(EdgeInsets())
+            } else {
+                MobileStarterCard(
+                    bubble: PromptBubble(
+                        prompt: "New Conversation",
+                        label: "CHAT"
+                    )
+                ) {
+                    startNewConversation()
+                }
+
+                ForEach(discussionBubbles) { bubble in
+                    MobileStarterCard(bubble: bubble) {
+                        startConversation(with: bubble)
                     }
                 }
-            } header: {
-                Text(startersSectionTitle)
-                    .sectionHeaderStyle()
             }
+        } header: {
+            Text("Discussion Suggestions")
+                .sectionHeaderStyle()
         }
     }
 
-    private var startersSectionTitle: String {
-        horizontalSizeClass == .regular ? "Discussion Suggestions" : "Conversation Starters"
+    private func discussionCard(bubble: PromptBubble, onTap: @escaping () -> Void) -> some View {
+        VStack(spacing: 0) {
+            MobileStarterCard(bubble: bubble, onTap: onTap)
+            HStack {
+                Spacer()
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.textMuted)
+            }
+            .padding(.top, Spacing.xs)
+            .padding(.trailing, Spacing.sm)
+        }
+        .frame(width: 300)
     }
 
     // MARK: - Recent items
@@ -305,19 +334,45 @@ struct MobileHomeView: View {
     // MARK: - Conversation actions
 
     private func startConversation(with bubble: PromptBubble) {
-        let seedItems = allItems.filter { bubble.clusterItemIDs.contains($0.id) }
+        openConversation(
+            with: bubble.prompt,
+            seedItemIDs: bubble.clusterItemIDs
+        )
+    }
+
+    private func startNewConversation() {
+        openConversation(with: "")
+    }
+
+    private func openConversation(with prompt: String, seedItemIDs: [UUID] = []) {
+        guard entitlement.canUse(.dialectics) else {
+            paywallPresentation = paywallCoordinator.present(
+                feature: .dialectics,
+                source: .dialecticsLimit
+            )
+            return
+        }
+        entitlement.recordUse(.dialectics)
+
+        let seedItems = allItems.filter { seedItemIDs.contains($0.id) }
         let conversation = dialecticsService.startConversation(
             trigger: .userInitiated,
             seedItems: seedItems,
             board: nil,
             context: modelContext
         )
-        Task {
-            _ = await dialecticsService.sendMessage(
-                userText: bubble.prompt,
-                conversation: conversation,
-                context: modelContext
+        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedPrompt.isEmpty {
+            let greetingMessage = ChatMessage(
+                role: .assistant,
+                content: trimmedPrompt,
+                position: conversation.nextPosition
             )
+            greetingMessage.conversation = conversation
+            conversation.messages.append(greetingMessage)
+            modelContext.insert(greetingMessage)
+            conversation.updatedAt = .now
+            try? modelContext.save()
         }
 
         if let routeURL = URL(string: "grove://chat/\(conversation.id.uuidString)") {
@@ -327,7 +382,14 @@ struct MobileHomeView: View {
 
     @ViewBuilder
     private func openItemRow<Content: View>(item: Item, @ViewBuilder content: () -> Content) -> some View {
-        if let selectedItem, let openedItem {
+        if let onOpenItem {
+            Button {
+                onOpenItem(item)
+            } label: {
+                content()
+            }
+            .buttonStyle(.plain)
+        } else if let selectedItem, let openedItem {
             Button {
                 selectedItem.wrappedValue = item
                 openedItem.wrappedValue = item

@@ -38,7 +38,7 @@ final class DialecticalChatViewModel {
     // MARK: - Computed Properties
 
     func activeConversations(from conversations: [Conversation]) -> [Conversation] {
-        conversations.filter { !$0.isArchived }
+        conversations.filter { !$0.isArchived && $0.isSavedToHistory }
     }
 
     func visibleHistoryConversations(

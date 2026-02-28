@@ -13,6 +13,7 @@ struct MobileLibraryView: View {
     @State private var selectedBoardID: UUID?
     @State private var showNewBoardSheet = false
 
+    var onOpenItem: ((Item) -> Void)? = nil
     var selectedItem: Binding<Item?>? = nil
     var openedItem: Binding<Item?>? = nil
 
@@ -136,7 +137,14 @@ struct MobileLibraryView: View {
 
     @ViewBuilder
     private func openItemRow<Content: View>(item: Item, @ViewBuilder content: () -> Content) -> some View {
-        if let selectedItem, let openedItem {
+        if let onOpenItem {
+            Button {
+                onOpenItem(item)
+            } label: {
+                content()
+            }
+            .buttonStyle(.plain)
+        } else if let selectedItem, let openedItem {
             Button {
                 selectedItem.wrappedValue = item
                 openedItem.wrappedValue = item

@@ -17,7 +17,7 @@ struct MobileConversationListView: View {
     var initialConversationID: UUID?
 
     private var activeConversations: [Conversation] {
-        conversations.filter { !$0.isArchived }
+        conversations.filter { !$0.isArchived && $0.isSavedToHistory }
     }
 
     private var visibleHistoryConversations: [Conversation] {

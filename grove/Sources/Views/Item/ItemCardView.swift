@@ -197,14 +197,18 @@ struct ItemCardView: View {
                         .foregroundStyle(Color.textTertiary)
                 } else if let urlString = item.sourceURL, let url = URL(string: urlString) {
                     Button {
-                        #if os(macOS)
-                        NSWorkspace.shared.open(url)
-                        #else
-                        openURL(url)
-                        #endif
+                        if let onReadInApp {
+                            onReadInApp()
+                        } else {
+                            #if os(macOS)
+                            NSWorkspace.shared.open(url)
+                            #else
+                            openURL(url)
+                            #endif
+                        }
                     } label: {
                         HStack(spacing: 3) {
-                            Image(systemName: "arrow.up.right")
+                            Image(systemName: onReadInApp == nil ? "arrow.up.right" : "doc.text.magnifyingglass")
                                 .font(.system(size: 8))
                             Text(domainFrom(urlString))
                                 .font(.groveBadge)
@@ -213,6 +217,7 @@ struct ItemCardView: View {
                         .foregroundStyle(Color.textTertiary)
                     }
                     .buttonStyle(.plain)
+                    .help(onReadInApp == nil ? "Open in browser" : "Open details")
                 }
             }
         }

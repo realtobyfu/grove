@@ -13,6 +13,7 @@ struct MobileInboxView: View {
     @State private var showBoardPicker = false
     @State private var itemToAssign: Item?
 
+    var onOpenItem: ((Item) -> Void)? = nil
     var selectedItem: Binding<Item?>? = nil
     var openedItem: Binding<Item?>? = nil
 
@@ -29,6 +30,9 @@ struct MobileInboxView: View {
             }
         }
         .navigationTitle("Inbox")
+        .navigationDestination(for: Item.self) { item in
+            MobileItemReaderView(item: item)
+        }
         .sheet(isPresented: $showBoardPicker) {
             boardPickerSheet
         }
@@ -169,7 +173,14 @@ struct MobileInboxView: View {
 
     @ViewBuilder
     private func openItemRow<Content: View>(item: Item, @ViewBuilder content: () -> Content) -> some View {
-        if let selectedItem, let openedItem {
+        if let onOpenItem {
+            Button {
+                onOpenItem(item)
+            } label: {
+                content()
+            }
+            .buttonStyle(.plain)
+        } else if let selectedItem, let openedItem {
             Button {
                 selectedItem.wrappedValue = item
                 openedItem.wrappedValue = item
@@ -186,7 +197,10 @@ struct MobileInboxView: View {
             }
             .buttonStyle(.plain)
         } else {
-            content()
+            NavigationLink(value: item) {
+                content()
+            }
+            .buttonStyle(.plain)
         }
     }
 }

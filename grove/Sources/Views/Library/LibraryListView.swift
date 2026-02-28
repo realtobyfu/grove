@@ -50,12 +50,6 @@ struct LibraryListView: View {
             LibraryRowView(item: item)
         }
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-            if !isMultiSelectMode {
-                openedItem = item
-                selectedItem = item
-            }
-        }
         .onTapGesture(count: 1) {
             handleRowTap(item: item)
         }
@@ -79,6 +73,7 @@ struct LibraryListView: View {
         }
         #endif
         selectedItem = item
+        openedItem = item
     }
 
     @ViewBuilder

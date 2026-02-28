@@ -1,25 +1,33 @@
 import SwiftUI
 import SwiftData
 
-/// Shared iPad state for split interactions.
+/// Shared iPad selection state for views that can either highlight or open items.
 @Observable
 final class iPadReaderCoordinator {
     var openedItem: Item?
     var selectedItem: Item?
 }
 
-/// iPad 3-column layout: Sidebar | Content | Detail.
-/// Mirrors the Mac app split layout semantics.
+/// iPad layout: sidebar navigation on the left and a single stacked workspace on the right.
 struct iPadRootView: View {
+    private struct WriteSheetSession: Identifiable {
+        let id = UUID()
+        let boardID: UUID?
+        let prompt: String?
+        let editingItem: Item?
+    }
+
     @Environment(\.modelContext) private var modelContext
     @Environment(DeepLinkRouter.self) private var deepLinkRouter
     @Query(sort: \Board.sortOrder) private var boards: [Board]
-    @Query(sort: \Conversation.updatedAt, order: .reverse) private var conversations: [Conversation]
     @Query private var allItems: [Item]
+
+    private enum DetailRoute: Hashable {
+        case item(UUID)
+    }
 
     enum SidebarSelection: Hashable {
         case home
-        case inbox
         case library
         case board(UUID)
         case chat
@@ -28,7 +36,6 @@ struct iPadRootView: View {
         var sceneStorageValue: String {
             switch self {
             case .home: "home"
-            case .inbox: "inbox"
             case .library: "library"
             case .board(let id): "board:\(id.uuidString)"
             case .chat: "chat"
@@ -38,7 +45,7 @@ struct iPadRootView: View {
 
         init?(sceneStorageValue: String) {
             if sceneStorageValue == "home" { self = .home }
-            else if sceneStorageValue == "inbox" { self = .inbox }
+            else if sceneStorageValue == "inbox" { self = .home }
             else if sceneStorageValue == "library" { self = .library }
             else if sceneStorageValue == "chat" { self = .chat }
             else if sceneStorageValue == "settings" { self = .settings }
@@ -59,6 +66,9 @@ struct iPadRootView: View {
     @State private var searchInitialQuery: String?
     @State private var deepLinkedConversationID: UUID?
     @State private var readerCoordinator = iPadReaderCoordinator()
+    @State private var detailPath = NavigationPath()
+    @State private var pendingDetailRoute: DetailRoute?
+    @State private var writeSheetSession: WriteSheetSession?
 
     // Board suggestion state (same behavior as TabRootView).
     @State private var pendingSuggestionItemID: UUID?
@@ -74,6 +84,11 @@ struct iPadRootView: View {
 
     private var boardViewModel: BoardViewModel {
         BoardViewModel(modelContext: modelContext)
+    }
+
+    private var currentBoardID: UUID? {
+        guard case .board(let boardID) = sidebarSelection else { return nil }
+        return boardID
     }
 
     private var selectedItemBinding: Binding<Item?> {
@@ -93,25 +108,16 @@ struct iPadRootView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: $splitViewVisibility) {
             sidebar
-        } content: {
-            contentColumn
         } detail: {
-            detailColumn
-        }
-        .navigationSplitViewStyle(.balanced)
-        .environment(readerCoordinator)
-        #if os(iOS)
-        .fullScreenCover(item: openedItemBinding) { item in
-            NavigationStack {
-                MobileItemReaderView(
-                    item: item,
-                    onCloseRequested: {
-                        readerCoordinator.openedItem = nil
-                    }
-                )
+            NavigationStack(path: $detailPath) {
+                primaryContent
+            }
+            .environment(readerCoordinator)
+            .navigationDestination(for: DetailRoute.self) { route in
+                detailDestination(for: route)
             }
         }
-        #endif
+        .navigationSplitViewStyle(.balanced)
         .overlay(alignment: .top) {
             if showBoardSuggestion, let decision = pendingSuggestion {
                 MobileBoardSuggestionBanner(
@@ -125,14 +131,27 @@ struct iPadRootView: View {
         }
         .animation(.easeOut(duration: 0.2), value: showBoardSuggestion)
         .onAppear {
-            // iPad default shell: Home in 2-column mode with sidebar collapsed.
             sidebarSelection = .home
             splitViewVisibility = .doubleColumn
             consumeDeepLinkIntentIfNeeded()
         }
+        .onChange(of: sidebarSelection?.sceneStorageValue) { _, _ in
+            detailPath = NavigationPath()
+            readerCoordinator.selectedItem = nil
+            readerCoordinator.openedItem = nil
+
+            guard let pendingDetailRoute else { return }
+            detailPath.append(pendingDetailRoute)
+            self.pendingDetailRoute = nil
+        }
         .onChange(of: readerCoordinator.openedItem?.id) { _, _ in
-            if let opened = readerCoordinator.openedItem {
-                readerCoordinator.selectedItem = opened
+            guard let item = readerCoordinator.openedItem else { return }
+            readerCoordinator.selectedItem = item
+            readerCoordinator.openedItem = nil
+            if item.type == .note {
+                presentWriteSheet(editingItem: item)
+            } else {
+                showItemReader(for: item)
             }
         }
         .onChange(of: deepLinkRouter.routeVersion) { _, _ in
@@ -163,6 +182,12 @@ struct iPadRootView: View {
             #endif
 
             scheduleAutoDismiss()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .groveNewNote)) { _ in
+            presentWriteSheet()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .groveNewNoteWithPrompt)) { notification in
+            presentWriteSheet(prompt: notification.object as? String)
         }
         .sheet(isPresented: $showBoardPicker) {
             if let suggestion = pendingSuggestion {
@@ -200,6 +225,24 @@ struct iPadRootView: View {
         .sheet(isPresented: $showSearchSheet) {
             MobileSearchView(initialQuery: searchInitialQuery)
         }
+        .sheet(item: $writeSheetSession) { session in
+            NoteWriterPanelView(
+                isPresented: Binding(
+                    get: { writeSheetSession != nil },
+                    set: { isPresented in
+                        if !isPresented {
+                            writeSheetSession = nil
+                        }
+                    }
+                ),
+                currentBoardID: session.boardID,
+                prompt: session.prompt,
+                editingItem: session.editingItem
+            ) { note in
+                readerCoordinator.selectedItem = note
+                writeSheetSession = nil
+            }
+        }
     }
 
     // MARK: - Sidebar
@@ -210,10 +253,6 @@ struct iPadRootView: View {
                 Label("Home", systemImage: "envelope")
                     .badge(inboxCount)
                     .tag(SidebarSelection.home)
-
-                Label("Inbox", systemImage: "tray")
-                    .badge(inboxCount)
-                    .tag(SidebarSelection.inbox)
 
                 Label("Library", systemImage: "books.vertical")
                     .tag(SidebarSelection.library)
@@ -278,26 +317,19 @@ struct iPadRootView: View {
         }
     }
 
-    // MARK: - Content Column
+    // MARK: - Primary Content
 
     @ViewBuilder
-    private var contentColumn: some View {
+    private var primaryContent: some View {
         switch sidebarSelection {
         case .home, .none:
-            MobileHomeView(
-                selectedItem: selectedItemBinding,
-                openedItem: openedItemBinding
-            )
-        case .inbox:
-            MobileInboxView(
-                selectedItem: selectedItemBinding,
-                openedItem: openedItemBinding
-            )
+            MobileHomeView(onOpenItem: { item in
+                openItemInPreferredContext(item)
+            })
         case .library:
-            MobileLibraryView(
-                selectedItem: selectedItemBinding,
-                openedItem: openedItemBinding
-            )
+            MobileLibraryView(onOpenItem: { item in
+                openItemInPreferredContext(item)
+            })
         case .board(let boardID):
             if let board = boards.first(where: { $0.id == boardID }) {
                 MobileBoardDetailView(
@@ -315,17 +347,14 @@ struct iPadRootView: View {
         }
     }
 
-    // MARK: - Detail Column
-
     @ViewBuilder
-    private var detailColumn: some View {
-        if let item = readerCoordinator.selectedItem ?? readerCoordinator.openedItem {
-            ItemInspectorPanel(item: item)
-        } else {
-            ContentUnavailableView {
-                Label("No Selection", systemImage: "sidebar.right")
-            } description: {
-                Text("Select an item to see its details.")
+    private func detailDestination(for route: DetailRoute) -> some View {
+        switch route {
+        case .item(let itemID):
+            if let item = fetchItem(id: itemID) {
+                MobileItemReaderView(item: item)
+            } else {
+                ContentUnavailableView("Item not found", systemImage: "doc.text")
             }
         }
     }
@@ -338,27 +367,77 @@ struct iPadRootView: View {
         switch intent {
         case .item(let itemID):
             guard let item = fetchItem(id: itemID) else { return }
-            readerCoordinator.selectedItem = item
-            readerCoordinator.openedItem = item
-            sidebarSelection = .home
+            openItemInPreferredContext(item)
 
         case .board(let boardID):
             sidebarSelection = .board(boardID)
-            readerCoordinator.openedItem = nil
 
         case .chat(let conversationID):
             sidebarSelection = .chat
             deepLinkedConversationID = conversationID
-            readerCoordinator.openedItem = nil
 
         case .capture(let prefillURL):
             capturePrefillURL = prefillURL
             showCaptureSheet = true
 
         case .search(let query):
+            sidebarSelection = .library
             searchInitialQuery = query
             showSearchSheet = true
         }
+    }
+
+    private func openItemInPreferredContext(_ item: Item) {
+        readerCoordinator.selectedItem = item
+
+        if item.type == .note {
+            presentWriteSheet(editingItem: item)
+            return
+        }
+
+        let destinationSelection = detailHostingSelection(for: item)
+        if sidebarSelection == destinationSelection {
+            showItemReader(for: item)
+        } else {
+            pendingDetailRoute = .item(item.id)
+            sidebarSelection = destinationSelection
+        }
+    }
+
+    private func preferredSidebarSelection(for item: Item) -> SidebarSelection {
+        if let board = boards.first(where: { board in
+            item.boards.contains(where: { $0.id == board.id })
+        }) {
+            return .board(board.id)
+        }
+
+        return .library
+    }
+
+    private func detailHostingSelection(for item: Item) -> SidebarSelection {
+        switch sidebarSelection {
+        case .home?, .library?:
+            return sidebarSelection ?? preferredSidebarSelection(for: item)
+        case .board(let boardID)? where item.boards.contains(where: { $0.id == boardID }):
+            return .board(boardID)
+        default:
+            return preferredSidebarSelection(for: item)
+        }
+    }
+
+    private func showItemReader(for item: Item) {
+        detailPath = NavigationPath()
+        detailPath.append(DetailRoute.item(item.id))
+    }
+
+    private func presentWriteSheet(prompt: String? = nil, editingItem: Item? = nil) {
+        let trimmedPrompt = prompt?.trimmingCharacters(in: .whitespacesAndNewlines)
+        detailPath = NavigationPath()
+        writeSheetSession = WriteSheetSession(
+            boardID: currentBoardID,
+            prompt: trimmedPrompt?.isEmpty == false ? trimmedPrompt : nil,
+            editingItem: editingItem
+        )
     }
 
     private func fetchItem(id: UUID) -> Item? {

@@ -110,12 +110,12 @@ struct SuggestedArticleCard: View {
                     Button {
                         onOpen()
                     } label: {
-                        Image(systemName: "arrow.up.right")
+                        Image(systemName: "doc.text.magnifyingglass")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(Color.textSecondary)
                     }
                     .buttonStyle(.plain)
-                    .help("Open in browser")
+                    .help("Open details")
                 }
             }
             .padding(.horizontal, Spacing.md)
@@ -129,5 +129,9 @@ struct SuggestedArticleCard: View {
                 .stroke(isHovered ? Color.borderInput : Color.borderPrimary, lineWidth: 1)
         )
         .onHover { isHovered = $0 }
+        .contentShape(RoundedRectangle(cornerRadius: 6))
+        .onTapGesture {
+            onOpen()
+        }
     }
 }

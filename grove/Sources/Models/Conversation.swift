@@ -48,6 +48,15 @@ final class Conversation {
         sortedMessages.filter { !$0.isHidden }
     }
 
+    /// Only conversations with a user-authored turn should appear in chat history.
+    var hasUserMessages: Bool {
+        messages.contains { $0.role == .user && !$0.isHidden }
+    }
+
+    var isSavedToHistory: Bool {
+        hasUserMessages
+    }
+
     var lastMessage: ChatMessage? {
         sortedMessages.last
     }

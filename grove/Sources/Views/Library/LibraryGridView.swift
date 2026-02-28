@@ -123,6 +123,7 @@ struct LibraryGridView: View {
         }
         #endif
         selectedItem = item
+        openedItem = item
     }
 
     @ViewBuilder

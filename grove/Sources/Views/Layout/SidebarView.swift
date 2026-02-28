@@ -23,7 +23,7 @@ struct SidebarView: View {
     }
 
     private var recentConversations: [Conversation] {
-        Array(conversations.filter { !$0.isArchived }.prefix(3))
+        Array(conversations.filter { !$0.isArchived && $0.isSavedToHistory }.prefix(3))
     }
 
     private var viewModel: BoardViewModel {

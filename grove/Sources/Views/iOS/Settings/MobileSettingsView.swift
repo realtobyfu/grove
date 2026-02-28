@@ -8,6 +8,7 @@ struct MobileSettingsView: View {
     @Environment(EntitlementService.self) private var entitlement
     @Environment(OnboardingService.self) private var onboarding
     @State private var showPaywall = false
+    @State private var syncEnabled = SyncSettings.syncEnabled
 
     var body: some View {
         List {
@@ -18,6 +19,9 @@ struct MobileSettingsView: View {
             aboutSection
         }
         .navigationTitle("Settings")
+        .onAppear {
+            syncEnabled = SyncSettings.syncEnabled
+        }
         .sheet(isPresented: $showPaywall) {
             NavigationStack {
                 ProPaywallView(presentation: PaywallPresentation(feature: nil, source: .proSettings))
@@ -46,20 +50,26 @@ struct MobileSettingsView: View {
 
     private var syncSection: some View {
         Section("Sync") {
-            HStack {
-                Label("iCloud Sync", systemImage: "icloud")
-                Spacer()
-                if entitlement.state.tier == .pro {
-                    Text("Enabled")
+            NavigationLink {
+                SyncSettingsView()
+                    .navigationTitle("Sync")
+            } label: {
+                HStack {
+                    Label("iCloud Sync", systemImage: "icloud")
+                    Spacer()
+                    Text(syncStatusLabel)
                         .font(.groveMeta)
                         .foregroundStyle(Color.textTertiary)
-                } else {
-                    Button("Unlock Pro") {
-                        showPaywall = true
-                    }
-                    .font(.groveMeta)
                 }
             }
+        }
+    }
+
+    private var syncStatusLabel: String {
+        if entitlement.state.tier == .pro {
+            return syncEnabled ? "On" : "Off"
+        } else {
+            return "Pro"
         }
     }
 

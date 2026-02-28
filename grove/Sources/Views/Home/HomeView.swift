@@ -40,7 +40,6 @@ struct HomeView: View {
     @Binding var selectedItem: Item?
     @Binding var openedItem: Item?
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.openURL) private var openURL
     @Environment(EntitlementService.self) private var entitlement
     @Environment(OnboardingService.self) private var onboarding
     @Environment(PaywallCoordinator.self) private var paywallCoordinator
@@ -57,6 +56,7 @@ struct HomeView: View {
     @State private var isItemsCollapsed = false
     @State private var isConversationsCollapsed = false
     @State private var promptModeSelection: PromptModeSelection? = nil
+    @State private var promptModePanelWidth: CGFloat = 330
     @State private var paywallPresentation: PaywallPresentation?
     @State private var rankedSuggestions: [SuggestionRankingService.ScoredSuggestion] = []
 
@@ -74,96 +74,107 @@ struct HomeView: View {
     }
 
     private var recentConversations: [Conversation] {
-        Array(allConversations.filter { !$0.isArchived }.prefix(5))
+        Array(allConversations.filter { !$0.isArchived && $0.isSavedToHistory }.prefix(5))
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    CaptureBarView()
-                        .padding(.bottom, Spacing.sm)
+        GeometryReader { geo in
+            let minPanelWidth: CGFloat = 280
+            let maxPanelWidth = max(minPanelWidth, min(560, geo.size.width * 0.55))
+            let clampedPanelWidth = min(max(promptModePanelWidth, minPanelWidth), maxPanelWidth)
 
-                    if onboarding.shouldShowHomeReminder {
-                        onboardingReminderBanner
+            HStack(spacing: 0) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        CaptureBarView()
+                            .padding(.bottom, Spacing.sm)
+
+                        if onboarding.shouldShowHomeReminder {
+                            onboardingReminderBanner
+                                .padding(.bottom, Spacing.xl)
+                        }
+
+                        if onboarding.shouldShowHomeTeaser && !entitlement.isPro {
+                            proTeaserCard
+                                .padding(.bottom, Spacing.xl)
+                        }
+
+                        HomeInboxSection(
+                            selectedItem: $selectedItem,
+                            openedItem: $openedItem,
+                            inboxCount: inboxCount,
+                            isCollapsed: $isInboxCollapsed
+                        )
+                        .padding(.bottom, Spacing.xl)
+
+                        if !rankedSuggestions.isEmpty {
+                            HomeSuggestionsSection(
+                                rankedSuggestions: rankedSuggestions,
+                                isCollapsed: $isSuggestionsCollapsed,
+                                onAdd: { addSuggestionToInbox($0) },
+                                onDismiss: { dismissSuggestion($0) },
+                                onOpen: { openSuggestionInDetail($0) },
+                                onExplorePro: {
+                                    paywallPresentation = paywallCoordinator.present(
+                                        feature: .suggestedArticles,
+                                        source: .suggestedArticles
+                                    )
+                                }
+                            )
                             .padding(.bottom, Spacing.xl)
-                    }
+                        }
 
-                    if onboarding.shouldShowHomeTeaser && !entitlement.isPro {
-                        proTeaserCard
-                            .padding(.bottom, Spacing.xl)
-                    }
+                        HomeDiscussionSection(
+                            discussionBubbles: discussionBubbles,
+                            maxCards: Self.maxDiscussionCards,
+                            isCollapsed: $isDiscussionCollapsed,
+                            onNewConversation: {
+                                promptModeSelection = nil
+                                openConversation(with: "")
+                            },
+                            onBubbleTap: { presentModePanel(for: $0) },
+                            allItems: allItems,
+                            starterService: starterService
+                        )
+                        .padding(.bottom, Spacing.xl)
 
-                    HomeInboxSection(
-                        selectedItem: $selectedItem,
-                        openedItem: $openedItem,
-                        inboxCount: inboxCount,
-                        isCollapsed: $isInboxCollapsed
-                    )
-                    .padding(.bottom, Spacing.xl)
-
-                    if !rankedSuggestions.isEmpty {
-                        HomeSuggestionsSection(
-                            rankedSuggestions: rankedSuggestions,
-                            isCollapsed: $isSuggestionsCollapsed,
-                            onAdd: { addSuggestionToInbox($0) },
-                            onDismiss: { dismissSuggestion($0) },
-                            onOpen: { openSuggestionInBrowser($0) },
-                            onExplorePro: {
-                                paywallPresentation = paywallCoordinator.present(
-                                    feature: .suggestedArticles,
-                                    source: .suggestedArticles
-                                )
+                        HomeRecentItemsSection(
+                            recentItems: recentItems,
+                            isCollapsed: $isItemsCollapsed,
+                            onOpen: {
+                                selectedItem = $0
+                                openedItem = $0
                             }
                         )
                         .padding(.bottom, Spacing.xl)
+
+                        if !recentConversations.isEmpty {
+                            HomeRecentConversationsSection(
+                                recentConversations: recentConversations,
+                                isCollapsed: $isConversationsCollapsed
+                            )
+                            .padding(.bottom, Spacing.xl)
+                        }
+
+                        Spacer(minLength: Spacing.xxxl)
                     }
-
-                    HomeDiscussionSection(
-                        discussionBubbles: discussionBubbles,
-                        maxCards: Self.maxDiscussionCards,
-                        isCollapsed: $isDiscussionCollapsed,
-                        onNewConversation: {
-                            promptModeSelection = nil
-                            openConversation(with: "")
-                        },
-                        onBubbleTap: { presentModePanel(for: $0) },
-                        allItems: allItems,
-                        starterService: starterService
-                    )
-                    .padding(.bottom, Spacing.xl)
-
-                    HomeRecentItemsSection(
-                        recentItems: recentItems,
-                        isCollapsed: $isItemsCollapsed,
-                        onOpen: { openedItem = $0 }
-                    )
-                    .padding(.bottom, Spacing.xl)
-
-                    if !recentConversations.isEmpty {
-                        HomeRecentConversationsSection(
-                            recentConversations: recentConversations,
-                            isCollapsed: $isConversationsCollapsed
-                        )
-                        .padding(.bottom, Spacing.xl)
-                    }
-
-                    Spacer(minLength: Spacing.xxxl)
+                    .padding(.horizontal, LayoutDimensions.contentPaddingH)
+                    .padding(.top, LayoutDimensions.contentPaddingTop)
                 }
-                .padding(.horizontal, LayoutDimensions.contentPaddingH)
-                .padding(.top, LayoutDimensions.contentPaddingTop)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            if let selection = promptModeSelection {
-                Rectangle()
-                    .fill(Color.borderPrimary)
-                    .frame(width: 1)
+                if let selection = promptModeSelection {
+                    promptPanelDivider(
+                        containerMaxX: geo.frame(in: .global).maxX,
+                        minWidth: minPanelWidth,
+                        maxWidth: maxPanelWidth
+                    )
 
-                promptModePanel(for: selection)
-                    .frame(width: 330)
-                    .frame(maxHeight: .infinity)
-                    .transition(.move(edge: .trailing))
+                    promptModePanel(for: selection)
+                        .frame(width: clampedPanelWidth)
+                        .frame(maxHeight: .infinity)
+                        .transition(.move(edge: .trailing))
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -293,14 +304,28 @@ struct HomeView: View {
         rankedSuggestions.removeAll { $0.item.id == item.id }
     }
 
-    private func openSuggestionInBrowser(_ item: Item) {
-        guard let urlString = item.sourceURL,
-              let url = URL(string: urlString) else { return }
-        #if os(macOS)
-        NSWorkspace.shared.open(url)
-        #else
-        openURL(url)
-        #endif
+    private func openSuggestionInDetail(_ item: Item) {
+        selectedItem = item
+        openedItem = item
+    }
+
+    private func promptPanelDivider(containerMaxX: CGFloat, minWidth: CGFloat, maxWidth: CGFloat) -> some View {
+        Rectangle()
+            .fill(Color.borderPrimary)
+            .frame(width: 1)
+            .overlay {
+                Rectangle()
+                    .fill(Color.clear)
+                    .frame(width: 9)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(coordinateSpace: .global)
+                            .onChanged { value in
+                                let newWidth = containerMaxX - value.location.x
+                                promptModePanelWidth = min(max(newWidth, minWidth), maxWidth)
+                            }
+                    )
+            }
     }
 
     // MARK: - Prompt Mode Panel & Actions

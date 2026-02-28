@@ -55,11 +55,8 @@ struct BoardGridView: View {
         })
         .clipped()
         .opacity(canReorder && draggingItemID == item.id ? 0.4 : 1)
-        .onTapGesture(count: 2) {
+        .onTapGesture {
             openedItem = item
-            selectedItem = item
-        }
-        .onTapGesture(count: 1) {
             selectedItem = item
         }
         .selectedItemStyle(selectedItem?.id == item.id)

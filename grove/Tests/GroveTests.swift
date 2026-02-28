@@ -211,6 +211,48 @@ struct GroveTests {
         #expect(payload.seedItemIDs.isEmpty)
     }
 
+    @Test func conversationOnlyAppearsInHistoryAfterUserMessage() {
+        let conversation = Conversation()
+
+        let systemMessage = ChatMessage(role: .system, content: "system", position: 0, isHidden: true)
+        systemMessage.conversation = conversation
+        conversation.messages.append(systemMessage)
+
+        let greetingMessage = ChatMessage(role: .assistant, content: "Initial discussion prompt", position: 1)
+        greetingMessage.conversation = conversation
+        conversation.messages.append(greetingMessage)
+
+        #expect(!conversation.hasUserMessages)
+        #expect(!conversation.isSavedToHistory)
+
+        let userMessage = ChatMessage(role: .user, content: "My response", position: 2)
+        userMessage.conversation = conversation
+        conversation.messages.append(userMessage)
+
+        #expect(conversation.hasUserMessages)
+        #expect(conversation.isSavedToHistory)
+    }
+
+    @MainActor
+    @Test func dialecticalChatHistoryExcludesAssistantOnlyConversations() throws {
+        let context = try makeInMemoryModelContext()
+        let viewModel = DialecticalChatViewModel(modelContext: context)
+
+        let assistantOnly = Conversation()
+        let assistantMessage = ChatMessage(role: .assistant, content: "Prompt", position: 0)
+        assistantMessage.conversation = assistantOnly
+        assistantOnly.messages.append(assistantMessage)
+
+        let replied = Conversation()
+        let repliedMessage = ChatMessage(role: .user, content: "Reply", position: 0)
+        repliedMessage.conversation = replied
+        replied.messages.append(repliedMessage)
+
+        let visible = viewModel.activeConversations(from: [assistantOnly, replied])
+
+        #expect(visible.map(\.id) == [replied.id])
+    }
+
     @Test func readLaterTomorrowMorningPresetSchedulesAtNineAM() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
