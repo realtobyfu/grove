@@ -6,6 +6,7 @@ import SwiftData
 /// Note writer panel used both in the side write panel and the modal sheet flow.
 struct NoteWriterPanelView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Query(sort: \Board.sortOrder) private var boards: [Board]
 
     @Binding var isPresented: Bool
@@ -21,42 +22,15 @@ struct NoteWriterPanelView: View {
 
     var body: some View {
         Group {
-            if isSidePanel {
-                VStack(alignment: .leading, spacing: 0) {
-                    topBar
-                    if let prompt {
-                        promptCallout(prompt)
-                    }
-                    titleField
-                    Divider()
-                        .padding(.horizontal, 40)
-                    bodyEditor
-                }
+            if usesEdgeToEdgeLayout {
+                editorContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.bgPrimary)
                 .onAppear {
-                    if let editingItem {
-                        title = editingItem.title
-                        content = editingItem.content ?? ""
-                    }
-                    isTitleFocused = true
+                    configureInitialContent()
                 }
-                #if os(macOS)
-                .onExitCommand {
-                    dismiss()
-                }
-                #endif
             } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    topBar
-                    if let prompt {
-                        promptCallout(prompt)
-                    }
-                    titleField
-                    Divider()
-                        .padding(.horizontal, 40)
-                    bodyEditor
-                }
+                editorContent
                 .frame(minWidth: 640, idealWidth: 700, maxWidth: 820, minHeight: 480, idealHeight: 560, maxHeight: 760)
                 .background(Color.bgCard)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -66,21 +40,45 @@ struct NoteWriterPanelView: View {
                 )
                 .shadow(color: .black.opacity(0.18), radius: 20, y: 8)
                 .onAppear {
-                    isTitleFocused = true
+                    configureInitialContent()
                 }
-                #if os(macOS)
-                .onExitCommand {
-                    dismiss()
-                }
-                #endif
             }
         }
+        #if os(macOS)
+        .onExitCommand {
+            dismiss()
+        }
+        #endif
         .background {
             // Hidden button to preserve ⌘↩ keyboard shortcut for save-and-close
             Button("") { dismiss() }
                 .keyboardShortcut(.return, modifiers: .command)
                 .frame(width: 0, height: 0)
                 .opacity(0)
+        }
+    }
+
+    private var usesEdgeToEdgeLayout: Bool {
+        if isSidePanel {
+            return true
+        }
+        #if os(iOS)
+        return horizontalSizeClass == .compact
+        #else
+        return false
+        #endif
+    }
+
+    private var editorContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            topBar
+            if let prompt {
+                promptCallout(prompt)
+            }
+            titleField
+            Divider()
+                .padding(.horizontal, 40)
+            bodyEditor
         }
     }
 
@@ -179,6 +177,14 @@ struct NoteWriterPanelView: View {
         }
     }
 
+    private func configureInitialContent() {
+        if let editingItem {
+            title = editingItem.title
+            content = editingItem.content ?? ""
+        }
+        isTitleFocused = true
+    }
+
     private func dismiss() {
         saveContent()
         // Resign first responder before animating out so macOS doesn't leave
@@ -191,4 +197,3 @@ struct NoteWriterPanelView: View {
         }
     }
 }
-

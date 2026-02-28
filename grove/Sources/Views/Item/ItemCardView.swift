@@ -35,6 +35,8 @@ struct ItemCardView: View {
     var showTags: Bool = true
     /// Called when the user chooses "Read in App" from the thumbnail context menu or the badge button.
     var onReadInApp: (() -> Void)? = nil
+    /// When true, a parent `Button` or `NavigationLink` owns the card tap behavior.
+    var usesContainerReadAction: Bool = false
     @Environment(\.openURL) private var openURL
 
     var body: some View {
@@ -195,29 +197,31 @@ struct ItemCardView: View {
                     Text("Local")
                         .font(.groveBadge)
                         .foregroundStyle(Color.textTertiary)
-                } else if let urlString = item.sourceURL, let url = URL(string: urlString) {
-                    Button {
-                        if let onReadInApp {
-                            onReadInApp()
-                        } else {
-                            #if os(macOS)
-                            NSWorkspace.shared.open(url)
-                            #else
-                            openURL(url)
-                            #endif
+                } else if let url = resolvedSourceURL(from: item.sourceURL) {
+                    let rawSource = item.sourceURL ?? url.absoluteString
+
+                    if usesContainerReadAction {
+                        sourceBadgeLabel(for: rawSource)
+                            .foregroundStyle(Color.textTertiary)
+                            .help("Open details")
+                    } else {
+                        Button {
+                            if let onReadInApp {
+                                onReadInApp()
+                            } else {
+                                #if os(macOS)
+                                NSWorkspace.shared.open(url)
+                                #else
+                                openURL(url)
+                                #endif
+                            }
+                        } label: {
+                            sourceBadgeLabel(for: rawSource)
+                                .foregroundStyle(Color.textTertiary)
                         }
-                    } label: {
-                        HStack(spacing: 3) {
-                            Image(systemName: onReadInApp == nil ? "arrow.up.right" : "doc.text.magnifyingglass")
-                                .font(.system(size: 8))
-                            Text(domainFrom(urlString))
-                                .font(.groveBadge)
-                                .lineLimit(1)
-                        }
-                        .foregroundStyle(Color.textTertiary)
+                        .buttonStyle(.plain)
+                        .help(onReadInApp == nil ? "Open in browser" : "Open details")
                     }
-                    .buttonStyle(.plain)
-                    .help(onReadInApp == nil ? "Open in browser" : "Open details")
                 }
             }
         }
@@ -229,16 +233,32 @@ struct ItemCardView: View {
     @ViewBuilder
     private var sourceCover: some View {
         if let thumbnailData = item.thumbnail {
-            CoverImageView(
+            let cover = CoverImageView(
                 imageData: thumbnailData,
                 height: 132,
                 showPlayOverlay: item.type == .video,
                 cornerRadius: 8
             )
-            .onTapGesture {
-                onReadInApp?()
+
+            if usesContainerReadAction || onReadInApp == nil {
+                cover
+            } else {
+                cover.onTapGesture {
+                    onReadInApp?()
+                }
             }
         }
     }
 
+    private func sourceBadgeLabel(for urlString: String) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: usesContainerReadAction || onReadInApp != nil
+                ? "doc.text.magnifyingglass"
+                : "arrow.up.right")
+                .font(.system(size: 8))
+            Text(domainFrom(urlString))
+                .font(.groveBadge)
+                .lineLimit(1)
+        }
+    }
 }

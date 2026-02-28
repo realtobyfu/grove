@@ -18,13 +18,13 @@ struct MobileBoardDetailView: View {
 #endif
 
     let board: Board
+    var onOpenItem: ((Item) -> Void)? = nil
     var selectedItem: Binding<Item?>? = nil
     var openedItem: Binding<Item?>? = nil
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openURL) private var openURL
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @Environment(DeepLinkRouter.self) private var deepLinkRouter
     @Environment(EntitlementService.self) private var entitlement
     @Environment(PaywallCoordinator.self) private var paywallCoordinator
     @Environment(iPadReaderCoordinator.self) private var readerCoordinator: iPadReaderCoordinator?
@@ -41,7 +41,6 @@ struct MobileBoardDetailView: View {
     @State private var itemToDelete: Item?
     @State private var isSuggestionsCollapsed = false
     @State private var starterService = ConversationStarterService.shared
-    @State private var dialecticsService = DialecticsService()
     @State private var selectedSuggestion: PromptBubble?
     @State private var paywallPresentation: PaywallPresentation?
 
@@ -162,8 +161,7 @@ struct MobileBoardDetailView: View {
                 scopeTitle: board.title,
                 board: board,
                 onCreated: { item in
-                    selectedItemBinding.wrappedValue = item
-                    openedItemBinding.wrappedValue = item
+                    openItem(item)
                 }
             )
         }
@@ -172,7 +170,7 @@ struct MobileBoardDetailView: View {
         }
         .sheet(item: $selectedSuggestion) { suggestion in
             MobilePromptActionSheet(
-                boardTitle: board.title,
+                contextTitle: board.title,
                 suggestion: suggestion,
                 onOpenDialectics: {
                     startDialectic(with: suggestion)
@@ -244,6 +242,7 @@ struct MobileBoardDetailView: View {
                         selectedItem: selectedItemBinding,
                         openedItem: openedItemBinding,
                         draggingItemID: $draggingItemID,
+                        onOpenItem: onOpenItem,
                         itemContextMenu: { item in AnyView(itemContextMenu(for: item)) },
                         onReorder: moveGridItem
                     )
@@ -254,6 +253,7 @@ struct MobileBoardDetailView: View {
                         canReorder: sortOption == .manual && !board.isSmart,
                         selectedItem: selectedItemBinding,
                         openedItem: openedItemBinding,
+                        onOpenItem: onOpenItem,
                         itemContextMenu: { item in AnyView(itemContextMenu(for: item)) },
                         onMove: moveListItems
                     )
@@ -286,7 +286,7 @@ struct MobileBoardDetailView: View {
     @ViewBuilder
     private func compactItemCard(for item: Item) -> some View {
         if usesMacStyleCompactCards {
-            ItemCardView(item: item, showTags: true)
+            ItemCardView(item: item, showTags: true, usesContainerReadAction: true)
                 .padding(.horizontal, Spacing.xs)
         } else {
             MobileItemCardView(item: item)
@@ -364,8 +364,7 @@ struct MobileBoardDetailView: View {
     @ViewBuilder
     private func itemContextMenu(for item: Item) -> some View {
         Button {
-            selectedItemBinding.wrappedValue = item
-            openedItemBinding.wrappedValue = item
+            openItem(item)
         } label: {
             Label("Open", systemImage: "doc.text")
         }
@@ -373,8 +372,7 @@ struct MobileBoardDetailView: View {
         if let urlString = item.sourceURL, let url = URL(string: urlString),
            item.metadata["videoLocalFile"] != "true" {
             Button {
-                selectedItemBinding.wrappedValue = item
-                openedItemBinding.wrappedValue = item
+                openItem(item)
             } label: {
                 Label("Read in App", systemImage: "doc.text.magnifyingglass")
             }
@@ -417,59 +415,37 @@ struct MobileBoardDetailView: View {
 
         let prompt = bubble.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         let seedIDs = scopedSeedItemIDs(for: bubble)
-        let seedItems = allItems.filter { seedIDs.contains($0.id) }
-        let conversation = dialecticsService.startConversation(
-            trigger: .userInitiated,
-            seedItems: seedItems,
-            board: nil,
-            context: modelContext
-        )
-
-        if !prompt.isEmpty {
-            let greetingMessage = ChatMessage(
-                role: .assistant,
-                content: prompt,
-                position: conversation.nextPosition
+        NotificationCenter.default.postConversationPrompt(
+            ConversationPromptPayload(
+                prompt: prompt,
+                seedItemIDs: seedIDs,
+                injectionMode: .asAssistantGreeting
             )
-            greetingMessage.conversation = conversation
-            conversation.messages.append(greetingMessage)
-            modelContext.insert(greetingMessage)
-            conversation.updatedAt = .now
-            try? modelContext.save()
-        }
-
-        if let routeURL = URL(string: "grove://chat/\(conversation.id.uuidString)") {
-            deepLinkRouter.handle(routeURL)
-        }
-
-        selectedSuggestion = nil
+        )
     }
 
     private func startWriting(with prompt: String?) {
         let cleanedPrompt = prompt?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let title = cleanedPrompt?.isEmpty == false
-            ? String((cleanedPrompt ?? "").prefix(80))
-            : "Untitled Note"
-
-        let note = Item(title: title, type: .note)
-        note.status = .active
-        note.content = cleanedPrompt
-        if !board.isSmart {
-            note.boards.append(board)
+        guard let cleanedPrompt, !cleanedPrompt.isEmpty else {
+            NotificationCenter.default.post(name: .groveNewNote, object: nil)
+            return
         }
-
-        modelContext.insert(note)
-        try? modelContext.save()
-
-        selectedItemBinding.wrappedValue = note
-        openedItemBinding.wrappedValue = note
-        selectedSuggestion = nil
+        NotificationCenter.default.post(name: .groveNewNoteWithPrompt, object: cleanedPrompt)
     }
 
     private func scopedSeedItemIDs(for bubble: PromptBubble) -> [UUID] {
         let boardItemIDs = Set(effectiveItems.map(\.id))
         let scopedSeedIDs = bubble.clusterItemIDs.filter { boardItemIDs.contains($0) }
         return scopedSeedIDs.isEmpty ? bubble.clusterItemIDs : scopedSeedIDs
+    }
+
+    private func openItem(_ item: Item) {
+        selectedItemBinding.wrappedValue = item
+        if let onOpenItem {
+            onOpenItem(item)
+        } else {
+            openedItemBinding.wrappedValue = item
+        }
     }
 
     // MARK: - Reorder

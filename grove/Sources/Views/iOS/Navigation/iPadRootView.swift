@@ -189,6 +189,14 @@ struct iPadRootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .groveNewNoteWithPrompt)) { notification in
             presentWriteSheet(prompt: notification.object as? String)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .groveStartConversationWithPrompt)) { notification in
+            let payload = NotificationCenter.conversationPromptPayload(from: notification)
+            startConversation(
+                withPrompt: payload.prompt,
+                seedItemIDs: payload.seedItemIDs,
+                injectionMode: payload.injectionMode
+            )
+        }
         .sheet(isPresented: $showBoardPicker) {
             if let suggestion = pendingSuggestion {
                 SmartBoardPickerSheet(
@@ -334,6 +342,9 @@ struct iPadRootView: View {
             if let board = boards.first(where: { $0.id == boardID }) {
                 MobileBoardDetailView(
                     board: board,
+                    onOpenItem: { item in
+                        openItemInPreferredContext(item)
+                    },
                     selectedItem: selectedItemBinding,
                     openedItem: openedItemBinding
                 )
@@ -438,6 +449,63 @@ struct iPadRootView: View {
             prompt: trimmedPrompt?.isEmpty == false ? trimmedPrompt : nil,
             editingItem: editingItem
         )
+    }
+
+    private func startConversation(
+        withPrompt prompt: String,
+        seedItemIDs: [UUID] = [],
+        injectionMode: ConversationPromptInjectionMode = .asAssistantGreeting
+    ) {
+        let service = DialecticsService()
+        let seedItems = allItems.filter { seedItemIDs.contains($0.id) }
+        let conversation = service.startConversation(
+            trigger: .userInitiated,
+            seedItems: seedItems,
+            board: currentBoardID.flatMap { boardID in
+                boards.first(where: { $0.id == boardID })
+            },
+            context: modelContext
+        )
+
+        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedPrompt.isEmpty {
+            switch injectionMode {
+            case .asUserMessage:
+                Task { @MainActor in
+                    _ = await service.sendMessage(
+                        userText: trimmedPrompt,
+                        conversation: conversation,
+                        context: modelContext
+                    )
+                }
+            case .asSystemPrompt:
+                let systemMessage = ChatMessage(
+                    role: .system,
+                    content: trimmedPrompt,
+                    position: conversation.nextPosition
+                )
+                systemMessage.conversation = conversation
+                conversation.messages.append(systemMessage)
+                modelContext.insert(systemMessage)
+                conversation.updatedAt = .now
+                try? modelContext.save()
+            case .asAssistantGreeting:
+                let assistantMessage = ChatMessage(
+                    role: .assistant,
+                    content: trimmedPrompt,
+                    position: conversation.nextPosition
+                )
+                assistantMessage.conversation = conversation
+                conversation.messages.append(assistantMessage)
+                modelContext.insert(assistantMessage)
+                conversation.updatedAt = .now
+                try? modelContext.save()
+            }
+        }
+
+        detailPath = NavigationPath()
+        sidebarSelection = .chat
+        deepLinkedConversationID = conversation.id
     }
 
     private func fetchItem(id: UUID) -> Item? {

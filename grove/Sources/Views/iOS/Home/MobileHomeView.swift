@@ -7,7 +7,6 @@ struct MobileHomeView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @Environment(DeepLinkRouter.self) private var deepLinkRouter
     @Environment(EntitlementService.self) private var entitlement
     @Environment(PaywallCoordinator.self) private var paywallCoordinator
     @Query(sort: \Item.lastEngagedAt, order: .reverse) private var allItems: [Item]
@@ -17,10 +16,10 @@ struct MobileHomeView: View {
 
     @Environment(ConversationStarterService.self) private var starterService
     @Environment(iPadReaderCoordinator.self) private var readerCoordinator: iPadReaderCoordinator?
-    @State private var dialecticsService = DialecticsService()
     @State private var showSearch = false
     @State private var showBoardPicker = false
     @State private var itemToAssign: Item?
+    @State private var selectedSuggestion: PromptBubble?
     @State private var paywallPresentation: PaywallPresentation?
 
     var onOpenItem: ((Item) -> Void)? = nil
@@ -42,6 +41,13 @@ struct MobileHomeView: View {
     private var discussionBubbles: [PromptBubble] {
         let dynamicSlotCount = max(0, Self.maxDiscussionCards - 1)
         return Array(starterService.bubbles.prefix(dynamicSlotCount))
+    }
+
+    private var newConversationBubble: PromptBubble {
+        PromptBubble(
+            prompt: "New Conversation",
+            label: "CHAT"
+        )
     }
 
     var body: some View {
@@ -81,6 +87,18 @@ struct MobileHomeView: View {
         }
         .sheet(item: $paywallPresentation) { presentation in
             ProPaywallView(presentation: presentation)
+        }
+        .sheet(item: $selectedSuggestion) { suggestion in
+            MobilePromptActionSheet(
+                contextTitle: "Home",
+                suggestion: suggestion,
+                onOpenDialectics: {
+                    startConversation(with: suggestion)
+                },
+                onStartWriting: {
+                    startWriting(with: suggestion.prompt)
+                }
+            )
         }
         .task {
             await starterService.refresh(items: allItems)
@@ -146,31 +164,21 @@ struct MobileHomeView: View {
             if horizontalSizeClass == .regular {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: Spacing.md) {
-                        discussionCard(
-                            bubble: PromptBubble(
-                                prompt: "New Conversation",
-                                label: "CHAT"
-                            ),
-                            onTap: { startNewConversation() }
-                        )
+                        regularDiscussionCard(bubble: newConversationBubble) {
+                            startNewConversation()
+                        }
 
                         ForEach(discussionBubbles) { bubble in
-                            discussionCard(
-                                bubble: bubble,
-                                onTap: { startConversation(with: bubble) }
-                            )
+                            regularDiscussionCard(bubble: bubble) {
+                                selectedSuggestion = bubble
+                            }
                         }
                     }
                     .padding(.horizontal, LayoutDimensions.contentPaddingH)
                 }
                 .listRowInsets(EdgeInsets())
             } else {
-                MobileStarterCard(
-                    bubble: PromptBubble(
-                        prompt: "New Conversation",
-                        label: "CHAT"
-                    )
-                ) {
+                MobileStarterCard(bubble: newConversationBubble) {
                     startNewConversation()
                 }
 
@@ -186,18 +194,15 @@ struct MobileHomeView: View {
         }
     }
 
-    private func discussionCard(bubble: PromptBubble, onTap: @escaping () -> Void) -> some View {
-        VStack(spacing: 0) {
-            MobileStarterCard(bubble: bubble, onTap: onTap)
-            HStack {
-                Spacer()
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color.textMuted)
-            }
-            .padding(.top, Spacing.xs)
-            .padding(.trailing, Spacing.sm)
-        }
+    private func regularDiscussionCard(
+        bubble: PromptBubble,
+        onTap: @escaping () -> Void
+    ) -> some View {
+        MobileStarterCard(
+            bubble: bubble,
+            showsDisclosureIndicator: true,
+            onTap: onTap
+        )
         .frame(width: 300)
     }
 
@@ -344,6 +349,15 @@ struct MobileHomeView: View {
         openConversation(with: "")
     }
 
+    private func startWriting(with prompt: String?) {
+        let cleanedPrompt = prompt?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let cleanedPrompt, !cleanedPrompt.isEmpty else {
+            NotificationCenter.default.post(name: .groveNewNote, object: nil)
+            return
+        }
+        NotificationCenter.default.post(name: .groveNewNoteWithPrompt, object: cleanedPrompt)
+    }
+
     private func openConversation(with prompt: String, seedItemIDs: [UUID] = []) {
         guard entitlement.canUse(.dialectics) else {
             paywallPresentation = paywallCoordinator.present(
@@ -354,30 +368,13 @@ struct MobileHomeView: View {
         }
         entitlement.recordUse(.dialectics)
 
-        let seedItems = allItems.filter { seedItemIDs.contains($0.id) }
-        let conversation = dialecticsService.startConversation(
-            trigger: .userInitiated,
-            seedItems: seedItems,
-            board: nil,
-            context: modelContext
-        )
-        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedPrompt.isEmpty {
-            let greetingMessage = ChatMessage(
-                role: .assistant,
-                content: trimmedPrompt,
-                position: conversation.nextPosition
+        NotificationCenter.default.postConversationPrompt(
+            ConversationPromptPayload(
+                prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
+                seedItemIDs: seedItemIDs,
+                injectionMode: .asAssistantGreeting
             )
-            greetingMessage.conversation = conversation
-            conversation.messages.append(greetingMessage)
-            modelContext.insert(greetingMessage)
-            conversation.updatedAt = .now
-            try? modelContext.save()
-        }
-
-        if let routeURL = URL(string: "grove://chat/\(conversation.id.uuidString)") {
-            deepLinkRouter.handle(routeURL)
-        }
+        )
     }
 
     @ViewBuilder

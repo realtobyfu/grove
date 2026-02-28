@@ -4,6 +4,13 @@ import SwiftData
 /// Unified iPhone/iPad navigation using iOS 18 `Tab` API.
 /// iPad landscape: sidebar. iPhone & iPad portrait: tab bar.
 struct TabRootView: View {
+    private struct WriteSheetSession: Identifiable {
+        let id = UUID()
+        let boardID: UUID?
+        let prompt: String?
+        let editingItem: Item?
+    }
+
     @Environment(DeepLinkRouter.self) private var deepLinkRouter
     @Environment(\.modelContext) private var modelContext
     @Query private var allItems: [Item]
@@ -15,6 +22,7 @@ struct TabRootView: View {
     @State private var searchInitialQuery: String?
     @State private var deepLinkedConversationID: UUID?
     @State private var deepLinkedItem: Item?
+    @State private var writeSheetSession: WriteSheetSession?
 
     // Board suggestion state
     @State private var pendingSuggestionItemID: UUID?
@@ -33,6 +41,11 @@ struct TabRootView: View {
         case .board(_): return true
         default: return false
         }
+    }
+
+    private var currentBoardID: UUID? {
+        guard case .board(let boardID) = selectedTab else { return nil }
+        return boardID
     }
 
     enum Tab: Hashable {
@@ -145,6 +158,20 @@ struct TabRootView: View {
 
             scheduleAutoDismiss()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .groveNewNote)) { _ in
+            presentWriteSheet()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .groveNewNoteWithPrompt)) { notification in
+            presentWriteSheet(prompt: notification.object as? String)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .groveStartConversationWithPrompt)) { notification in
+            let payload = NotificationCenter.conversationPromptPayload(from: notification)
+            startConversation(
+                withPrompt: payload.prompt,
+                seedItemIDs: payload.seedItemIDs,
+                injectionMode: payload.injectionMode
+            )
+        }
         .sheet(isPresented: $showBoardPicker) {
             if let suggestion = pendingSuggestion {
                 SmartBoardPickerSheet(
@@ -184,6 +211,23 @@ struct TabRootView: View {
         }
         .sheet(isPresented: $showSearchSheet) {
             MobileSearchView(initialQuery: searchInitialQuery)
+        }
+        .sheet(item: $writeSheetSession) { session in
+            NoteWriterPanelView(
+                isPresented: Binding(
+                    get: { writeSheetSession != nil },
+                    set: { isPresented in
+                        if !isPresented {
+                            writeSheetSession = nil
+                        }
+                    }
+                ),
+                currentBoardID: session.boardID,
+                prompt: session.prompt,
+                editingItem: session.editingItem
+            ) { _ in
+                writeSheetSession = nil
+            }
         }
         .sheet(item: $deepLinkedItem) { item in
             NavigationStack {
@@ -308,5 +352,70 @@ struct TabRootView: View {
     private func fetchItem(id: UUID) -> Item? {
         let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == id })
         return try? modelContext.fetch(descriptor).first
+    }
+
+    private func presentWriteSheet(prompt: String? = nil, editingItem: Item? = nil) {
+        let trimmedPrompt = prompt?.trimmingCharacters(in: .whitespacesAndNewlines)
+        writeSheetSession = WriteSheetSession(
+            boardID: currentBoardID,
+            prompt: trimmedPrompt?.isEmpty == false ? trimmedPrompt : nil,
+            editingItem: editingItem
+        )
+    }
+
+    private func startConversation(
+        withPrompt prompt: String,
+        seedItemIDs: [UUID] = [],
+        injectionMode: ConversationPromptInjectionMode = .asAssistantGreeting
+    ) {
+        let service = DialecticsService()
+        let seedItems = allItems.filter { seedItemIDs.contains($0.id) }
+        let conversation = service.startConversation(
+            trigger: .userInitiated,
+            seedItems: seedItems,
+            board: currentBoardID.flatMap { boardID in
+                boards.first(where: { $0.id == boardID })
+            },
+            context: modelContext
+        )
+
+        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedPrompt.isEmpty {
+            switch injectionMode {
+            case .asUserMessage:
+                Task { @MainActor in
+                    _ = await service.sendMessage(
+                        userText: trimmedPrompt,
+                        conversation: conversation,
+                        context: modelContext
+                    )
+                }
+            case .asSystemPrompt:
+                let systemMessage = ChatMessage(
+                    role: .system,
+                    content: trimmedPrompt,
+                    position: conversation.nextPosition
+                )
+                systemMessage.conversation = conversation
+                conversation.messages.append(systemMessage)
+                modelContext.insert(systemMessage)
+                conversation.updatedAt = .now
+                try? modelContext.save()
+            case .asAssistantGreeting:
+                let assistantMessage = ChatMessage(
+                    role: .assistant,
+                    content: trimmedPrompt,
+                    position: conversation.nextPosition
+                )
+                assistantMessage.conversation = conversation
+                conversation.messages.append(assistantMessage)
+                modelContext.insert(assistantMessage)
+                conversation.updatedAt = .now
+                try? modelContext.save()
+            }
+        }
+
+        selectedTab = .chat
+        deepLinkedConversationID = conversation.id
     }
 }

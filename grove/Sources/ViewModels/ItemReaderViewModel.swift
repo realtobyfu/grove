@@ -62,21 +62,9 @@ final class ItemReaderViewModel {
     /// URL that can be loaded in the in-app WebView (article items only, not local video).
     var articleURL: URL? {
         guard item.type == .article,
-              item.metadata["videoLocalFile"] != "true",
-              let rawSourceURL = item.sourceURL?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !rawSourceURL.isEmpty else { return nil }
+              item.metadata["videoLocalFile"] != "true" else { return nil }
 
-        if let parsed = URL(string: rawSourceURL), parsed.scheme != nil {
-            return parsed
-        }
-
-        if let encoded = rawSourceURL.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-           let encodedURL = URL(string: encoded),
-           encodedURL.scheme != nil {
-            return encodedURL
-        }
-
-        return URL(string: "https://\(rawSourceURL)")
+        return resolvedSourceURL(from: item.sourceURL)
     }
 
     /// Resolve the local video file URL for this item

@@ -7,6 +7,7 @@ struct BoardListView: View {
     let canReorder: Bool
     @Binding var selectedItem: Item?
     @Binding var openedItem: Item?
+    var onOpenItem: ((Item) -> Void)? = nil
     var itemContextMenu: (Item) -> AnyView
     var onMove: (IndexSet, Int) -> Void
 
@@ -24,8 +25,7 @@ struct BoardListView: View {
                 listRow(item: item)
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        openedItem = item
-                        selectedItem = item
+                        openItem(item)
                     }
                     .selectedItemStyle(selectedItem?.id == item.id)
                     .contextMenu { itemContextMenu(item) }
@@ -70,8 +70,7 @@ struct BoardListView: View {
         listRow(item: item)
             .contentShape(Rectangle())
             .onTapGesture {
-                openedItem = item
-                selectedItem = item
+                openItem(item)
             }
             .selectedItemStyle(selectedItem?.id == item.id)
             .transition(.opacity.combined(with: .slide))
@@ -128,5 +127,14 @@ struct BoardListView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
+    }
+
+    private func openItem(_ item: Item) {
+        selectedItem = item
+        if let onOpenItem {
+            onOpenItem(item)
+        } else {
+            openedItem = item
+        }
     }
 }

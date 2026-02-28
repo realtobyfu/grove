@@ -312,6 +312,19 @@ struct GroveTests {
         #expect(viewModel.totalResultCount == 0)
     }
 
+    @Test func resolvedSourceURLAddsMissingSchemeAndTrimsWhitespace() {
+        let url = resolvedSourceURL(from: "  aeon.co/essays/what-is-history  ")
+
+        #expect(url?.absoluteString == "https://aeon.co/essays/what-is-history")
+        #expect(domainFrom("  aeon.co/essays/what-is-history  ") == "aeon.co")
+    }
+
+    @Test func resolvedSourceURLPreservesValidURLs() {
+        let url = resolvedSourceURL(from: "https://example.com/articles/swiftui")
+
+        #expect(url?.absoluteString == "https://example.com/articles/swiftui")
+    }
+
     @MainActor
     @Test func mobileBoardDetailEffectiveItemsFiltersSmartBoardAndStatus() {
         let board = Board(title: "Smart")

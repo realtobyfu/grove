@@ -17,6 +17,7 @@ struct BoardGridView: View {
     @Binding var selectedItem: Item?
     @Binding var openedItem: Item?
     @Binding var draggingItemID: UUID?
+    var onOpenItem: ((Item) -> Void)? = nil
     var itemContextMenu: (Item) -> AnyView
     var onReorder: (UUID, UUID) -> Void
 
@@ -49,16 +50,19 @@ struct BoardGridView: View {
     }
 
     private func gridCard(_ item: Item) -> some View {
-        ItemCardView(item: item, showTags: true, onReadInApp: {
-            openedItem = item
-            selectedItem = item
-        })
-        .clipped()
-        .opacity(canReorder && draggingItemID == item.id ? 0.4 : 1)
-        .onTapGesture {
-            openedItem = item
-            selectedItem = item
+        Button {
+            openItem(item)
+        } label: {
+            ItemCardView(
+                item: item,
+                showTags: true,
+                usesContainerReadAction: true
+            )
+            .clipped()
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .opacity(canReorder && draggingItemID == item.id ? 0.4 : 1)
         .selectedItemStyle(selectedItem?.id == item.id)
         .contextMenu { itemContextMenu(item) }
         .onDrag {
@@ -72,5 +76,14 @@ struct BoardGridView: View {
             isEnabled: canReorder,
             onReorder: onReorder
         ))
+    }
+
+    private func openItem(_ item: Item) {
+        selectedItem = item
+        if let onOpenItem {
+            onOpenItem(item)
+        } else {
+            openedItem = item
+        }
     }
 }

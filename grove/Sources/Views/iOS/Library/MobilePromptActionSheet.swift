@@ -1,49 +1,58 @@
 import SwiftUI
 
 struct MobilePromptActionSheet: View {
-    let boardTitle: String
+    private enum PendingAction {
+        case openDialectics
+        case startWriting
+    }
+
+    let contextTitle: String
     let suggestion: PromptBubble
     let onOpenDialectics: () -> Void
     let onStartWriting: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var pendingAction: PendingAction?
+    #if os(iOS)
+    @State private var presentationDetent: PresentationDetent = .fraction(0.62)
+    #endif
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: Spacing.xl) {
+                VStack(alignment: .leading, spacing: Spacing.lg) {
                     header
                     promptCard
 
-                    VStack(spacing: Spacing.md) {
+                    VStack(spacing: Spacing.sm) {
                         actionCard(
                             title: "Open Dialectics",
-                            subtitle: "Start a conversation grounded in this board's context.",
+                            subtitle: "Start a conversation grounded in this prompt and its context.",
                             systemImage: "bubble.left.and.bubble.right",
                             isPrimary: true,
                             action: {
-                                onOpenDialectics()
+                                pendingAction = .openDialectics
                             }
                         )
 
                         actionCard(
                             title: "Start Writing",
-                            subtitle: "Turn this prompt into a new note and keep building the board.",
+                            subtitle: "Open a writing draft seeded by this prompt.",
                             systemImage: "square.and.pencil",
                             isPrimary: false,
                             action: {
-                                onStartWriting()
+                                pendingAction = .startWriting
                             }
                         )
                     }
 
-                    Text("Dialectics opens a discussion. Writing creates a note seeded with this prompt.")
+                    Text("Dialectics opens a discussion. Writing only saves once you add a title or body.")
                         .font(.groveBodySmall)
                         .foregroundStyle(Color.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.horizontal, LayoutDimensions.contentPaddingH)
-                .padding(.vertical, LayoutDimensions.sectionSpacing)
+                .padding(.vertical, Spacing.lg)
             }
             .background(Color.bgPrimary)
             .navigationTitle("Prompt Actions")
@@ -58,8 +67,11 @@ struct MobilePromptActionSheet: View {
                 }
             }
         }
+        .onDisappear {
+            runPendingActionIfNeeded()
+        }
         #if os(iOS)
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.fraction(0.62), .large], selection: $presentationDetent)
         .presentationDragIndicator(.visible)
         #endif
     }
@@ -84,7 +96,7 @@ struct MobilePromptActionSheet: View {
                     .tracking(0.8)
                     .foregroundStyle(Color.textSecondary)
 
-                Text(boardTitle)
+                Text(contextTitle)
                     .font(.groveMeta)
                     .foregroundStyle(Color.textTertiary)
                     .lineLimit(1)
@@ -113,8 +125,8 @@ struct MobilePromptActionSheet: View {
         action: @escaping () -> Void
     ) -> some View {
         Button {
-            action()
             dismiss()
+            action()
         } label: {
             VStack(alignment: .leading, spacing: Spacing.sm) {
                 HStack(alignment: .center, spacing: Spacing.sm) {
@@ -157,5 +169,19 @@ struct MobilePromptActionSheet: View {
             )
         }
         .buttonStyle(.plain)
+    }
+
+    private func runPendingActionIfNeeded() {
+        guard let pendingAction else { return }
+        self.pendingAction = nil
+
+        Task { @MainActor in
+            switch pendingAction {
+            case .openDialectics:
+                onOpenDialectics()
+            case .startWriting:
+                onStartWriting()
+            }
+        }
     }
 }

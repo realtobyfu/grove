@@ -54,6 +54,10 @@ struct MobileItemReaderView: View {
         if case .chat = rightPanel { return true }
         return false
     }
+    private var articleURL: URL? {
+        guard item.type != .note, item.metadata["videoLocalFile"] != "true" else { return nil }
+        return resolvedSourceURL(from: item.sourceURL)
+    }
 
     var body: some View {
         mainLayout
@@ -129,7 +133,7 @@ struct MobileItemReaderView: View {
 
     @ViewBuilder
     private var articleContent: some View {
-        if let urlString = item.sourceURL, let url = URL(string: urlString) {
+        if let url = articleURL {
             #if os(iOS)
             MobileArticleWebView(
                 url: url,
@@ -272,7 +276,7 @@ struct MobileItemReaderView: View {
     }
 
     private var shareURL: URL {
-        if let urlString = item.sourceURL, let url = URL(string: urlString) {
+        if let url = articleURL {
             return url
         }
         return URL(string: "grove://item/\(item.id.uuidString)")!

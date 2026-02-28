@@ -17,7 +17,7 @@ struct MobileArticleWebView: UIViewRepresentable {
     @Environment(\.openURL) private var openURL
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self, openURL: openURL)
+        Coordinator(onTextSelected: onTextSelected, openURL: openURL)
     }
 
     func makeUIView(context: Context) -> WKWebView {
@@ -46,6 +46,17 @@ struct MobileArticleWebView: UIViewRepresentable {
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         let coordinator = context.coordinator
+        coordinator.onTextSelected = onTextSelected
+
+        if webView.url?.absoluteString != url.absoluteString, !webView.isLoading {
+            webView.load(URLRequest(url: url))
+            coordinator.lastFindQuery = ""
+            coordinator.lastForwardToken = 0
+            coordinator.lastBackwardToken = 0
+            coordinator.lastZoomLevel = 0
+            onFindResult?(0, 0)
+            return
+        }
 
         // Apply zoom level via CSS zoom
         if zoomLevel != coordinator.lastZoomLevel {
@@ -95,15 +106,15 @@ struct MobileArticleWebView: UIViewRepresentable {
     // MARK: - Coordinator
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
-        let parent: MobileArticleWebView
+        var onTextSelected: ((String?) -> Void)?
         let openURL: OpenURLAction
         var lastFindQuery = ""
         var lastForwardToken = 0
         var lastBackwardToken = 0
         var lastZoomLevel: CGFloat = 1.0
 
-        init(parent: MobileArticleWebView, openURL: OpenURLAction) {
-            self.parent = parent
+        init(onTextSelected: ((String?) -> Void)?, openURL: OpenURLAction) {
+            self.onTextSelected = onTextSelected
             self.openURL = openURL
         }
 
@@ -122,7 +133,7 @@ struct MobileArticleWebView: UIViewRepresentable {
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             if message.name == "textSelected" {
                 let text = message.body as? String
-                parent.onTextSelected?(text?.isEmpty == true ? nil : text)
+                onTextSelected?(text?.isEmpty == true ? nil : text)
             }
         }
     }
