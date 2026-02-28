@@ -22,87 +22,84 @@ struct RichMarkdownEditor: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var allItems: [Item]
 
-    @State private var showWikiPopover = false
-    @State private var wikiSearchText = ""
+    @State private var editorMode: MarkdownEditorMode
+    @State private var editingProxy = MarkdownEditingProxy()
+    @State private var showSourceWikiPopover = false
+    @State private var sourceWikiSearchText = ""
+
+    init(
+        text: Binding<String>,
+        sourceItem: Item?,
+        minHeight: CGFloat = 80,
+        proseMode: Bool = false
+    ) {
+        _text = text
+        self.sourceItem = sourceItem
+        self.minHeight = minHeight
+        self.proseMode = proseMode
+        _editorMode = State(initialValue: AppearanceSettings.defaultMarkdownEditorMode)
+    }
 
     private var wikiSearchResults: [Item] {
         allItems.filter { candidate in
             if let sourceItem, candidate.id == sourceItem.id { return false }
-            if wikiSearchText.isEmpty { return true }
-            return candidate.title.localizedStandardContains(wikiSearchText)
+            if sourceWikiSearchText.isEmpty { return true }
+            return candidate.title.localizedStandardContains(sourceWikiSearchText)
         }.prefix(10).map { $0 }
     }
 
+    private var wordCountLabel: String {
+        let wordCount = text.split { $0.isWhitespace || $0.isNewline }.count
+        return "\(wordCount) \(wordCount == 1 ? "Word" : "Words")"
+    }
+
     var body: some View {
-        if proseMode {
-            VStack(spacing: 0) {
-                MarkdownNSTextView(
-                    text: $text,
-                    minHeight: minHeight,
-                    fontSize: 18,
-                    textInset: NSSize(width: 40, height: 24),
-                    onWikiTrigger: { searchText in
-                        if let searchText {
-                            wikiSearchText = searchText
-                            showWikiPopover = true
-                        } else {
-                            showWikiPopover = false
-                            wikiSearchText = ""
-                        }
-                    },
-                    onInsertFormatting: nil
-                )
-                .frame(minHeight: minHeight)
-
-                if showWikiPopover {
-                    wikiLinkDropdown
-                        .padding(.horizontal, 40)
+        Group {
+            if proseMode {
+                VStack(spacing: 0) {
+                    editorContent
+                    if showSourceWikiPopover {
+                        wikiLinkDropdown
+                            .padding(.horizontal, 40)
+                    }
+                    proseToolbar
                 }
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    formattingToolbar
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.bgCard)
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .stroke(Color.borderInput, lineWidth: 1)
+                        )
+                        .padding(.bottom, 4)
 
-                proseToolbar
-            }
-        } else {
-            VStack(alignment: .leading, spacing: 0) {
-                // Formatting toolbar
-                formattingToolbar
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.bgCard)
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .stroke(Color.borderInput, lineWidth: 1)
-                    )
-                    .padding(.bottom, 4)
+                    editorContent
+                        .frame(minHeight: minHeight)
+                        .background(Color.bgCard)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.borderInput, lineWidth: 1)
+                        )
 
-                // Editor
-                MarkdownNSTextView(
-                    text: $text,
-                    minHeight: minHeight,
-                    onWikiTrigger: { searchText in
-                        if let searchText {
-                            wikiSearchText = searchText
-                            showWikiPopover = true
-                        } else {
-                            showWikiPopover = false
-                            wikiSearchText = ""
-                        }
-                    },
-                    onInsertFormatting: nil
-                )
-                .frame(minHeight: minHeight)
-                .background(Color.bgCard)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.borderInput, lineWidth: 1)
-                )
-
-                // Wiki-link dropdown
-                if showWikiPopover {
-                    wikiLinkDropdown
+                    if showSourceWikiPopover {
+                        wikiLinkDropdown
+                    }
                 }
             }
+        }
+        .onChange(of: editorMode) { _, newValue in
+            AppearanceSettings.defaultMarkdownEditorMode = newValue
+            if newValue != .source {
+                closeSourceWikiPopover()
+            }
+        }
+        .onDisappear {
+            editingProxy.clear()
         }
     }
 
@@ -111,19 +108,21 @@ struct RichMarkdownEditor: View {
     private var formattingToolbar: some View {
         HStack(spacing: 2) {
             toolbarButton("Bold", icon: "bold", shortcut: "B") {
-                wrapSelection(prefix: "**", suffix: "**")
+                editingProxy.wrapSelection(prefix: "**", suffix: "**")
             }
             toolbarButton("Italic", icon: "italic", shortcut: "I") {
-                wrapSelection(prefix: "*", suffix: "*")
+                editingProxy.wrapSelection(prefix: "*", suffix: "*")
             }
             Divider()
                 .frame(height: 16)
                 .padding(.horizontal, 4)
 
             Menu {
-                Button("# Title") { insertPrefix("# ") }
-                Button("## Heading") { insertPrefix("## ") }
-                Button("### Subheading") { insertPrefix("### ") }
+                Button("# Title") { editingProxy.setHeading(level: 1) }
+                Button("## Heading") { editingProxy.setHeading(level: 2) }
+                Button("### Subheading") { editingProxy.setHeading(level: 3) }
+                Divider()
+                Button("Clear Heading") { editingProxy.setHeading(level: 0) }
             } label: {
                 Image(systemName: "number")
                     .font(.system(size: 12, weight: .medium))
@@ -136,10 +135,10 @@ struct RichMarkdownEditor: View {
             .help("Heading")
 
             toolbarButton("List", icon: "list.bullet", shortcut: nil) {
-                insertPrefix("- ")
+                editingProxy.toggleListItem()
             }
             toolbarButton("Quote", icon: "text.quote", shortcut: nil) {
-                insertPrefix("> ")
+                editingProxy.toggleBlockQuote()
             }
 
             Divider()
@@ -147,11 +146,11 @@ struct RichMarkdownEditor: View {
                 .padding(.horizontal, 4)
 
             Menu {
-                Button("Code") { wrapSelection(prefix: "`", suffix: "`") }
-                Button("Link") { wrapSelection(prefix: "[", suffix: "](url)") }
-                Button("Wiki Link") { insertText("[[]]", cursorOffset: -2) }
+                Button("Code") { editingProxy.wrapSelection(prefix: "`", suffix: "`") }
+                Button("Link") { editingProxy.insertLink() }
+                Button("Wiki Link") { editingProxy.insertWikiLink() }
                 Divider()
-                Button("Strikethrough") { wrapSelection(prefix: "~~", suffix: "~~") }
+                Button("Strikethrough") { editingProxy.wrapSelection(prefix: "~~", suffix: "~~") }
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 12, weight: .medium))
@@ -163,6 +162,11 @@ struct RichMarkdownEditor: View {
             .foregroundStyle(Color.textSecondary)
             .help("More")
             Spacer()
+            Text(wordCountLabel)
+                .font(.groveMeta)
+                .foregroundStyle(Color.textTertiary)
+                .padding(.trailing, 8)
+            modePicker
         }
     }
 
@@ -183,16 +187,18 @@ struct RichMarkdownEditor: View {
     private var proseToolbar: some View {
         HStack(spacing: 16) {
             toolbarButton("Bold", icon: "bold", shortcut: "B") {
-                wrapSelection(prefix: "**", suffix: "**")
+                editingProxy.wrapSelection(prefix: "**", suffix: "**")
             }
             toolbarButton("Italic", icon: "italic", shortcut: "I") {
-                wrapSelection(prefix: "*", suffix: "*")
+                editingProxy.wrapSelection(prefix: "*", suffix: "*")
             }
 
             Menu {
-                Button("# Title") { insertPrefix("# ") }
-                Button("## Heading") { insertPrefix("## ") }
-                Button("### Subheading") { insertPrefix("### ") }
+                Button("# Title") { editingProxy.setHeading(level: 1) }
+                Button("## Heading") { editingProxy.setHeading(level: 2) }
+                Button("### Subheading") { editingProxy.setHeading(level: 3) }
+                Divider()
+                Button("Clear Heading") { editingProxy.setHeading(level: 0) }
             } label: {
                 Image(systemName: "number")
                     .font(.system(size: 12, weight: .medium))
@@ -205,16 +211,18 @@ struct RichMarkdownEditor: View {
             .help("Heading")
 
             toolbarButton("List", icon: "list.bullet", shortcut: nil) {
-                insertPrefix("- ")
+                editingProxy.toggleListItem()
             }
             toolbarButton("Quote", icon: "text.quote", shortcut: nil) {
-                insertPrefix("> ")
+                editingProxy.toggleBlockQuote()
             }
 
             Menu {
-                Button("Code") { wrapSelection(prefix: "`", suffix: "`") }
-                Button("Link") { wrapSelection(prefix: "[", suffix: "](url)") }
-                Button("Wiki Link") { insertText("[[]]", cursorOffset: -2) }
+                Button("Code") { editingProxy.wrapSelection(prefix: "`", suffix: "`") }
+                Button("Link") { editingProxy.insertLink() }
+                Button("Wiki Link") { editingProxy.insertWikiLink() }
+                Divider()
+                Button("Strikethrough") { editingProxy.wrapSelection(prefix: "~~", suffix: "~~") }
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 12, weight: .medium))
@@ -227,40 +235,70 @@ struct RichMarkdownEditor: View {
             .help("More")
 
             Spacer()
+            Text(wordCountLabel)
+                .font(.groveMeta)
+                .foregroundStyle(Color.textTertiary)
+            modePicker
         }
         .padding(.horizontal, 40)
         .padding(.vertical, 8)
     }
 
-    // MARK: - Toolbar Actions
-
-    private func withFocusedEditor(_ action: (HighlightingTextView) -> Void, fallback: () -> Void) {
-        if let focusedEditor = HighlightingTextView.focusedEditor {
-            action(focusedEditor)
-        } else {
-            fallback()
+    @ViewBuilder
+    private var editorContent: some View {
+        switch editorMode {
+        case .livePreview:
+            if #available(macOS 26, *) {
+                AttributedStringEditorView(
+                    markdownText: $text,
+                    sourceItem: sourceItem,
+                    proseMode: proseMode,
+                    minHeight: minHeight,
+                    showsToolbar: false,
+                    editorProxy: editingProxy
+                )
+            } else {
+                sourceEditor
+            }
+        case .source:
+            sourceEditor
         }
     }
 
-    private func wrapSelection(prefix: String, suffix: String) {
-        withFocusedEditor(
-            { $0.wrapSelectionWith(prefix: prefix, suffix: suffix) },
-            fallback: { text += prefix + suffix }
+    private var sourceEditor: some View {
+        MarkdownSourceTextView(
+            text: $text,
+            minHeight: minHeight,
+            fontSize: proseMode ? 18 : 15,
+            textInset: proseMode ? NSSize(width: 40, height: 24) : NSSize(width: 8, height: 8),
+            onWikiTrigger: handleSourceWikiTrigger,
+            editorProxy: editingProxy
         )
     }
 
-    private func insertPrefix(_ prefix: String) {
-        withFocusedEditor(
-            { $0.insertPrefixAtCurrentLine(prefix) },
-            fallback: { text += "\n" + prefix }
-        )
+    private var modePicker: some View {
+        Picker("Editor mode", selection: $editorMode) {
+            ForEach(MarkdownEditorMode.allCases, id: \.self) { mode in
+                Text(mode.title).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+        .frame(width: 190)
     }
 
-    private func insertText(_ insertion: String, cursorOffset: Int) {
-        withFocusedEditor(
-            { $0.insertTextAtSelection(insertion, cursorOffset: cursorOffset) },
-            fallback: { text += insertion }
-        )
+    private func handleSourceWikiTrigger(_ searchText: String?) {
+        guard editorMode == .source else { return }
+        if let searchText {
+            sourceWikiSearchText = searchText
+            showSourceWikiPopover = true
+        } else {
+            closeSourceWikiPopover()
+        }
+    }
+
+    private func closeSourceWikiPopover() {
+        showSourceWikiPopover = false
+        sourceWikiSearchText = ""
     }
 
     // MARK: - Wiki Link Dropdown
@@ -276,8 +314,7 @@ struct RichMarkdownEditor: View {
                     .foregroundStyle(Color.textSecondary)
                 Spacer()
                 Button {
-                    showWikiPopover = false
-                    wikiSearchText = ""
+                    closeSourceWikiPopover()
                 } label: {
                     Image(systemName: "xmark")
                         .font(.groveBadge)
@@ -334,12 +371,7 @@ struct RichMarkdownEditor: View {
     }
 
     private func insertWikiLink(for target: Item) {
-        if let focusedEditor = HighlightingTextView.focusedEditor {
-            focusedEditor.replaceActiveWikiQuery(with: target.title)
-        } else if let range = text.range(of: "[[", options: .backwards) {
-            let before = text[text.startIndex..<range.lowerBound]
-            text = before + "[[" + target.title + "]]"
-        }
+        editingProxy.replaceActiveWikiQuery(with: target.title)
 
         // Auto-create connection
         if let sourceItem {
@@ -351,8 +383,7 @@ struct RichMarkdownEditor: View {
             }
         }
 
-        showWikiPopover = false
-        wikiSearchText = ""
+        closeSourceWikiPopover()
     }
 }
 
@@ -525,8 +556,6 @@ struct MarkdownNSTextView: NSViewRepresentable {
             }()
 
             storage.beginEditing()
-            storage.removeAttribute(.groveListPrefix, range: fullRange)
-            storage.removeAttribute(.groveQuotePrefix, range: fullRange)
 
             // Reset to default
             var defaultAttrs: [NSAttributedString.Key: Any] = [
@@ -536,7 +565,10 @@ struct MarkdownNSTextView: NSViewRepresentable {
             if let proseParagraph {
                 defaultAttrs[.paragraphStyle] = proseParagraph
             }
-            storage.addAttributes(defaultAttrs, range: fullRange)
+            if fullRange.length > 0 {
+                storage.setAttributes(defaultAttrs, range: fullRange)
+            }
+            textView.typingAttributes = defaultAttrs
 
             let hiddenDelimiterAttrs: [NSAttributedString.Key: Any] = [
                 .foregroundColor: NSColor.clear,
@@ -1253,6 +1285,69 @@ class HighlightingTextView: NSTextView {
         }
     }
 
+    func toggleLinePrefix(_ prefix: String) {
+        let selectedRange = selectedRange()
+        let nsText = string as NSString
+        let blockRange = selectedLineBlockRange(in: nsText, selection: selectedRange)
+        let lines = nsText.substring(with: blockRange).components(separatedBy: "\n")
+        let nonEmptyLines = lines.filter { !$0.isEmpty }
+        let shouldRemovePrefix = !nonEmptyLines.isEmpty && nonEmptyLines.allSatisfy { $0.hasPrefix(prefix) }
+
+        let replaced = lines.map { line -> String in
+            guard !line.isEmpty else { return line }
+            if shouldRemovePrefix {
+                return line.hasPrefix(prefix) ? String(line.dropFirst(prefix.count)) : line
+            }
+            return prefix + line
+        }.joined(separator: "\n")
+
+        guard let textStorage else { return }
+        if shouldChangeText(in: blockRange, replacementString: replaced) {
+            textStorage.replaceCharacters(in: blockRange, with: replaced)
+            didChangeText()
+
+            if selectedRange.length == 0 {
+                let newCursor = min(
+                    blockRange.location + (shouldRemovePrefix ? 0 : utf16Length(of: prefix)),
+                    blockRange.location + (replaced as NSString).length
+                )
+                setSelectedRange(NSRange(location: newCursor, length: 0))
+            } else {
+                setSelectedRange(NSRange(location: blockRange.location, length: (replaced as NSString).length))
+            }
+        }
+    }
+
+    func setHeadingLevel(_ level: Int) {
+        let clampedLevel = min(max(level, 0), 6)
+        let prefix = clampedLevel > 0 ? String(repeating: "#", count: clampedLevel) + " " : ""
+
+        let selectedRange = selectedRange()
+        let nsText = string as NSString
+        let blockRange = selectedLineBlockRange(in: nsText, selection: selectedRange)
+        let lines = nsText.substring(with: blockRange).components(separatedBy: "\n")
+        let replaced = lines.map { line -> String in
+            guard !line.isEmpty else { return line }
+            return prefix + lineRemovingHeadingPrefix(line)
+        }.joined(separator: "\n")
+
+        guard let textStorage else { return }
+        if shouldChangeText(in: blockRange, replacementString: replaced) {
+            textStorage.replaceCharacters(in: blockRange, with: replaced)
+            didChangeText()
+
+            if selectedRange.length == 0 {
+                let newCursor = min(
+                    blockRange.location + utf16Length(of: prefix),
+                    blockRange.location + (replaced as NSString).length
+                )
+                setSelectedRange(NSRange(location: newCursor, length: 0))
+            } else {
+                setSelectedRange(NSRange(location: blockRange.location, length: (replaced as NSString).length))
+            }
+        }
+    }
+
     func replaceActiveWikiQuery(with title: String) {
         let selectedRange = selectedRange()
         guard selectedRange.length == 0 else { return }
@@ -1279,6 +1374,36 @@ class HighlightingTextView: NSTextView {
             let cursor = replacementRange.location + replacementLength
             setSelectedRange(NSRange(location: cursor, length: 0))
         }
+    }
+
+    private func selectedLineBlockRange(in text: NSString, selection: NSRange) -> NSRange {
+        let startLineRange = text.lineRange(for: NSRange(location: selection.location, length: 0))
+        let endAnchor: Int
+        if selection.length > 0 {
+            endAnchor = max(selection.location, selection.location + selection.length - 1)
+        } else {
+            endAnchor = selection.location
+        }
+        let endLineRange = text.lineRange(for: NSRange(location: min(endAnchor, max(0, text.length - 1)), length: 0))
+        let location = startLineRange.location
+        let upperBound = max(NSMaxRange(startLineRange), NSMaxRange(endLineRange))
+        return NSRange(location: location, length: upperBound - location)
+    }
+
+    private func lineRemovingHeadingPrefix(_ line: String) -> String {
+        var index = line.startIndex
+        var hashCount = 0
+        while index < line.endIndex, line[index] == "#", hashCount < 6 {
+            hashCount += 1
+            index = line.index(after: index)
+        }
+
+        guard hashCount > 0, index < line.endIndex, line[index] == " " else {
+            return line
+        }
+
+        let contentStart = line.index(after: index)
+        return String(line[contentStart...])
     }
 }
 #else

@@ -6,147 +6,39 @@ struct MarkdownTextView: View {
     let markdown: String
     var onWikiLinkTap: ((String) -> Void)?
 
+    private var document: MarkdownDocument {
+        MarkdownDocument(markdown)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ForEach(Array(parseBlocks().enumerated()), id: \.offset) { _, block in
+            ForEach(Array(document.blocks.enumerated()), id: \.offset) { _, block in
                 renderBlock(block)
             }
         }
     }
 
-    private enum MarkdownBlock {
-        case heading(level: Int, text: String)
-        case codeBlock(language: String?, code: String)
-        case blockquote(lines: [String])
-        case bulletList(items: [String])
-        case paragraph(text: String)
-    }
-
-    private func parseBlocks() -> [MarkdownBlock] {
-        var blocks: [MarkdownBlock] = []
-        let lines = markdown.components(separatedBy: "\n")
-        var i = 0
-
-        while i < lines.count {
-            let line = lines[i]
-
-            // Code block
-            if line.hasPrefix("```") {
-                let language = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
-                var codeLines: [String] = []
-                i += 1
-                while i < lines.count && !lines[i].hasPrefix("```") {
-                    codeLines.append(lines[i])
-                    i += 1
-                }
-                blocks.append(.codeBlock(
-                    language: language.isEmpty ? nil : language,
-                    code: codeLines.joined(separator: "\n")
-                ))
-                if i < lines.count { i += 1 }
-                continue
-            }
-
-            // Heading
-            if line.hasPrefix("#") {
-                let level = line.prefix(while: { $0 == "#" }).count
-                let text = String(line.dropFirst(level)).trimmingCharacters(in: .whitespaces)
-                if level >= 1 && level <= 6 && !text.isEmpty {
-                    blocks.append(.heading(level: level, text: text))
-                    i += 1
-                    continue
-                }
-            }
-
-            // Blockquote (> prefix)
-            let trimmedLine = line.trimmingCharacters(in: .whitespaces)
-            if line.hasPrefix("> ") || line == ">" {
-                var quoteLines: [String] = []
-                while i < lines.count && (lines[i].hasPrefix("> ") || lines[i] == ">") {
-                    quoteLines.append(lines[i].hasPrefix("> ") ? String(lines[i].dropFirst(2)) : "")
-                    i += 1
-                }
-                blocks.append(.blockquote(lines: quoteLines))
-                continue
-            }
-
-            // Bullet list (- or * prefix, supports indentation)
-            if trimmedLine.hasPrefix("- ") || trimmedLine.hasPrefix("* ") {
-                var listItems: [String] = []
-                while i < lines.count {
-                    let current = lines[i].trimmingCharacters(in: .whitespaces)
-                    if current.hasPrefix("- ") {
-                        listItems.append(String(current.dropFirst(2)))
-                    } else if current.hasPrefix("* ") {
-                        listItems.append(String(current.dropFirst(2)))
-                    } else if current.isEmpty {
-                        break
-                    } else {
-                        break
-                    }
-                    i += 1
-                }
-                blocks.append(.bulletList(items: listItems))
-                continue
-            }
-
-            // Empty line -- skip
-            if trimmedLine.isEmpty {
-                i += 1
-                continue
-            }
-
-            // Paragraph: collect consecutive non-empty, non-special lines
-            var paragraphLines: [String] = [line]
-            i += 1
-            while i < lines.count {
-                let nextLine = lines[i]
-                let nextTrimmed = nextLine.trimmingCharacters(in: .whitespaces)
-                if nextTrimmed.isEmpty
-                    || nextLine.hasPrefix("#")
-                    || nextLine.hasPrefix("```")
-                    || nextLine.hasPrefix("> ")
-                    || nextLine == ">"
-                    || nextTrimmed.hasPrefix("- ")
-                    || nextTrimmed.hasPrefix("* ") {
-                    break
-                }
-                paragraphLines.append(nextLine)
-                i += 1
-            }
-            blocks.append(.paragraph(text: paragraphLines.joined(separator: "\n")))
-        }
-
-        return blocks
-    }
-
     @ViewBuilder
-    private func renderBlock(_ block: MarkdownBlock) -> some View {
-        switch block {
-        case .heading(let level, let text):
-            headingView(level: level, text: text)
+    private func renderBlock(_ block: MarkdownDocument.Block) -> some View {
+        switch block.kind {
+        case .heading(let heading):
+            headingView(heading)
 
-        case .codeBlock(let language, let code):
-            SyntaxHighlightedCodeView(code: code, language: language)
+        case .codeBlock(let codeBlock):
+            SyntaxHighlightedCodeView(
+                code: codeBlock.contentRange.map(document.text(in:)) ?? "",
+                language: codeBlock.language
+            )
 
-        case .blockquote(let lines):
+        case .blockquote(let blockquote):
             HStack(alignment: .top, spacing: 0) {
                 Rectangle()
                     .fill(Color.borderPrimary)
                     .frame(width: 2)
                 VStack(alignment: .leading, spacing: 4) {
-                    ForEach(Array(lines.enumerated()), id: \.offset) { _, qLine in
-                        let qTrimmed = qLine.trimmingCharacters(in: .whitespaces)
-                        if qTrimmed.hasPrefix("- ") || qTrimmed.hasPrefix("* ") {
-                            let bulletText = qTrimmed.hasPrefix("- ") ? String(qTrimmed.dropFirst(2)) : String(qTrimmed.dropFirst(2))
-                            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                Text("\u{2022}")
-                                    .font(.custom("IBMPlexSans-Regular", size: 13))
-                                    .foregroundStyle(Color.textTertiary)
-                                renderParagraphWithWikiLinks(bulletText)
-                            }
-                        } else if !qTrimmed.isEmpty {
-                            renderParagraphWithWikiLinks(qLine)
+                    ForEach(Array(blockquote.lines.enumerated()), id: \.offset) { _, line in
+                        if !document.text(in: line.contentRange).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            renderInlineText(range: line.contentRange, style: .body)
                         }
                     }
                 }
@@ -154,99 +46,100 @@ struct MarkdownTextView: View {
             }
             .foregroundStyle(Color.textTertiary)
 
-        case .bulletList(let items):
+        case .bulletList(let list):
             VStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(items.enumerated()), id: \.offset) { _, itemText in
+                ForEach(Array(list.items.enumerated()), id: \.offset) { _, item in
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text("\u{2022}")
                             .font(.custom("IBMPlexSans-Regular", size: 13))
                             .foregroundStyle(Color.textSecondary)
-                        renderParagraphWithWikiLinks(itemText)
+                        renderInlineText(range: item.contentRange, style: .body)
                     }
                 }
             }
 
-        case .paragraph(let text):
-            renderParagraphWithWikiLinks(text)
+        case .paragraph(let paragraph):
+            renderInlineText(range: paragraph.textRange, style: .body)
         }
     }
 
     @ViewBuilder
-    private func renderParagraphWithWikiLinks(_ text: String) -> some View {
-        Text(attributedTextWithWikiLinks(text))
-            .font(.custom("IBMPlexSans-Regular", size: 13))
+    private func renderInlineText(range: Range<Int>, style: InlineStyle) -> some View {
+        Text(attributedText(in: range, style: style))
             .tint(Color.textSecondary)
             .environment(\.openURL, OpenURLAction(handler: handleOpenURL))
     }
 
-    private struct TextSegment {
-        let text: String
-        let isWikiLink: Bool
+    private enum InlineStyle {
+        case body
+        case heading(level: Int)
     }
 
-    private func attributedTextWithWikiLinks(_ text: String) -> AttributedString {
-        let segments = parseWikiLinks(in: text)
-        guard segments.contains(where: { $0.isWikiLink }) else {
-            return parseInlineMarkdown(text)
-        }
+    private func attributedText(in range: Range<Int>, style: InlineStyle) -> AttributedString {
+        let presentation = document.inlinePresentation(in: range)
+        var attributed = AttributedString(presentation.text)
 
-        var combined = AttributedString()
-        for segment in segments {
-            if segment.isWikiLink {
-                var linkSegment = AttributedString(segment.text)
-                if let url = wikiLinkURL(for: segment.text) {
-                    linkSegment.link = url
-                }
-                combined.append(linkSegment)
-            } else {
-                combined.append(parseInlineMarkdown(segment.text))
+        let regularFont: Font
+        let boldFont: Font
+        let italicFont: Font
+        let boldItalicFont: Font
+
+        switch style {
+        case .body:
+            regularFont = .custom("IBMPlexSans-Regular", size: 13)
+            boldFont = .custom("IBMPlexSans-Medium", size: 13)
+            italicFont = .custom("IBMPlexSans-Regular", size: 13).italic()
+            boldItalicFont = .custom("IBMPlexSans-Medium", size: 13).italic()
+        case .heading(let level):
+            let size: CGFloat
+            switch level {
+            case 1:
+                size = 22
+            case 2:
+                size = 18
+            case 3:
+                size = 16
+            default:
+                size = 14
             }
+            regularFont = .custom("Newsreader-Medium", size: size)
+            boldFont = .custom("Newsreader-SemiBold", size: size)
+            italicFont = .custom("Newsreader-MediumItalic", size: size)
+            boldItalicFont = .custom("Newsreader-SemiBoldItalic", size: size)
         }
 
-        return combined
-    }
-
-    private func parseInlineMarkdown(_ text: String) -> AttributedString {
-        guard var result = try? AttributedString(
-            markdown: text,
-            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        ) else {
-            return AttributedString(text)
-        }
-
-        // Post-process to apply explicit fonts for bold/italic since
-        // SwiftUI can't resolve weight/style variants for custom fonts
-        // from presentation intents alone.
-        let bodyFont = Font.custom("IBMPlexSans-Regular", size: 13)
-        let boldFont = Font.custom("IBMPlexSans-Medium", size: 13)
-        let italicFont = Font.custom("IBMPlexSans-Regular", size: 13).italic()
-        let boldItalicFont = Font.custom("IBMPlexSans-Medium", size: 13).italic()
         let codeFont = Font.custom("IBMPlexMono-Regular", size: 12)
 
-        for run in result.runs {
-            let range = run.range
-            guard let intent = run.inlinePresentationIntent else {
-                result[range].font = bodyFont
-                continue
-            }
-            let isBold = intent.contains(.stronglyEmphasized)
-            let isItalic = intent.contains(.emphasized)
-            let isCode = intent.contains(.code)
+        for run in attributed.runs {
+            attributed[run.range].font = regularFont
+        }
 
-            if isCode {
-                result[range].font = codeFont
-            } else if isBold && isItalic {
-                result[range].font = boldItalicFont
-            } else if isBold {
-                result[range].font = boldFont
-            } else if isItalic {
-                result[range].font = italicFont
-            } else {
-                result[range].font = bodyFont
+        for span in presentation.spans {
+            let lower = attributed.index(attributed.startIndex, offsetByCharacters: span.range.lowerBound)
+            let upper = attributed.index(attributed.startIndex, offsetByCharacters: span.range.upperBound)
+            let localRange = lower..<upper
+
+            switch span.kind {
+            case .bold:
+                attributed[localRange].font = boldFont
+            case .italic:
+                attributed[localRange].font = italicFont
+            case .boldItalic:
+                attributed[localRange].font = boldItalicFont
+            case .strikethrough:
+                attributed[localRange].strikethroughStyle = .single
+            case .inlineCode:
+                attributed[localRange].font = codeFont
+            case .wikiLink(let title):
+                attributed[localRange].link = wikiLinkURL(for: title)
+            case .link(let url):
+                if let destination = URL(string: url) {
+                    attributed[localRange].link = destination
+                }
             }
         }
 
-        return result
+        return attributed
     }
 
     private func wikiLinkURL(for title: String) -> URL? {
@@ -286,59 +179,24 @@ struct MarkdownTextView: View {
         return rawPath.removingPercentEncoding ?? rawPath
     }
 
-    private func parseWikiLinks(in text: String) -> [TextSegment] {
-        var segments: [TextSegment] = []
-        var remaining = text[text.startIndex...]
-
-        while let openRange = remaining.range(of: "[[") {
-            let before = remaining[remaining.startIndex..<openRange.lowerBound]
-            if !before.isEmpty {
-                segments.append(TextSegment(text: String(before), isWikiLink: false))
-            }
-
-            let afterOpen = remaining[openRange.upperBound...]
-            if let closeRange = afterOpen.range(of: "]]") {
-                let linkTitle = String(afterOpen[afterOpen.startIndex..<closeRange.lowerBound])
-                segments.append(TextSegment(text: linkTitle, isWikiLink: true))
-                remaining = afterOpen[closeRange.upperBound...]
-            } else {
-                segments.append(TextSegment(text: String(remaining[openRange.lowerBound...]), isWikiLink: false))
-                remaining = remaining[remaining.endIndex...]
-            }
-        }
-
-        if !remaining.isEmpty {
-            segments.append(TextSegment(text: String(remaining), isWikiLink: false))
-        }
-
-        return segments
-    }
-
     @ViewBuilder
-    private func headingView(level: Int, text: String) -> some View {
-        let cleanText = text.replacingOccurrences(of: "[[", with: "").replacingOccurrences(of: "]]", with: "")
-        let attributed = (try? AttributedString(markdown: cleanText, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(cleanText)
+    private func headingView(_ heading: MarkdownDocument.Heading) -> some View {
+        let text = Text(attributedText(in: heading.contentRange, style: .heading(level: heading.level)))
+            .tint(Color.textSecondary)
+            .environment(\.openURL, OpenURLAction(handler: handleOpenURL))
 
-        switch level {
+        switch heading.level {
         case 1:
-            Text(attributed)
-                .font(.custom("Newsreader", size: 22))
-                .fontWeight(.semibold)
+            text
                 .padding(.top, 8)
         case 2:
-            Text(attributed)
-                .font(.custom("Newsreader", size: 18))
-                .fontWeight(.medium)
+            text
                 .padding(.top, 6)
         case 3:
-            Text(attributed)
-                .font(.custom("Newsreader", size: 16))
-                .fontWeight(.medium)
+            text
                 .padding(.top, 4)
         default:
-            Text(attributed)
-                .font(.custom("IBMPlexSans-Regular", size: 14))
-                .fontWeight(.semibold)
+            text
                 .padding(.top, 2)
         }
     }

@@ -27,6 +27,7 @@ struct SelectableMarkdownView: NSViewRepresentable {
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.lineFragmentPadding = 0
         textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.delegate = context.coordinator
 
@@ -47,14 +48,17 @@ struct SelectableMarkdownView: NSViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
         guard let textView = nsView.documentView as? NSTextView,
-              let storage = textView.textStorage,
-              storage.length > 0 else { return nil }
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer,
+              textView.textStorage?.length ?? 0 > 0 else { return nil }
         let width = proposal.width ?? 400
-        let boundingRect = storage.boundingRect(
-            with: NSSize(width: width, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading]
-        )
-        return CGSize(width: width, height: ceil(boundingRect.height) + 8)
+        textView.frame.size.width = width
+        textContainer.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
+        layoutManager.ensureLayout(for: textContainer)
+
+        let usedRect = layoutManager.usedRect(for: textContainer)
+        let height = ceil(usedRect.height + (textView.textContainerInset.height * 2))
+        return CGSize(width: width, height: max(height, 1))
     }
 
     private func updateTextView(_ textView: NSTextView) {
@@ -63,239 +67,294 @@ struct SelectableMarkdownView: NSViewRepresentable {
     }
 
     private func markdownToAttributedString(_ md: String) -> NSAttributedString {
+        let document = MarkdownDocument(md)
         let result = NSMutableAttributedString()
-        let lines = md.components(separatedBy: "\n")
-        var i = 0
 
-        let bodyFont = NSFont(name: "IBMPlexSans-Regular", size: 13)
-            ?? NSFont.systemFont(ofSize: 13)
-        let bodyColor = NSColor.textColor
-        let bodyParagraph = NSMutableParagraphStyle()
-        bodyParagraph.lineSpacing = 4
-        bodyParagraph.paragraphSpacing = 8
+        for (index, block) in document.blocks.enumerated() {
+            result.append(attributedString(for: block, in: document))
 
-        while i < lines.count {
-            let line = lines[i]
-
-            // Code block
-            if line.hasPrefix("```") {
-                i += 1
-                var codeLines: [String] = []
-                while i < lines.count && !lines[i].hasPrefix("```") {
-                    codeLines.append(lines[i])
-                    i += 1
-                }
-                if i < lines.count { i += 1 }
-
-                let codeFont = NSFont(name: "IBMPlexMono", size: 12)
-                    ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-                let codeParagraph = NSMutableParagraphStyle()
-                codeParagraph.lineSpacing = 2
-                codeParagraph.paragraphSpacingBefore = 8
-                codeParagraph.paragraphSpacing = 8
-
-                let codeStr = NSAttributedString(string: codeLines.joined(separator: "\n") + "\n", attributes: [
-                    .font: codeFont,
-                    .foregroundColor: bodyColor,
-                    .paragraphStyle: codeParagraph,
-                    .backgroundColor: NSColor.windowBackgroundColor.withAlphaComponent(0.5)
-                ])
-                result.append(codeStr)
-                continue
+            if let nextBlock = document.blocks.dropFirst(index).first {
+                appendSeparator(
+                    from: block.range.upperBound,
+                    to: nextBlock.range.lowerBound,
+                    source: document.source,
+                    into: result
+                )
             }
-
-            // Heading
-            if line.hasPrefix("#") {
-                let level = line.prefix(while: { $0 == "#" }).count
-                let text = String(line.dropFirst(level)).trimmingCharacters(in: .whitespaces)
-                if level >= 1 && level <= 6 && !text.isEmpty {
-                    let headingSize: CGFloat = level == 1 ? 22 : level == 2 ? 18 : level == 3 ? 16 : 14
-                    let headingFont = NSFont(name: "Newsreader", size: headingSize)
-                        ?? NSFont.systemFont(ofSize: headingSize, weight: .semibold)
-                    let headingParagraph = NSMutableParagraphStyle()
-                    headingParagraph.paragraphSpacingBefore = level == 1 ? 12 : 8
-                    headingParagraph.paragraphSpacing = 4
-
-                    let headingStr = NSAttributedString(string: text + "\n", attributes: [
-                        .font: headingFont,
-                        .foregroundColor: bodyColor,
-                        .paragraphStyle: headingParagraph
-                    ])
-                    result.append(headingStr)
-                    i += 1
-                    continue
-                }
-            }
-
-            // Blockquote
-            if line.hasPrefix("> ") || line == ">" {
-                var quoteLines: [String] = []
-                while i < lines.count && (lines[i].hasPrefix("> ") || lines[i] == ">") {
-                    quoteLines.append(lines[i].hasPrefix("> ") ? String(lines[i].dropFirst(2)) : "")
-                    i += 1
-                }
-                let quoteParagraph = NSMutableParagraphStyle()
-                quoteParagraph.lineSpacing = 4
-                quoteParagraph.paragraphSpacing = 4
-                quoteParagraph.headIndent = 16
-                quoteParagraph.firstLineHeadIndent = 16
-
-                for qLine in quoteLines {
-                    let qTrimmed = qLine.trimmingCharacters(in: .whitespaces)
-                    if qTrimmed.hasPrefix("- ") || qTrimmed.hasPrefix("* ") {
-                        let bulletContent = qTrimmed.hasPrefix("- ") ? String(qTrimmed.dropFirst(2)) : String(qTrimmed.dropFirst(2))
-                        let bulletPara = quoteParagraph.mutableCopy() as! NSMutableParagraphStyle
-                        bulletPara.headIndent = 28
-                        let itemStr = NSMutableAttributedString(string: "\u{2022} " + bulletContent + "\n", attributes: [
-                            .font: bodyFont,
-                            .foregroundColor: NSColor.secondaryLabelColor,
-                            .paragraphStyle: bulletPara
-                        ])
-                        applyInlineFormatting(itemStr, baseFont: bodyFont)
-                        result.append(itemStr)
-                    } else if !qTrimmed.isEmpty {
-                        let itemStr = NSMutableAttributedString(string: qLine + "\n", attributes: [
-                            .font: bodyFont,
-                            .foregroundColor: NSColor.secondaryLabelColor,
-                            .paragraphStyle: quoteParagraph
-                        ])
-                        applyInlineFormatting(itemStr, baseFont: bodyFont)
-                        result.append(itemStr)
-                    }
-                }
-                continue
-            }
-
-            // Bullet list
-            let trimmedForBullet = line.trimmingCharacters(in: .whitespaces)
-            if trimmedForBullet.hasPrefix("- ") || trimmedForBullet.hasPrefix("* ") {
-                var bulletItems: [(text: String, indent: Int)] = []
-                while i < lines.count {
-                    let current = lines[i]
-                    let currentTrimmed = current.trimmingCharacters(in: .whitespaces)
-                    let currentIndent = current.prefix(while: { $0 == " " || $0 == "\t" }).count
-                    if currentTrimmed.hasPrefix("- ") {
-                        bulletItems.append((String(currentTrimmed.dropFirst(2)), currentIndent))
-                    } else if currentTrimmed.hasPrefix("* ") {
-                        bulletItems.append((String(currentTrimmed.dropFirst(2)), currentIndent))
-                    } else if currentTrimmed.isEmpty {
-                        break
-                    } else {
-                        break
-                    }
-                    i += 1
-                }
-
-                for item in bulletItems {
-                    let indentLevel = CGFloat(item.indent / 2)
-                    let bulletIndent: CGFloat = indentLevel * 12
-                    let bulletParagraph = NSMutableParagraphStyle()
-                    bulletParagraph.lineSpacing = 4
-                    bulletParagraph.paragraphSpacing = 4
-                    bulletParagraph.headIndent = bulletIndent + 14
-                    bulletParagraph.firstLineHeadIndent = bulletIndent
-
-                    let itemStr = NSMutableAttributedString(string: "\u{2022} " + item.text + "\n", attributes: [
-                        .font: bodyFont,
-                        .foregroundColor: bodyColor,
-                        .paragraphStyle: bulletParagraph
-                    ])
-                    applyInlineFormatting(itemStr, baseFont: bodyFont)
-                    result.append(itemStr)
-                }
-                continue
-            }
-
-            // Empty line
-            if line.trimmingCharacters(in: .whitespaces).isEmpty {
-                i += 1
-                continue
-            }
-
-            // Paragraph
-            var paragraphLines: [String] = [line]
-            i += 1
-            while i < lines.count {
-                let nextLine = lines[i]
-                let nextTrimmed = nextLine.trimmingCharacters(in: .whitespaces)
-                if nextTrimmed.isEmpty
-                    || nextLine.hasPrefix("#")
-                    || nextLine.hasPrefix("```")
-                    || nextLine.hasPrefix("> ")
-                    || nextLine == ">"
-                    || nextTrimmed.hasPrefix("- ")
-                    || nextTrimmed.hasPrefix("* ") {
-                    break
-                }
-                paragraphLines.append(nextLine)
-                i += 1
-            }
-
-            let paragraphText = paragraphLines.joined(separator: "\n")
-            let paraStr = NSMutableAttributedString(string: paragraphText + "\n", attributes: [
-                .font: bodyFont,
-                .foregroundColor: bodyColor,
-                .paragraphStyle: bodyParagraph
-            ])
-            applyInlineFormatting(paraStr, baseFont: bodyFont)
-            result.append(paraStr)
         }
 
         return result
     }
 
-    /// Apply inline markdown formatting (bold+italic, bold, italic, code) to an attributed string.
-    private func applyInlineFormatting(_ attrStr: NSMutableAttributedString, baseFont: NSFont) {
-        let mediumFont = NSFont(name: "IBMPlexSans-Medium", size: baseFont.pointSize)
-            ?? NSFont.boldSystemFont(ofSize: baseFont.pointSize)
-        let codeFont = NSFont(name: "IBMPlexMono-Regular", size: baseFont.pointSize - 1)
-            ?? NSFont.monospacedSystemFont(ofSize: baseFont.pointSize - 1, weight: .regular)
+    private func attributedString(
+        for block: MarkdownDocument.Block,
+        in document: MarkdownDocument
+    ) -> NSAttributedString {
+        switch block.kind {
+        case .heading(let heading):
+            return inlineAttributedString(
+                in: heading.contentRange,
+                style: .heading(level: heading.level),
+                document: document
+            )
 
-        // Bold+italic: ***text***
-        let boldItalicFont = NSFont(descriptor: mediumFont.fontDescriptor.withSymbolicTraits(.italic),
-                                    size: mediumFont.pointSize) ?? mediumFont
-        replaceInlineMarker(in: attrStr, pattern: "\\*{3}(.+?)\\*{3}", font: boldItalicFont)
-        replaceInlineMarker(in: attrStr, pattern: "_{3}(.+?)_{3}", font: boldItalicFont)
+        case .paragraph(let paragraph):
+            return inlineAttributedString(
+                in: paragraph.textRange,
+                style: .body,
+                document: document
+            )
 
-        // Bold: **text**
-        replaceInlineMarker(in: attrStr, pattern: "\\*{2}(.+?)\\*{2}", font: mediumFont)
-        replaceInlineMarker(in: attrStr, pattern: "_{2}(.+?)_{2}", font: mediumFont)
+        case .blockquote(let blockquote):
+            let result = NSMutableAttributedString()
+            for (index, line) in blockquote.lines.enumerated() {
+                let lineString = inlineAttributedString(
+                    in: line.contentRange,
+                    style: .blockquote,
+                    document: document
+                )
+                result.append(lineString)
+                if index < blockquote.lines.count - 1 {
+                    result.append(NSAttributedString(string: "\n"))
+                }
+            }
+            return result
 
-        // Italic: *text*
-        let italicFont = NSFont(descriptor: baseFont.fontDescriptor.withSymbolicTraits(.italic),
-                                size: baseFont.pointSize) ?? baseFont
-        replaceInlineMarker(in: attrStr, pattern: "\\*(.+?)\\*", font: italicFont)
-        replaceInlineMarker(in: attrStr, pattern: "(?<!\\w)_(.+?)_(?!\\w)", font: italicFont)
+        case .bulletList(let list):
+            let result = NSMutableAttributedString()
+            for (index, item) in list.items.enumerated() {
+                result.append(
+                    listItemAttributedString(
+                        item,
+                        document: document
+                    )
+                )
+                if index < list.items.count - 1 {
+                    result.append(NSAttributedString(string: "\n"))
+                }
+            }
+            return result
 
-        // Inline code: `text`
-        replaceInlineMarker(in: attrStr, pattern: "`([^`]+)`", font: codeFont, extraAttrs: [
-            .backgroundColor: NSColor.windowBackgroundColor.withAlphaComponent(0.5)
-        ])
+        case .codeBlock(let codeBlock):
+            return codeBlockAttributedString(codeBlock, document: document)
+        }
     }
 
-    private func replaceInlineMarker(
-        in attrStr: NSMutableAttributedString,
-        pattern: String,
-        font: NSFont,
-        extraAttrs: [NSAttributedString.Key: Any] = [:]
+    private func appendSeparator(
+        from lowerBound: Int,
+        to upperBound: Int,
+        source: String,
+        into result: NSMutableAttributedString
     ) {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return }
-        while true {
-            let text = attrStr.string
-            guard let match = regex.firstMatch(in: text, range: NSRange(location: 0, length: text.utf16.count)),
-                  match.numberOfRanges >= 2 else { break }
-            let fullRange = match.range
-            let contentRange = match.range(at: 1)
-            guard fullRange.location != NSNotFound, contentRange.location != NSNotFound else { break }
-
-            let replacement = attrStr.attributedSubstring(from: contentRange).mutableCopy() as! NSMutableAttributedString
-            let wholeRange = NSRange(location: 0, length: replacement.length)
-            replacement.addAttribute(.font, value: font, range: wholeRange)
-            for (key, value) in extraAttrs {
-                replacement.addAttribute(key, value: value, range: wholeRange)
-            }
-            attrStr.replaceCharacters(in: fullRange, with: replacement)
+        guard lowerBound < upperBound else {
+            result.append(NSAttributedString(string: "\n"))
+            return
         }
+
+        let startIndex = source.index(source.startIndex, offsetBy: lowerBound)
+        let endIndex = source.index(source.startIndex, offsetBy: upperBound)
+        let gap = source[startIndex..<endIndex]
+        let newlineCount = max(1, gap.reduce(into: 0) { count, character in
+            if character == "\n" {
+                count += 1
+            }
+        })
+        result.append(NSAttributedString(string: String(repeating: "\n", count: newlineCount)))
+    }
+
+    private enum InlineStyle {
+        case body
+        case blockquote
+        case heading(level: Int)
+    }
+
+    private func inlineAttributedString(
+        in range: Range<Int>,
+        style: InlineStyle,
+        document: MarkdownDocument
+    ) -> NSAttributedString {
+        let presentation = document.inlinePresentation(in: range)
+        let attributed = NSMutableAttributedString(
+            string: presentation.text,
+            attributes: baseAttributes(for: style)
+        )
+
+        let fonts = inlineFonts(for: style)
+        let codeFont = NSFont(name: "IBMPlexMono-Regular", size: 12)
+            ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+
+        for span in presentation.spans {
+            let nsRange = NSRange(location: span.range.lowerBound, length: span.range.upperBound - span.range.lowerBound)
+            guard nsRange.location != NSNotFound,
+                  nsRange.location + nsRange.length <= attributed.length else {
+                continue
+            }
+
+            switch span.kind {
+            case .bold:
+                attributed.addAttribute(.font, value: fonts.bold, range: nsRange)
+            case .italic:
+                attributed.addAttribute(.font, value: fonts.italic, range: nsRange)
+            case .boldItalic:
+                attributed.addAttribute(.font, value: fonts.boldItalic, range: nsRange)
+            case .strikethrough:
+                attributed.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: nsRange)
+            case .inlineCode:
+                attributed.addAttribute(.font, value: codeFont, range: nsRange)
+                attributed.addAttribute(
+                    .backgroundColor,
+                    value: NSColor.windowBackgroundColor.withAlphaComponent(0.5),
+                    range: nsRange
+                )
+            case .wikiLink(let title):
+                if let url = wikiLinkURL(for: title) {
+                    attributed.addAttribute(.link, value: url, range: nsRange)
+                }
+                attributed.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: nsRange)
+                attributed.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: nsRange)
+            case .link(let urlString):
+                if let url = URL(string: urlString) {
+                    attributed.addAttribute(.link, value: url, range: nsRange)
+                }
+                attributed.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: nsRange)
+                attributed.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: nsRange)
+            }
+        }
+
+        return attributed
+    }
+
+    private func listItemAttributedString(
+        _ item: MarkdownDocument.ListItem,
+        document: MarkdownDocument
+    ) -> NSAttributedString {
+        let bulletIndent = CGFloat(item.indentation / 2) * 12
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineSpacing = 4
+        paragraphStyle.paragraphSpacing = 4
+        paragraphStyle.firstLineHeadIndent = bulletIndent
+        paragraphStyle.headIndent = bulletIndent + 14
+
+        let prefix = NSAttributedString(
+            string: "\u{2022} ",
+            attributes: [
+                .font: NSFont(name: "IBMPlexSans-Regular", size: 13)
+                    ?? NSFont.systemFont(ofSize: 13),
+                .foregroundColor: NSColor.secondaryLabelColor,
+                .paragraphStyle: paragraphStyle
+            ]
+        )
+        let content = NSMutableAttributedString(
+            attributedString: inlineAttributedString(
+                in: item.contentRange,
+                style: .body,
+                document: document
+            )
+        )
+        content.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: 0, length: content.length))
+
+        let result = NSMutableAttributedString(attributedString: prefix)
+        result.append(content)
+        return result
+    }
+
+    private func codeBlockAttributedString(
+        _ codeBlock: MarkdownDocument.CodeBlock,
+        document: MarkdownDocument
+    ) -> NSAttributedString {
+        let codeFont = NSFont(name: "IBMPlexMono-Regular", size: 12)
+            ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineSpacing = 2
+        paragraphStyle.paragraphSpacingBefore = 8
+        paragraphStyle.paragraphSpacing = 8
+
+        let content = codeBlock.contentRange.map(document.text(in:)) ?? ""
+        return NSAttributedString(
+            string: content,
+            attributes: [
+                .font: codeFont,
+                .foregroundColor: NSColor.textColor,
+                .paragraphStyle: paragraphStyle,
+                .backgroundColor: NSColor.windowBackgroundColor.withAlphaComponent(0.5)
+            ]
+        )
+    }
+
+    private func baseAttributes(for style: InlineStyle) -> [NSAttributedString.Key: Any] {
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineSpacing = 4
+
+        switch style {
+        case .body:
+            paragraphStyle.paragraphSpacing = 8
+            return [
+                .font: inlineFonts(for: style).regular,
+                .foregroundColor: NSColor.textColor,
+                .paragraphStyle: paragraphStyle
+            ]
+
+        case .blockquote:
+            paragraphStyle.paragraphSpacing = 4
+            paragraphStyle.firstLineHeadIndent = 16
+            paragraphStyle.headIndent = 16
+            return [
+                .font: inlineFonts(for: style).regular,
+                .foregroundColor: NSColor.secondaryLabelColor,
+                .paragraphStyle: paragraphStyle
+            ]
+
+        case .heading(let level):
+            paragraphStyle.paragraphSpacingBefore = level == 1 ? 12 : 8
+            paragraphStyle.paragraphSpacing = 4
+            return [
+                .font: inlineFonts(for: style).regular,
+                .foregroundColor: NSColor.textColor,
+                .paragraphStyle: paragraphStyle
+            ]
+        }
+    }
+
+    private func inlineFonts(for style: InlineStyle) -> (regular: NSFont, bold: NSFont, italic: NSFont, boldItalic: NSFont) {
+        let regular: NSFont
+        let bold: NSFont
+
+        switch style {
+        case .body, .blockquote:
+            regular = NSFont(name: "IBMPlexSans-Regular", size: 13)
+                ?? NSFont.systemFont(ofSize: 13)
+            bold = NSFont(name: "IBMPlexSans-Medium", size: 13)
+                ?? NSFont.boldSystemFont(ofSize: 13)
+
+        case .heading(let level):
+            let size: CGFloat
+            switch level {
+            case 1:
+                size = 22
+            case 2:
+                size = 18
+            case 3:
+                size = 16
+            default:
+                size = 14
+            }
+            regular = NSFont(name: "Newsreader-Medium", size: size)
+                ?? NSFont.systemFont(ofSize: size, weight: .semibold)
+            bold = NSFont(name: "Newsreader-SemiBold", size: size)
+                ?? NSFont.systemFont(ofSize: size, weight: .bold)
+        }
+
+        let italic = NSFont(descriptor: regular.fontDescriptor.withSymbolicTraits(.italic), size: regular.pointSize) ?? regular
+        let boldItalic = NSFont(descriptor: bold.fontDescriptor.withSymbolicTraits(.italic), size: bold.pointSize) ?? bold
+        return (regular, bold, italic, boldItalic)
+    }
+
+    private func wikiLinkURL(for title: String) -> URL? {
+        var components = URLComponents()
+        components.scheme = "grove-wikilink"
+        components.host = "item"
+        components.queryItems = [URLQueryItem(name: "title", value: title)]
+        return components.url
     }
 
     class Coordinator: NSObject, NSTextViewDelegate {

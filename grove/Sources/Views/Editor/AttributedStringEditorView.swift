@@ -12,6 +12,8 @@ struct AttributedStringEditorView: View {
     var sourceItem: Item?
     var proseMode: Bool = false
     var minHeight: CGFloat = 80
+    var showsToolbar: Bool = true
+    var editorProxy: MarkdownEditingProxy? = nil
 
     @Environment(\.modelContext) private var modelContext
     @Query private var allItems: [Item]
@@ -19,7 +21,6 @@ struct AttributedStringEditorView: View {
     @State private var attributedText: AttributedString = AttributedString()
     @State private var selection = AttributedTextSelection()
     @State private var suppressAttributedUpdates = false
-    @State private var serializationTask: Task<Void, Never>?
 
     // Wiki-link autocomplete
     @State private var showWikiPopover = false
@@ -40,7 +41,7 @@ struct AttributedStringEditorView: View {
     }
 
     private var plainText: String {
-        String(attributedText.characters)
+        converter.markdown(from: attributedText)
     }
 
     private var wordCountLabel: String {
@@ -51,6 +52,7 @@ struct AttributedStringEditorView: View {
     var body: some View {
         editorContent
             .onAppear {
+                registerEditingProxy()
                 reloadFromMarkdown(markdownText, preserveSelection: false)
             }
             .onChange(of: markdownText) { _, newValue in
@@ -60,17 +62,19 @@ struct AttributedStringEditorView: View {
             .onChange(of: attributedText) { _, _ in
                 guard !suppressAttributedUpdates else { return }
                 detectWikiLink()
-                scheduleSerializeToMarkdown()
+                syncAttributedTextToMarkdown()
             }
             .animation(nil, value: showWikiPopover)
             .onDisappear {
-                serializationTask?.cancel()
+                editorProxy?.clear()
             }
     }
 
     @ViewBuilder
     private var editorContent: some View {
-        if proseMode {
+        if !showsToolbar {
+            bareLayout
+        } else if proseMode {
             proseLayout
         } else {
             standardLayout
@@ -135,6 +139,33 @@ struct AttributedStringEditorView: View {
         }
     }
 
+    private var bareLayout: some View {
+        VStack(spacing: 0) {
+            editorSurface
+
+            if showWikiPopover {
+                wikiLinkDropdown
+                    .padding(.horizontal, proseMode ? 40 : 0)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var editorSurface: some View {
+        if proseMode {
+            editorField
+                .lineSpacing(8)
+                .padding(.horizontal, 32)
+                .padding(.vertical, 16)
+                .frame(minHeight: minHeight)
+        } else {
+            editorField
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
+                .frame(minHeight: minHeight)
+        }
+    }
+
     private var editorField: some View {
         TextEditor(text: $attributedText, selection: $selection)
             .font(formatting.bodyFont)
@@ -148,15 +179,15 @@ struct AttributedStringEditorView: View {
 
     // MARK: - Sync
 
-    private func scheduleSerializeToMarkdown() {
-        serializationTask?.cancel()
+    private func syncAttributedTextToMarkdown() {
         let latest = plainText
-        serializationTask = Task { @MainActor [latest] in
-            try? await Task.sleep(for: .milliseconds(120))
-            guard !Task.isCancelled else { return }
-            guard markdownText != latest else { return }
+        let targetSelection = currentSelectionOffsets(in: attributedText)
+
+        if markdownText != latest {
             markdownText = latest
         }
+
+        reloadFromMarkdown(latest, preserveSelection: false, preferredSelection: targetSelection)
     }
 
     private func reloadFromMarkdown(
@@ -182,13 +213,45 @@ struct AttributedStringEditorView: View {
     }
 
     private func commitMarkdown(_ markdown: String, selection targetSelection: SelectionOffsets) {
-        serializationTask?.cancel()
-
         if markdownText != markdown {
             markdownText = markdown
         }
 
         reloadFromMarkdown(markdown, preserveSelection: false, preferredSelection: targetSelection)
+    }
+
+    private func registerEditingProxy() {
+        editorProxy?.update(
+            .init(
+                wrapSelection: { prefix, suffix in
+                    wrapSelection(prefix: prefix, suffix: suffix)
+                },
+                insertPrefix: { prefix in
+                    insertPrefixAtCurrentLine(prefix)
+                },
+                insertText: { snippet, cursorOffset in
+                    insertSnippet(snippet, cursorOffset: cursorOffset)
+                },
+                setHeading: { level in
+                    setHeading(level: level)
+                },
+                toggleBlockQuote: {
+                    toggleBlockQuote()
+                },
+                toggleListItem: {
+                    toggleListItem()
+                },
+                insertLink: {
+                    insertLink()
+                },
+                insertWikiLink: {
+                    insertWikiLinkSyntax()
+                },
+                replaceActiveWikiQuery: { title in
+                    replaceActiveWikiQuery(with: title)
+                }
+            )
+        )
     }
 
     // MARK: - Formatting Toolbar
@@ -374,6 +437,17 @@ struct AttributedStringEditorView: View {
             let clamped = min(max(proposed, minCaret), maxCaret)
             selection.start = clamped
             selection.end = clamped
+        }
+    }
+
+    private func insertPrefixAtCurrentLine(_ prefix: String) {
+        mutateMarkdown { markdown, selection in
+            let lineOffsets = selectedLineOffsets(in: markdown, selection: selection)
+            let lineStart = markdownIndex(in: markdown, offset: lineOffsets.lowerBound)
+            markdown.replaceSubrange(lineStart..<lineStart, with: prefix)
+
+            selection.start += prefix.count
+            selection.end += prefix.count
         }
     }
 
@@ -682,6 +756,18 @@ struct AttributedStringEditorView: View {
                 _ = viewModel.createConnection(source: sourceItem, target: target, type: .related)
             }
         }
+    }
+
+    private func replaceActiveWikiQuery(with title: String) {
+        var markdown = plainText
+        let replacement = "[[\(title)]]"
+        let replacementOffsets = wikiReplacementOffsets ?? (markdown.count..<markdown.count)
+        let lower = markdownIndex(in: markdown, offset: replacementOffsets.lowerBound)
+        let upper = markdownIndex(in: markdown, offset: replacementOffsets.upperBound)
+        markdown.replaceSubrange(lower..<upper, with: replacement)
+        let caret = replacementOffsets.lowerBound + replacement.count
+        closeWikiPopover()
+        commitMarkdown(markdown, selection: SelectionOffsets(start: caret, end: caret))
     }
 
     private struct SelectionOffsets: Equatable {

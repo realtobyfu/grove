@@ -43,6 +43,17 @@ struct GroveFormattingDefinition {
     func applyPresentation(to attributedString: inout AttributedString) {
         for run in attributedString.runs {
             let range = run.range
+            attributedString[range].font = bodyFont
+            attributedString[range].foregroundColor = Color.textPrimary
+            attributedString[range].backgroundColor = nil
+            attributedString[range].underlineStyle = nil
+            attributedString[range].strikethroughStyle = nil
+
+            if run.markdownMarker == true {
+                attributedString[range].font = bodyFont
+                attributedString[range].foregroundColor = Color.textTertiary
+                continue
+            }
 
             // Heading
             if let level = run.headingLevel {
