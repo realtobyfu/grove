@@ -65,6 +65,7 @@ DerivedData/
 ### Tuist derived files ###
 graph.dot
 Derived/
+.derived/
 
 ### Tuist managed dependencies ###
 Tuist/.build
@@ -91,3 +92,4 @@ prd.json
 Secrets.swift
 
 old-context/
+.claude/

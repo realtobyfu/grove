@@ -1,0 +1,62 @@
+{
+  "appPolicies": {
+    "eula": "",
+    "policies": []
+  },
+  "identifier": "5C60487E-44CE-4FD0-9DD9-CFC241A90A7E",
+  "nonRenewingSubscriptions": [],
+  "products": [],
+  "settings": {
+    "_applicationInternalID": "1234567890",
+    "_developerTeamID": "679K683SQ5",
+    "_disableDialogs": false,
+    "_failTransactionsEnabled": false,
+    "_locale": "en_US",
+    "_storefront": "USA",
+    "_timeRate": 0
+  },
+  "subscriptionGroups": [
+    {
+      "id": "3A8AE31E-8120-4C95-A89A-DBA95F2DF108",
+      "localizations": [
+        {
+          "locale": "en_US",
+          "name": "Grove Pro"
+        }
+      ],
+      "name": "Grove Pro",
+      "subscriptions": [
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "39.99",
+          "familyShareable": false,
+          "groupNumber": 1,
+          "internalID": "300001",
+          "introductoryOffer": {
+            "internalID": "300001-intro",
+            "numberOfPeriods": 1,
+            "paymentMode": "free",
+            "subscriptionPeriod": "P2W"
+          },
+          "localizations": [
+            {
+              "description": "Unlock the full Grove toolkit with annual billing.",
+              "displayName": "Grove Pro Annual",
+              "locale": "en_US"
+            }
+          ],
+          "productID": "dev.tuist.grove.pro.annual",
+          "recurringSubscriptionPeriod": "P1Y",
+          "referenceName": "Grove Pro Annual",
+          "subscriptionGroupID": "3A8AE31E-8120-4C95-A89A-DBA95F2DF108",
+          "type": "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version": {
+    "major": 3,
+    "minor": 0
+  }
+}
