@@ -92,7 +92,7 @@ struct CoachMarkOverlay: View {
             onAction: {
                 NotificationCenter.default.post(
                     name: .groveCoachMarkPrefill,
-                    object: "https://steve-yegge.medium.com/welcome-to-gas-town-4f25ee16dd04"
+                    object: "https://aeon.co/essays/how-the-frankfurt-school-diagnosed-the-ills-of-western-civilisation"
                 )
             },
             onSkip: { coachMarks.skipStep() }

@@ -234,6 +234,13 @@ struct RichMarkdownEditor: View {
     }
 
     private func handleWikiTrigger(_ searchText: String?) {
+        Task { @MainActor in
+            applyWikiTrigger(searchText)
+        }
+    }
+
+    @MainActor
+    private func applyWikiTrigger(_ searchText: String?) {
         if let searchText {
             if wikiSearchText != searchText {
                 wikiSearchText = searchText

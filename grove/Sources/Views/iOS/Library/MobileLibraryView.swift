@@ -94,8 +94,8 @@ struct MobileLibraryView: View {
             }
         }
         .listStyle(.plain)
-        .navigationDestination(for: Item.self) { item in
-            MobileItemReaderView(item: item)
+        .navigationDestination(for: MobileItemRoute.self) { route in
+            MobileItemRouteDestinationView(route: route)
         }
     }
 
@@ -161,7 +161,7 @@ struct MobileLibraryView: View {
             }
             .buttonStyle(.plain)
         } else {
-            NavigationLink(value: item) {
+            NavigationLink(value: MobileItemRoute(id: item.id)) {
                 content()
             }
         }

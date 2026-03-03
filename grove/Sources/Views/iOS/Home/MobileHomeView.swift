@@ -65,8 +65,8 @@ struct MobileHomeView: View {
         }
         .listStyle(.plain)
         .navigationTitle("Home")
-        .navigationDestination(for: Item.self) { item in
-            MobileItemReaderView(item: item)
+        .navigationDestination(for: MobileItemRoute.self) { route in
+            MobileItemRouteDestinationView(route: route)
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -403,7 +403,7 @@ struct MobileHomeView: View {
             }
             .buttonStyle(.plain)
         } else {
-            NavigationLink(value: item) {
+            NavigationLink(value: MobileItemRoute(id: item.id)) {
                 content()
             }
             .buttonStyle(.plain)

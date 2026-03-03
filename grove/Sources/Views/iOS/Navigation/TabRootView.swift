@@ -21,7 +21,7 @@ struct TabRootView: View {
     @State private var showSearchSheet = false
     @State private var searchInitialQuery: String?
     @State private var deepLinkedConversationID: UUID?
-    @State private var deepLinkedItem: Item?
+    @State private var deepLinkedItemRoute: MobileItemRoute?
     @State private var writeSheetSession: WriteSheetSession?
 
     // Board suggestion state
@@ -229,9 +229,9 @@ struct TabRootView: View {
                 writeSheetSession = nil
             }
         }
-        .sheet(item: $deepLinkedItem) { item in
+        .sheet(item: $deepLinkedItemRoute) { route in
             NavigationStack {
-                MobileItemReaderView(item: item)
+                MobileItemRouteDestinationView(route: route)
             }
         }
     }
@@ -324,7 +324,7 @@ struct TabRootView: View {
         switch intent {
         case .item(let itemID):
             selectedTab = .home
-            deepLinkedItem = fetchItem(id: itemID)
+            deepLinkedItemRoute = MobileItemRoute(id: itemID)
 
         case .board(let boardID):
             if boards.contains(where: { $0.id == boardID }) {
@@ -347,11 +347,6 @@ struct TabRootView: View {
             searchInitialQuery = query
             showSearchSheet = true
         }
-    }
-
-    private func fetchItem(id: UUID) -> Item? {
-        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == id })
-        return try? modelContext.fetch(descriptor).first
     }
 
     private func presentWriteSheet(prompt: String? = nil, editingItem: Item? = nil) {

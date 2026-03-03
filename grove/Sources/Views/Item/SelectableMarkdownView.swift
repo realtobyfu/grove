@@ -27,6 +27,8 @@ private struct SelectableMarkdownRepresentable: NSViewRepresentable {
         scrollView.hasHorizontalScroller = false
         scrollView.drawsBackground = false
         scrollView.autohidesScrollers = true
+        scrollView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        scrollView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         let textView = NSTextView()
         textView.isEditable = false
@@ -34,17 +36,21 @@ private struct SelectableMarkdownRepresentable: NSViewRepresentable {
         textView.drawsBackground = false
         textView.isRichText = true
         textView.textContainerInset = NSSize(width: 0, height: 0)
+        textView.minSize = .zero
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.lineFragmentPadding = 0
-        textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         textView.delegate = context.coordinator
 
         scrollView.documentView = textView
         scrollView.borderType = .noBorder
 
         updateTextView(textView)
+        updateLayout(of: textView, in: scrollView, proposedWidth: nil)
         return scrollView
     }
 
@@ -53,6 +59,7 @@ private struct SelectableMarkdownRepresentable: NSViewRepresentable {
         context.coordinator.onSelectText = onSelectText
         textView.delegate = nil
         updateTextView(textView)
+        updateLayout(of: textView, in: scrollView, proposedWidth: nil)
         textView.delegate = context.coordinator
     }
 
@@ -61,7 +68,7 @@ private struct SelectableMarkdownRepresentable: NSViewRepresentable {
               let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer,
               textView.textStorage?.length ?? 0 > 0 else { return nil }
-        let width = proposal.width ?? 400
+        guard let width = resolvedWidth(for: proposal, in: nsView) else { return nil }
         textView.frame.size.width = width
         textContainer.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
         layoutManager.ensureLayout(for: textContainer)
@@ -69,6 +76,34 @@ private struct SelectableMarkdownRepresentable: NSViewRepresentable {
         let usedRect = layoutManager.usedRect(for: textContainer)
         let height = ceil(usedRect.height + (textView.textContainerInset.height * 2))
         return CGSize(width: width, height: max(height, 1))
+    }
+
+    private func resolvedWidth(for proposal: ProposedViewSize, in scrollView: NSScrollView) -> CGFloat? {
+        sanitizedWidth(proposal.width)
+            ?? sanitizedWidth(scrollView.contentView.bounds.width)
+            ?? sanitizedWidth(scrollView.bounds.width)
+    }
+
+    private func sanitizedWidth(_ width: CGFloat?) -> CGFloat? {
+        guard let width, width.isFinite, width > 0 else { return nil }
+        return width
+    }
+
+    private func updateLayout(of textView: NSTextView, in scrollView: NSScrollView, proposedWidth: CGFloat?) {
+        let width = proposedWidth ?? resolvedWidth(for: ProposedViewSize(width: nil, height: nil), in: scrollView)
+        guard let width, width > 0 else { return }
+
+        if abs(textView.frame.width - width) > 0.5 {
+            textView.frame.size.width = width
+        }
+
+        if textView.textContainer?.containerSize.width != width {
+            textView.textContainer?.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+        }
+
+        if let textContainer = textView.textContainer {
+            textView.layoutManager?.ensureLayout(for: textContainer)
+        }
     }
 
     private func updateTextView(_ textView: NSTextView) {
@@ -83,7 +118,7 @@ private struct SelectableMarkdownRepresentable: NSViewRepresentable {
         for (index, block) in document.blocks.enumerated() {
             result.append(attributedString(for: block, in: document))
 
-            if let nextBlock = document.blocks.dropFirst(index).first {
+            if let nextBlock = document.blocks.dropFirst(index + 1).first {
                 appendSeparator(
                     from: block.range.upperBound,
                     to: nextBlock.range.lowerBound,

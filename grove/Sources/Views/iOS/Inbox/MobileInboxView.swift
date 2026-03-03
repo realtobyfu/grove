@@ -30,8 +30,8 @@ struct MobileInboxView: View {
             }
         }
         .navigationTitle("Inbox")
-        .navigationDestination(for: Item.self) { item in
-            MobileItemReaderView(item: item)
+        .navigationDestination(for: MobileItemRoute.self) { route in
+            MobileItemRouteDestinationView(route: route)
         }
         .sheet(isPresented: $showBoardPicker) {
             boardPickerSheet
@@ -197,7 +197,7 @@ struct MobileInboxView: View {
             }
             .buttonStyle(.plain)
         } else {
-            NavigationLink(value: item) {
+            NavigationLink(value: MobileItemRoute(id: item.id)) {
                 content()
             }
             .buttonStyle(.plain)

@@ -122,8 +122,8 @@ struct MobileBoardDetailView: View {
             }
         }
         .navigationTitle(board.title)
-        .navigationDestination(for: Item.self) { item in
-            MobileItemReaderView(item: item)
+        .navigationDestination(for: MobileItemRoute.self) { route in
+            MobileItemRouteDestinationView(route: route)
         }
         .toolbar {
             toolbarCluster
@@ -270,7 +270,7 @@ struct MobileBoardDetailView: View {
             ScrollView {
                 LazyVGrid(columns: compactColumns, spacing: Spacing.md) {
                     ForEach(sortedFilteredItems) { item in
-                        NavigationLink(value: item) {
+                        NavigationLink(value: MobileItemRoute(id: item.id)) {
                             compactItemCard(for: item)
                         }
                         .buttonStyle(.plain)

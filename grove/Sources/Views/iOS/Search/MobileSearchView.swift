@@ -11,7 +11,7 @@ struct MobileSearchView: View {
     @State private var searchVM: SearchViewModel?
     @State private var searchText = ""
     @State private var filterType: SearchResultType?
-    @State private var navigateToItem: Item?
+    @State private var navigateToItemRoute: MobileItemRoute?
     @State private var navigateToBoard: Board?
 
     /// Optional board scope — when set, shows a removable chip and restricts results.
@@ -51,8 +51,8 @@ struct MobileSearchView: View {
                     Button("Cancel") { dismiss() }
                 }
             }
-            .navigationDestination(item: $navigateToItem) { item in
-                MobileItemReaderView(item: item)
+            .navigationDestination(item: $navigateToItemRoute) { route in
+                MobileItemRouteDestinationView(route: route)
             }
             .navigationDestination(item: $navigateToBoard) { board in
                 MobileBoardDetailView(board: board)
@@ -210,7 +210,7 @@ struct MobileSearchView: View {
         switch result.type {
         case .item, .reflection:
             if let item = result.item {
-                navigateToItem = item
+                navigateToItemRoute = MobileItemRoute(id: item.id)
             }
         case .board:
             if let board = result.board {
@@ -223,7 +223,7 @@ struct MobileSearchView: View {
             }
 
             if let mostRecentTaggedItem = tag.items.max(by: { $0.updatedAt < $1.updatedAt }) {
-                navigateToItem = mostRecentTaggedItem
+                navigateToItemRoute = MobileItemRoute(id: mostRecentTaggedItem.id)
             } else {
                 searchText = tag.name
                 searchVM?.updateQuery(tag.name)
