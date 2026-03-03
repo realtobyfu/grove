@@ -289,41 +289,34 @@ struct ContentView: View {
 
     // MARK: - Panels
 
-    private func draggableDivider(width: Binding<CGFloat>, min minWidth: CGFloat, max maxWidth: CGFloat) -> some View {
-        Rectangle()
-            .fill(Color.borderPrimary)
-            .frame(width: 1)
-            .overlay {
-                Rectangle()
-                    .fill(Color.clear)
-                    .frame(width: 9)
-                    .contentShape(Rectangle())
-                    #if os(macOS)
-                    .onHover { hovering in
-                        if hovering {
-                            NSCursor.resizeLeftRight.push()
-                        } else {
-                            NSCursor.pop()
-                        }
-                    }
-                    .gesture(
-                        DragGesture(coordinateSpace: .global)
-                            .onChanged { value in
-                                if let window = NSApp.keyWindow {
-                                    let newWidth = window.frame.width - value.location.x
-                                    width.wrappedValue = Swift.min(Swift.max(newWidth, minWidth), maxWidth)
-                                }
-                            }
-                    )
-                    #endif
-            }
+    private func clampedWidth(_ width: CGFloat, min minWidth: CGFloat, max maxWidth: CGFloat) -> CGFloat {
+        Swift.min(Swift.max(width, minWidth), maxWidth)
+    }
+
+    private func clampedWidthBinding(
+        _ width: Binding<CGFloat>,
+        min minWidth: CGFloat,
+        max maxWidth: CGFloat
+    ) -> Binding<CGFloat> {
+        Binding(
+            get: { clampedWidth(width.wrappedValue, min: minWidth, max: maxWidth) },
+            set: { width.wrappedValue = $0 }
+        )
     }
 
     @ViewBuilder
     private var writePanelSection: some View {
         if viewModel.showWritePanel {
             @Bindable var vm = viewModel
-            draggableDivider(width: $vm.writePanelWidth, min: 360, max: 700)
+            let widthBinding = clampedWidthBinding($vm.writePanelWidth, min: 360, max: 700)
+            ResizableTrailingDivider(
+                width: widthBinding,
+                minWidth: 360,
+                maxWidth: 700,
+                onCollapse: { viewModel.showWritePanel = false }
+            ) { width in
+                LayoutSettings.setWidth(width, for: .contentWrite)
+            }
             NoteWriterPanelView(
                 isPresented: $vm.showWritePanel,
                 currentBoardID: currentBoardID,
@@ -335,7 +328,7 @@ struct ContentView: View {
                 viewModel.writePanelEditItem = nil
                 viewModel.selectedItem = note
             }
-            .frame(width: viewModel.writePanelWidth)
+            .frame(width: widthBinding.wrappedValue)
             .transition(.move(edge: .trailing))
             .onChange(of: viewModel.showWritePanel) {
                 if !viewModel.showWritePanel {
@@ -350,7 +343,15 @@ struct ContentView: View {
     private var sidePanel: some View {
         if viewModel.showChatPanel {
             @Bindable var vm = viewModel
-            draggableDivider(width: $vm.chatPanelWidth, min: 300, max: .infinity)
+            let widthBinding = clampedWidthBinding($vm.chatPanelWidth, min: 300, max: .greatestFiniteMagnitude)
+            ResizableTrailingDivider(
+                width: widthBinding,
+                minWidth: 300,
+                maxWidth: .greatestFiniteMagnitude,
+                onCollapse: { viewModel.showChatPanel = false }
+            ) { width in
+                LayoutSettings.setWidth(width, for: .contentChat)
+            }
             DialecticalChatPanel(
                 selectedConversation: $vm.selectedConversation,
                 isVisible: $vm.showChatPanel,
@@ -360,18 +361,26 @@ struct ContentView: View {
                     viewModel.openedItem = item
                 }
             )
-            .frame(width: viewModel.chatPanelWidth)
+            .frame(width: widthBinding.wrappedValue)
             .transition(.move(edge: .trailing))
         } else if viewModel.isInspectorVisible {
             @Bindable var vm = viewModel
-            draggableDivider(width: $vm.inspectorWidth, min: 300, max: 520)
+            let widthBinding = clampedWidthBinding($vm.inspectorWidth, min: 300, max: 520)
+            ResizableTrailingDivider(
+                width: widthBinding,
+                minWidth: 300,
+                maxWidth: 520,
+                onCollapse: { viewModel.inspectorUserOverride = false }
+            ) { width in
+                LayoutSettings.setWidth(width, for: .contentInspector)
+            }
             if let inspectorItem = viewModel.selectedItem ?? viewModel.openedItem {
                 InspectorPanelView(item: inspectorItem)
-                    .frame(width: viewModel.inspectorWidth)
+                    .frame(width: widthBinding.wrappedValue)
                     .transition(.move(edge: .trailing))
             } else {
                 InspectorEmptyView()
-                    .frame(width: viewModel.inspectorWidth)
+                    .frame(width: widthBinding.wrappedValue)
                     .transition(.move(edge: .trailing))
             }
         }

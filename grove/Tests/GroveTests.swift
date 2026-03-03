@@ -3,6 +3,10 @@ import SwiftData
 import Testing
 @testable import grove
 
+private final class FocusEventRecorder: @unchecked Sendable {
+    var events: [Notification.Name] = []
+}
+
 struct GroveTests {
     @MainActor
     @Test func entitlementServiceDefaultsToFreeTier() {
@@ -253,6 +257,46 @@ struct GroveTests {
         #expect(visible.map(\.id) == [replied.id])
     }
 
+    @MainActor
+    @Test func reflectionToolbarToggleClosesEditorThroughSaveAndExitPath() throws {
+        let context = try makeInMemoryModelContext()
+        let item = Item(title: "StringBuilder", type: .article)
+        context.insert(item)
+
+        let viewModel = ItemReaderViewModel(item: item, modelContext: context)
+        let center = NotificationCenter.default
+        let focusEventRecorder = FocusEventRecorder()
+
+        let enterObserver = center.addObserver(forName: .groveEnterFocusMode, object: nil, queue: nil) { _ in
+            focusEventRecorder.events.append(.groveEnterFocusMode)
+        }
+        let exitObserver = center.addObserver(forName: .groveExitFocusMode, object: nil, queue: nil) { _ in
+            focusEventRecorder.events.append(.groveExitFocusMode)
+        }
+
+        defer {
+            center.removeObserver(enterObserver)
+            center.removeObserver(exitObserver)
+        }
+
+        viewModel.toggleReflectionEditor { }
+        #expect(viewModel.showReflectionEditor)
+
+        guard let block = viewModel.editingBlock else {
+            Issue.record("Expected a reflection block to be opened for editing")
+            return
+        }
+
+        block.content = "LLMs use a Rust graph runtime."
+        viewModel.toggleReflectionEditor { }
+
+        #expect(!viewModel.showReflectionEditor)
+        #expect(viewModel.editingBlock == nil)
+        #expect(item.reflections.count == 1)
+        #expect(item.reflections.first?.content == "LLMs use a Rust graph runtime.")
+        #expect(focusEventRecorder.events == [.groveEnterFocusMode, .groveExitFocusMode])
+    }
+
     @Test func readLaterTomorrowMorningPresetSchedulesAtNineAM() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
@@ -461,20 +505,13 @@ struct GroveTests {
 
     @MainActor
     private func makeInMemoryModelContext() throws -> ModelContext {
-        let schema = Schema([
-            Item.self,
-            Board.self,
-            Tag.self,
-            Connection.self,
-            Annotation.self,
-            ReflectionBlock.self,
-            Nudge.self,
-            Course.self,
-            Conversation.self,
-            ChatMessage.self,
-        ])
-
-        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let schema = SharedModelContainer.schema
+        let config = ModelConfiguration(
+            "Tests",
+            schema: schema,
+            isStoredInMemoryOnly: true,
+            cloudKitDatabase: .none
+        )
         let container = try ModelContainer(for: schema, configurations: [config])
         return ModelContext(container)
     }

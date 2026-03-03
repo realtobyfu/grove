@@ -5,6 +5,7 @@ import AVKit
 struct ItemReaderView: View {
     @Bindable var item: Item
     @Binding var isWebViewActive: Bool
+    var alwaysShowReflectionPanel: Bool = false
     var onNavigateToItem: ((Item) -> Void)?
     @Environment(\.modelContext) private var modelContext
 
@@ -13,7 +14,7 @@ struct ItemReaderView: View {
 
     // Pure UI state (stays in the View)
     @State private var draggingBlock: ReflectionBlock?
-    @State private var reflectionPanelWidth: CGFloat = 0
+    @State private var reflectionPanelWidth: CGFloat? = LayoutSettings.width(for: .readerReflections)
     @State private var showItemExportSheet = false
     @State private var showDeleteConfirmation = false
     @FocusState private var isNewReflectionFocused: Bool
@@ -28,7 +29,7 @@ struct ItemReaderView: View {
     var body: some View {
         let vm = viewModel
         ZStack(alignment: .topTrailing) {
-            if (!vm.sortedReflections.isEmpty || vm.showReflectionEditor) && !vm.isReflectionPanelCollapsed {
+            if shouldShowSplitLayout(vm) {
                 splitLayout(vm: vm)
             } else if vm.showArticleWebView, let url = vm.articleURL {
                 ItemReaderWebViewPanel(vm: vm, url: url, focusTrigger: focusReflectionEditor)
@@ -42,7 +43,7 @@ struct ItemReaderView: View {
             vm.backfillThumbnailIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: .groveOpenReflectMode)) { _ in
-            vm.openReflectionEditor(type: .keyInsight, content: "", highlight: nil, focusTrigger: focusReflectionEditor)
+            vm.toggleReflectionEditor(focusTrigger: focusReflectionEditor)
         }
         .onChange(of: item.id) {
             vm.resetOnItemChange()
@@ -73,6 +74,11 @@ struct ItemReaderView: View {
         }
     }
 
+    private func shouldShowSplitLayout(_ vm: ItemReaderViewModel) -> Bool {
+        let panelIsNeeded = alwaysShowReflectionPanel || !vm.sortedReflections.isEmpty || vm.showReflectionEditor
+        return panelIsNeeded && !vm.isReflectionPanelCollapsed
+    }
+
     // MARK: - Split Layout (Modes B and C)
 
     @ViewBuilder
@@ -80,8 +86,12 @@ struct ItemReaderView: View {
         GeometryReader { geo in
             let minPanel: CGFloat = 280
             let maxPanel = max(minPanel, geo.size.width * 0.72)
-            let effectiveWidth = reflectionPanelWidth > 0 ? reflectionPanelWidth : geo.size.width * 0.45
-            let clampedWidth = min(max(effectiveWidth, minPanel), maxPanel)
+            let storedOrDefaultWidth = reflectionPanelWidth ?? geo.size.width * 0.45
+            let clampedWidth = min(max(storedOrDefaultWidth, minPanel), maxPanel)
+            let panelWidthBinding = Binding(
+                get: { clampedWidth },
+                set: { reflectionPanelWidth = $0 }
+            )
 
             HStack(spacing: 0) {
                 // Left: article WebView OR scrollable content
@@ -103,27 +113,19 @@ struct ItemReaderView: View {
                 .background(Color.bgPrimary)
 
                 // Draggable divider
-                Rectangle()
-                    .fill(Color.borderPrimary)
-                    .frame(width: 1)
-                    .overlay {
-                        Rectangle()
-                            .fill(Color.clear)
-                            .frame(width: 9)
-                            .contentShape(Rectangle())
-                            .onHover { hovering in
-                                #if os(macOS)
-                                hovering ? NSCursor.resizeLeftRight.push() : NSCursor.pop()
-                                #endif
-                            }
-                            .gesture(
-                                DragGesture(coordinateSpace: .global)
-                                    .onChanged { value in
-                                        let newWidth = geo.size.width - value.location.x
-                                        reflectionPanelWidth = min(max(newWidth, minPanel), maxPanel)
-                                    }
-                            )
+                ResizableTrailingDivider(
+                    width: panelWidthBinding,
+                    minWidth: minPanel,
+                    maxWidth: maxPanel,
+                    onCollapse: {
+                        if vm.showReflectionEditor {
+                            vm.closeReflectionEditor()
+                        }
+                        vm.isReflectionPanelCollapsed = true
                     }
+                ) { width in
+                    LayoutSettings.setWidth(width, for: .readerReflections)
+                }
 
                 // Right: swap between reflections list (Mode B) and editor (Mode C)
                 Group {
@@ -142,7 +144,7 @@ struct ItemReaderView: View {
                     }
                 }
                 .animation(.easeOut(duration: 0.25), value: vm.showReflectionEditor)
-                .frame(width: clampedWidth)
+                .frame(width: panelWidthBinding.wrappedValue)
                 .frame(maxHeight: .infinity)
                 .background(Color.bgPrimary)
             }

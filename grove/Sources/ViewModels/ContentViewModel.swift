@@ -17,10 +17,10 @@ final class ContentViewModel {
     var showWritePanel = false
     var writePanelPrompt: String?
     var writePanelEditItem: Item?
-    var writePanelWidth: CGFloat = 480
+    var writePanelWidth: CGFloat = LayoutSettings.width(for: .contentWrite) ?? 480
     var showChatPanel = false
-    var chatPanelWidth: CGFloat = 380
-    var inspectorWidth: CGFloat = 360
+    var chatPanelWidth: CGFloat = LayoutSettings.width(for: .contentChat) ?? 380
+    var inspectorWidth: CGFloat = LayoutSettings.width(for: .contentInspector) ?? 360
 
     // MARK: - UI Toggles
     var showSearch = false

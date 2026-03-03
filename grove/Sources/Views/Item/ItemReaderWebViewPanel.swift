@@ -110,9 +110,18 @@ struct ItemReaderWebViewPanel: View {
                 zoomLevel: vm.webViewZoomLevel
             )
             #else
-            Text("Web view not yet available on iOS")
-                .foregroundStyle(Color.textSecondary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            MobileArticleWebView(
+                url: url,
+                findQuery: vm.findQuery,
+                findForwardToken: vm.findForwardToken,
+                findBackwardToken: vm.findBackwardToken,
+                onFindResult: { current, total in
+                    vm.findCurrentMatch = current
+                    vm.findMatchCount = total
+                },
+                zoomLevel: vm.webViewZoomLevel
+            )
+            .ignoresSafeArea(edges: .bottom)
             #endif
         }
         #if os(macOS)

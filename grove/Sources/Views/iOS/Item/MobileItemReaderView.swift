@@ -43,6 +43,7 @@ struct MobileItemReaderView: View {
     @State private var navigateToChat: Conversation?
     @State private var reflectionDetent: PresentationDetent = .medium
     @State private var zoomLevel: CGFloat = 1.0
+    @State private var sidePanelWidth: CGFloat? = LayoutSettings.width(for: .mobileReaderSidePanel)
     @FocusState private var findBarFocused: Bool
 
     private var usesSidePanel: Bool {
@@ -88,7 +89,12 @@ struct MobileItemReaderView: View {
         if usesSidePanel && rightPanel != .none {
             // iPad 2-panel
             GeometryReader { geo in
-                let panelWidth = min(max(geo.size.width * 0.4, 320), 480)
+                let storedOrDefaultWidth = sidePanelWidth ?? geo.size.width * 0.4
+                let panelWidth = min(max(storedOrDefaultWidth, 320), 480)
+                let panelWidthBinding = Binding(
+                    get: { panelWidth },
+                    set: { sidePanelWidth = $0 }
+                )
                 HStack(spacing: 0) {
                     ZStack(alignment: .top) {
                         contentView
@@ -99,10 +105,17 @@ struct MobileItemReaderView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                    Divider()
+                    ResizableTrailingDivider(
+                        width: panelWidthBinding,
+                        minWidth: 320,
+                        maxWidth: 480,
+                        onCollapse: { rightPanel = .none }
+                    ) { width in
+                        LayoutSettings.setWidth(width, for: .mobileReaderSidePanel)
+                    }
 
                     rightPanelContent
-                        .frame(width: panelWidth)
+                        .frame(width: panelWidthBinding.wrappedValue)
                         .frame(maxHeight: .infinity)
                         .background(Color.bgPrimary)
                 }

@@ -54,7 +54,7 @@ struct BoardDetailView: View {
     @State private var isSuggestionsCollapsed = false
     @State private var starterService = ConversationStarterService.shared
     @State private var promptModeSelection: PromptModeSelection?
-    @State private var promptModePanelWidth: CGFloat = 330
+    @State private var promptModePanelWidth: CGFloat = LayoutSettings.width(for: .boardPrompt) ?? 330
     @State private var paywallPresentation: PaywallPresentation?
 
     /// The effective items for this board — smart boards compute from tag rules, regular boards use direct membership
@@ -108,6 +108,10 @@ struct BoardDetailView: View {
             let minPanelWidth: CGFloat = 280
             let maxPanelWidth = max(minPanelWidth, min(560, geo.size.width * 0.55))
             let clampedPanelWidth = min(max(promptModePanelWidth, minPanelWidth), maxPanelWidth)
+            let panelWidthBinding = Binding(
+                get: { clampedPanelWidth },
+                set: { promptModePanelWidth = $0 }
+            )
 
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
@@ -137,11 +141,14 @@ struct BoardDetailView: View {
                 }
 
                 if let selection = promptModeSelection {
-                    promptPanelDivider(
-                        containerMaxX: geo.frame(in: .global).maxX,
+                    ResizableTrailingDivider(
+                        width: panelWidthBinding,
                         minWidth: minPanelWidth,
-                        maxWidth: maxPanelWidth
-                    )
+                        maxWidth: maxPanelWidth,
+                        onCollapse: { promptModeSelection = nil }
+                    ) { width in
+                        LayoutSettings.setWidth(width, for: .boardPrompt)
+                    }
 
                     BoardPromptModePanel(
                         label: selection.label,
@@ -154,7 +161,7 @@ struct BoardDetailView: View {
                         onDialectic: { startDialectic(with: selection) },
                         onWrite: { startWriting(with: selection.prompt) }
                     )
-                    .frame(width: clampedPanelWidth)
+                    .frame(width: panelWidthBinding.wrappedValue)
                     .frame(maxHeight: .infinity)
                     .transition(.move(edge: .trailing))
                 }
@@ -246,25 +253,6 @@ struct BoardDetailView: View {
     }
 
     // MARK: - Suggestions
-
-    private func promptPanelDivider(containerMaxX: CGFloat, minWidth: CGFloat, maxWidth: CGFloat) -> some View {
-        Rectangle()
-            .fill(Color.borderPrimary)
-            .frame(width: 1)
-            .overlay {
-                Rectangle()
-                    .fill(Color.clear)
-                    .frame(width: 9)
-                    .contentShape(Rectangle())
-                    .gesture(
-                        DragGesture(coordinateSpace: .global)
-                            .onChanged { value in
-                                let newWidth = containerMaxX - value.location.x
-                                promptModePanelWidth = min(max(newWidth, minWidth), maxWidth)
-                            }
-                    )
-            }
-    }
 
     private func presentPromptActions(for bubble: PromptBubble) {
         withAnimation(.easeInOut(duration: 0.2)) {

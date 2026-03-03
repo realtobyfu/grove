@@ -160,6 +160,14 @@ final class ItemReaderViewModel {
         }
     }
 
+    func toggleReflectionEditor(focusTrigger: @escaping () -> Void) {
+        if showReflectionEditor {
+            closeReflectionEditor()
+        } else {
+            openReflectionEditor(type: .keyInsight, content: "", highlight: nil, focusTrigger: focusTrigger)
+        }
+    }
+
     func closeReflectionEditor() {
         if let block = editingBlock {
             let trimmed = block.content.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -41,6 +41,16 @@ struct ReflectionsListPanel: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    if vm.sortedReflections.isEmpty {
+                        GhostPrompts(vm: vm, focusTrigger: focusTrigger)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 12)
+                            .padding(.bottom, 8)
+
+                        Divider()
+                            .padding(.horizontal, 16)
+                    }
+
                     reflectionBlocksList
                 }
                 .padding(.vertical, 8)

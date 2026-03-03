@@ -125,8 +125,8 @@ struct MobilePromptActionSheet: View {
         action: @escaping () -> Void
     ) -> some View {
         Button {
-            dismiss()
             action()
+            dismiss()
         } label: {
             VStack(alignment: .leading, spacing: Spacing.sm) {
                 HStack(alignment: .center, spacing: Spacing.sm) {

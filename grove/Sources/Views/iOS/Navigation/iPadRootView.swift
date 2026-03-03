@@ -131,8 +131,6 @@ struct iPadRootView: View {
         }
         .animation(.easeOut(duration: 0.2), value: showBoardSuggestion)
         .onAppear {
-            sidebarSelection = .home
-            splitViewVisibility = .doubleColumn
             consumeDeepLinkIntentIfNeeded()
         }
         .onChange(of: sidebarSelection?.sceneStorageValue) { _, _ in
@@ -363,7 +361,7 @@ struct iPadRootView: View {
         switch route {
         case .item(let itemID):
             if let item = fetchItem(id: itemID) {
-                MobileItemReaderView(item: item)
+                IPadItemReaderHostView(item: item)
             } else {
                 ContentUnavailableView("Item not found", systemImage: "doc.text")
             }
