@@ -302,7 +302,7 @@ class HighlightingUITextView: UITextView {
             if selection.length > 0, NSIntersectionRange(selection, range).length > 0 { return }
             if selection.length == 0 {
                 let cursor = selection.location
-                if cursor >= range.location && cursor <= range.location + range.length { return }
+                if cursor >= range.location && cursor < range.location + range.length { return }
             }
 
             let markerCharRange = NSRange(location: range.location, length: 1)

@@ -3,7 +3,17 @@ import SwiftUI
 // MARK: - Selectable Markdown View (NSTextView-backed for text selection)
 
 #if os(macOS)
-struct SelectableMarkdownView: NSViewRepresentable {
+struct SelectableMarkdownView: View {
+    let markdown: String
+    var onSelectText: ((String) -> Void)?
+
+    var body: some View {
+        SelectableMarkdownRepresentable(markdown: markdown, onSelectText: onSelectText)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct SelectableMarkdownRepresentable: NSViewRepresentable {
     let markdown: String
     var onSelectText: ((String) -> Void)?
 

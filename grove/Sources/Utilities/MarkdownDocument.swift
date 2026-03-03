@@ -19,6 +19,47 @@ struct MarkdownDocument: Sendable {
         }
     }
 
+    struct SelectionState: Sendable {
+        let start: Int
+        let end: Int
+
+        init(caret: Int) {
+            self.start = caret
+            self.end = caret
+        }
+
+        init(range: Range<Int>) {
+            self.start = range.lowerBound
+            self.end = range.upperBound
+        }
+
+        var normalizedRange: Range<Int> {
+            min(start, end)..<max(start, end)
+        }
+
+        var isInsertionPoint: Bool {
+            start == end
+        }
+
+        func revealsInline(_ range: Range<Int>) -> Bool {
+            if isInsertionPoint {
+                return start >= range.lowerBound && start <= range.upperBound
+            }
+            return normalizedRange.overlaps(range)
+        }
+
+        func revealsLine(_ range: Range<Int>) -> Bool {
+            revealsInline(range)
+        }
+
+        func revealsPrefix(_ range: Range<Int>) -> Bool {
+            if isInsertionPoint {
+                return start >= range.lowerBound && start < range.upperBound
+            }
+            return normalizedRange.overlaps(range)
+        }
+    }
+
     struct Block: Sendable {
         let range: Range<Int>
         let kind: Kind
@@ -117,6 +158,22 @@ struct MarkdownDocument: Sendable {
 
     func inlineSpans(in range: Range<Int>) -> [InlineSpan] {
         inlineSpans.filter { $0.fullRange.overlaps(range) }
+    }
+
+    func shouldRevealInlineSpan(_ span: InlineSpan, for selection: SelectionState) -> Bool {
+        selection.revealsInline(span.fullRange)
+    }
+
+    func shouldRevealHeading(_ heading: Heading, for selection: SelectionState) -> Bool {
+        selection.revealsLine(heading.markerRange.lowerBound..<heading.contentRange.upperBound)
+    }
+
+    func shouldRevealPrefix(_ prefixRange: Range<Int>, for selection: SelectionState) -> Bool {
+        selection.revealsPrefix(prefixRange)
+    }
+
+    func shouldRevealCodeFence(_ fenceRange: Range<Int>, for selection: SelectionState) -> Bool {
+        selection.revealsLine(fenceRange)
     }
 
     func inlinePresentation(in range: Range<Int>) -> InlinePresentation {
@@ -353,7 +410,7 @@ struct MarkdownDocument: Sendable {
 
     private static func codeFence(for line: LineRecord) -> CodeFenceInfo? {
         guard line.text.hasPrefix("```") else { return nil }
-        let fenceRange = line.textRange.lowerBound..<(line.textRange.lowerBound + 3)
+        let fenceRange = line.textRange
         let language = String(line.text.dropFirst(3)).trimmingCharacters(in: .whitespaces)
         return CodeFenceInfo(
             fenceRange: fenceRange,

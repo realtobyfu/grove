@@ -22,29 +22,15 @@ struct RichMarkdownEditor: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var allItems: [Item]
 
-    @State private var editorMode: MarkdownEditorMode
     @State private var editingProxy = MarkdownEditingProxy()
-    @State private var showSourceWikiPopover = false
-    @State private var sourceWikiSearchText = ""
-
-    init(
-        text: Binding<String>,
-        sourceItem: Item?,
-        minHeight: CGFloat = 80,
-        proseMode: Bool = false
-    ) {
-        _text = text
-        self.sourceItem = sourceItem
-        self.minHeight = minHeight
-        self.proseMode = proseMode
-        _editorMode = State(initialValue: AppearanceSettings.defaultMarkdownEditorMode)
-    }
+    @State private var showWikiPopover = false
+    @State private var wikiSearchText = ""
 
     private var wikiSearchResults: [Item] {
         allItems.filter { candidate in
             if let sourceItem, candidate.id == sourceItem.id { return false }
-            if sourceWikiSearchText.isEmpty { return true }
-            return candidate.title.localizedStandardContains(sourceWikiSearchText)
+            if wikiSearchText.isEmpty { return true }
+            return candidate.title.localizedStandardContains(wikiSearchText)
         }.prefix(10).map { $0 }
     }
 
@@ -58,7 +44,7 @@ struct RichMarkdownEditor: View {
             if proseMode {
                 VStack(spacing: 0) {
                     editorContent
-                    if showSourceWikiPopover {
+                    if showWikiPopover {
                         wikiLinkDropdown
                             .padding(.horizontal, 40)
                     }
@@ -86,16 +72,10 @@ struct RichMarkdownEditor: View {
                                 .stroke(Color.borderInput, lineWidth: 1)
                         )
 
-                    if showSourceWikiPopover {
+                    if showWikiPopover {
                         wikiLinkDropdown
                     }
                 }
-            }
-        }
-        .onChange(of: editorMode) { _, newValue in
-            AppearanceSettings.defaultMarkdownEditorMode = newValue
-            if newValue != .source {
-                closeSourceWikiPopover()
             }
         }
         .onDisappear {
@@ -166,7 +146,6 @@ struct RichMarkdownEditor: View {
                 .font(.groveMeta)
                 .foregroundStyle(Color.textTertiary)
                 .padding(.trailing, 8)
-            modePicker
         }
     }
 
@@ -238,67 +217,42 @@ struct RichMarkdownEditor: View {
             Text(wordCountLabel)
                 .font(.groveMeta)
                 .foregroundStyle(Color.textTertiary)
-            modePicker
         }
         .padding(.horizontal, 40)
         .padding(.vertical, 8)
     }
 
-    @ViewBuilder
     private var editorContent: some View {
-        switch editorMode {
-        case .livePreview:
-            if #available(macOS 26, *) {
-                AttributedStringEditorView(
-                    markdownText: $text,
-                    sourceItem: sourceItem,
-                    proseMode: proseMode,
-                    minHeight: minHeight,
-                    showsToolbar: false,
-                    editorProxy: editingProxy
-                )
-            } else {
-                sourceEditor
-            }
-        case .source:
-            sourceEditor
-        }
-    }
-
-    private var sourceEditor: some View {
-        MarkdownSourceTextView(
+        MarkdownNSTextView(
             text: $text,
             minHeight: minHeight,
             fontSize: proseMode ? 18 : 15,
             textInset: proseMode ? NSSize(width: 40, height: 24) : NSSize(width: 8, height: 8),
-            onWikiTrigger: handleSourceWikiTrigger,
+            onWikiTrigger: handleWikiTrigger,
             editorProxy: editingProxy
         )
     }
 
-    private var modePicker: some View {
-        Picker("Editor mode", selection: $editorMode) {
-            ForEach(MarkdownEditorMode.allCases, id: \.self) { mode in
-                Text(mode.title).tag(mode)
-            }
-        }
-        .pickerStyle(.segmented)
-        .frame(width: 190)
-    }
-
-    private func handleSourceWikiTrigger(_ searchText: String?) {
-        guard editorMode == .source else { return }
+    private func handleWikiTrigger(_ searchText: String?) {
         if let searchText {
-            sourceWikiSearchText = searchText
-            showSourceWikiPopover = true
+            if wikiSearchText != searchText {
+                wikiSearchText = searchText
+            }
+            if !showWikiPopover {
+                showWikiPopover = true
+            }
         } else {
-            closeSourceWikiPopover()
+            closeWikiPopover()
         }
     }
 
-    private func closeSourceWikiPopover() {
-        showSourceWikiPopover = false
-        sourceWikiSearchText = ""
+    private func closeWikiPopover() {
+        if showWikiPopover {
+            showWikiPopover = false
+        }
+        if !wikiSearchText.isEmpty {
+            wikiSearchText = ""
+        }
     }
 
     // MARK: - Wiki Link Dropdown
@@ -314,7 +268,7 @@ struct RichMarkdownEditor: View {
                     .foregroundStyle(Color.textSecondary)
                 Spacer()
                 Button {
-                    closeSourceWikiPopover()
+                    closeWikiPopover()
                 } label: {
                     Image(systemName: "xmark")
                         .font(.groveBadge)
@@ -383,7 +337,7 @@ struct RichMarkdownEditor: View {
             }
         }
 
-        closeSourceWikiPopover()
+        closeWikiPopover()
     }
 }
 
@@ -396,7 +350,7 @@ struct MarkdownNSTextView: NSViewRepresentable {
     var fontSize: CGFloat = 15
     var textInset: NSSize = NSSize(width: 8, height: 8)
     var onWikiTrigger: ((String?) -> Void)?
-    var onInsertFormatting: ((String, String) -> Void)?
+    var editorProxy: MarkdownEditingProxy? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -451,6 +405,7 @@ struct MarkdownNSTextView: NSViewRepresentable {
 
         textView.delegate = context.coordinator
         context.coordinator.textView = textView
+        context.coordinator.registerEditorProxy()
 
         scrollView.documentView = textView
 
@@ -463,12 +418,17 @@ struct MarkdownNSTextView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? HighlightingTextView else { return }
+        context.coordinator.parent = self
+        context.coordinator.textView = textView
+        context.coordinator.registerEditorProxy()
 
         if textView.string != text {
             let selectedRanges = textView.selectedRanges
+            context.coordinator.beginProgrammaticUpdate()
             textView.string = text
             context.coordinator.applyHighlighting(textView)
             textView.selectedRanges = selectedRanges
+            context.coordinator.endProgrammaticUpdate()
         }
     }
 
@@ -479,9 +439,52 @@ struct MarkdownNSTextView: NSViewRepresentable {
         var parent: MarkdownNSTextView
         weak var textView: HighlightingTextView?
         private var isUpdating = false
+        private var lastWikiQuery: String??
 
         init(_ parent: MarkdownNSTextView) {
             self.parent = parent
+        }
+
+        func beginProgrammaticUpdate() {
+            isUpdating = true
+        }
+
+        func endProgrammaticUpdate() {
+            isUpdating = false
+        }
+
+        func registerEditorProxy() {
+            parent.editorProxy?.update(
+                .init(
+                    wrapSelection: { [weak textView] prefix, suffix in
+                        textView?.wrapSelectionWith(prefix: prefix, suffix: suffix)
+                    },
+                    insertPrefix: { [weak textView] prefix in
+                        textView?.insertPrefixAtCurrentLine(prefix)
+                    },
+                    insertText: { [weak textView] text, cursorOffset in
+                        textView?.insertTextAtSelection(text, cursorOffset: cursorOffset)
+                    },
+                    setHeading: { [weak textView] level in
+                        textView?.setHeadingLevel(level)
+                    },
+                    toggleBlockQuote: { [weak textView] in
+                        textView?.toggleLinePrefix("> ")
+                    },
+                    toggleListItem: { [weak textView] in
+                        textView?.toggleLinePrefix("- ")
+                    },
+                    insertLink: { [weak textView] in
+                        textView?.wrapSelectionWith(prefix: "[", suffix: "](url)")
+                    },
+                    insertWikiLink: { [weak textView] in
+                        textView?.insertTextAtSelection("[[]]", cursorOffset: -2)
+                    },
+                    replaceActiveWikiQuery: { [weak textView] title in
+                        textView?.replaceActiveWikiQuery(with: title)
+                    }
+                )
+            )
         }
 
         func textDidChange(_ notification: Notification) {
@@ -490,6 +493,15 @@ struct MarkdownNSTextView: NSViewRepresentable {
             parent.text = textView.string
             applyHighlighting(textView)
             detectWikiLink(in: textView)
+            isUpdating = false
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard !isUpdating, let textView = notification.object as? NSTextView else { return }
+            isUpdating = true
+            applyHighlighting(textView)
+            detectWikiLink(in: textView)
+            textView.needsDisplay = true
             isUpdating = false
         }
 
@@ -504,23 +516,29 @@ struct MarkdownNSTextView: NSViewRepresentable {
 
             let openRange = prefixNSString.range(of: "[[", options: .backwards)
             guard openRange.location != NSNotFound else {
-                parent.onWikiTrigger?(nil)
+                emitWikiTrigger(nil)
                 return
             }
 
             let queryStart = openRange.location + openRange.length
             guard queryStart <= prefixNSString.length else {
-                parent.onWikiTrigger?(nil)
+                emitWikiTrigger(nil)
                 return
             }
 
             let query = prefixNSString.substring(from: queryStart)
 
             if query.contains("]]") || query.contains("\n") {
-                parent.onWikiTrigger?(nil)
+                emitWikiTrigger(nil)
                 return
             }
 
+            emitWikiTrigger(query)
+        }
+
+        private func emitWikiTrigger(_ query: String?) {
+            guard lastWikiQuery != query else { return }
+            lastWikiQuery = query
             parent.onWikiTrigger?(query)
         }
 
@@ -530,12 +548,18 @@ struct MarkdownNSTextView: NSViewRepresentable {
             let storage = textView.textStorage!
             let fullRange = NSRange(location: 0, length: storage.length)
             let text = storage.string
-            let cursorLocation = min(max(0, textView.selectedRange().location), (text as NSString).length)
+            let selectedRange = textView.selectedRange()
+            let maxLocation = (text as NSString).length
+            let clampedLocation = min(max(0, selectedRange.location), maxLocation)
+            let clampedLength = min(selectedRange.length, max(0, maxLocation - clampedLocation))
+            let selectionState = MarkdownDocument.SelectionState(
+                range: clampedLocation..<(clampedLocation + clampedLength)
+            )
+            let document = MarkdownDocument(text)
 
             let size = parent.fontSize
             let defaultFont = NSFont(name: "IBMPlexSans-Regular", size: size) ?? NSFont.systemFont(ofSize: size)
             let monoFont = NSFont(name: "IBMPlexMono-Regular", size: size - 2) ?? NSFont.monospacedSystemFont(ofSize: size - 2, weight: .regular)
-            let boldFont = NSFont(name: "IBMPlexSans-Medium", size: size) ?? NSFont.boldSystemFont(ofSize: size)
             let headingFont = NSFont(name: "Newsreader-Medium", size: round(size * 1.55)) ?? NSFont.systemFont(ofSize: round(size * 1.55), weight: .medium)
             let headingSmallFont = NSFont(name: "Newsreader-Medium", size: round(size * 1.22)) ?? NSFont.systemFont(ofSize: round(size * 1.22), weight: .medium)
             let headingMidFont = NSFont(name: "Newsreader-Medium", size: round(size * 1.08)) ?? NSFont.systemFont(ofSize: round(size * 1.08), weight: .medium)
@@ -569,6 +593,18 @@ struct MarkdownNSTextView: NSViewRepresentable {
                 storage.setAttributes(defaultAttrs, range: fullRange)
             }
             textView.typingAttributes = defaultAttrs
+            storage.removeAttribute(.groveListPrefix, range: fullRange)
+            storage.removeAttribute(.groveQuotePrefix, range: fullRange)
+
+            guard fullRange.length > 0 else {
+                storage.endEditing()
+                restoreSelectionIfNeeded(
+                    NSRange(location: clampedLocation, length: clampedLength),
+                    in: textView
+                )
+                textView.needsDisplay = true
+                return
+            }
 
             let hiddenDelimiterAttrs: [NSAttributedString.Key: Any] = [
                 .foregroundColor: NSColor.clear,
@@ -581,131 +617,239 @@ struct MarkdownNSTextView: NSViewRepresentable {
                 .foregroundColor: NSColor.clear
             ]
 
-            // Bold + italic: ***text***
-            applyPattern(
-                #"\*\*\*(?=\S)(.+?)(?<=\S)\*\*\*"#,
-                in: text, storage: storage,
-                contentAttributes: [
-                    .font: boldFont,
-                    .obliqueness: 0.2 as NSNumber,
-                    .foregroundColor: primaryColor
-                ],
-                delimiterAttributes: [.font: defaultFont, .foregroundColor: tertiaryColor],
-                hiddenDelimiterAttributes: hiddenDelimiterAttrs,
-                cursorLocation: cursorLocation
-            )
+            for block in document.blocks {
+                switch block.kind {
+                case .heading(let heading):
+                    let revealMarkers = document.shouldRevealHeading(heading, for: selectionState)
+                    let markerAttrs = revealMarkers
+                        ? [.font: defaultFont, .foregroundColor: tertiaryColor]
+                        : hiddenDelimiterAttrs
+                    applyAttributes(markerAttrs, to: heading.markerRange, in: text, storage: storage)
+                    applyAttributes(markerAttrs, to: heading.spacingRange, in: text, storage: storage)
 
-            // Bold: **text**
-            applyPattern(
-                #"\*\*(?=\S)(.+?)(?<=\S)\*\*"#,
-                in: text, storage: storage,
-                contentAttributes: [.font: boldFont, .foregroundColor: primaryColor],
-                delimiterAttributes: [.font: defaultFont, .foregroundColor: tertiaryColor],
-                hiddenDelimiterAttributes: hiddenDelimiterAttrs,
-                cursorLocation: cursorLocation
-            )
+                    let headingAttrs: [NSAttributedString.Key: Any]
+                    switch heading.level {
+                    case 1, 4, 5, 6:
+                        headingAttrs = [.font: headingFont, .foregroundColor: primaryColor]
+                    case 2:
+                        headingAttrs = [.font: headingSmallFont, .foregroundColor: primaryColor]
+                    default:
+                        headingAttrs = [.font: headingMidFont, .foregroundColor: primaryColor]
+                    }
 
-            // Italic: *text* (but not **)
-            applyPattern(
-                #"(?<!\*)\*(?!\*)(?=\S)(.+?)(?<=\S)(?<!\*)\*(?!\*)"#,
-                in: text, storage: storage,
-                contentAttributes: [.obliqueness: 0.2 as NSNumber, .foregroundColor: primaryColor],
-                delimiterAttributes: [.foregroundColor: tertiaryColor],
-                hiddenDelimiterAttributes: hiddenDelimiterAttrs,
-                cursorLocation: cursorLocation
-            )
+                    applyAttributes(headingAttrs, to: heading.contentRange, in: text, storage: storage)
 
-            // Inline code: `text`
-            applyPattern(
-                #"`([^`]+)`"#,
-                in: text, storage: storage,
-                contentAttributes: [
-                    .font: monoFont,
-                    .backgroundColor: codeBackground,
-                    .foregroundColor: primaryColor
-                ],
-                delimiterAttributes: [
-                    .font: monoFont,
-                    .foregroundColor: tertiaryColor,
-                    .backgroundColor: codeBackground
-                ],
-                hiddenDelimiterAttributes: hiddenDelimiterAttrs.merging([.backgroundColor: NSColor.clear]) { _, new in new },
-                cursorLocation: cursorLocation
-            )
+                    if let proseParagraph,
+                       let lineRange = nsRange(for: block.range, in: text) {
+                        storage.addAttribute(.paragraphStyle, value: proseParagraph, range: lineRange)
+                    }
 
-            // Markdown links: [text](url)
-            applyPattern(
-                #"\[(?!\[)(.+?)\]\((.+?)\)"#,
-                in: text, storage: storage,
-                contentAttributes: [
-                    .underlineStyle: NSUnderlineStyle.single.rawValue,
-                    .foregroundColor: secondaryColor
-                ],
-                delimiterAttributes: [.foregroundColor: tertiaryColor],
-                hiddenDelimiterAttributes: hiddenDelimiterAttrs,
-                cursorLocation: cursorLocation
-            )
+                case .blockquote(let blockquote):
+                    for line in blockquote.lines {
+                        let revealPrefix = document.shouldRevealPrefix(line.prefixRange, for: selectionState)
+                        let prefixAttrs = revealPrefix
+                            ? [.font: defaultFont, .foregroundColor: tertiaryColor]
+                            : hiddenQuotePrefixAttrs
+                        applyAttributes(prefixAttrs, to: line.prefixRange, in: text, storage: storage)
+                        applyAttributes(
+                            [.font: defaultFont, .foregroundColor: quoteColor],
+                            to: line.contentRange,
+                            in: text,
+                            storage: storage
+                        )
+                        applyAttributes([.groveQuotePrefix: true], to: line.prefixRange, in: text, storage: storage)
 
-            // Headings: #, ##, ###, ####... at start of line
-            applyHeadingLinePattern(
-                in: text,
-                storage: storage,
-                cursorLocation: cursorLocation,
-                prefixAttributes: [.foregroundColor: tertiaryColor],
-                hiddenPrefixAttributes: hiddenDelimiterAttrs,
-                h1Attributes: [.font: headingFont, .foregroundColor: primaryColor],
-                h2Attributes: [.font: headingSmallFont, .foregroundColor: primaryColor],
-                h3Attributes: [.font: headingMidFont, .foregroundColor: primaryColor],
-                proseParagraph: proseParagraph
-            )
+                        if let lineRange = nsRange(for: line.lineRange, in: text) {
+                            let existingStyle = (storage.attribute(.paragraphStyle, at: lineRange.location, effectiveRange: nil) as? NSParagraphStyle)
+                                ?? NSParagraphStyle.default
+                            let updatedStyle = quoteParagraphStyle(from: existingStyle, isProse: proseParagraph != nil)
+                            storage.addAttribute(.paragraphStyle, value: updatedStyle, range: lineRange)
+                        }
+                    }
 
-            // Block quote: > text
-            applyPrefixLinePattern(
-                #"^(>[ \t]*)(.*)$"#,
-                in: text,
-                storage: storage,
-                cursorLocation: cursorLocation,
-                prefixAttributes: [.foregroundColor: tertiaryColor],
-                hiddenPrefixAttributes: hiddenQuotePrefixAttrs,
-                contentAttributes: [
-                    .font: defaultFont,
-                    .foregroundColor: quoteColor
-                ],
-                prefixMarkerAttributes: [.groveQuotePrefix: true],
-                lineTransform: { style, _ in
-                    self.quoteParagraphStyle(from: style, isProse: proseParagraph != nil)
+                case .bulletList(let list):
+                    for item in list.items {
+                        let revealPrefix = document.shouldRevealPrefix(item.prefixRange, for: selectionState)
+                        let prefixAttrs = revealPrefix
+                            ? [.font: defaultFont, .foregroundColor: tertiaryColor]
+                            : hiddenListPrefixAttrs
+                        applyAttributes(prefixAttrs, to: item.prefixRange, in: text, storage: storage)
+                        applyAttributes(
+                            [.font: defaultFont, .foregroundColor: primaryColor],
+                            to: item.contentRange,
+                            in: text,
+                            storage: storage
+                        )
+                        applyAttributes([.groveListPrefix: true], to: item.prefixRange, in: text, storage: storage)
+
+                        if let lineRange = nsRange(for: item.lineRange, in: text) {
+                            let existingStyle = (storage.attribute(.paragraphStyle, at: lineRange.location, effectiveRange: nil) as? NSParagraphStyle)
+                                ?? NSParagraphStyle.default
+                            let updatedStyle = listParagraphStyle(from: existingStyle, isProse: proseParagraph != nil)
+                            storage.addAttribute(.paragraphStyle, value: updatedStyle, range: lineRange)
+                        }
+                    }
+
+                case .codeBlock(let codeBlock):
+                    let openingAttrs = document.shouldRevealCodeFence(codeBlock.openingFenceRange, for: selectionState)
+                        ? [.font: monoFont, .foregroundColor: tertiaryColor]
+                        : hiddenDelimiterAttrs
+                    applyAttributes(openingAttrs, to: codeBlock.openingFenceRange, in: text, storage: storage)
+
+                    if let closingFenceRange = codeBlock.closingFenceRange {
+                        let closingAttrs = document.shouldRevealCodeFence(closingFenceRange, for: selectionState)
+                            ? [.font: monoFont, .foregroundColor: tertiaryColor]
+                            : hiddenDelimiterAttrs
+                        applyAttributes(closingAttrs, to: closingFenceRange, in: text, storage: storage)
+                    }
+
+                    if let contentRange = codeBlock.contentRange {
+                        applyAttributes(
+                            [
+                                .font: monoFont,
+                                .foregroundColor: primaryColor,
+                                .backgroundColor: codeBackground,
+                            ],
+                            to: contentRange,
+                            in: text,
+                            storage: storage
+                        )
+                    }
+
+                case .paragraph:
+                    break
                 }
-            )
+            }
 
-            // List item: - item
-            applyPrefixLinePattern(
-                #"^([-\*]\s+)(.*)$"#,
-                in: text,
-                storage: storage,
-                cursorLocation: cursorLocation,
-                prefixAttributes: [.foregroundColor: tertiaryColor],
-                hiddenPrefixAttributes: hiddenListPrefixAttrs,
-                contentAttributes: [.foregroundColor: primaryColor],
-                prefixMarkerAttributes: [.groveListPrefix: true],
-                lineTransform: { style, _ in
-                    self.listParagraphStyle(from: style, isProse: proseParagraph != nil)
+            for span in document.inlineSpans {
+                let revealMarkers = document.shouldRevealInlineSpan(span, for: selectionState)
+                let visibleMarkerAttrs = delimiterAttributes(
+                    for: span.kind,
+                    defaultFont: defaultFont,
+                    monoFont: monoFont,
+                    tertiaryColor: tertiaryColor,
+                    codeBackground: codeBackground
+                )
+                let hiddenAttrs = hiddenDelimiterAttributes(
+                    for: span.kind,
+                    hiddenDelimiterAttrs: hiddenDelimiterAttrs
+                )
+
+                for markerRange in span.markerRanges {
+                    applyAttributes(revealMarkers ? visibleMarkerAttrs : hiddenAttrs, to: markerRange, in: text, storage: storage)
                 }
-            )
 
-            // Wiki-links: [[text]]
-            applyPattern(
-                #"\[\[(.+?)\]\]"#,
-                in: text, storage: storage,
-                contentAttributes: [
-                    .underlineStyle: NSUnderlineStyle.single.rawValue,
-                    .foregroundColor: secondaryColor
-                ],
-                delimiterAttributes: [.foregroundColor: tertiaryColor],
-                hiddenDelimiterAttributes: hiddenDelimiterAttrs,
-                cursorLocation: cursorLocation
-            )
+                guard let contentRange = nsRange(for: span.contentRange, in: text) else { continue }
+
+                switch span.kind {
+                case .bold:
+                    applyFontTraits(.boldFontMask, to: contentRange, in: storage)
+                case .italic:
+                    applyFontTraits(.italicFontMask, to: contentRange, in: storage)
+                case .boldItalic:
+                    applyFontTraits([.boldFontMask, .italicFontMask], to: contentRange, in: storage)
+                case .strikethrough:
+                    storage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: contentRange)
+                case .inlineCode:
+                    storage.addAttributes(
+                        [
+                            .font: monoFont,
+                            .backgroundColor: codeBackground,
+                            .foregroundColor: primaryColor,
+                        ],
+                        range: contentRange
+                    )
+                case .wikiLink, .link:
+                    storage.addAttributes(
+                        [
+                            .underlineStyle: NSUnderlineStyle.single.rawValue,
+                            .foregroundColor: secondaryColor,
+                        ],
+                        range: contentRange
+                    )
+                }
+            }
 
             storage.endEditing()
+            textView.typingAttributes = defaultAttrs
+            restoreSelectionIfNeeded(
+                NSRange(location: clampedLocation, length: clampedLength),
+                in: textView
+            )
+            textView.needsDisplay = true
+        }
+
+        private func restoreSelectionIfNeeded(_ range: NSRange, in textView: NSTextView) {
+            guard textView.selectedRange() != range else { return }
+            textView.setSelectedRange(range)
+        }
+
+        private func delimiterAttributes(
+            for kind: MarkdownDocument.InlineSpan.Kind,
+            defaultFont: NSFont,
+            monoFont: NSFont,
+            tertiaryColor: NSColor,
+            codeBackground: NSColor
+        ) -> [NSAttributedString.Key: Any] {
+            switch kind {
+            case .inlineCode:
+                return [
+                    .font: monoFont,
+                    .foregroundColor: tertiaryColor,
+                    .backgroundColor: codeBackground,
+                ]
+            default:
+                return [
+                    .font: defaultFont,
+                    .foregroundColor: tertiaryColor,
+                ]
+            }
+        }
+
+        private func hiddenDelimiterAttributes(
+            for kind: MarkdownDocument.InlineSpan.Kind,
+            hiddenDelimiterAttrs: [NSAttributedString.Key: Any]
+        ) -> [NSAttributedString.Key: Any] {
+            switch kind {
+            case .inlineCode:
+                return hiddenDelimiterAttrs.merging([.backgroundColor: NSColor.clear]) { _, new in new }
+            default:
+                return hiddenDelimiterAttrs
+            }
+        }
+
+        private func applyAttributes(
+            _ attributes: [NSAttributedString.Key: Any],
+            to characterRange: Range<Int>,
+            in text: String,
+            storage: NSTextStorage
+        ) {
+            guard let nsRange = nsRange(for: characterRange, in: text), nsRange.length > 0 else { return }
+            storage.addAttributes(attributes, range: nsRange)
+        }
+
+        private func nsRange(for characterRange: Range<Int>, in text: String) -> NSRange? {
+            guard characterRange.lowerBound >= 0,
+                  characterRange.upperBound >= characterRange.lowerBound,
+                  characterRange.upperBound <= text.count else {
+                return nil
+            }
+
+            let lower = text.index(text.startIndex, offsetBy: characterRange.lowerBound)
+            let upper = text.index(text.startIndex, offsetBy: characterRange.upperBound)
+            return NSRange(lower..<upper, in: text)
+        }
+
+        private func applyFontTraits(
+            _ traits: NSFontTraitMask,
+            to nsRange: NSRange,
+            in storage: NSTextStorage
+        ) {
+            storage.enumerateAttribute(.font, in: nsRange, options: []) { value, range, _ in
+                let baseFont = (value as? NSFont) ?? (NSFont(name: "IBMPlexSans-Regular", size: self.parent.fontSize) ?? NSFont.systemFont(ofSize: self.parent.fontSize))
+                let font = NSFontManager.shared.convert(baseFont, toHaveTrait: traits)
+                storage.addAttribute(.font, value: font, range: range)
+            }
         }
 
         /// Apply regex pattern with distinct styles for delimiters and content.
@@ -1028,7 +1172,7 @@ class HighlightingTextView: NSTextView {
             if selection.length > 0, NSIntersectionRange(selection, range).length > 0 { return }
             if selection.length == 0 {
                 let cursor = selection.location
-                if cursor >= range.location && cursor <= range.location + range.length { return }
+                if cursor >= range.location && cursor < range.location + range.length { return }
             }
 
             let markerCharRange = NSRange(location: range.location, length: 1)
@@ -1423,23 +1567,9 @@ struct RichMarkdownEditor: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var allItems: [Item]
 
-    @State private var editorMode: MarkdownEditorMode
     @State private var editingProxy = MarkdownEditingProxy()
     @State private var showWikiPopover = false
     @State private var wikiSearchText = ""
-
-    init(
-        text: Binding<String>,
-        sourceItem: Item?,
-        minHeight: CGFloat = 80,
-        proseMode: Bool = false
-    ) {
-        _text = text
-        self.sourceItem = sourceItem
-        self.minHeight = minHeight
-        self.proseMode = proseMode
-        _editorMode = State(initialValue: AppearanceSettings.defaultMarkdownEditorMode)
-    }
 
     private var showsInlineToolbar: Bool {
         UIDevice.current.userInterfaceIdiom == .pad
@@ -1469,7 +1599,6 @@ struct RichMarkdownEditor: View {
                     textInset: proseMode
                         ? UIEdgeInsets(top: 24, left: 20, bottom: 24, right: 20)
                         : UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8),
-                    editorMode: editorMode,
                     onWikiTrigger: { searchText in
                         if let searchText {
                             wikiSearchText = searchText
@@ -1478,9 +1607,6 @@ struct RichMarkdownEditor: View {
                             showWikiPopover = false
                             wikiSearchText = ""
                         }
-                    },
-                    onEditorModeChange: { newMode in
-                        editorMode = newMode
                     },
                     editorProxy: editingProxy
                 )
@@ -1492,9 +1618,6 @@ struct RichMarkdownEditor: View {
                 }
             }
         }
-        .onChange(of: editorMode) { _, newValue in
-            AppearanceSettings.defaultMarkdownEditorMode = newValue
-        }
         .onDisappear {
             editingProxy.clear()
         }
@@ -1503,65 +1626,61 @@ struct RichMarkdownEditor: View {
     // MARK: - iPad Inline Formatting Toolbar
 
     private var formattingToolbar: some View {
-        HStack(spacing: 8) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 2) {
-                    toolbarButton("Bold", icon: "bold") {
-                        editingProxy.wrapSelection(prefix: "**", suffix: "**")
-                    }
-                    toolbarButton("Italic", icon: "italic") {
-                        editingProxy.wrapSelection(prefix: "*", suffix: "*")
-                    }
-
-                    Divider()
-                        .frame(height: 16)
-                        .padding(.horizontal, 4)
-
-                    Menu {
-                        Button("# Title") { editingProxy.setHeading(level: 1) }
-                        Button("## Heading") { editingProxy.setHeading(level: 2) }
-                        Button("### Subheading") { editingProxy.setHeading(level: 3) }
-                        Divider()
-                        Button("Clear Heading") { editingProxy.setHeading(level: 0) }
-                    } label: {
-                        Image(systemName: "number")
-                            .font(.system(size: 12, weight: .medium))
-                            .frame(width: 28, height: 28)
-                            .contentShape(Rectangle())
-                    }
-                    .menuStyle(.button)
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Color.textSecondary)
-
-                    toolbarButton("List", icon: "list.bullet") {
-                        editingProxy.toggleListItem()
-                    }
-                    toolbarButton("Quote", icon: "text.quote") {
-                        editingProxy.toggleBlockQuote()
-                    }
-
-                    Divider()
-                        .frame(height: 16)
-                        .padding(.horizontal, 4)
-
-                    toolbarButton("Code", icon: "chevron.left.forwardslash.chevron.right") {
-                        editingProxy.wrapSelection(prefix: "`", suffix: "`")
-                    }
-                    toolbarButton("Link", icon: "link") {
-                        editingProxy.insertLink()
-                    }
-                    toolbarButton("Wiki Link", icon: "link.badge.plus") {
-                        editingProxy.insertWikiLink()
-                    }
-                    toolbarButton("Strikethrough", icon: "strikethrough") {
-                        editingProxy.wrapSelection(prefix: "~~", suffix: "~~")
-                    }
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 2) {
+                toolbarButton("Bold", icon: "bold") {
+                    editingProxy.wrapSelection(prefix: "**", suffix: "**")
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-            }
+                toolbarButton("Italic", icon: "italic") {
+                    editingProxy.wrapSelection(prefix: "*", suffix: "*")
+                }
 
-            modePicker
+                Divider()
+                    .frame(height: 16)
+                    .padding(.horizontal, 4)
+
+                Menu {
+                    Button("# Title") { editingProxy.setHeading(level: 1) }
+                    Button("## Heading") { editingProxy.setHeading(level: 2) }
+                    Button("### Subheading") { editingProxy.setHeading(level: 3) }
+                    Divider()
+                    Button("Clear Heading") { editingProxy.setHeading(level: 0) }
+                } label: {
+                    Image(systemName: "number")
+                        .font(.system(size: 12, weight: .medium))
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.textSecondary)
+
+                toolbarButton("List", icon: "list.bullet") {
+                    editingProxy.toggleListItem()
+                }
+                toolbarButton("Quote", icon: "text.quote") {
+                    editingProxy.toggleBlockQuote()
+                }
+
+                Divider()
+                    .frame(height: 16)
+                    .padding(.horizontal, 4)
+
+                toolbarButton("Code", icon: "chevron.left.forwardslash.chevron.right") {
+                    editingProxy.wrapSelection(prefix: "`", suffix: "`")
+                }
+                toolbarButton("Link", icon: "link") {
+                    editingProxy.insertLink()
+                }
+                toolbarButton("Wiki Link", icon: "link.badge.plus") {
+                    editingProxy.insertWikiLink()
+                }
+                toolbarButton("Strikethrough", icon: "strikethrough") {
+                    editingProxy.wrapSelection(prefix: "~~", suffix: "~~")
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
         }
         .background(Color.bgCard)
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
@@ -1581,15 +1700,6 @@ struct RichMarkdownEditor: View {
         .buttonStyle(.plain)
         .foregroundStyle(Color.textSecondary)
         .help(label)
-    }
-
-    private var modePicker: some View {
-        Picker("Editor mode", selection: $editorMode) {
-            Text("Live").tag(MarkdownEditorMode.livePreview)
-            Text("Source").tag(MarkdownEditorMode.source)
-        }
-        .pickerStyle(.segmented)
-        .frame(width: 140)
     }
 
     // MARK: - Wiki Link Dropdown

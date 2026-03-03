@@ -10,9 +10,7 @@ struct MarkdownUITextView: UIViewRepresentable {
     var minHeight: CGFloat
     var fontSize: CGFloat = 16
     var textInset: UIEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
-    var editorMode: MarkdownEditorMode = .livePreview
     var onWikiTrigger: ((String?) -> Void)?
-    var onEditorModeChange: ((MarkdownEditorMode) -> Void)?
     var editorProxy: MarkdownEditingProxy? = nil
 
     func makeCoordinator() -> Coordinator {
@@ -35,17 +33,13 @@ struct MarkdownUITextView: UIViewRepresentable {
             ?? UIFont.systemFont(ofSize: fontSize)
         textView.font = defaultFont
         textView.textColor = .label
-        textView.showsMarkdownDecorations = false
+        textView.showsMarkdownDecorations = true
 
         textView.typingAttributes = context.coordinator.baseTypingAttributes()
 
         // Set up formatting toolbar
         let accessoryView = MarkdownFormattingAccessoryView()
         accessoryView.formattingDelegate = textView
-        accessoryView.editorMode = editorMode
-        accessoryView.onModeChange = { newMode in
-            context.coordinator.parent.onEditorModeChange?(newMode)
-        }
         textView.inputAccessoryView = accessoryView
 
         textView.delegate = context.coordinator
@@ -64,18 +58,15 @@ struct MarkdownUITextView: UIViewRepresentable {
         context.coordinator.textView = textView
         context.coordinator.registerEditorProxy()
 
-        textView.showsMarkdownDecorations = false
+        textView.showsMarkdownDecorations = true
 
         if let accessoryView = textView.inputAccessoryView as? MarkdownFormattingAccessoryView {
             accessoryView.formattingDelegate = textView
-            accessoryView.editorMode = editorMode
-            accessoryView.onModeChange = { newMode in
-                context.coordinator.parent.onEditorModeChange?(newMode)
-            }
         }
 
         if textView.text != text && !context.coordinator.isUpdating {
             let selectedRange = textView.selectedRange
+            context.coordinator.beginProgrammaticUpdate()
             textView.text = text
             context.coordinator.applyHighlighting(textView)
             // Restore selection if still valid
@@ -84,8 +75,7 @@ struct MarkdownUITextView: UIViewRepresentable {
                 let clampedLength = min(selectedRange.length, maxLocation - selectedRange.location)
                 textView.selectedRange = NSRange(location: min(selectedRange.location, maxLocation), length: clampedLength)
             }
-        } else {
-            context.coordinator.applyHighlighting(textView)
+            context.coordinator.endProgrammaticUpdate()
         }
     }
 
@@ -96,9 +86,18 @@ struct MarkdownUITextView: UIViewRepresentable {
         var parent: MarkdownUITextView
         weak var textView: HighlightingUITextView?
         var isUpdating = false
+        private var lastWikiQuery: String??
 
         init(_ parent: MarkdownUITextView) {
             self.parent = parent
+        }
+
+        func beginProgrammaticUpdate() {
+            isUpdating = true
+        }
+
+        func endProgrammaticUpdate() {
+            isUpdating = false
         }
 
         // MARK: - Text Changes
@@ -109,6 +108,15 @@ struct MarkdownUITextView: UIViewRepresentable {
             parent.text = textView.text
             applyHighlighting(textView)
             detectWikiLink(in: textView)
+            isUpdating = false
+        }
+
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            guard !isUpdating else { return }
+            isUpdating = true
+            applyHighlighting(textView)
+            detectWikiLink(in: textView)
+            textView.setNeedsDisplay()
             isUpdating = false
         }
 
@@ -175,23 +183,29 @@ struct MarkdownUITextView: UIViewRepresentable {
 
             let openRange = prefixNSString.range(of: "[[", options: .backwards)
             guard openRange.location != NSNotFound else {
-                parent.onWikiTrigger?(nil)
+                emitWikiTrigger(nil)
                 return
             }
 
             let queryStart = openRange.location + openRange.length
             guard queryStart <= prefixNSString.length else {
-                parent.onWikiTrigger?(nil)
+                emitWikiTrigger(nil)
                 return
             }
 
             let query = prefixNSString.substring(from: queryStart)
 
             if query.contains("]]") || query.contains("\n") {
-                parent.onWikiTrigger?(nil)
+                emitWikiTrigger(nil)
                 return
             }
 
+            emitWikiTrigger(query)
+        }
+
+        private func emitWikiTrigger(_ query: String?) {
+            guard lastWikiQuery != query else { return }
+            lastWikiQuery = query
             parent.onWikiTrigger?(query)
         }
 
@@ -203,30 +217,42 @@ struct MarkdownUITextView: UIViewRepresentable {
             let text = storage.string
             let fullRange = NSRange(location: 0, length: storage.length)
             let selectedRange = textView.selectedRange
-
-            let defaultAttrs = baseTypingAttributes()
-            textView.showsMarkdownDecorations = false
-
-            storage.beginEditing()
-            storage.setAttributedString(NSAttributedString(string: text, attributes: defaultAttrs))
-
-            guard fullRange.length > 0 else {
-                storage.endEditing()
-                textView.typingAttributes = defaultAttrs
-                return
-            }
-
-            if parent.editorMode == .livePreview {
-                applyLivePreview(in: storage, text: text)
-            }
-
-            storage.endEditing()
-
             let maxLocation = (text as NSString).length
             let clampedLocation = min(selectedRange.location, maxLocation)
             let clampedLength = min(selectedRange.length, max(0, maxLocation - clampedLocation))
-            textView.selectedRange = NSRange(location: clampedLocation, length: clampedLength)
+            let selectionState = MarkdownDocument.SelectionState(
+                range: clampedLocation..<(clampedLocation + clampedLength)
+            )
+
+            let defaultAttrs = baseTypingAttributes()
+            textView.showsMarkdownDecorations = true
+
+            storage.beginEditing()
+            storage.setAttributedString(NSAttributedString(string: text, attributes: defaultAttrs))
+            storage.removeAttribute(.groveListPrefix, range: fullRange)
+            storage.removeAttribute(.groveQuotePrefix, range: fullRange)
+
+            guard fullRange.length > 0 else {
+                storage.endEditing()
+                restoreSelectionIfNeeded(
+                    NSRange(location: clampedLocation, length: clampedLength),
+                    in: textView
+                )
+                textView.typingAttributes = defaultAttrs
+                textView.setNeedsDisplay()
+                return
+            }
+
+            applyLivePreview(in: storage, text: text, selectionState: selectionState)
+
+            storage.endEditing()
+
+            restoreSelectionIfNeeded(
+                NSRange(location: clampedLocation, length: clampedLength),
+                in: textView
+            )
             textView.typingAttributes = defaultAttrs
+            textView.setNeedsDisplay()
         }
 
         func registerEditorProxy() {
@@ -274,18 +300,36 @@ struct MarkdownUITextView: UIViewRepresentable {
             return attributes
         }
 
-        private func applyLivePreview(in storage: NSTextStorage, text: String) {
+        private func applyLivePreview(
+            in storage: NSTextStorage,
+            text: String,
+            selectionState: MarkdownDocument.SelectionState
+        ) {
             let document = MarkdownDocument(text)
             let primaryColor = UIColor.label
             let secondaryColor = UIColor.secondaryLabel
             let tertiaryColor = UIColor.tertiaryLabel
             let codeBackground = UIColor.quaternaryLabel.withAlphaComponent(0.15)
+            let hiddenDelimiterAttrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: UIColor.clear,
+                .font: UIFont.systemFont(ofSize: 0.1),
+            ]
+            let hiddenListPrefixAttrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: UIColor.clear,
+            ]
+            let hiddenQuotePrefixAttrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: UIColor.clear,
+            ]
 
             for block in document.blocks {
                 switch block.kind {
                 case .heading(let heading):
-                    applyAttributes([.foregroundColor: tertiaryColor], to: heading.markerRange, in: text, storage: storage)
-                    applyAttributes([.foregroundColor: tertiaryColor], to: heading.spacingRange, in: text, storage: storage)
+                    let revealMarkers = document.shouldRevealHeading(heading, for: selectionState)
+                    let markerAttrs = revealMarkers
+                        ? [.font: bodyFont(), .foregroundColor: tertiaryColor]
+                        : hiddenDelimiterAttrs
+                    applyAttributes(markerAttrs, to: heading.markerRange, in: text, storage: storage)
+                    applyAttributes(markerAttrs, to: heading.spacingRange, in: text, storage: storage)
                     applyAttributes(
                         [.paragraphStyle: headingParagraphStyle(for: heading.level)],
                         to: block.range,
@@ -304,28 +348,44 @@ struct MarkdownUITextView: UIViewRepresentable {
 
                 case .blockquote(let blockquote):
                     for line in blockquote.lines {
-                        applyAttributes([.foregroundColor: tertiaryColor], to: line.prefixRange, in: text, storage: storage)
+                        let revealPrefix = document.shouldRevealPrefix(line.prefixRange, for: selectionState)
+                        let prefixAttrs = revealPrefix
+                            ? [.font: bodyFont(), .foregroundColor: tertiaryColor]
+                            : hiddenQuotePrefixAttrs
+                        applyAttributes(prefixAttrs, to: line.prefixRange, in: text, storage: storage)
+                        applyAttributes([.groveQuotePrefix: true], to: line.prefixRange, in: text, storage: storage)
                         applyAttributes([.foregroundColor: secondaryColor], to: line.contentRange, in: text, storage: storage)
-                        applyAttributes([.paragraphStyle: baseParagraphStyle()], to: line.lineRange, in: text, storage: storage)
+                        applyAttributes([.paragraphStyle: quoteParagraphStyle()], to: line.lineRange, in: text, storage: storage)
                     }
 
                 case .bulletList(let list):
                     for item in list.items {
-                        applyAttributes([.foregroundColor: tertiaryColor], to: item.prefixRange, in: text, storage: storage)
+                        let revealPrefix = document.shouldRevealPrefix(item.prefixRange, for: selectionState)
+                        let prefixAttrs = revealPrefix
+                            ? [.font: bodyFont(), .foregroundColor: tertiaryColor]
+                            : hiddenListPrefixAttrs
+                        applyAttributes(prefixAttrs, to: item.prefixRange, in: text, storage: storage)
+                        applyAttributes([.groveListPrefix: true], to: item.prefixRange, in: text, storage: storage)
                         applyAttributes([.foregroundColor: primaryColor], to: item.contentRange, in: text, storage: storage)
-                        applyAttributes([.paragraphStyle: baseParagraphStyle()], to: item.lineRange, in: text, storage: storage)
+                        applyAttributes([.paragraphStyle: listParagraphStyle()], to: item.lineRange, in: text, storage: storage)
                     }
 
                 case .codeBlock(let codeBlock):
+                    let openingAttrs = document.shouldRevealCodeFence(codeBlock.openingFenceRange, for: selectionState)
+                        ? [.foregroundColor: tertiaryColor, .font: monoFont()]
+                        : hiddenDelimiterAttrs
                     applyAttributes(
-                        [.foregroundColor: tertiaryColor, .font: monoFont()],
+                        openingAttrs,
                         to: codeBlock.openingFenceRange,
                         in: text,
                         storage: storage
                     )
                     if let closingFenceRange = codeBlock.closingFenceRange {
+                        let closingAttrs = document.shouldRevealCodeFence(closingFenceRange, for: selectionState)
+                            ? [.foregroundColor: tertiaryColor, .font: monoFont()]
+                            : hiddenDelimiterAttrs
                         applyAttributes(
-                            [.foregroundColor: tertiaryColor, .font: monoFont()],
+                            closingAttrs,
                             to: closingFenceRange,
                             in: text,
                             storage: storage
@@ -350,8 +410,19 @@ struct MarkdownUITextView: UIViewRepresentable {
             }
 
             for span in document.inlineSpans {
+                let revealMarkers = document.shouldRevealInlineSpan(span, for: selectionState)
+                let visibleMarkerAttrs = delimiterAttributes(
+                    for: span.kind,
+                    tertiaryColor: tertiaryColor,
+                    codeBackground: codeBackground
+                )
+                let hiddenAttrs = hiddenDelimiterAttributes(
+                    for: span.kind,
+                    hiddenDelimiterAttrs: hiddenDelimiterAttrs
+                )
+
                 for markerRange in span.markerRanges {
-                    applyAttributes([.foregroundColor: tertiaryColor], to: markerRange, in: text, storage: storage)
+                    applyAttributes(revealMarkers ? visibleMarkerAttrs : hiddenAttrs, to: markerRange, in: text, storage: storage)
                 }
 
                 guard let nsRange = nsRange(for: span.contentRange, in: text) else { continue }
@@ -370,6 +441,7 @@ struct MarkdownUITextView: UIViewRepresentable {
                         [
                             .font: monoFont(),
                             .backgroundColor: codeBackground,
+                            .foregroundColor: primaryColor,
                         ],
                         range: nsRange
                     )
@@ -382,6 +454,38 @@ struct MarkdownUITextView: UIViewRepresentable {
                         range: nsRange
                     )
                 }
+            }
+        }
+
+        private func delimiterAttributes(
+            for kind: MarkdownDocument.InlineSpan.Kind,
+            tertiaryColor: UIColor,
+            codeBackground: UIColor
+        ) -> [NSAttributedString.Key: Any] {
+            switch kind {
+            case .inlineCode:
+                return [
+                    .font: monoFont(),
+                    .foregroundColor: tertiaryColor,
+                    .backgroundColor: codeBackground,
+                ]
+            default:
+                return [
+                    .font: bodyFont(),
+                    .foregroundColor: tertiaryColor,
+                ]
+            }
+        }
+
+        private func hiddenDelimiterAttributes(
+            for kind: MarkdownDocument.InlineSpan.Kind,
+            hiddenDelimiterAttrs: [NSAttributedString.Key: Any]
+        ) -> [NSAttributedString.Key: Any] {
+            switch kind {
+            case .inlineCode:
+                return hiddenDelimiterAttrs.merging([.backgroundColor: UIColor.clear]) { _, new in new }
+            default:
+                return hiddenDelimiterAttrs
             }
         }
 
@@ -405,6 +509,11 @@ struct MarkdownUITextView: UIViewRepresentable {
             let lower = text.index(text.startIndex, offsetBy: characterRange.lowerBound)
             let upper = text.index(text.startIndex, offsetBy: characterRange.upperBound)
             return NSRange(lower..<upper, in: text)
+        }
+
+        private func restoreSelectionIfNeeded(_ range: NSRange, in textView: UITextView) {
+            guard textView.selectedRange != range else { return }
+            textView.selectedRange = range
         }
 
         private func applyFontTraits(
@@ -463,6 +572,27 @@ struct MarkdownUITextView: UIViewRepresentable {
             let style = (proseParagraphStyle() ?? NSMutableParagraphStyle())
             style.paragraphSpacingBefore = level == 1 ? 10 : 6
             style.paragraphSpacing = max(style.paragraphSpacing, 4)
+            return style
+        }
+
+        private func quoteParagraphStyle() -> NSParagraphStyle {
+            let style = (baseParagraphStyle().mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+            let isProse = parent.fontSize >= 17
+            let indent: CGFloat = isProse ? 14 : 11
+            let markerAdvance: CGFloat = isProse ? 11 : 9
+            style.firstLineHeadIndent = indent
+            style.headIndent = indent + markerAdvance
+            style.paragraphSpacing = 0
+            style.paragraphSpacingBefore = 0
+            return style
+        }
+
+        private func listParagraphStyle() -> NSParagraphStyle {
+            let style = (baseParagraphStyle().mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+            let isProse = parent.fontSize >= 17
+            style.firstLineHeadIndent = 0
+            style.headIndent = isProse ? 14 : 12
+            style.paragraphSpacing = max(style.paragraphSpacing, isProse ? 8 : 6)
             return style
         }
 

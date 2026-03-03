@@ -5,19 +5,9 @@ import UIKit
 /// Displays above the keyboard with horizontal scrolling formatting buttons.
 class MarkdownFormattingAccessoryView: UIView {
     weak var formattingDelegate: HighlightingUITextView?
-    var onModeChange: ((MarkdownEditorMode) -> Void)?
-    var editorMode: MarkdownEditorMode = .livePreview {
-        didSet {
-            let selectedIndex = editorMode == .livePreview ? 0 : 1
-            if modeControl.selectedSegmentIndex != selectedIndex {
-                modeControl.selectedSegmentIndex = selectedIndex
-            }
-        }
-    }
 
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
-    private let modeControl = UISegmentedControl(items: ["Live", "Source"])
 
     override var intrinsicContentSize: CGSize {
         CGSize(width: UIView.noIntrinsicMetric, height: 44)
@@ -54,19 +44,11 @@ class MarkdownFormattingAccessoryView: UIView {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(scrollView)
 
-        modeControl.selectedSegmentIndex = 0
-        modeControl.translatesAutoresizingMaskIntoConstraints = false
-        modeControl.addTarget(self, action: #selector(modeChanged), for: .valueChanged)
-        addSubview(modeControl)
-
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: separator.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: modeControl.leadingAnchor, constant: -8),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            modeControl.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            modeControl.centerYAnchor.constraint(equalTo: scrollView.centerYAnchor),
-            modeControl.widthAnchor.constraint(equalToConstant: 132),
         ])
 
         // Stack view
@@ -189,12 +171,6 @@ class MarkdownFormattingAccessoryView: UIView {
 
     @objc private func dismissKeyboard() {
         formattingDelegate?.resignFirstResponder()
-    }
-
-    @objc private func modeChanged() {
-        let newMode: MarkdownEditorMode = modeControl.selectedSegmentIndex == 0 ? .livePreview : .source
-        editorMode = newMode
-        onModeChange?(newMode)
     }
 }
 #endif
