@@ -3,8 +3,9 @@ import Foundation
 
 /// Shared ModelContainer factory for both the main app and Share Extension.
 ///
-/// Uses the App Group container (`group.dev.tuist.grove`) whenever it is
-/// available so every target can resolve the same SwiftData store.
+/// Uses the App Group container (`group.dev.tuist.grove`) when needed by the
+/// current target. On macOS, the main app uses the shared store while the demo
+/// target stays isolated in its own sandbox store.
 enum SharedModelContainer {
 
     /// The SwiftData schema including all model types. Kept in one place
@@ -51,9 +52,10 @@ enum SharedModelContainer {
 
     /// Creates a `ModelContainer` for the main app.
     ///
-    /// - Uses the App Group container when available.
-    /// - On macOS, first migrates the existing `dev.tuist.grove` sandbox store
-    ///   into the App Group container before opening it.
+    /// - Uses the App Group container when available and appropriate.
+    /// - On macOS, the main app first migrates the existing
+    ///   `dev.tuist.grove` sandbox store into the App Group container before
+    ///   opening it. The demo target stays on its own local store.
     /// - CloudKit sync is conditional on `SyncSettings.syncEnabled`.
     /// - If CloudKit initialization fails, falls back to a local-only store
     ///   and disables sync to prevent repeated failures.
@@ -98,6 +100,17 @@ enum SharedModelContainer {
     private static func makeContainer(syncEnabled: Bool) throws -> ModelContainer {
         let cloudKit: ModelConfiguration.CloudKitDatabase = syncEnabled ? .automatic : .none
 
+        #if os(macOS)
+        guard shouldUseSharedStoreOnMac() else {
+            let fallbackConfig = ModelConfiguration(
+                "Grove",
+                schema: schema,
+                cloudKitDatabase: cloudKit
+            )
+            return try ModelContainer(for: schema, configurations: [fallbackConfig])
+        }
+        #endif
+
         if let storeURL = sharedStoreURL {
             #if os(macOS)
             let preparation = try prepareMacSharedStoreIfNeeded(sharedStoreURL: storeURL)
@@ -135,6 +148,12 @@ enum SharedModelContainer {
         case useDefaultStore
     }
 
+    static func shouldUseSharedStoreOnMac(
+        currentBundleIdentifier: String? = Bundle.main.bundleIdentifier
+    ) -> Bool {
+        currentBundleIdentifier == primaryMacBundleIdentifier
+    }
+
     static func prepareMacSharedStoreIfNeeded(
         fileManager: FileManager = .default,
         currentBundleIdentifier: String? = Bundle.main.bundleIdentifier,
@@ -147,7 +166,7 @@ enum SharedModelContainer {
             return .useSharedStore
         }
 
-        guard currentBundleIdentifier == primaryMacBundleIdentifier else {
+        guard shouldUseSharedStoreOnMac(currentBundleIdentifier: currentBundleIdentifier) else {
             return .useDefaultStore
         }
 

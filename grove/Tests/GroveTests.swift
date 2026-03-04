@@ -521,6 +521,19 @@ struct GroveTests {
         )
     }
 
+    @Test func sharedModelContainerUsesSharedStoreOnlyForPrimaryMacApp() {
+        #expect(
+            SharedModelContainer.shouldUseSharedStoreOnMac(
+                currentBundleIdentifier: SharedModelContainer.primaryMacBundleIdentifier
+            )
+        )
+        #expect(
+            !SharedModelContainer.shouldUseSharedStoreOnMac(
+                currentBundleIdentifier: "dev.tuist.grove.demo"
+            )
+        )
+    }
+
     @Test func sharedModelContainerKeepsDemoTargetOffSharedStoreUntilMigrationCompletes() throws {
         let tempDirectory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
