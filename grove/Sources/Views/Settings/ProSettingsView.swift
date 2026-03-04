@@ -66,6 +66,7 @@ struct ProSettingsView: View {
                             bypassCooldown: true
                         )
                     }
+                    .tint(Color.textPrimary)
                     .buttonStyle(.borderedProminent)
                 }
             }
@@ -75,20 +76,6 @@ struct ProSettingsView: View {
                     Task { await storeKit.restore() }
                 }
                 .buttonStyle(.bordered)
-            }
-
-            Section("Included in Pro") {
-                ForEach(ProFeature.allCases) { feature in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(feature.title)
-                            .font(.groveBody)
-                            .foregroundStyle(Color.textPrimary)
-                        Text(feature.summary)
-                            .font(.groveBodySmall)
-                            .foregroundStyle(Color.textSecondary)
-                    }
-                    .padding(.vertical, 2)
-                }
             }
 
 #if DEBUG

@@ -92,7 +92,7 @@ enum ProFeature: String, CaseIterable, Sendable, Identifiable {
         case .savedWorkflows: return "Save and reuse repeatable high-value workflows."
         case .sync: return "Continue work seamlessly across devices."
         case .fullHistory: return "Search and revisit complete conversation history."
-        case .smartRouting: return "On-device first with automatic cloud fallback."
+        case .smartRouting: return "Use cloud or on-device AI with optional smart fallback between them."
         case .dialectics: return "Unlimited AI conversation sessions."
         case .reflectionPrompts: return "AI-generated reflection prompts."
         case .autoTagging: return "AI tags, summaries, and board placement."

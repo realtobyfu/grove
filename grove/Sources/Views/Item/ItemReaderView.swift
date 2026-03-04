@@ -155,32 +155,35 @@ struct ItemReaderView: View {
 
     @ViewBuilder
     private func singleColumnLayout(vm: ItemReaderViewModel) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                ItemReaderHeaderView(vm: vm, showItemExportSheet: $showItemExportSheet)
-                coverImage(vm: vm)
-                Divider().padding(.horizontal)
-                sourceContent(vm: vm).padding()
-                Divider().padding(.horizontal)
-                if vm.isReflectionPanelCollapsed && !vm.sortedReflections.isEmpty {
-                    InlineReflectionsSection(
-                        vm: vm,
-                        draggingBlock: $draggingBlock,
-                        focusTrigger: focusReflectionEditor,
-                        showExpandButton: true
-                    )
-                    .padding()
-                } else if vm.sortedReflections.isEmpty {
-                    InlineReflectionsSection(
-                        vm: vm,
-                        draggingBlock: $draggingBlock,
-                        focusTrigger: focusReflectionEditor
-                    )
-                    .padding()
+        GeometryReader { geo in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ItemReaderHeaderView(vm: vm, showItemExportSheet: $showItemExportSheet)
+                    coverImage(vm: vm)
+                    Divider().padding(.horizontal)
+                    sourceContent(vm: vm).padding()
+                    Divider().padding(.horizontal)
+                    if vm.isReflectionPanelCollapsed && !vm.sortedReflections.isEmpty {
+                        InlineReflectionsSection(
+                            vm: vm,
+                            draggingBlock: $draggingBlock,
+                            focusTrigger: focusReflectionEditor,
+                            showExpandButton: true
+                        )
+                        .padding()
+                    } else if vm.sortedReflections.isEmpty {
+                        InlineReflectionsSection(
+                            vm: vm,
+                            draggingBlock: $draggingBlock,
+                            focusTrigger: focusReflectionEditor
+                        )
+                        .padding()
+                    }
                 }
+                .frame(width: geo.size.width)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color.bgPrimary)
     }
 

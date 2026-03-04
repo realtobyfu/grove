@@ -23,12 +23,19 @@ struct ProPaywallView: View {
         return "Get unlimited AI workflows, full history, and sync across devices."
     }
 
+    private var overlineText: String {
+        if let feature = presentation.feature {
+            return "UNLOCK \(feature.title.uppercased())"
+        }
+        return "GROVE PRO"
+    }
+
     private var paywallFeatures: [ProFeature] {
         if let feature = presentation.feature {
             let remaining = ProFeature.allCases.filter { $0 != feature }
-            return [feature] + Array(remaining.prefix(4))
+            return [feature] + Array(remaining.prefix(5))
         }
-        return Array(ProFeature.allCases.prefix(5))
+        return Array(ProFeature.allCases.prefix(6))
     }
 
     private var isPurchasing: Bool {
@@ -45,28 +52,48 @@ struct ProPaywallView: View {
         return "Upgrade for \(storeKit.displayPrice)/year"
     }
 
+    private var pricingSummary: String {
+        if let intro = storeKit.introOfferDescription {
+            return "\(intro.capitalized). Then \(storeKit.displayPrice) per year."
+        }
+        return "\(storeKit.displayPrice) billed annually."
+    }
+
+    private var purchaseFootnote: String {
+        if let intro = storeKit.introOfferDescription {
+            return "Try everything for \(intro), then continue for \(storeKit.displayPrice) per year. Cancel anytime in App Store subscriptions."
+        }
+        return "One yearly subscription for \(storeKit.displayPrice). Cancel anytime in App Store subscriptions."
+    }
+
+    private var aiUsageLimitSummary: String {
+        "Free includes limited AI each month: 6 Dialectics, 3 reflection prompts, 10 auto-tags, 5 connection suggestions, 1 synthesis, and 3 suggested articles. Pro removes those caps."
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.xl) {
-                VStack(alignment: .leading, spacing: Spacing.sm) {
-                    Text(titleText)
-                        .font(.groveTitleLarge)
-                        .foregroundStyle(Color.textPrimary)
+                HStack {
+                    Spacer()
 
-                    Text(subtitleText)
-                        .font(.groveBody)
-                        .foregroundStyle(Color.textSecondary)
-                }
-
-                VStack(alignment: .leading, spacing: Spacing.sm) {
-                    ForEach(paywallFeatures) { feature in
-                        Label(feature.title, systemImage: "checkmark.circle.fill")
-                            .font(.groveBody)
-                            .foregroundStyle(Color.textPrimary)
+                    Button {
+                        dismissPaywall(converted: false)
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color.textSecondary)
+                            .frame(width: LayoutDimensions.minTouchTarget, height: LayoutDimensions.minTouchTarget)
+                            .background(Color.bgCard)
+                            .clipShape(.rect(cornerRadius: 999))
+                            .overlay(
+                                Capsule()
+                                    .stroke(Color.borderPrimary, lineWidth: 1)
+                            )
                     }
+                    .buttonStyle(.plain)
                 }
 
-                purchaseStateBanner
+                heroCard
 
                 VStack(spacing: Spacing.sm) {
                     Button(action: beginPurchase) {
@@ -75,29 +102,46 @@ struct ProPaywallView: View {
                                 ProgressView()
                                     .tint(Color.textInverse)
                             }
+
                             Text(isPurchasing ? "Purchasing..." : purchaseButtonTitle)
-                                .font(.groveBody)
+                                .font(.groveBodyMedium)
                                 .frame(maxWidth: .infinity)
                         }
                         .frame(minHeight: LayoutDimensions.minTouchTarget)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(PaywallFilledButtonStyle())
                     .disabled(isPurchasing)
 
                     Button("Restore Purchases", action: restorePurchases)
-                        .font(.groveBody)
+                        .font(.groveBodyMedium)
+                        .foregroundStyle(Color.textPrimary)
                         .frame(maxWidth: .infinity, minHeight: LayoutDimensions.minTouchTarget)
-                        .buttonStyle(.bordered)
-
-                    Button("Not Now") {
-                        dismissPaywall(converted: false)
-                    }
-                    .font(.groveBodySmall)
-                    .frame(maxWidth: .infinity, minHeight: LayoutDimensions.minTouchTarget)
+                        .buttonStyle(.plain)
                 }
+
+                VStack(alignment: .leading, spacing: Spacing.md) {
+                    Text("Everything included")
+                        .sectionHeaderStyle()
+
+                    VStack(spacing: Spacing.sm) {
+                        ForEach(paywallFeatures) { feature in
+                            featureRow(for: feature)
+                        }
+                    }
+                }
+
+                purchaseStateBanner
+
+                aiUsageCard
+
+                Text(purchaseFootnote)
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, LayoutDimensions.contentPaddingH)
-            .padding(.vertical, LayoutDimensions.sectionSpacing)
+            .padding(.top, LayoutDimensions.sectionSpacing)
+            .padding(.bottom, LayoutDimensions.sectionSpacing)
         }
         .background(Color.bgPrimary)
         .task {
@@ -116,6 +160,150 @@ struct ProPaywallView: View {
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
 #endif
+    }
+
+    private var heroCard: some View {
+        VStack(alignment: .leading, spacing: Spacing.lg) {
+            HStack(alignment: .top, spacing: Spacing.md) {
+                ZStack {
+                    Circle()
+                        .fill(Color.textPrimary)
+                        .frame(width: 44, height: 44)
+
+                    Image(systemName: "crown.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Color.textInverse)
+                }
+
+                VStack(alignment: .leading, spacing: Spacing.xs) {
+                    Text(overlineText)
+                        .font(.groveBadge)
+                        .tracking(1.0)
+                        .foregroundStyle(Color.textSecondary)
+
+                    Text(titleText)
+                        .font(.groveTitleLarge)
+                        .foregroundStyle(Color.textPrimary)
+
+                    Text(subtitleText)
+                        .font(.groveBody)
+                        .foregroundStyle(Color.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            ViewThatFits {
+                HStack(spacing: Spacing.sm) {
+                    heroHighlights
+                }
+
+                VStack(alignment: .leading, spacing: Spacing.sm) {
+                    heroHighlights
+                }
+            }
+        }
+        .padding(Spacing.xl)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            LinearGradient(
+                colors: [Color.bgCard, Color.bgPrimary],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .clipShape(.rect(cornerRadius: max(LayoutDimensions.cardCornerRadius, 12)))
+        .overlay(
+            RoundedRectangle(cornerRadius: max(LayoutDimensions.cardCornerRadius, 12))
+                .stroke(Color.borderPrimary, lineWidth: 1)
+        )
+    }
+
+    private func paywallPill(title: String, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.groveMeta)
+            .foregroundStyle(Color.textSecondary)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm)
+            .background(Color.bgPrimary)
+            .clipShape(.rect(cornerRadius: 999))
+            .overlay(
+                Capsule()
+                    .stroke(Color.borderPrimary, lineWidth: 1)
+            )
+    }
+
+    @ViewBuilder
+    private var heroHighlights: some View {
+        paywallPill(
+            title: pricingSummary,
+            systemImage: "calendar"
+        )
+        paywallPill(
+            title: "Cancel anytime",
+            systemImage: "checkmark.shield"
+        )
+    }
+
+    private func featureRow(for feature: ProFeature) -> some View {
+        HStack(alignment: .top, spacing: Spacing.md) {
+            Image(systemName: icon(for: feature))
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color.textInverse)
+                .frame(width: 28, height: 28)
+                .background(Color.textPrimary)
+                .clipShape(.rect(cornerRadius: 8))
+
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                Text(feature.title)
+                    .font(.groveBodyMedium)
+                    .foregroundStyle(Color.textPrimary)
+
+                Text(feature.summary)
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(Spacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardStyle()
+    }
+
+    private var aiUsageCard: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            Text("AI usage on Free")
+                .font(.groveBadge)
+                .tracking(1.0)
+                .foregroundStyle(Color.textSecondary)
+
+            Text(aiUsageLimitSummary)
+                .font(.groveBodySmall)
+                .foregroundStyle(Color.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(Spacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardStyle()
+    }
+
+    private func icon(for feature: ProFeature) -> String {
+        switch feature {
+        case .automations: return "clock.arrow.circlepath"
+        case .batchActions: return "square.stack.3d.up.fill"
+        case .savedWorkflows: return "bookmark.fill"
+        case .sync: return "arrow.triangle.2.circlepath.icloud"
+        case .fullHistory: return "text.magnifyingglass"
+        case .smartRouting: return "point.3.connected.trianglepath.dotted"
+        case .dialectics: return "bubble.left.and.bubble.right.fill"
+        case .reflectionPrompts: return "sparkles.rectangle.stack"
+        case .autoTagging: return "tag.fill"
+        case .connectionSuggestions: return "point.3.filled.connected.trianglepath.dotted"
+        case .synthesis: return "wand.and.stars"
+        case .weeklyDigest: return "newspaper.fill"
+        case .suggestedArticles: return "doc.text.image.fill"
+        }
     }
 
     @ViewBuilder
@@ -181,5 +369,21 @@ struct ProPaywallView: View {
             return true
         }
         return false
+    }
+}
+
+private struct PaywallFilledButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    var background: Color = .textPrimary
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(Color.textInverse)
+            .padding(.horizontal, Spacing.md)
+            .background(isEnabled ? background : Color.textSecondary)
+            .clipShape(.rect(cornerRadius: max(LayoutDimensions.cardCornerRadius, 12)))
+            .opacity(configuration.isPressed ? 0.85 : 1.0)
+            .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
     }
 }
