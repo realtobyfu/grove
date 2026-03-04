@@ -1,20 +1,17 @@
 # CLAUDE.md — Grove iOS/iPad
 
-## Build & Test (use xclaude MCP tools, NOT raw commands)
-- Build: use `xcode_build` tool (scheme: "grove-ios", destination: iPhone 16 simulator)
-- Test: use `xcode_test` tool (scheme: "groveTests")
-- Screenshot: use `simulator_screenshot` after UI changes
-- UI verify: use `idb_describe` to check accessibility tree
-- If xclaude tools unavailable, fallback: `tuist generate && xcodebuild -scheme grove-ios -destination 'platform=iOS Simulator,name=iPhone 16' build 2>&1 | grep -E "error:|warning:" | head -20`
+## Build & Test (use xclaude MCP tools)
+- Build: `xcode_build` (scheme: "grove-ios", destination: iPhone 16 simulator)
+- Test: `xcode_test` (scheme: "groveTests")
+- Screenshot: `simulator_screenshot` after UI changes
+- UI verify: `idb_describe` to check accessibility tree
 
 ## Project Structure
-- Tuist-managed project. Run `tuist generate` after changing Project.swift
+- Tuist-managed. Run `tuist generate` after changing Project.swift.
 - Shared code: grove/Sources/{Models,Services,ViewModels,Utilities,Extensions}/
-- iOS views: grove/Sources/Views/iOS/
-- Shared views: grove/Sources/Views/Shared/
-- macOS views: grove/Sources/Views/macOS/
+- Views: grove/Sources/Views/{iOS,Board,Chat,Home,Inbox,Library,...} (feature-grouped; iOS-specific in iOS/)
 - Share Extension: grove/ShareExtension/
-- Specs: specs/grove-mobile-spec.md
+- UX spec: /DESIGN.md
 
 ## Architecture
 - SwiftUI + MVVM. @Observable ViewModels (NOT ObservableObject)
@@ -29,26 +26,24 @@
 - Monochromatic. No accent colors. Hierarchy through typography weight/size/contrast.
 - Min touch target: 44x44pt on iOS
 - Fonts: Newsreader (titles), IBM Plex Sans (body), IBM Plex Mono (meta)
-- All text: use @ScaledMetric for Dynamic Type
+- Font tokens: `Font.custom(_:size:relativeTo:)` for Dynamic Type. `@ScaledMetric` for non-font CGFloat values (spacing, sizes).
 - SF Symbols: .medium weight on mobile
 
 ## SwiftData
 - Shared ModelContainer via App Group: group.dev.tuist.grove
-- Same iCloud container: iCloud.dev.tuist.grove
+- iCloud container: iCloud.dev.tuist.grove
 - Models are 100% shared with macOS. No schema changes for iOS.
 - Share Extension writes to shared store, main app does CloudKit sync.
 
 ## Key Conventions
-- Prefer ViewThatFits or GeometryReader breakpoints over #if os() for responsive layout
 - iPad popovers for pickers/inspectors, iPhone uses sheets with detents
 - Swipe actions on List rows for inbox triage (right=queue, left=archive)
 - Deep links: grove://item/{uuid}, grove://board/{uuid}, grove://chat/{uuid}
 
-## Gotchas Discovered
+## Gotchas
 <!-- Ralph updates this section as it learns -->
-- UIDevice.current is @MainActor in Swift 6. Font statics on iOS use @MainActor + Platform.isIPad helper. Safe because fonts are only read from SwiftUI view bodies.
-- Font.custom(_:size:relativeTo:) is the correct way to enable Dynamic Type for custom fonts on iOS. No @ScaledMetric needed for Font tokens (use @ScaledMetric for non-font CGFloat values like spacing).
+- `UIDevice.current` is @MainActor in Swift 6. Use @MainActor + Platform.isIPad helper.
 - Both targets (grove + grove-ios) compile ALL files in grove/Sources/. iOS-only modifiers (.keyboardType, .textInputAutocapitalization, .navigationBarTitleDisplayMode) need `#if os(iOS)` guards even in Views/iOS/ files.
 - SwiftData `#Predicate` does not support enum member access (`.inbox`). Use `@Query` without filter + computed property instead.
-- GroveShareExtension target compiles ALL of grove/Sources/ (via buildableFolders). `@main` in GroveApp.swift is guarded with `#if !SHARE_EXTENSION`. `UIApplication.shared` is unavailable in extensions — use `@Environment(\.openURL)` instead (or pass `OpenURLAction` to coordinators).
-- Tuist does not support mixing `sources` (glob) and `buildableFolders` for overlapping paths in the same project. Use `buildableFolders` consistently + compilation conditions for exclusions.
+- GroveShareExtension compiles all of grove/Sources/. `@main` guarded with `#if !SHARE_EXTENSION`. `UIApplication.shared` unavailable — use `@Environment(\.openURL)`.
+- Tuist does not support mixing `sources` (glob) and `buildableFolders` for overlapping paths. Use `buildableFolders` consistently + compilation conditions for exclusions.
