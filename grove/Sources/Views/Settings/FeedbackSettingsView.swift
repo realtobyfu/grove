@@ -21,6 +21,7 @@ struct FeedbackSettingsView: View {
                         #endif
                     }
                 }
+                .tint(Color.textPrimary)
                 .buttonStyle(.borderedProminent)
 
                 Text("Opens your default email client with a pre-filled message to the developer.")

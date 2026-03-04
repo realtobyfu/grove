@@ -18,9 +18,9 @@ struct ProPaywallView: View {
 
     private var subtitleText: String {
         if let feature = presentation.feature {
-            return "\(feature.summary) plus every other Pro capability."
+            return "\(feature.summary) plus automations, full history, and seamless sync across devices."
         }
-        return "Get unlimited AI workflows, full history, and sync across devices."
+        return "Automate recurring work, search your full history, and stay in sync across every device."
     }
 
     private var overlineText: String {
@@ -38,6 +38,25 @@ struct ProPaywallView: View {
         return Array(ProFeature.allCases.prefix(6))
     }
 
+    private var featuredBenefits: [ProFeature] {
+        let defaults: [ProFeature] = [.automations, .sync, .fullHistory]
+        let prioritized: [ProFeature]
+
+        if let feature = presentation.feature {
+            prioritized = [feature] + defaults.filter { $0 != feature } + paywallFeatures
+        } else {
+            prioritized = defaults + paywallFeatures
+        }
+
+        var seen = Set<String>()
+        return prioritized.filter { seen.insert($0.id).inserted }.prefix(3).map(\.self)
+    }
+
+    private var additionalBenefits: [ProFeature] {
+        let featuredIDs = Set(featuredBenefits.map(\.id))
+        return paywallFeatures.filter { !featuredIDs.contains($0.id) }
+    }
+
     private var isPurchasing: Bool {
         if case .purchasing = storeKit.purchaseState {
             return true
@@ -47,14 +66,14 @@ struct ProPaywallView: View {
 
     private var purchaseButtonTitle: String {
         if let intro = storeKit.introOfferDescription {
-            return "Start \(intro) - \(storeKit.displayPrice)/year"
+            return "Start \(intro)"
         }
-        return "Upgrade for \(storeKit.displayPrice)/year"
+        return "Upgrade to Pro"
     }
 
     private var pricingSummary: String {
         if let intro = storeKit.introOfferDescription {
-            return "\(intro.capitalized). Then \(storeKit.displayPrice) per year."
+            return "\(intro.capitalized), then \(storeKit.displayPrice) per year."
         }
         return "\(storeKit.displayPrice) billed annually."
     }
@@ -72,28 +91,16 @@ struct ProPaywallView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Spacing.xl) {
-                HStack {
-                    Spacer()
+            VStack(alignment: .leading, spacing: Spacing.xxl) {
+                HStack(alignment: .top, spacing: Spacing.md) {
+                    heroHeader
 
-                    Button {
-                        dismissPaywall(converted: false)
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Color.textSecondary)
-                            .frame(width: LayoutDimensions.minTouchTarget, height: LayoutDimensions.minTouchTarget)
-                            .background(Color.bgCard)
-                            .clipShape(.rect(cornerRadius: 999))
-                            .overlay(
-                                Capsule()
-                                    .stroke(Color.borderPrimary, lineWidth: 1)
-                            )
-                    }
-                    .buttonStyle(.plain)
+                    Spacer(minLength: Spacing.md)
+
+                    dismissButton
                 }
 
-                heroCard
+                pricingCallout
 
                 VStack(spacing: Spacing.sm) {
                     Button(action: beginPurchase) {
@@ -119,20 +126,29 @@ struct ProPaywallView: View {
                         .buttonStyle(.plain)
                 }
 
+                purchaseStateBanner
+
                 VStack(alignment: .leading, spacing: Spacing.md) {
-                    Text("Everything included")
+                    Text("Top Pro benefits")
                         .sectionHeaderStyle()
 
                     VStack(spacing: Spacing.sm) {
-                        ForEach(paywallFeatures) { feature in
+                        ForEach(featuredBenefits) { feature in
                             featureRow(for: feature)
                         }
                     }
                 }
 
-                purchaseStateBanner
+                if !additionalBenefits.isEmpty {
+                    VStack(alignment: .leading, spacing: Spacing.md) {
+                        Text("Also included")
+                            .sectionHeaderStyle()
 
-                aiUsageCard
+                        additionalBenefitsView
+                    }
+                }
+
+                footerNotes
 
                 Text(purchaseFootnote)
                     .font(.groveBodySmall)
@@ -140,7 +156,7 @@ struct ProPaywallView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, LayoutDimensions.contentPaddingH)
-            .padding(.top, LayoutDimensions.sectionSpacing)
+            .padding(.top, Spacing.lg)
             .padding(.bottom, LayoutDimensions.sectionSpacing)
         }
         .background(Color.bgPrimary)
@@ -162,8 +178,8 @@ struct ProPaywallView: View {
 #endif
     }
 
-    private var heroCard: some View {
-        VStack(alignment: .leading, spacing: Spacing.lg) {
+    private var heroHeader: some View {
+        VStack(alignment: .leading, spacing: Spacing.md) {
             HStack(alignment: .top, spacing: Spacing.md) {
                 ZStack {
                     Circle()
@@ -191,57 +207,43 @@ struct ProPaywallView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-
-            ViewThatFits {
-                HStack(spacing: Spacing.sm) {
-                    heroHighlights
-                }
-
-                VStack(alignment: .leading, spacing: Spacing.sm) {
-                    heroHighlights
-                }
-            }
         }
-        .padding(Spacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            LinearGradient(
-                colors: [Color.bgCard, Color.bgPrimary],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
-        .clipShape(.rect(cornerRadius: max(LayoutDimensions.cardCornerRadius, 12)))
-        .overlay(
-            RoundedRectangle(cornerRadius: max(LayoutDimensions.cardCornerRadius, 12))
-                .stroke(Color.borderPrimary, lineWidth: 1)
-        )
     }
 
-    private func paywallPill(title: String, systemImage: String) -> some View {
-        Label(title, systemImage: systemImage)
-            .font(.groveMeta)
-            .foregroundStyle(Color.textSecondary)
-            .padding(.horizontal, Spacing.md)
-            .padding(.vertical, Spacing.sm)
-            .background(Color.bgPrimary)
-            .clipShape(.rect(cornerRadius: 999))
-            .overlay(
-                Capsule()
-                    .stroke(Color.borderPrimary, lineWidth: 1)
-            )
+    private var dismissButton: some View {
+        Button {
+            dismissPaywall(converted: false)
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.textTertiary)
+                .frame(width: 28, height: 28)
+                .contentShape(.rect)
+        }
+        .frame(width: LayoutDimensions.minTouchTarget, height: LayoutDimensions.minTouchTarget, alignment: .topTrailing)
+        .buttonStyle(.plain)
     }
 
-    @ViewBuilder
-    private var heroHighlights: some View {
-        paywallPill(
-            title: pricingSummary,
-            systemImage: "calendar"
-        )
-        paywallPill(
-            title: "Cancel anytime",
-            systemImage: "checkmark.shield"
-        )
+    private var pricingCallout: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text(storeKit.introOfferDescription == nil ? "ANNUAL PLAN" : "START WITH A FREE TRIAL")
+                .font(.groveBadge)
+                .tracking(1.0)
+                .foregroundStyle(Color.textSecondary)
+
+            Text(pricingSummary)
+                .font(.groveBodyMedium)
+                .foregroundStyle(Color.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Label("Cancel anytime", systemImage: "checkmark.shield")
+                .font(.groveBodySmall)
+                .foregroundStyle(Color.textSecondary)
+        }
+        .padding(Spacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardStyle()
     }
 
     private func featureRow(for feature: ProFeature) -> some View {
@@ -271,21 +273,41 @@ struct ProPaywallView: View {
         .cardStyle()
     }
 
-    private var aiUsageCard: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            Text("AI usage on Free")
-                .font(.groveBadge)
-                .tracking(1.0)
-                .foregroundStyle(Color.textSecondary)
+    private var additionalBenefitsView: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            ForEach(additionalBenefits) { feature in
+                HStack(spacing: Spacing.sm) {
+                    Image(systemName: icon(for: feature))
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.textSecondary)
+                        .frame(width: 18, height: 18)
 
-            Text(aiUsageLimitSummary)
-                .font(.groveBodySmall)
-                .foregroundStyle(Color.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+                    Text(feature.title)
+                        .font(.groveBodySmall)
+                        .foregroundStyle(Color.textSecondary)
+
+                    Spacer(minLength: 0)
+                }
+            }
         }
         .padding(Spacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
         .cardStyle()
+    }
+
+    private var footerNotes: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            Text("Free plan limits")
+                .font(.groveBadge)
+                .tracking(1.0)
+                .foregroundStyle(Color.textTertiary)
+
+            Text(aiUsageLimitSummary)
+                .font(.groveBodySmall)
+                .foregroundStyle(Color.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func icon(for feature: ProFeature) -> String {

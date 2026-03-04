@@ -106,6 +106,7 @@ struct NudgeSettingsView: View {
                             source: .nudgeSettings
                         )
                     }
+                    .tint(Color.textPrimary)
                     .buttonStyle(.bordered)
                 }
             }
@@ -185,6 +186,7 @@ struct NudgeSettingsView: View {
                             source: .nudgeSettings
                         )
                     }
+                    .tint(Color.textPrimary)
                     .buttonStyle(.bordered)
                 }
             }

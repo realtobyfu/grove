@@ -49,6 +49,7 @@ struct SyncSettingsView: View {
                             }
                         )
                     }
+                    .tint(Color.textPrimary)
                     .buttonStyle(.bordered)
                 }
 

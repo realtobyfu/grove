@@ -156,6 +156,7 @@ struct AISettingsView: View {
                             }
                         )
                     }
+                    .tint(Color.textPrimary)
                     .buttonStyle(.bordered)
                 }
             }

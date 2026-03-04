@@ -22,6 +22,7 @@ struct AppearanceSettingsView: View {
                 Button("Replay Onboarding") {
                     onboarding.presentReplay()
                 }
+                .tint(Color.textPrimary)
                 .buttonStyle(.borderedProminent)
 
                 Text("Reopen the guided setup flow from any state.")

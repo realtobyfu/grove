@@ -56,6 +56,7 @@ struct ProSettingsView: View {
                                 #endif
                             }
                         }
+                        .tint(Color.textPrimary)
                         .buttonStyle(.bordered)
                     }
                 } else {
@@ -71,28 +72,24 @@ struct ProSettingsView: View {
                 }
             }
 
-            Section("Restore") {
-                Button("Restore Purchases") {
-                    Task { await storeKit.restore() }
-                }
-                .buttonStyle(.bordered)
-            }
-
 #if DEBUG
             Section("Debug") {
                 Button("Force Free Tier") {
                     entitlement.downgradeToFree()
                 }
+                .tint(Color.textPrimary)
                 .buttonStyle(.bordered)
 
                 Button("Force Pro Tier") {
                     entitlement.activatePro()
                 }
+                .tint(Color.textPrimary)
                 .buttonStyle(.bordered)
 
                 Button("Start Local Trial (14 days)") {
                     entitlement.startTrial(days: 14)
                 }
+                .tint(Color.textPrimary)
                 .buttonStyle(.bordered)
             }
 #endif
