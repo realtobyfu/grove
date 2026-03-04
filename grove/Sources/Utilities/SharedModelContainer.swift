@@ -3,9 +3,8 @@ import Foundation
 
 /// Shared ModelContainer factory for both the main app and Share Extension.
 ///
-/// On iOS, uses the App Group container (`group.dev.tuist.grove`) so the
-/// Share Extension can read/write items to the same SwiftData store as the
-/// main app. On macOS, uses the default storage location.
+/// Uses the App Group container (`group.dev.tuist.grove`) whenever it is
+/// available so every target can resolve the same SwiftData store.
 enum SharedModelContainer {
 
     /// The SwiftData schema including all model types. Kept in one place
@@ -37,13 +36,24 @@ enum SharedModelContainer {
             .appendingPathComponent("grove.store")
     }
 
+    /// The existing sandboxed macOS store we want to preserve on first launch
+    /// after moving both app targets into the App Group container.
+    static var legacyMacStoreURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Containers/\(primaryMacBundleIdentifier)/Data/Library/Application Support/Grove.store")
+    }
+
+    static let primaryMacBundleIdentifier = "dev.tuist.grove"
+    private static let migrationMarkerFileName = ".grove-macos-shared-store-migrated"
+    private static let storeArtifactSuffixes = ["", "-shm", "-wal", "-journal"]
+
     // MARK: - Main App
 
     /// Creates a `ModelContainer` for the main app.
     ///
-    /// - On iOS the store lives inside the App Group container so the Share
-    ///   Extension can access the same data.
-    /// - On macOS the default storage location is used (no App Group needed).
+    /// - Uses the App Group container when available.
+    /// - On macOS, first migrates the existing `dev.tuist.grove` sandbox store
+    ///   into the App Group container before opening it.
     /// - CloudKit sync is conditional on `SyncSettings.syncEnabled`.
     /// - If CloudKit initialization fails, falls back to a local-only store
     ///   and disables sync to prevent repeated failures.
@@ -88,8 +98,19 @@ enum SharedModelContainer {
     private static func makeContainer(syncEnabled: Bool) throws -> ModelContainer {
         let cloudKit: ModelConfiguration.CloudKitDatabase = syncEnabled ? .automatic : .none
 
-        #if os(iOS)
         if let storeURL = sharedStoreURL {
+            #if os(macOS)
+            let preparation = try prepareMacSharedStoreIfNeeded(sharedStoreURL: storeURL)
+            guard preparation == .useSharedStore else {
+                let fallbackConfig = ModelConfiguration(
+                    "Grove",
+                    schema: schema,
+                    cloudKitDatabase: cloudKit
+                )
+                return try ModelContainer(for: schema, configurations: [fallbackConfig])
+            }
+            #endif
+
             let config = ModelConfiguration(
                 "Grove",
                 schema: schema,
@@ -98,6 +119,7 @@ enum SharedModelContainer {
             )
             return try ModelContainer(for: schema, configurations: [config])
         }
+
         // Fallback: no App Group available (e.g. simulator without entitlements)
         let config = ModelConfiguration(
             "Grove",
@@ -105,15 +127,75 @@ enum SharedModelContainer {
             cloudKitDatabase: cloudKit
         )
         return try ModelContainer(for: schema, configurations: [config])
-        #else
-        let config = ModelConfiguration(
-            "Grove",
-            schema: schema,
-            cloudKitDatabase: cloudKit
-        )
-        return try ModelContainer(for: schema, configurations: [config])
-        #endif
     }
+
+    #if os(macOS)
+    enum MacSharedStorePreparationResult: Equatable {
+        case useSharedStore
+        case useDefaultStore
+    }
+
+    static func prepareMacSharedStoreIfNeeded(
+        fileManager: FileManager = .default,
+        currentBundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        legacyStoreURL: URL = legacyMacStoreURL,
+        sharedStoreURL: URL
+    ) throws -> MacSharedStorePreparationResult {
+        let markerURL = migrationMarkerURL(for: sharedStoreURL)
+
+        if fileManager.fileExists(atPath: markerURL.path) || storeExists(at: sharedStoreURL, fileManager: fileManager) {
+            return .useSharedStore
+        }
+
+        guard currentBundleIdentifier == primaryMacBundleIdentifier else {
+            return .useDefaultStore
+        }
+
+        try fileManager.createDirectory(
+            at: sharedStoreURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        if storeExists(at: legacyStoreURL, fileManager: fileManager) {
+            try copyStoreArtifacts(from: legacyStoreURL, to: sharedStoreURL, fileManager: fileManager)
+        }
+
+        try Data("migrated".utf8).write(to: markerURL, options: .atomic)
+        return .useSharedStore
+    }
+
+    private static func migrationMarkerURL(for sharedStoreURL: URL) -> URL {
+        sharedStoreURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(migrationMarkerFileName)
+    }
+
+    private static func storeExists(at storeURL: URL, fileManager: FileManager) -> Bool {
+        fileManager.fileExists(atPath: storeURL.path)
+    }
+
+    private static func copyStoreArtifacts(from sourceStoreURL: URL, to destinationStoreURL: URL, fileManager: FileManager) throws {
+        for suffix in storeArtifactSuffixes {
+            let sourceURL = artifactURL(for: sourceStoreURL, suffix: suffix)
+            guard fileManager.fileExists(atPath: sourceURL.path) else {
+                continue
+            }
+
+            let destinationURL = artifactURL(for: destinationStoreURL, suffix: suffix)
+            if fileManager.fileExists(atPath: destinationURL.path) {
+                try fileManager.removeItem(at: destinationURL)
+            }
+            try fileManager.copyItem(at: sourceURL, to: destinationURL)
+        }
+    }
+
+    private static func artifactURL(for storeURL: URL, suffix: String) -> URL {
+        guard !suffix.isEmpty else {
+            return storeURL
+        }
+        return URL(fileURLWithPath: storeURL.path + suffix)
+    }
+    #endif
 
     enum ContainerError: Error, LocalizedError {
         case appGroupUnavailable

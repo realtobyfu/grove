@@ -484,6 +484,65 @@ struct GroveTests {
         NudgeSettings.staleInboxEnabled = previousStaleInbox
     }
 
+    @Test func sharedModelContainerMigratesLegacyMacStoreIntoAppGroup() throws {
+        let tempDirectory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+
+        let legacyStoreURL = tempDirectory.appendingPathComponent("Legacy/Grove.store")
+        let sharedStoreURL = tempDirectory.appendingPathComponent("Shared/grove.store")
+        try FileManager.default.createDirectory(
+            at: legacyStoreURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        try Data("legacy-store".utf8).write(to: legacyStoreURL)
+        try Data("legacy-wal".utf8).write(to: URL(fileURLWithPath: legacyStoreURL.path + "-wal"))
+        try Data("legacy-shm".utf8).write(to: URL(fileURLWithPath: legacyStoreURL.path + "-shm"))
+
+        let result = try SharedModelContainer.prepareMacSharedStoreIfNeeded(
+            currentBundleIdentifier: SharedModelContainer.primaryMacBundleIdentifier,
+            legacyStoreURL: legacyStoreURL,
+            sharedStoreURL: sharedStoreURL
+        )
+
+        #expect(result == .useSharedStore)
+        #expect(FileManager.default.contentsEqual(atPath: legacyStoreURL.path, andPath: sharedStoreURL.path))
+        #expect(
+            FileManager.default.contentsEqual(
+                atPath: URL(fileURLWithPath: legacyStoreURL.path + "-wal").path,
+                andPath: URL(fileURLWithPath: sharedStoreURL.path + "-wal").path
+            )
+        )
+        #expect(
+            FileManager.default.contentsEqual(
+                atPath: URL(fileURLWithPath: legacyStoreURL.path + "-shm").path,
+                andPath: URL(fileURLWithPath: sharedStoreURL.path + "-shm").path
+            )
+        )
+    }
+
+    @Test func sharedModelContainerKeepsDemoTargetOffSharedStoreUntilMigrationCompletes() throws {
+        let tempDirectory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+
+        let legacyStoreURL = tempDirectory.appendingPathComponent("Legacy/Grove.store")
+        let sharedStoreURL = tempDirectory.appendingPathComponent("Shared/grove.store")
+        try FileManager.default.createDirectory(
+            at: legacyStoreURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("legacy-store".utf8).write(to: legacyStoreURL)
+
+        let result = try SharedModelContainer.prepareMacSharedStoreIfNeeded(
+            currentBundleIdentifier: "dev.tuist.grove.demo",
+            legacyStoreURL: legacyStoreURL,
+            sharedStoreURL: sharedStoreURL
+        )
+
+        #expect(result == .useDefaultStore)
+        #expect(!FileManager.default.fileExists(atPath: sharedStoreURL.path))
+    }
+
     private func makeDate(
         year: Int,
         month: Int,
@@ -521,6 +580,13 @@ struct GroveTests {
         let defaults = UserDefaults(suiteName: suiteName) ?? .standard
         defaults.removePersistentDomain(forName: suiteName)
         return defaults
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
     }
 
 }
