@@ -24,7 +24,7 @@ final class AppleIntelligenceProvider: LLMProvider, Sendable {
     }
 
     private func complete(system: String, user: String, serviceName: String?) async -> LLMCompletionResult? {
-        guard SystemLanguageModel.default.availability == .available else { return nil }
+        guard AppleIntelligenceProvider.isAvailable else { return nil }
 
         do {
             let session = LanguageModelSession(

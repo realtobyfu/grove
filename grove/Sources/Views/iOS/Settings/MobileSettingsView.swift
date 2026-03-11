@@ -6,8 +6,9 @@ struct MobileSettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openURL) private var openURL
     @Environment(EntitlementService.self) private var entitlement
+    @Environment(PaywallCoordinator.self) private var paywallCoordinator
     @Environment(OnboardingService.self) private var onboarding
-    @State private var showPaywall = false
+    @State private var paywallPresentation: PaywallPresentation?
     @State private var syncEnabled = SyncSettings.syncEnabled
 
     var body: some View {
@@ -22,15 +23,8 @@ struct MobileSettingsView: View {
         .onAppear {
             syncEnabled = SyncSettings.syncEnabled
         }
-        .sheet(isPresented: $showPaywall) {
-            NavigationStack {
-                ProPaywallView(presentation: PaywallPresentation(feature: nil, source: .proSettings))
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Close") { showPaywall = false }
-                        }
-                    }
-            }
+        .sheet(item: $paywallPresentation) { presentation in
+            ProPaywallView(presentation: presentation)
         }
     }
 
@@ -127,7 +121,11 @@ struct MobileSettingsView: View {
                 }
             } else {
                 Button {
-                    showPaywall = true
+                    paywallPresentation = paywallCoordinator.present(
+                        feature: nil,
+                        source: .proSettings,
+                        bypassCooldown: true
+                    )
                 } label: {
                     Label("Upgrade to Pro", systemImage: "star")
                 }
@@ -158,13 +156,23 @@ struct MobileSettingsView: View {
             }
 
             Button {
-                if let url = URL(string: "https://grove.dev/privacy") {
+                if let url = URL(string: "https://realtobyfu.github.io/grove/PRIVACY.html") {
                     #if os(iOS)
                     openURL(url)
                     #endif
                 }
             } label: {
                 Label("Privacy Policy", systemImage: "lock.shield")
+            }
+
+            Button {
+                if let url = URL(string: "https://realtobyfu.github.io/grove/SUPPORT.html") {
+                    #if os(iOS)
+                    openURL(url)
+                    #endif
+                }
+            } label: {
+                Label("Support", systemImage: "questionmark.circle")
             }
         }
     }

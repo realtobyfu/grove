@@ -70,7 +70,7 @@ final class URLMetadataFetcher: URLMetadataFetcherProtocol, Sendable {
                 return nil
             }
 
-            var result = parse(html: html)
+            var result = parse(html: html, baseURL: url)
             result.bodyText = extractBodyText(html: html)
             return result
         } catch {
@@ -80,13 +80,14 @@ final class URLMetadataFetcher: URLMetadataFetcherProtocol, Sendable {
 
     // MARK: - HTML Parsing
 
-    private func parse(html: String) -> URLMetadata {
+    private func parse(html: String, baseURL: URL) -> URLMetadata {
         var metadata = URLMetadata()
 
-        // Try OpenGraph tags first
+        // Try OpenGraph tags first (og:image:secure_url preferred over og:image)
         metadata.title = extractMetaContent(html: html, property: "og:title")
         metadata.description = extractMetaContent(html: html, property: "og:description")
-        metadata.imageURL = extractMetaContent(html: html, property: "og:image")
+        metadata.imageURL = extractMetaContent(html: html, property: "og:image:secure_url")
+            ?? extractMetaContent(html: html, property: "og:image")
 
         // Fallback: <title> tag
         if metadata.title == nil {
@@ -109,7 +110,27 @@ final class URLMetadataFetcher: URLMetadataFetcherProtocol, Sendable {
             metadata.imageURL = extractMetaContent(html: html, name: "twitter:image")
         }
 
+        // Resolve relative or protocol-relative image URLs against the page URL
+        if let rawImageURL = metadata.imageURL {
+            metadata.imageURL = resolveURL(rawImageURL, relativeTo: baseURL)
+        }
+
         return metadata
+    }
+
+    /// Resolves a potentially relative or protocol-relative URL against a base URL.
+    private func resolveURL(_ urlString: String, relativeTo base: URL) -> String {
+        if urlString.hasPrefix("http://") || urlString.hasPrefix("https://") {
+            return urlString
+        }
+        if urlString.hasPrefix("//") {
+            return (base.scheme ?? "https") + ":" + urlString
+        }
+        // Path-relative URL
+        if let resolved = URL(string: urlString, relativeTo: base)?.absoluteString {
+            return resolved
+        }
+        return urlString
     }
 
     /// Extract content from `<meta property="..." content="...">` (OpenGraph style)
@@ -232,8 +253,8 @@ private enum LPMetadataFetcherHelper {
             let metadata = try await provider.startFetchingMetadata(for: url)
             let title = metadata.title
 
-            // Prefer imageProvider (hero image) over iconProvider (favicon)
-            let imageProvider = metadata.imageProvider ?? metadata.iconProvider
+            // Only use imageProvider (hero image); iconProvider is a favicon — not useful as thumbnail
+            let imageProvider = metadata.imageProvider
             var imageData: Data?
             if let itemProvider = imageProvider {
                 imageData = try? await withCheckedThrowingContinuation { continuation in

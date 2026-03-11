@@ -156,6 +156,17 @@ final class StoreKitService {
         product?.displayPrice ?? "$39.99"
     }
 
+    var monthlyDisplayPrice: String? {
+        guard let product else { return nil }
+
+        var annualPrice = product.price
+        var monthlyPrice = Decimal()
+        var divisor = Decimal(12)
+        NSDecimalDivide(&monthlyPrice, &annualPrice, &divisor, .bankers)
+
+        return monthlyPrice.formatted(product.priceFormatStyle)
+    }
+
     var hasIntroOffer: Bool {
         product?.subscription?.introductoryOffer != nil
     }
@@ -166,10 +177,10 @@ final class StoreKitService {
         let value = period.value
         let unit: String
         switch period.unit {
-        case .day: unit = value == 1 ? "day" : "days"
-        case .week: unit = value == 1 ? "week" : "weeks"
-        case .month: unit = value == 1 ? "month" : "months"
-        case .year: unit = value == 1 ? "year" : "years"
+        case .day: unit = "day"
+        case .week: unit = "week"
+        case .month: unit = "month"
+        case .year: unit = "year"
         @unknown default: unit = "period"
         }
         return "\(value)-\(unit) free trial"
