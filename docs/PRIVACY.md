@@ -1,6 +1,6 @@
 # Grove Privacy Policy
 
-Last updated: February 20, 2026
+Last updated: March 13, 2026
 
 This Privacy Policy explains how Grove ("the app") handles information.
 
@@ -22,8 +22,12 @@ Grove can process the following categories of data that you create inside the ap
 
 ## How Data Is Stored
 
-- Local storage: Grove stores app data locally on your Mac by default.
-- Optional cloud sync: If enabled by you, Grove may use Apple iCloud/CloudKit for synchronization.
+- **Local storage:** Grove stores app data locally on your device by default.
+- **Optional cloud sync:** If enabled by you, Grove may use Apple iCloud/CloudKit for synchronization across your devices.
+
+## In-App Purchases and Subscriptions
+
+Grove offers an optional Pro subscription through Apple's App Store. Purchase and billing information is handled entirely by Apple and is subject to Apple's privacy policy. Grove does not directly collect or store payment information.
 
 ## AI Features
 
@@ -47,18 +51,22 @@ Data may be shared only when required to deliver features you explicitly use, su
 - Apple iCloud/CloudKit (if sync is enabled)
 - Configured AI provider endpoints (if AI features are used)
 
-## Your Choices
+## Data Retention and Deletion
+
+Your data is stored on your device and/or in your iCloud account. You can delete your data at any time by removing it within the app or by uninstalling the app. Grove does not retain data on external servers.
+
+## Your Rights
 
 You can:
 
 - Use Grove fully in local-only mode
 - Disable sync features
 - Disable AI features or avoid submitting sensitive content
-- Delete app data from your device
+- Delete all app data at any time by uninstalling the app
 
 ## Children's Privacy
 
-Grove is not directed to children under 13.
+Grove is not directed to children under 13 and does not knowingly collect data from children under 13.
 
 ## Changes to This Policy
 
@@ -66,6 +74,4 @@ This policy may be updated over time. Material updates will be reflected by upda
 
 ## Contact
 
-For privacy questions, open an issue at:
-
-https://github.com/realtobyfu/grove/issues
+For privacy questions, contact: [3tobiasfu@gmail.com](mailto:3tobiasfu@gmail.com)
