@@ -10,9 +10,11 @@ PROMPT_FILE="CLAUDE.md"
 CODEX_PROMPT_FILE="CODEX.md"
 PLAN_PROMPT_FILE="PLAN.md"
 CODEX_PLAN_PROMPT_FILE="CODEX_PLAN.md"
+REGEN_PLAN_PROMPT_FILE="REGEN_PLAN.md"
 LAST_MESSAGE_FILE=".ralph-last-message.txt"
 SLEEP_SECONDS=2
 PLAN_LOOP=false
+REGEN_PLAN=false
 ITERATIONS_SET=false
 PROMPT_OVERRIDDEN=false
 PROMPT_OVERRIDE_VALUE=""
@@ -29,6 +31,11 @@ while [[ $# -gt 0 ]]; do
       ;;
     --plan-loop)
       PLAN_LOOP=true
+      shift
+      ;;
+    --regen-plan)
+      PLAN_LOOP=true
+      REGEN_PLAN=true
       shift
       ;;
     --prompt)
@@ -77,14 +84,18 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LAST_MESSAGE_PATH="$SCRIPT_DIR/$LAST_MESSAGE_FILE"
 RUN_MODE="execute"
-if [[ "$PLAN_LOOP" == true ]]; then
+if [[ "$REGEN_PLAN" == true ]]; then
+  RUN_MODE="regen-plan"
+elif [[ "$PLAN_LOOP" == true ]]; then
   RUN_MODE="plan"
 fi
 
 if [[ "$PROMPT_OVERRIDDEN" == true ]]; then
   ACTIVE_PROMPT_PATH="$SCRIPT_DIR/$PROMPT_OVERRIDE_VALUE"
 else
-  if [[ "$TOOL" == "codex" ]]; then
+  if [[ "$REGEN_PLAN" == true ]]; then
+    ACTIVE_PROMPT_PATH="$SCRIPT_DIR/$REGEN_PLAN_PROMPT_FILE"
+  elif [[ "$TOOL" == "codex" ]]; then
     if [[ "$PLAN_LOOP" == true ]]; then
       ACTIVE_PROMPT_PATH="$SCRIPT_DIR/$CODEX_PLAN_PROMPT_FILE"
     else

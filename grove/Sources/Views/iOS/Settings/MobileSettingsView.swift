@@ -111,7 +111,7 @@ struct MobileSettingsView: View {
                 }
 
                 Button {
-                    if let url = URL(string: "https://apps.apple.com/account/subscriptions") {
+                    if let url = AppConstants.URLs.manageSubscriptions {
                         #if os(iOS)
                         openURL(url)
                         #endif
@@ -156,7 +156,7 @@ struct MobileSettingsView: View {
             }
 
             Button {
-                if let url = URL(string: "https://realtobyfu.github.io/grove/PRIVACY.html") {
+                if let url = AppConstants.URLs.privacyPolicy {
                     #if os(iOS)
                     openURL(url)
                     #endif
@@ -166,7 +166,7 @@ struct MobileSettingsView: View {
             }
 
             Button {
-                if let url = URL(string: "https://realtobyfu.github.io/grove/SUPPORT.html") {
+                if let url = AppConstants.URLs.support {
                     #if os(iOS)
                     openURL(url)
                     #endif

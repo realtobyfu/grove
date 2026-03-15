@@ -48,7 +48,7 @@ struct ProSettingsView: View {
 
                     if entitlement.state.source == .storeKit {
                         Button("Manage Subscription") {
-                            if let url = URL(string: "https://apps.apple.com/account/subscriptions") {
+                            if let url = AppConstants.URLs.manageSubscriptions {
                                 #if os(macOS)
                                 NSWorkspace.shared.open(url)
                                 #else

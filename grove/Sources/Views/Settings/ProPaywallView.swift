@@ -2,7 +2,6 @@ import SwiftUI
 
 struct ProPaywallView: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.openURL) private var openURL
     @Environment(PaywallCoordinator.self) private var paywallCoordinator
     @Environment(StoreKitService.self) private var storeKit
 
@@ -107,18 +106,6 @@ struct ProPaywallView: View {
         "Free monthly caps: 6 Dialectics, 3 reflection prompts, 10 auto-tags, 5 connection suggestions, 1 synthesis, and 3 suggested articles."
     }
 
-    private var privacyPolicyURL: URL? {
-        URL(string: "https://realtobyfu.github.io/grove/PRIVACY.html")
-    }
-
-    private var supportURL: URL? {
-        URL(string: "https://realtobyfu.github.io/grove/SUPPORT.html")
-    }
-
-    private var termsOfUseURL: URL? {
-        URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")
-    }
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.xxl) {
@@ -158,6 +145,8 @@ struct ProPaywallView: View {
                         .foregroundStyle(Color.textTertiary)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
+
+                    subscriptionDisclosureCard
 
                     legalLinks
                 }
@@ -325,40 +314,71 @@ struct ProPaywallView: View {
             .cardStyle()
     }
 
+    private var subscriptionDisclosureCard: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            Text("Subscription details")
+                .font(.groveBodyMedium)
+                .foregroundStyle(Color.textPrimary)
+
+            Text("Grove Pro Annual")
+                .font(.groveBodySmall)
+                .foregroundStyle(Color.textPrimary)
+
+            Text("Length: 1 year")
+                .font(.groveBodySmall)
+                .foregroundStyle(Color.textSecondary)
+
+            Text("Price: \(storeKit.displayPrice) per year")
+                .font(.groveBodySmall)
+                .foregroundStyle(Color.textSecondary)
+
+            if let monthlyPrice = storeKit.monthlyDisplayPrice {
+                Text("Equivalent: \(monthlyPrice) per month, billed annually")
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textSecondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Spacing.md)
+        .cardStyle()
+    }
+
     private var legalLinks: some View {
         ViewThatFits {
             HStack(spacing: Spacing.sm) {
-                legalLinkButton("Privacy Policy", url: privacyPolicyURL)
+                legalLink("Privacy Policy", url: AppConstants.URLs.privacyPolicy)
 
                 Text("•")
                     .foregroundStyle(Color.textTertiary)
 
-                legalLinkButton("Terms of Use", url: termsOfUseURL)
+                legalLink("Terms of Use", url: AppConstants.URLs.termsOfUse)
 
                 Text("•")
                     .foregroundStyle(Color.textTertiary)
 
-                legalLinkButton("Support", url: supportURL)
+                legalLink("Support", url: AppConstants.URLs.support)
             }
             .frame(maxWidth: .infinity)
 
             VStack(spacing: Spacing.xs) {
-                legalLinkButton("Privacy Policy", url: privacyPolicyURL)
-                legalLinkButton("Terms of Use", url: termsOfUseURL)
-                legalLinkButton("Support", url: supportURL)
+                legalLink("Privacy Policy", url: AppConstants.URLs.privacyPolicy)
+                legalLink("Terms of Use", url: AppConstants.URLs.termsOfUse)
+                legalLink("Support", url: AppConstants.URLs.support)
             }
             .frame(maxWidth: .infinity)
         }
         .font(.groveBodySmall)
     }
 
-    private func legalLinkButton(_ title: String, url: URL?) -> some View {
-        Button(title) {
-            guard let url else { return }
-            openURL(url)
+    @ViewBuilder
+    private func legalLink(_ title: String, url: URL?) -> some View {
+        if let url {
+            Link(title, destination: url)
+                .foregroundStyle(Color.textSecondary)
+        } else {
+            Text(title)
+                .foregroundStyle(Color.textTertiary)
         }
-        .foregroundStyle(Color.textSecondary)
-        .buttonStyle(.plain)
     }
 
     private var footerNotes: some View {
