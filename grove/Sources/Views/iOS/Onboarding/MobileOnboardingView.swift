@@ -56,10 +56,10 @@ struct MobileOnboardingView: View {
                         }
                         .font(.groveBody)
                         .fontWeight(.semibold)
-                        .foregroundStyle(Color.textPrimary)
+                        .foregroundStyle(Color.textInverse)
                         .padding(.horizontal, Spacing.xl)
                         .padding(.vertical, Spacing.md)
-                        .background(Color.textPrimary.opacity(0.1))
+                        .background(Color.textPrimary)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                     } else {
                         Button("Next") {
@@ -68,7 +68,11 @@ struct MobileOnboardingView: View {
                         }
                         .font(.groveBody)
                         .fontWeight(.semibold)
-                        .foregroundStyle(Color.textPrimary)
+                        .foregroundStyle(Color.textInverse)
+                        .padding(.horizontal, Spacing.xl)
+                        .padding(.vertical, Spacing.md)
+                        .background(Color.textPrimary)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
                 }
                 .padding(.horizontal, Spacing.xl)
