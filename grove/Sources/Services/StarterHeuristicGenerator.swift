@@ -47,14 +47,20 @@ enum StarterHeuristicGenerator {
             ))
         }
 
-        // Contradiction
-        if !context.contradictionItems.isEmpty {
-            let relatedContradictions = Array(context.contradictionItems.prefix(2))
+        // Contradiction — prefer a concrete pair with its specific tension reason
+        if let pair = context.contradictionPairs.first {
+            let pairItems = [pair.source, pair.target]
+            let prompt: String
+            if let reason = pair.reason {
+                prompt = "\"\(pair.source.title)\" and \"\(pair.target.title)\" are in tension: \(reason) Want to work through it toward a synthesis?"
+            } else {
+                prompt = "\"\(pair.source.title)\" and \"\(pair.target.title)\" seem to contradict each other. Want to work through the tension and find a synthesis?"
+            }
             bubbles.append(PromptBubble(
-                prompt: "You have items that contradict each other. Want to work through the tension and find a synthesis?",
+                prompt: prompt,
                 label: "RESOLVE",
-                clusterItemIDs: relatedContradictions.map(\.id),
-                boardIDs: StarterContextBuilder.boardIDs(for: relatedContradictions)
+                clusterItemIDs: pairItems.map(\.id),
+                boardIDs: StarterContextBuilder.boardIDs(for: pairItems)
             ))
         }
 
@@ -112,13 +118,19 @@ enum StarterHeuristicGenerator {
             ))
         }
 
-        // Contradiction
-        if !context.contradictionItems.isEmpty {
-            let items = Array(context.contradictionItems.prefix(2))
+        // Contradiction — prefer a concrete pair with its specific tension reason
+        if let pair = context.contradictionPairs.first {
+            let pairItems = [pair.source, pair.target]
+            let prompt: String
+            if let reason = pair.reason {
+                prompt = "\"\(pair.source.title)\" and \"\(pair.target.title)\" are in tension: \(reason) Want to work through it?"
+            } else {
+                prompt = "\"\(pair.source.title)\" and \"\(pair.target.title)\" seem to disagree. Want to work through the tension?"
+            }
             bubbles.append(PromptBubble(
-                prompt: "Some items here seem to disagree. Want to work through the tension?",
+                prompt: prompt,
                 label: "RESOLVE",
-                clusterItemIDs: items.map(\.id),
+                clusterItemIDs: pairItems.map(\.id),
                 boardIDs: [boardID]
             ))
         }

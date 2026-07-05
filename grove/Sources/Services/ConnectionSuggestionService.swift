@@ -59,7 +59,8 @@ final class ConnectionSuggestionService: ConnectionSuggestionServiceProtocol {
         if LLMServiceConfig.isConfigured,
            sourceItem.content != nil || !sourceItem.reflections.isEmpty {
             let allItems: [Item] = modelContext.fetchAll()
-            let candidates = filterCandidates(for: sourceItem, from: allItems)
+            let filtered = filterCandidates(for: sourceItem, from: allItems)
+            let candidates = await rankBySimilarity(sourceItem: sourceItem, candidates: filtered)
 
             if !candidates.isEmpty {
                 let llmSuggestions = await suggestWithLLM(
@@ -152,6 +153,33 @@ final class ConnectionSuggestionService: ConnectionSuggestionServiceProtocol {
         }
 
         return suggestions
+    }
+
+    /// Rank candidates by semantic similarity to the source so the most relevant
+    /// items survive the candidate-count cap before reaching the LLM. Candidates
+    /// without a cached embedding keep their original relative order at the end.
+    /// Returns the input unchanged if embeddings are unavailable.
+    private func rankBySimilarity(sourceItem: Item, candidates: [Item]) async -> [Item] {
+        guard candidates.count > 1 else { return candidates }
+        let sourceText = EmbeddingIndexService.snapshot(sourceItem).text
+        guard let sourceEmbedding = await EmbeddingIndexService.shared.embed(sourceText) else {
+            return candidates
+        }
+        let scores = await EmbeddingIndexService.shared.similarities(
+            to: sourceEmbedding,
+            among: candidates.map(\.id)
+        )
+        guard !scores.isEmpty else { return candidates }
+        return candidates.enumerated().sorted { lhs, rhs in
+            let lScore = scores[lhs.element.id]
+            let rScore = scores[rhs.element.id]
+            switch (lScore, rScore) {
+            case let (l?, r?): return l > r
+            case (_?, nil): return true          // scored ranks before unscored
+            case (nil, _?): return false
+            case (nil, nil): return lhs.offset < rhs.offset  // stable for unscored
+            }
+        }.map(\.element)
     }
 
     /// Filter all items down to valid candidates (not self, not connected, not dismissed).
@@ -279,8 +307,9 @@ final class ConnectionSuggestionService: ConnectionSuggestionServiceProtocol {
             item.outgoingConnections.compactMap(\.targetItem?.id) +
             item.incomingConnections.compactMap(\.sourceItem?.id)
         )
-        let candidates = otherItems.filter { !connectedIDs.contains($0.id) }
-        guard !candidates.isEmpty else { return }
+        let filtered = otherItems.filter { !connectedIDs.contains($0.id) }
+        guard !filtered.isEmpty else { return }
+        let candidates = await rankBySimilarity(sourceItem: item, candidates: filtered)
 
         var suggestions: [ConnectionSuggestion] = []
 

@@ -17,15 +17,26 @@ actor EmbeddingIndexService {
         let text: String
     }
 
+    /// An embedded query, tagged with the language space it lives in. Vectors
+    /// from different languages are not comparable, so callers must carry the
+    /// language alongside the vector.
+    struct EmbeddedText: Sendable {
+        let language: String
+        let vector: [Double]
+    }
+
     private struct Entry: Codable {
         let contentHash: UInt64
+        let language: String   // NLLanguage.rawValue of the embedding space
         let vector: [Double]
     }
 
     private var entries: [UUID: Entry] = [:]
     private var loaded = false
-    private var embedding: NLEmbedding?
-    private var embeddingLoadAttempted = false
+    /// Sentence embeddings memoized per language; a nil marks a language with no
+    /// available embedding so we don't retry loading it.
+    private var embeddings: [String: NLEmbedding] = [:]
+    private var embeddingMisses: Set<String> = []
     private let cacheURL: URL
 
     init(cacheURL: URL? = nil) {
@@ -61,7 +72,6 @@ actor EmbeddingIndexService {
     /// for items no longer present. Saves the cache when anything changed.
     func indexItems(_ snapshots: [ItemSnapshot]) {
         loadIfNeeded()
-        guard let embedding = loadEmbedding() else { return }
 
         var changed = false
         let currentIDs = Set(snapshots.map(\.id))
@@ -69,8 +79,8 @@ actor EmbeddingIndexService {
         for snapshot in snapshots {
             let hash = Self.stableHash(snapshot.text)
             if let existing = entries[snapshot.id], existing.contentHash == hash { continue }
-            guard let vector = embedding.vector(for: Self.embeddableText(snapshot.text)) else { continue }
-            entries[snapshot.id] = Entry(contentHash: hash, vector: vector)
+            guard let embedded = embed(snapshot.text) else { continue }
+            entries[snapshot.id] = Entry(contentHash: hash, language: embedded.language, vector: embedded.vector)
             changed = true
         }
 
@@ -85,16 +95,15 @@ actor EmbeddingIndexService {
 
     // MARK: - Queries
 
-    /// Items semantically closest to a free-text query.
+    /// Items semantically closest to a free-text query. Only entries embedded in
+    /// the query's detected language are comparable.
     func search(query: String, limit: Int, minScore: Double = 0.55) -> [(id: UUID, score: Double)] {
         loadIfNeeded()
-        guard let embedding = loadEmbedding(),
-              let queryVector = embedding.vector(for: Self.embeddableText(query)) else {
-            return []
-        }
+        guard let embedded = embed(query) else { return [] }
 
         return entries
-            .map { (id: $0.key, score: Self.cosineSimilarity(queryVector, $0.value.vector)) }
+            .filter { $0.value.language == embedded.language }
+            .map { (id: $0.key, score: Self.cosineSimilarity(embedded.vector, $0.value.vector)) }
             .filter { $0.score >= minScore }
             .sorted { $0.score > $1.score }
             .prefix(limit)
@@ -102,13 +111,17 @@ actor EmbeddingIndexService {
     }
 
     /// High-similarity pairs among the given item IDs, for tension detection.
+    /// Pairs are only formed within a shared language space.
     func similarPairs(among ids: [UUID], minScore: Double = 0.7, limit: Int = 40) -> [(a: UUID, b: UUID, score: Double)] {
         loadIfNeeded()
-        let candidates = ids.compactMap { id in entries[id].map { (id: id, vector: $0.vector) } }
+        let candidates = ids.compactMap { id in
+            entries[id].map { (id: id, language: $0.language, vector: $0.vector) }
+        }
 
         var pairs: [(a: UUID, b: UUID, score: Double)] = []
         for i in 0..<candidates.count {
             for j in (i + 1)..<candidates.count {
+                guard candidates[i].language == candidates[j].language else { continue }
                 let score = Self.cosineSimilarity(candidates[i].vector, candidates[j].vector)
                 if score >= minScore {
                     pairs.append((a: candidates[i].id, b: candidates[j].id, score: score))
@@ -123,6 +136,31 @@ actor EmbeddingIndexService {
         return entries[id]?.vector
     }
 
+    /// Embed arbitrary text without touching the cache — for ad-hoc ranking of
+    /// items (e.g. a freshly captured item) that may not be indexed yet. Detects
+    /// the text's language and uses the matching sentence embedding; returns nil
+    /// when no embedding is available for that language.
+    func embed(_ text: String) -> EmbeddedText? {
+        let language = Self.detectLanguage(text)
+        guard let embedding = embedding(for: language),
+              let vector = embedding.vector(for: Self.embeddableText(text)) else {
+            return nil
+        }
+        return EmbeddedText(language: language.rawValue, vector: vector)
+    }
+
+    /// Cosine similarity of `query` against each cached id in the same language
+    /// space, in one actor hop. Ids without a comparable cached vector are omitted.
+    func similarities(to query: EmbeddedText, among ids: [UUID]) -> [UUID: Double] {
+        loadIfNeeded()
+        var result: [UUID: Double] = [:]
+        for id in ids {
+            guard let entry = entries[id], entry.language == query.language else { continue }
+            result[id] = Self.cosineSimilarity(query.vector, entry.vector)
+        }
+        return result
+    }
+
     var indexedCount: Int {
         loadIfNeeded()
         return entries.count
@@ -130,12 +168,24 @@ actor EmbeddingIndexService {
 
     // MARK: - Embedding
 
-    private func loadEmbedding() -> NLEmbedding? {
-        if !embeddingLoadAttempted {
-            embeddingLoadAttempted = true
-            embedding = NLEmbedding.sentenceEmbedding(for: .english)
+    /// Memoized sentence embedding for a language, or nil if none is available.
+    private func embedding(for language: NLLanguage) -> NLEmbedding? {
+        let key = language.rawValue
+        if let cached = embeddings[key] { return cached }
+        if embeddingMisses.contains(key) { return nil }
+        if let embedding = NLEmbedding.sentenceEmbedding(for: language) {
+            embeddings[key] = embedding
+            return embedding
         }
-        return embedding
+        embeddingMisses.insert(key)
+        return nil
+    }
+
+    /// Dominant language of the text, defaulting to English when undetermined.
+    private static func detectLanguage(_ text: String) -> NLLanguage {
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(text)
+        return recognizer.dominantLanguage ?? .english
     }
 
     /// Sentence embeddings degrade on very long inputs — embed a bounded prefix.

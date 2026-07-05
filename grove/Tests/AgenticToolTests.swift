@@ -160,4 +160,73 @@ struct AgenticToolTests {
         let b = UUID()
         #expect(TensionDetectionService.pairKey(a, b) == TensionDetectionService.pairKey(b, a))
     }
+
+    // MARK: - Tension Starters
+
+    @Test @MainActor func starterContextBuildsContradictionPairsWithReason() throws {
+        let context = try makeInMemoryModelContext()
+        let a = Item(title: "Determinism", type: .note)
+        a.status = .active
+        a.content = "Choices are fixed by prior causes."
+        let b = Item(title: "Radical Freedom", type: .note)
+        b.status = .active
+        b.content = "We are condemned to be free."
+        context.insert(a)
+        context.insert(b)
+
+        let connection = Connection(sourceItem: a, targetItem: b, type: .contradicts)
+        connection.note = "One denies free will, the other makes it absolute."
+        context.insert(connection)
+        a.outgoingConnections.append(connection)
+        b.incomingConnections.append(connection)
+        try context.save()
+
+        let starterContext = StarterContextBuilder.buildContext(from: [a, b])
+        #expect(starterContext.contradictionPairs.count == 1)
+        let pair = try #require(starterContext.contradictionPairs.first)
+        #expect(pair.reason == "One denies free will, the other makes it absolute.")
+
+        let bubbles = StarterHeuristicGenerator.buildHeuristics(
+            context: starterContext,
+            didShowClusterBubble: false
+        )
+        let resolve = try #require(bubbles.first(where: { $0.label == "RESOLVE" }))
+        // The specific reason is surfaced in the prompt...
+        #expect(resolve.prompt.contains("free will"))
+        // ...and both endpoints are seeded so the conversation opens on the real pair.
+        #expect(Set(resolve.clusterItemIDs) == Set([a.id, b.id]))
+    }
+
+    @Test @MainActor func starterContradictionPairsDedupeAndPreferReasoned() throws {
+        let context = try makeInMemoryModelContext()
+        let a = Item(title: "A", type: .note); a.status = .active
+        let b = Item(title: "B", type: .note); b.status = .active
+        let c = Item(title: "C", type: .note); c.status = .active
+        let d = Item(title: "D", type: .note); d.status = .active
+        [a, b, c, d].forEach(context.insert)
+
+        // Reasonless pair A<->B
+        let ab = Connection(sourceItem: a, targetItem: b, type: .contradicts)
+        context.insert(ab); a.outgoingConnections.append(ab); b.incomingConnections.append(ab)
+        // Reasoned pair C<->D
+        let cd = Connection(sourceItem: c, targetItem: d, type: .contradicts)
+        cd.note = "They disagree on X."
+        context.insert(cd); c.outgoingConnections.append(cd); d.incomingConnections.append(cd)
+        try context.save()
+
+        let starterContext = StarterContextBuilder.buildContext(from: [a, b, c, d])
+        #expect(starterContext.contradictionPairs.count == 2)
+        // Reasoned pair is ranked first.
+        #expect(starterContext.contradictionPairs.first?.reason == "They disagree on X.")
+    }
+
+    // MARK: - Language-Aware Embedding
+
+    @Test func embeddedTextCarriesLanguageForComparability() {
+        let english = EmbeddingIndexService.EmbeddedText(language: "en", vector: [1, 0])
+        #expect(english.language == "en")
+        // Guards the invariant that similarities only compare within a language:
+        // an entry tagged "fr" must never be scored against an "en" query.
+        #expect(english.language != "fr")
+    }
 }

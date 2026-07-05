@@ -115,15 +115,19 @@ enum StarterLLMGenerator {
             }
         }
 
-        let contradictionItems = Array(context.contradictionItems.prefix(2))
-        if !contradictionItems.isEmpty {
-            let titles = contradictionItems.map { "(\($0.type.llmLabel)) \"\($0.title)\"" }.joined(separator: " vs ")
+        if let pair = context.contradictionPairs.first {
+            let pairItems = [pair.source, pair.target]
+            let titles = pairItems.map { "(\($0.type.llmLabel)) \"\($0.title)\"" }.joined(separator: " vs ")
+            var summary = "Two items in tension: \(titles)"
+            if let reason = pair.reason {
+                summary += " — \(reason)"
+            }
             candidates.append(StarterLLMContextCandidate(
                 id: "contradiction",
-                summary: "Items with contradictions: \(titles)",
+                summary: summary,
                 clusterTag: nil,
-                itemIDs: contradictionItems.map(\.id),
-                boardIDs: StarterContextBuilder.boardIDs(for: contradictionItems)
+                itemIDs: pairItems.map(\.id),
+                boardIDs: StarterContextBuilder.boardIDs(for: pairItems)
             ))
         }
 

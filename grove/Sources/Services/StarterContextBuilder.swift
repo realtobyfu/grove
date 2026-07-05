@@ -7,9 +7,20 @@ struct StarterContext {
     let recentItems: [Item]          // last 7 days
     let staleItems: [Item]           // untouched 30+ days with reflections
     let contradictionItems: [Item]   // items with .contradicts outgoing connections
+    let contradictionPairs: [ContradictionPair]  // actual contradicting item pairs, with reason
     let topRecentTag: String?
     let topRecentTagCount: Int
     let unboardedCluster: UnboardedCluster?  // cluster of unboarded items sharing tags
+}
+
+/// A specific pair of items connected by a `.contradicts` edge, carrying the
+/// one-sentence tension reason recorded on the connection (e.g. by
+/// TensionDetectionService). This is what makes a "resolve the tension" starter
+/// concrete rather than generic.
+struct ContradictionPair {
+    let source: Item
+    let target: Item
+    let reason: String?
 }
 
 /// A cluster of unboarded items sharing a common tag.
@@ -47,6 +58,8 @@ enum StarterContextBuilder {
             $0.outgoingConnections.contains { $0.type == .contradicts }
         }
 
+        let contradictionPairs = buildContradictionPairs(from: suggestionEligibleItems)
+
         // Top tag in recent items
         let recentTags = recentItems.flatMap { $0.tags.map(\.name) }
         let tagCounts = Dictionary(recentTags.map { ($0, 1) }, uniquingKeysWith: +)
@@ -59,10 +72,45 @@ enum StarterContextBuilder {
             recentItems: recentItems,
             staleItems: staleItems,
             contradictionItems: contradictionItems,
+            contradictionPairs: contradictionPairs,
             topRecentTag: topEntry?.key,
             topRecentTagCount: topEntry?.value ?? 0,
             unboardedCluster: unboardedCluster
         )
+    }
+
+    /// Collects distinct `.contradicts` connections between two suggestion-eligible
+    /// items, deduplicated by unordered pair. Pairs whose connection carries a
+    /// reason note are ranked first, since they yield more concrete starters.
+    @MainActor
+    private static func buildContradictionPairs(from items: [Item]) -> [ContradictionPair] {
+        let eligibleIDs = Set(items.map(\.id))
+        var seen = Set<String>()
+        var pairs: [ContradictionPair] = []
+
+        for item in items {
+            for connection in item.outgoingConnections where connection.type == .contradicts {
+                guard let source = connection.sourceItem,
+                      let target = connection.targetItem,
+                      eligibleIDs.contains(source.id),
+                      eligibleIDs.contains(target.id),
+                      source.id != target.id else { continue }
+
+                let key = [source.id.uuidString, target.id.uuidString].sorted().joined(separator: "|")
+                guard seen.insert(key).inserted else { continue }
+
+                let reason = connection.note?.trimmingCharacters(in: .whitespacesAndNewlines)
+                pairs.append(ContradictionPair(
+                    source: source,
+                    target: target,
+                    reason: (reason?.isEmpty == false) ? reason : nil
+                ))
+            }
+        }
+
+        let withReason = pairs.filter { $0.reason != nil }
+        let withoutReason = pairs.filter { $0.reason == nil }
+        return withReason + withoutReason
     }
 
     /// Returns sorted, deduplicated board IDs for a set of items.
