@@ -41,14 +41,10 @@ final class NudgeNotificationService: NSObject {
 
         center.delegate = self
         registerNudgeCategory()
-
-        Task { [weak self] in
-            await self?.requestAuthorizationIfNeeded()
-        }
     }
 
     func schedule(for nudge: Nudge) {
-        guard nudge.status == .pending else { return }
+        guard NudgeSettings.notificationsEnabled, nudge.status == .pending else { return }
 
         let identifier = NudgeNotificationRouting.notificationIdentifier(for: nudge.id)
         let request = UNNotificationRequest(
@@ -65,6 +61,36 @@ final class NudgeNotificationService: NSObject {
         let identifier = NudgeNotificationRouting.notificationIdentifier(for: nudgeID)
         center.removePendingNotificationRequests(withIdentifiers: [identifier])
         center.removeDeliveredNotifications(withIdentifiers: [identifier])
+    }
+
+    /// Requests permission only after an explicit user action. Returns the
+    /// effective enabled state so settings UI can reflect denial accurately.
+    func setNotificationsEnabled(_ enabled: Bool) async -> Bool {
+        configure()
+
+        guard enabled else {
+            NudgeSettings.notificationsEnabled = false
+            let requests = await center.pendingNotificationRequests()
+            let identifiers = requests.map(\.identifier).filter(NudgeNotificationRouting.isNudgeNotification)
+            center.removePendingNotificationRequests(withIdentifiers: identifiers)
+            let delivered = await center.deliveredNotifications()
+            let deliveredIDs = delivered.map(\.request.identifier).filter(NudgeNotificationRouting.isNudgeNotification)
+            center.removeDeliveredNotifications(withIdentifiers: deliveredIDs)
+            return false
+        }
+
+        let status = await authorizationStatusRequestingIfNeeded()
+        let granted: Bool
+        switch status {
+        case .authorized, .provisional, .ephemeral:
+            granted = true
+        case .denied, .notDetermined:
+            granted = false
+        @unknown default:
+            granted = false
+        }
+        NudgeSettings.notificationsEnabled = granted
+        return granted
     }
 
     private func content(for nudge: Nudge) -> UNMutableNotificationContent {
@@ -110,10 +136,13 @@ final class NudgeNotificationService: NSObject {
         center.setNotificationCategories([category])
     }
 
-    private func requestAuthorizationIfNeeded() async {
+    private func authorizationStatusRequestingIfNeeded() async -> UNAuthorizationStatus {
         let settings = await center.notificationSettings()
-        guard settings.authorizationStatus == .notDetermined else { return }
+        guard settings.authorizationStatus == .notDetermined else {
+            return settings.authorizationStatus
+        }
         _ = try? await center.requestAuthorization(options: [.alert, .badge, .sound])
+        return await center.notificationSettings().authorizationStatus
     }
 }
 

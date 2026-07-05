@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 
 @MainActor
 protocol CaptureServiceProtocol {
-    func captureItem(input: String) -> Item
+    func captureItem(input: String, board: Board?) -> Item
     func createVideoItem(filePath: String, board: Board?) -> Item
 }
 
@@ -33,22 +33,22 @@ final class CaptureService: CaptureServiceProtocol {
 
     /// Quick capture: detects URL vs plain text, creates appropriate Item.
     /// Metadata fetching and auto-tagging run asynchronously after creation.
-    func captureItem(input: String) -> Item {
+    func captureItem(input: String, board: Board? = nil) -> Item {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if let url = URL(string: trimmed),
            let scheme = url.scheme,
            ["http", "https"].contains(scheme.lowercased()),
            url.host != nil {
-            return captureURLItem(trimmed)
+            return captureURLItem(trimmed, board: board)
         } else {
-            return captureTextItem(trimmed)
+            return captureTextItem(trimmed, board: board)
         }
     }
 
     // MARK: - URL Capture
 
-    private func captureURLItem(_ trimmed: String) -> Item {
+    private func captureURLItem(_ trimmed: String, board: Board?) -> Item {
         let itemType: ItemType
         if Self.isGitHubURL(trimmed) {
             itemType = .codebase
@@ -59,7 +59,7 @@ final class CaptureService: CaptureServiceProtocol {
         }
 
         let item = Item(title: trimmed, type: itemType)
-        item.status = .inbox
+        prepare(item, for: board)
         item.sourceURL = trimmed
         item.metadata["fetchingMetadata"] = "true"
         modelContext.insert(item)
@@ -101,10 +101,10 @@ final class CaptureService: CaptureServiceProtocol {
 
     // MARK: - Text Capture
 
-    private func captureTextItem(_ trimmed: String) -> Item {
+    private func captureTextItem(_ trimmed: String, board: Board?) -> Item {
         let title = String(trimmed.prefix(80))
         let item = Item(title: title, type: .note)
-        item.status = .inbox
+        prepare(item, for: board)
         item.content = trimmed
         modelContext.insert(item)
         try? modelContext.save()
@@ -135,14 +135,11 @@ final class CaptureService: CaptureServiceProtocol {
         let url = URL(fileURLWithPath: filePath)
         let filename = url.deletingPathExtension().lastPathComponent
         let item = Item(title: filename, type: .video)
-        item.status = .inbox
+        prepare(item, for: board)
         item.sourceURL = url.absoluteString
         item.metadata["videoLocalFile"] = "true"
         item.metadata["originalPath"] = filePath
         modelContext.insert(item)
-        if let board = board {
-            item.boards.append(board)
-        }
         try? modelContext.save()
 
         let itemID = item.id
@@ -170,6 +167,20 @@ final class CaptureService: CaptureServiceProtocol {
         }
 
         return item
+    }
+
+    /// A destination selected by the user is an approval decision. Captures without
+    /// a destination remain in the inbox, including items with passive AI suggestions.
+    private func prepare(_ item: Item, for board: Board?) {
+        guard let board else {
+            item.status = .inbox
+            return
+        }
+
+        item.status = .active
+        if !board.isSmart {
+            item.boards.append(board)
+        }
     }
 
     /// Check if a file path points to a supported video file

@@ -3,27 +3,20 @@ import SwiftData
 
 struct SidebarView: View {
     @Binding var selection: SidebarItem?
-    @Binding var selectedConversation: Conversation?
     @Environment(\.modelContext) private var modelContext
     @Query private var allItems: [Item]
     @Query(sort: \Board.sortOrder) private var boards: [Board]
     @Query(sort: \Course.createdAt) private var courses: [Course]
-    @Query(sort: \Conversation.updatedAt, order: .reverse) private var conversations: [Conversation]
 
     @State private var showNewBoardSheet = false
     @State private var showNewCourseSheet = false
     @State private var boardToEdit: Board?
     @State private var boardToDelete: Board?
     @State private var courseToDelete: Course?
-    @State private var conversationToDelete: Conversation?
-    @State private var isConversationsCollapsed = false
+    @State private var isMoreExpanded = false
 
     private var inboxCount: Int {
         allItems.filter { $0.status == .inbox }.count
-    }
-
-    private var recentConversations: [Conversation] {
-        Array(conversations.filter { !$0.isArchived && $0.isSavedToHistory }.prefix(3))
     }
 
     private var viewModel: BoardViewModel {
@@ -35,7 +28,7 @@ struct SidebarView: View {
             Section {
                 Label {
                     HStack {
-                        Text("Home")
+                        Text("Today")
                         Spacer()
                         if inboxCount > 0 {
                             Text("\(inboxCount)")
@@ -48,7 +41,7 @@ struct SidebarView: View {
                         }
                     }
                 } icon: {
-                    Image(systemName: "envelope")
+                    Image(systemName: "sun.max")
                 }
                 .tag(SidebarItem.home)
 
@@ -106,122 +99,42 @@ struct SidebarView: View {
             }
 
             Section {
-                ForEach(courses) { course in
-                    Label {
-                        HStack(spacing: 6) {
-                            Text(course.title)
-                            Spacer()
-                            if course.totalCount > 0 {
-                                Text("\(course.completedCount)/\(course.totalCount)")
-                                    .font(.groveBadge)
-                                    .foregroundStyle(Color.textSecondary)
-                                    .monospacedDigit()
+                DisclosureGroup(isExpanded: $isMoreExpanded) {
+                    ForEach(courses) { course in
+                        Label {
+                            HStack(spacing: 6) {
+                                Text(course.title)
+                                Spacer()
+                                if course.totalCount > 0 {
+                                    Text("\(course.completedCount)/\(course.totalCount)")
+                                        .font(.groveBadge)
+                                        .foregroundStyle(Color.textSecondary)
+                                        .monospacedDigit()
+                                }
+                            }
+                        } icon: {
+                            Image(systemName: "graduationcap")
+                        }
+                        .tag(SidebarItem.course(course.id))
+                        .contextMenu {
+                            Button("Delete Course", role: .destructive) {
+                                courseToDelete = course
                             }
                         }
-                    } icon: {
-                        Image(systemName: "graduationcap")
                     }
-                    .tag(SidebarItem.course(course.id))
-                    .contextMenu {
-                        Button("Delete Course", role: .destructive) {
-                            courseToDelete = course
-                        }
-                    }
-                }
-            } header: {
-                HStack(spacing: Spacing.sm) {
-                    Text("Courses")
-                        .sectionHeaderStyle()
-
-                    Spacer()
 
                     Button {
                         showNewCourseSheet = true
                     } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(Color.textMuted)
-                            .frame(width: 16, height: 16)
+                        Label("New Course", systemImage: "plus")
                     }
                     .buttonStyle(.plain)
-                    .help("New Course")
-                    .accessibilityLabel("New course")
-                    .accessibilityHint("Create a course in the sidebar list.")
+
+                    Label("Graph", systemImage: "point.3.connected.trianglepath.dotted")
+                        .tag(SidebarItem.graph)
+                } label: {
+                    Label("More", systemImage: "ellipsis.circle")
                 }
-                .contextMenu {
-                    Button("New Course...") {
-                        showNewCourseSheet = true
-                    }
-                }
-            }
-
-            if !recentConversations.isEmpty {
-                Section {
-                    if !isConversationsCollapsed {
-                        ForEach(recentConversations) { conv in
-                            Button {
-                                NotificationCenter.default.post(name: .groveOpenConversation, object: conv)
-                            } label: {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(conv.displayTitle)
-                                            .font(.groveBody)
-                                            .foregroundStyle(Color.textPrimary)
-                                            .lineLimit(1)
-                                        Text(conv.updatedAt.formatted(date: .abbreviated, time: .omitted))
-                                            .font(.groveMeta)
-                                            .foregroundStyle(Color.textTertiary)
-                                    }
-                                    Spacer()
-                                }
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .contextMenu {
-                                Button("Delete", role: .destructive) {
-                                    conversationToDelete = conv
-                                }
-                            }
-                            .listRowBackground(
-                                selectedConversation?.id == conv.id
-                                    ? Color.accentSelection.opacity(0.08)
-                                    : Color.clear
-                            )
-                        }
-                    }
-                } header: {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            isConversationsCollapsed.toggle()
-                        }
-                    } label: {
-                        HStack(spacing: Spacing.sm) {
-                            Image(systemName: isConversationsCollapsed ? "chevron.right" : "chevron.down")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(Color.textMuted)
-                                .frame(width: 12)
-
-                            Text("Chats")
-                                .sectionHeaderStyle()
-
-                            Text("\(recentConversations.count)")
-                                .font(.groveBadge)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.accentBadge)
-                                .foregroundStyle(Color.textPrimary)
-                                .clipShape(Capsule())
-
-                            Spacer()
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            Section {
-                Label("Graph", systemImage: "point.3.connected.trianglepath.dotted")
-                    .tag(SidebarItem.graph)
             }
         }
         .listStyle(.sidebar)
@@ -295,31 +208,6 @@ struct SidebarView: View {
         } message: {
             if let course = courseToDelete {
                 Text("Are you sure you want to delete \"\(course.title)\"? Lectures will not be deleted.")
-            }
-        }
-        .alert(
-            "Delete Conversation Permanently?",
-            isPresented: Binding(
-                get: { conversationToDelete != nil },
-                set: { if !$0 { conversationToDelete = nil } }
-            )
-        ) {
-            Button("Cancel", role: .cancel) {
-                conversationToDelete = nil
-            }
-            Button("Delete", role: .destructive) {
-                if let conversation = conversationToDelete {
-                    if selectedConversation?.id == conversation.id {
-                        selectedConversation = nil
-                    }
-                    modelContext.delete(conversation)
-                    try? modelContext.save()
-                }
-                conversationToDelete = nil
-            }
-        } message: {
-            if let conversation = conversationToDelete {
-                Text("\"\(conversation.displayTitle)\" and \(conversation.messages.count) message(s) will be permanently deleted. This cannot be undone.")
             }
         }
     }

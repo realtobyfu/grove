@@ -110,7 +110,7 @@ final class ItemMetadataEnricher {
         }
         item.content = overview
         item.metadata["hasLLMOverview"] = "true"
-        item.metadata["overviewReviewPending"] = "true"
+        item.metadata["overviewGeneratedByAI"] = "true"
         item.updatedAt = .now
         try? context.save()
     }
@@ -135,7 +135,7 @@ final class ItemMetadataEnricher {
         }
     }
 
-    /// Mark summary review as pending if summary was generated.
+    /// Mark generated summaries with provenance without creating another approval queue.
     func markSummaryReviewIfNeeded(
         itemID: UUID,
         context: ModelContext
@@ -143,7 +143,9 @@ final class ItemMetadataEnricher {
         let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
         guard let item = try? context.fetch(descriptor).first,
               item.metadata["summary"] != nil else { return }
-        item.metadata["summaryReviewPending"] = "true"
+        item.metadata["summaryGeneratedByAI"] = "true"
+        item.metadata["summaryReviewPending"] = nil
+        item.metadata["overviewReviewPending"] = nil
         try? context.save()
     }
 }

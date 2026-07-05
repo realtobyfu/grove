@@ -104,14 +104,10 @@ struct CaptureSheetView: View {
         isSaving = true
 
         let captureService = CaptureService(modelContext: modelContext)
-        let item = captureService.captureItem(input: trimmed)
-
-        // Assign to selected board if chosen
-        if let boardID = selectedBoardID,
-           let board = boards.first(where: { $0.id == boardID }) {
-            let viewModel = ItemViewModel(modelContext: modelContext)
-            viewModel.assignToBoard(item, board: board)
+        let board = selectedBoardID.flatMap { boardID in
+            boards.first(where: { $0.id == boardID })
         }
+        _ = captureService.captureItem(input: trimmed, board: board)
 
         dismiss()
     }

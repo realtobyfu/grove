@@ -10,10 +10,12 @@ struct MobileSettingsView: View {
     @Environment(OnboardingService.self) private var onboarding
     @State private var paywallPresentation: PaywallPresentation?
     @State private var syncEnabled = SyncSettings.syncEnabled
+    @State private var notificationsEnabled = NudgeSettings.notificationsEnabled
 
     var body: some View {
         List {
             aiSection
+            notificationsSection
             syncSection
             appearanceSection
             subscriptionSection
@@ -22,9 +24,33 @@ struct MobileSettingsView: View {
         .navigationTitle("Settings")
         .onAppear {
             syncEnabled = SyncSettings.syncEnabled
+            notificationsEnabled = NudgeSettings.notificationsEnabled
         }
         .sheet(item: $paywallPresentation) { presentation in
             ProPaywallView(presentation: presentation)
+        }
+    }
+
+    // MARK: - Notifications
+
+    private var notificationsSection: some View {
+        Section("Reminders") {
+            Toggle(isOn: $notificationsEnabled) {
+                Label("System Notifications", systemImage: "bell")
+            }
+            .onChange(of: notificationsEnabled) { _, newValue in
+                Task {
+                    let effectiveValue = await NudgeNotificationService.shared
+                        .setNotificationsEnabled(newValue)
+                    if notificationsEnabled != effectiveValue {
+                        notificationsEnabled = effectiveValue
+                    }
+                }
+            }
+
+            Text("When off, reminders appear only inside Today.")
+                .font(.groveBodySmall)
+                .foregroundStyle(Color.textSecondary)
         }
     }
 

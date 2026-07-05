@@ -30,10 +30,6 @@ struct MobileHomeView: View {
         allItemsByDate.filter { $0.status == .inbox }
     }
 
-    private var recentItems: [Item] {
-        Array(allItems.filter { $0.status == .active || $0.status == .inbox }.prefix(6))
-    }
-
     private var pendingNudges: [Nudge] {
         allNudges.filter { $0.status == .pending || $0.status == .shown }
     }
@@ -60,11 +56,10 @@ struct MobileHomeView: View {
 
             inboxSection
             discussionSuggestionsSection
-            recentItemsSection
             nudgesSection
         }
         .listStyle(.plain)
-        .navigationTitle("Home")
+        .navigationTitle("Today")
         .navigationDestination(for: MobileItemRoute.self) { route in
             MobileItemRouteDestinationView(route: route)
         }
@@ -161,67 +156,25 @@ struct MobileHomeView: View {
     @ViewBuilder
     private var discussionSuggestionsSection: some View {
         Section {
-            if horizontalSizeClass == .regular {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: Spacing.md) {
-                        regularDiscussionCard(bubble: newConversationBubble) {
-                            startNewConversation()
-                        }
-
-                        ForEach(discussionBubbles) { bubble in
-                            regularDiscussionCard(bubble: bubble) {
-                                selectedSuggestion = bubble
-                            }
-                        }
+            if let bubble = discussionBubbles.first {
+                MobileStarterCard(
+                    bubble: bubble,
+                    showsDisclosureIndicator: horizontalSizeClass == .regular
+                ) {
+                    if horizontalSizeClass == .regular {
+                        selectedSuggestion = bubble
+                    } else {
+                        startConversation(with: bubble)
                     }
-                    .padding(.horizontal, LayoutDimensions.contentPaddingH)
                 }
-                .listRowInsets(EdgeInsets())
             } else {
                 MobileStarterCard(bubble: newConversationBubble) {
                     startNewConversation()
                 }
-
-                ForEach(discussionBubbles) { bubble in
-                    MobileStarterCard(bubble: bubble) {
-                        startConversation(with: bubble)
-                    }
-                }
             }
         } header: {
-            Text("Discussion Suggestions")
+            Text("Think Next")
                 .sectionHeaderStyle()
-        }
-    }
-
-    private func regularDiscussionCard(
-        bubble: PromptBubble,
-        onTap: @escaping () -> Void
-    ) -> some View {
-        MobileStarterCard(
-            bubble: bubble,
-            showsDisclosureIndicator: true,
-            onTap: onTap
-        )
-        .frame(width: 300)
-    }
-
-    // MARK: - Recent items
-
-    @ViewBuilder
-    private var recentItemsSection: some View {
-        if !recentItems.isEmpty {
-            Section {
-                ForEach(recentItems) { item in
-                    openItemRow(item: item) {
-                        MobileItemCardView(item: item)
-                    }
-                    .mobileItemContextMenu(item: item)
-                }
-            } header: {
-                Text("Recent")
-                    .sectionHeaderStyle()
-            }
         }
     }
 
@@ -231,7 +184,7 @@ struct MobileHomeView: View {
     private var nudgesSection: some View {
         if !pendingNudges.isEmpty {
             Section {
-                ForEach(pendingNudges) { nudge in
+                ForEach(pendingNudges.prefix(1)) { nudge in
                     MobileNudgeBanner(
                         nudge: nudge,
                         onOpen: {
@@ -320,9 +273,6 @@ struct MobileHomeView: View {
         #endif
         let viewModel = ItemViewModel(modelContext: modelContext)
         viewModel.assignToBoard(item, board: board)
-        item.status = .active
-        item.updatedAt = .now
-        try? modelContext.save()
     }
 
     private func confirmTag(_ tag: Tag) {
@@ -372,7 +322,7 @@ struct MobileHomeView: View {
             ConversationPromptPayload(
                 prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
                 seedItemIDs: seedItemIDs,
-                injectionMode: .asAssistantGreeting
+                injectionMode: .asUserMessage
             )
         )
     }

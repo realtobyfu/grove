@@ -23,6 +23,9 @@ struct GroveApp: App {
 
     init() {
         modelContainer = SharedModelContainer.makeForApp()
+        #if !SHARE_EXTENSION
+        GroveIntentModelStore.configure(with: modelContainer)
+        #endif
     }
 
     var body: some Scene {
@@ -34,6 +37,12 @@ struct GroveApp: App {
                     let context = modelContainer.mainContext
                     AnnotationMigrationService.migrateIfNeeded(context: context)
                     storeKitService.start()
+                    #if !SHARE_EXTENSION
+                    await GroveSpotlightIndexer.refreshAll(using: modelContainer)
+                    #endif
+                    let items: [Item] = context.fetchAll()
+                    await EmbeddingIndexService.shared.indexItems(items.map(EmbeddingIndexService.snapshot))
+                    await TensionDetectionService(modelContext: context).runIfDue()
                 }
                 .environment(entitlementService)
                 .environment(onboardingService)
@@ -142,6 +151,12 @@ struct GroveApp: App {
                     AnnotationMigrationService.migrateIfNeeded(context: context)
                     ExtensionItemProcessor.processIfNeeded(context: context)
                     storeKitService.start()
+                    #if !SHARE_EXTENSION
+                    await GroveSpotlightIndexer.refreshAll(using: modelContainer)
+                    #endif
+                    let items: [Item] = context.fetchAll()
+                    await EmbeddingIndexService.shared.indexItems(items.map(EmbeddingIndexService.snapshot))
+                    await TensionDetectionService(modelContext: context).runIfDue()
                 }
                 .onOpenURL { url in
                     deepLinkRouter.handle(url)

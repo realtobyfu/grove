@@ -85,7 +85,7 @@ struct ContentView: View {
     var body: some View {
         @Bindable var vm = viewModel
         NavigationSplitView(columnVisibility: $vm.columnVisibility) {
-            SidebarView(selection: $vm.selection, selectedConversation: $vm.selectedConversation)
+            SidebarView(selection: $vm.selection)
         } detail: {
             detailZStack
         }

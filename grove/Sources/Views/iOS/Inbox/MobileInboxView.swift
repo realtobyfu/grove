@@ -155,9 +155,6 @@ struct MobileInboxView: View {
         #endif
         let viewModel = ItemViewModel(modelContext: modelContext)
         viewModel.assignToBoard(item, board: board)
-        item.status = .active
-        item.updatedAt = .now
-        try? modelContext.save()
     }
 
     private func confirmTag(_ tag: Tag) {

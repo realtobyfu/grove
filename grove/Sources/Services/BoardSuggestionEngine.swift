@@ -53,6 +53,19 @@ enum BoardSuggestionMetadata {
         item.metadata[pendingBoardSuggestion] = nil
     }
 
+    /// Preserve a local, privacy-safe correction signal before resolving the
+    /// pending suggestion. These fields can seed OS 27 evaluation datasets
+    /// without storing prompt text or sending analytics off-device.
+    static func recordSelection(_ board: Board, on item: Item) {
+        let decision = decision(from: item)
+        item.metadata["boardSuggestionOutcome"] = "selected"
+        item.metadata["boardSuggestionSelectedBoardID"] = board.id.uuidString
+        item.metadata["boardSuggestionMatchedRecommendation"] =
+            decision?.recommendedBoardID == board.id ? "true" : "false"
+        item.metadata["boardSuggestionResolvedAt"] = Date.now.ISO8601Format()
+        clearPendingSuggestion(on: item)
+    }
+
     static func decision(from item: Item) -> BoardSuggestionDecision? {
         let suggestedName = cleanedSuggestionName(from: item)
         guard !suggestedName.isEmpty else { return nil }

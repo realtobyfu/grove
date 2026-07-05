@@ -110,7 +110,7 @@ extension BoardItemListView {
                 guard CaptureService.isSupportedVideoFile(path) else { return }
                 Task { @MainActor in
                     let captureService = CaptureService(modelContext: modelContext)
-                    let item = captureService.createVideoItem(filePath: path, board: board.isSmart ? nil : board)
+                    let item = captureService.createVideoItem(filePath: path, board: board)
                     selectedItem = item
                 }
             }

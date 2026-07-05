@@ -9,6 +9,85 @@ private final class FocusEventRecorder: @unchecked Sendable {
 
 struct GroveTests {
     @MainActor
+    @Test func globalCaptureRemainsInInboxWithoutAUserSelectedBoard() throws {
+        let context = try makeInMemoryModelContext()
+        let service = CaptureService(modelContext: context)
+
+        let item = service.captureItem(input: "Unfiled thought")
+
+        #expect(item.status == .inbox)
+        #expect(item.boards.isEmpty)
+    }
+
+    @MainActor
+    @Test func boardTargetedCaptureIsImmediatelyActive() throws {
+        let context = try makeInMemoryModelContext()
+        let board = Board(title: "Research")
+        context.insert(board)
+        let service = CaptureService(modelContext: context)
+
+        let item = service.captureItem(input: "Filed thought", board: board)
+
+        #expect(item.status == .active)
+        #expect(item.boards.map(\.id) == [board.id])
+    }
+
+    @MainActor
+    @Test func explicitBoardAssignmentApprovesInboxItemWithoutDuplicatingBoard() throws {
+        let context = try makeInMemoryModelContext()
+        let item = Item(title: "Pending", type: .note)
+        item.status = .inbox
+        let board = Board(title: "Research")
+        context.insert(item)
+        context.insert(board)
+        let viewModel = ItemViewModel(modelContext: context)
+
+        viewModel.assignToBoard(item, board: board)
+        viewModel.assignToBoard(item, board: board)
+
+        #expect(item.status == .active)
+        #expect(item.boards.map(\.id) == [board.id])
+    }
+
+    @MainActor
+    @Test func movingInboxItemsToBoardApprovesThem() throws {
+        let context = try makeInMemoryModelContext()
+        let item = Item(title: "Pending", type: .note)
+        item.status = .inbox
+        let board = Board(title: "Research")
+        context.insert(item)
+        context.insert(board)
+        let viewModel = ItemViewModel(modelContext: context)
+
+        viewModel.moveItemsToBoard([item], board: board)
+
+        #expect(item.status == .active)
+        #expect(item.boards.map(\.id) == [board.id])
+    }
+
+    @MainActor
+    @Test func boardSuggestionSelectionRecordsLocalEvaluationSignal() {
+        let item = Item(title: "Pending", type: .note)
+        let board = Board(title: "Research")
+        let decision = BoardSuggestionDecision(
+            suggestedName: board.title,
+            mode: .existing,
+            recommendedBoardID: board.id,
+            confidence: 0.91,
+            reason: "Strong title match",
+            alternativeBoardIDs: []
+        )
+        BoardSuggestionMetadata.apply(decision, to: item)
+
+        BoardSuggestionMetadata.recordSelection(board, on: item)
+
+        #expect(item.metadata["pendingBoardSuggestion"] == nil)
+        #expect(item.metadata["boardSuggestionOutcome"] == "selected")
+        #expect(item.metadata["boardSuggestionSelectedBoardID"] == board.id.uuidString)
+        #expect(item.metadata["boardSuggestionMatchedRecommendation"] == "true")
+    }
+
+    @MainActor
     @Test func entitlementServiceDefaultsToFreeTier() {
         let defaults = testDefaults()
         let service = EntitlementService(defaults: defaults)
@@ -102,7 +181,7 @@ struct GroveTests {
     }
 
     @MainActor
-    @Test func conversationStarterServiceCapsLLMResultsAtThree() async {
+    @Test func conversationStarterServiceCapsFreeLLMResultsAtTwo() async {
         UserDefaults.standard.removeObject(forKey: "grove.conversationStarters")
 
         let provider = MockLLMProvider()
@@ -124,7 +203,7 @@ struct GroveTests {
 
         await service.refresh(items: [recent])
 
-        #expect(service.bubbles.count == 3)
+        #expect(service.bubbles.count == ConversationStarterService.maxBubbleCountFree)
     }
 
     @MainActor
@@ -482,6 +561,21 @@ struct GroveTests {
 
         NudgeSettings.resurfaceEnabled = previousResurface
         NudgeSettings.staleInboxEnabled = previousStaleInbox
+    }
+
+    @Test func systemNotificationsRequireExplicitOptIn() {
+        let key = "nudge.notifications.enabled"
+        let previousValue = UserDefaults.standard.object(forKey: key)
+        defer {
+            if let previousValue {
+                UserDefaults.standard.set(previousValue, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+
+        UserDefaults.standard.removeObject(forKey: key)
+        #expect(!NudgeSettings.notificationsEnabled)
     }
 
     private func makeDate(

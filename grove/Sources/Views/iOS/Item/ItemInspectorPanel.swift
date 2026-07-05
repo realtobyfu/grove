@@ -460,10 +460,8 @@ struct ItemInspectorPanel: View {
             List {
                 ForEach(allBoards) { board in
                     Button {
-                        if !item.boards.contains(where: { $0.id == board.id }) {
-                            item.boards.append(board)
-                            try? modelContext.save()
-                        }
+                        let viewModel = ItemViewModel(modelContext: modelContext)
+                        viewModel.assignToBoard(item, board: board)
                         showBoardPicker = false
                     } label: {
                         HStack {

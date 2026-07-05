@@ -3,6 +3,7 @@ import SwiftData
 
 struct NoteEditorView: View {
     @Bindable var item: Item
+    @Environment(\.modelContext) private var modelContext
     @Query(sort: \Board.sortOrder) private var boards: [Board]
     @State private var showBoardPicker = false
 
@@ -103,12 +104,7 @@ struct NoteEditorView: View {
                         ForEach(boards) { board in
                             let isMember = item.boards.contains(where: { $0.id == board.id })
                             Button {
-                                if isMember {
-                                    item.boards.removeAll { $0.id == board.id }
-                                } else {
-                                    item.boards.append(board)
-                                }
-                                item.updatedAt = .now
+                                toggleBoard(board, isMember: isMember)
                             } label: {
                                 HStack(spacing: 8) {
                                     Image(systemName: isMember ? "checkmark.circle.fill" : "circle")
@@ -136,5 +132,15 @@ struct NoteEditorView: View {
         }
         .frame(width: 220)
         .padding(.bottom, 8)
+    }
+
+    private func toggleBoard(_ board: Board, isMember: Bool) {
+        if isMember {
+            item.boards.removeAll { $0.id == board.id }
+            item.updatedAt = .now
+            try? modelContext.save()
+        } else {
+            ItemViewModel(modelContext: modelContext).assignToBoard(item, board: board)
+        }
     }
 }

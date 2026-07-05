@@ -57,7 +57,7 @@ struct TabRootView: View {
         TabView(selection: $selectedTab) {
             // MARK: - Main tabs
 
-            SwiftUI.Tab("Home", systemImage: "envelope", value: Tab.home) {
+            SwiftUI.Tab("Today", systemImage: "sun.max", value: Tab.home) {
                 NavigationStack {
                     MobileHomeView()
                 }
@@ -286,12 +286,9 @@ struct TabRootView: View {
         let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
         guard let item = try? modelContext.fetch(descriptor).first else { return }
 
-        if !item.boards.contains(where: { $0.id == board.id }) {
-            item.boards.append(board)
-        }
-
-        BoardSuggestionMetadata.clearPendingSuggestion(on: item)
-        try? modelContext.save()
+        BoardSuggestionMetadata.recordSelection(board, on: item)
+        let viewModel = ItemViewModel(modelContext: modelContext)
+        viewModel.assignToBoard(item, board: board)
     }
 
     private func dismissBoardSuggestion() {

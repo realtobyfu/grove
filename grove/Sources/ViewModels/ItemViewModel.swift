@@ -20,11 +20,13 @@ final class ItemViewModel {
     }
 
     func assignToBoard(_ item: Item, board: Board) {
-        if !item.boards.contains(where: { $0.id == board.id }) {
+        if !board.isSmart,
+           !item.boards.contains(where: { $0.id == board.id }) {
             item.boards.append(board)
-            item.updatedAt = .now
-            try? modelContext.save()
         }
+        item.status = .active
+        item.updatedAt = .now
+        try? modelContext.save()
     }
 
     func removeFromBoard(_ item: Item, board: Board) {
@@ -37,7 +39,10 @@ final class ItemViewModel {
         for item in items {
             item.boards.removeAll()
             if let board {
-                item.boards.append(board)
+                if !board.isSmart {
+                    item.boards.append(board)
+                }
+                item.status = .active
             }
             item.updatedAt = .now
         }

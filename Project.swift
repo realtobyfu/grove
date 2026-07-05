@@ -14,6 +14,13 @@ let project = Project(
                 "CFBundleDisplayName": "Grove",
                 "CFBundleName": "Grove",
                 "CFBundleIconName": "AppIcon",
+                "CFBundleURLTypes": [
+                    [
+                        "CFBundleTypeRole": "Editor",
+                        "CFBundleURLName": "dev.tuist.grove",
+                        "CFBundleURLSchemes": ["grove"],
+                    ],
+                ],
                 "UILaunchScreen": [
                     "UIColorName": "bgPrimary",
                 ],

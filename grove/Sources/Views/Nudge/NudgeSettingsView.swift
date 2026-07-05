@@ -9,6 +9,7 @@ struct NudgeSettingsView: View {
     @Environment(PaywallCoordinator.self) private var paywallCoordinator
     @State private var resurfaceEnabled = NudgeSettings.resurfaceEnabled
     @State private var staleInboxEnabled = NudgeSettings.staleInboxEnabled
+    @State private var notificationsEnabled = NudgeSettings.notificationsEnabled
     @State private var scheduleIntervalHours = NudgeSettings.scheduleIntervalHours
     @State private var maxNudgesPerDay = NudgeSettings.maxNudgesPerDay
     @State private var spacedResurfacingEnabled = NudgeSettings.spacedResurfacingEnabled
@@ -27,6 +28,17 @@ struct NudgeSettingsView: View {
 
     var body: some View {
         Form {
+            Section("Delivery") {
+                Toggle("System Notifications", isOn: $notificationsEnabled)
+                    .onChange(of: notificationsEnabled) { _, newValue in
+                        updateNotificationPreference(newValue)
+                    }
+
+                Text("When off, reminders appear only inside Today.")
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textSecondary)
+            }
+
             Section("Nudge Categories") {
                 HStack {
                     Toggle("Resurface", isOn: $resurfaceEnabled)
@@ -233,6 +245,16 @@ struct NudgeSettingsView: View {
     private func loadQueueStats() {
         let service = ResurfacingService(modelContext: modelContext)
         queueStats = service.queueStats()
+    }
+
+    private func updateNotificationPreference(_ enabled: Bool) {
+        Task {
+            let effectiveValue = await NudgeNotificationService.shared
+                .setNotificationsEnabled(enabled)
+            if notificationsEnabled != effectiveValue {
+                notificationsEnabled = effectiveValue
+            }
+        }
     }
 
     private func analyticsRow(type: NudgeType, label: String) -> some View {

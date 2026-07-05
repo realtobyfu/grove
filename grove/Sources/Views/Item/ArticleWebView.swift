@@ -17,9 +17,12 @@ struct ArticleWebView: NSViewRepresentable {
     var findBackwardToken: Int = 0
     var onFindResult: ((Int, Int) -> Void)?
     var zoomLevel: CGFloat = 1.0
+    var goBackToken: Int = 0
+    var goForwardToken: Int = 0
+    var onNavigationChanged: ((Bool, Bool, URL?) -> Void)?
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onTextSelected: onTextSelected, onFindResult: onFindResult)
+        Coordinator(onTextSelected: onTextSelected, onFindResult: onFindResult, onNavigationChanged: onNavigationChanged)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -57,6 +60,8 @@ struct ArticleWebView: NSViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
         webView.allowsLinkPreview = false
+        context.coordinator.startObserving(webView)
+        context.coordinator.lastLoadedURL = url
         webView.load(URLRequest(url: url))
         return webView
     }
@@ -64,12 +69,26 @@ struct ArticleWebView: NSViewRepresentable {
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.onTextSelected = onTextSelected
         context.coordinator.onFindResult = onFindResult
+        context.coordinator.onNavigationChanged = onNavigationChanged
 
         // Apply zoom level
         webView.pageZoom = zoomLevel
 
-        // Reload only when the URL changes
-        if webView.url?.absoluteString != url.absoluteString, !webView.isLoading {
+        // Handle back/forward navigation tokens
+        if goBackToken != context.coordinator.lastGoBackToken {
+            context.coordinator.lastGoBackToken = goBackToken
+            webView.goBack()
+            return
+        }
+        if goForwardToken != context.coordinator.lastGoForwardToken {
+            context.coordinator.lastGoForwardToken = goForwardToken
+            webView.goForward()
+            return
+        }
+
+        // Reload only when the article URL prop itself changes (not when WebView navigates internally)
+        if url != context.coordinator.lastLoadedURL {
+            context.coordinator.lastLoadedURL = url
             webView.load(URLRequest(url: url))
             context.coordinator.lastFindQuery = ""
             context.coordinator.lastForwardToken = 0
@@ -209,28 +228,42 @@ struct ArticleWebView: NSViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var onTextSelected: ((String?) -> Void)?
         var onFindResult: ((Int, Int) -> Void)?
+        var onNavigationChanged: ((Bool, Bool, URL?) -> Void)?
         var lastFindQuery = ""
         var lastForwardToken = 0
         var lastBackwardToken = 0
+        var lastGoBackToken = 0
+        var lastGoForwardToken = 0
+        var lastLoadedURL: URL? = nil
+        private var observations: [NSKeyValueObservation] = []
 
-        init(onTextSelected: ((String?) -> Void)?, onFindResult: ((Int, Int) -> Void)?) {
+        init(onTextSelected: ((String?) -> Void)?, onFindResult: ((Int, Int) -> Void)?, onNavigationChanged: ((Bool, Bool, URL?) -> Void)?) {
             self.onTextSelected = onTextSelected
             self.onFindResult = onFindResult
+            self.onNavigationChanged = onNavigationChanged
         }
 
-        // Intercept link clicks — open in default browser, stay on original page
+        func startObserving(_ webView: WKWebView) {
+            observations = [
+                webView.observe(\.canGoBack) { [weak self] wv, _ in
+                    self?.onNavigationChanged?(wv.canGoBack, wv.canGoForward, wv.url)
+                },
+                webView.observe(\.canGoForward) { [weak self] wv, _ in
+                    self?.onNavigationChanged?(wv.canGoBack, wv.canGoForward, wv.url)
+                },
+                webView.observe(\.url) { [weak self] wv, _ in
+                    self?.onNavigationChanged?(wv.canGoBack, wv.canGoForward, wv.url)
+                }
+            ]
+        }
+
+        // Allow link clicks to navigate within the WebView
         func webView(
             _ webView: WKWebView,
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
         ) {
-            if navigationAction.navigationType == .linkActivated,
-               let url = navigationAction.request.url {
-                NSWorkspace.shared.open(url)
-                decisionHandler(.cancel)
-            } else {
-                decisionHandler(.allow)
-            }
+            decisionHandler(.allow)
         }
 
         // Handle messages from injected JS

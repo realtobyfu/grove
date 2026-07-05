@@ -1,10 +1,19 @@
 import SwiftUI
+import SwiftData
 
 struct ItemReaderWebViewPanel: View {
     @Bindable var vm: ItemReaderViewModel
     let url: URL
     @Environment(\.openURL) private var openURL
+    @Environment(\.modelContext) private var modelContext
     var focusTrigger: () -> Void
+
+    @State private var canGoBack = false
+    @State private var canGoForward = false
+    @State private var currentWebURL: URL? = nil
+    @State private var goBackToken = 0
+    @State private var goForwardToken = 0
+    @State private var justSaved = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,7 +34,28 @@ struct ItemReaderWebViewPanel: View {
 
                 Divider().frame(height: 12)
 
-                Text(url.host ?? url.absoluteString)
+                // Browser back/forward
+                Button { goBackToken += 1 } label: {
+                    Image(systemName: "chevron.backward")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(canGoBack ? Color.textSecondary : Color.textMuted)
+                }
+                .buttonStyle(.plain)
+                .disabled(!canGoBack)
+                .help("Back")
+
+                Button { goForwardToken += 1 } label: {
+                    Image(systemName: "chevron.forward")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(canGoForward ? Color.textSecondary : Color.textMuted)
+                }
+                .buttonStyle(.plain)
+                .disabled(!canGoForward)
+                .help("Forward")
+
+                Divider().frame(height: 12)
+
+                Text((currentWebURL ?? url).host ?? (currentWebURL ?? url).absoluteString)
                     .font(.groveMeta)
                     .foregroundStyle(Color.textTertiary)
                     .lineLimit(1)
@@ -74,11 +104,30 @@ struct ItemReaderWebViewPanel: View {
                 .buttonStyle(.plain)
                 .help("Open reflection panel")
 
+                if let navigatedURL = currentWebURL, navigatedURL.absoluteString != url.absoluteString {
+                    Button {
+                        let service = CaptureService(modelContext: modelContext)
+                        _ = service.captureItem(input: navigatedURL.absoluteString)
+                        justSaved = true
+                        Task {
+                            try? await Task.sleep(for: .seconds(1.5))
+                            justSaved = false
+                        }
+                    } label: {
+                        Image(systemName: justSaved ? "checkmark.circle" : "plus.circle")
+                            .font(.groveBody)
+                            .foregroundStyle(justSaved ? Color.textSecondary : Color.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(justSaved)
+                    .help("Add to Grove")
+                }
+
                 Button {
                     #if os(macOS)
-                    NSWorkspace.shared.open(url)
+                    NSWorkspace.shared.open(currentWebURL ?? url)
                     #else
-                    openURL(url)
+                    openURL(currentWebURL ?? url)
                     #endif
                 } label: {
                     Image(systemName: "arrow.up.right.square")
@@ -107,7 +156,14 @@ struct ItemReaderWebViewPanel: View {
                     vm.findCurrentMatch = current
                     vm.findMatchCount = total
                 },
-                zoomLevel: vm.webViewZoomLevel
+                zoomLevel: vm.webViewZoomLevel,
+                goBackToken: goBackToken,
+                goForwardToken: goForwardToken,
+                onNavigationChanged: { canBack, canFwd, currentURL in
+                    canGoBack = canBack
+                    canGoForward = canFwd
+                    currentWebURL = currentURL
+                }
             )
             #else
             MobileArticleWebView(

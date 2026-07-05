@@ -8,7 +8,7 @@ private struct OnboardingPrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.groveBodyMedium)
-            .foregroundStyle(.white)
+            .foregroundStyle(Color.textInverse)
             .padding(.horizontal, Spacing.lg)
             .padding(.vertical, Spacing.sm)
             .background(isEnabled ? Color.textPrimary : Color.textSecondary)

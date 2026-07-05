@@ -251,14 +251,10 @@ struct CaptureBarView: View {
         guard !trimmed.isEmpty else { return }
 
         let captureService = CaptureService(modelContext: modelContext)
-        let item = captureService.captureItem(input: trimmed)
-
-        // Auto-assign to current board if one is selected
-        if let boardID = currentBoardID,
-           let board = boards.first(where: { $0.id == boardID }) {
-            let viewModel = ItemViewModel(modelContext: modelContext)
-            viewModel.assignToBoard(item, board: board)
+        let board = currentBoardID.flatMap { boardID in
+            boards.first(where: { $0.id == boardID })
         }
+        _ = captureService.captureItem(input: trimmed, board: board)
 
         inputText = ""
 
@@ -345,12 +341,9 @@ struct CaptureBarView: View {
         let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
         guard let item = try? modelContext.fetch(descriptor).first else { return }
 
-        if !item.boards.contains(where: { $0.id == board.id }) {
-            item.boards.append(board)
-        }
-
-        BoardSuggestionMetadata.clearPendingSuggestion(on: item)
-        try? modelContext.save()
+        BoardSuggestionMetadata.recordSelection(board, on: item)
+        let viewModel = ItemViewModel(modelContext: modelContext)
+        viewModel.assignToBoard(item, board: board)
     }
 
     private func dismissBoardSuggestion() {
@@ -530,13 +523,10 @@ struct CaptureBarOverlayView: View {
         guard !trimmed.isEmpty else { return }
 
         let captureService = CaptureService(modelContext: modelContext)
-        let item = captureService.captureItem(input: trimmed)
-
-        if let boardID = currentBoardID,
-           let board = boards.first(where: { $0.id == boardID }) {
-            let viewModel = ItemViewModel(modelContext: modelContext)
-            viewModel.assignToBoard(item, board: board)
+        let board = currentBoardID.flatMap { boardID in
+            boards.first(where: { $0.id == boardID })
         }
+        _ = captureService.captureItem(input: trimmed, board: board)
 
         inputText = ""
 
@@ -634,12 +624,9 @@ struct CaptureBarOverlayView: View {
         let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
         guard let item = try? modelContext.fetch(descriptor).first else { return }
 
-        if !item.boards.contains(where: { $0.id == board.id }) {
-            item.boards.append(board)
-        }
-
-        BoardSuggestionMetadata.clearPendingSuggestion(on: item)
-        try? modelContext.save()
+        BoardSuggestionMetadata.recordSelection(board, on: item)
+        let viewModel = ItemViewModel(modelContext: modelContext)
+        viewModel.assignToBoard(item, board: board)
     }
 
     private func dismissBoardSuggestion() {

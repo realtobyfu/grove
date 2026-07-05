@@ -561,12 +561,9 @@ struct iPadRootView: View {
         let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
         guard let item = try? modelContext.fetch(descriptor).first else { return }
 
-        if !item.boards.contains(where: { $0.id == board.id }) {
-            item.boards.append(board)
-        }
-
-        BoardSuggestionMetadata.clearPendingSuggestion(on: item)
-        try? modelContext.save()
+        BoardSuggestionMetadata.recordSelection(board, on: item)
+        let viewModel = ItemViewModel(modelContext: modelContext)
+        viewModel.assignToBoard(item, board: board)
     }
 
     private func dismissBoardSuggestion() {

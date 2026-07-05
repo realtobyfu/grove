@@ -21,7 +21,7 @@ struct HomePrimaryButtonStyle: ButtonStyle {
 // MARK: - HomeView
 
 struct HomeView: View {
-    private static let maxDiscussionCards = 3
+    private static let maxDiscussionCards = 1
 
     private struct PromptModeSelection {
         let prompt: String
@@ -39,42 +39,21 @@ struct HomeView: View {
 
     @Binding var selectedItem: Item?
     @Binding var openedItem: Item?
-    @Environment(\.modelContext) private var modelContext
-    @Environment(EntitlementService.self) private var entitlement
     @Environment(OnboardingService.self) private var onboarding
-    @Environment(PaywallCoordinator.self) private var paywallCoordinator
     @Query(sort: \Item.updatedAt, order: .reverse) private var allItems: [Item]
-    @Query(sort: \Conversation.updatedAt, order: .reverse) private var allConversations: [Conversation]
 
     @State private var starterService = ConversationStarterService.shared
-    @State private var feedDiscovery = FeedDiscoveryService.shared
-    @State private var feedFetch = FeedFetchService.shared
-    @State private var rankingService = SuggestionRankingService.shared
     @State private var isInboxCollapsed = false
-    @State private var isSuggestionsCollapsed = false
     @State private var isDiscussionCollapsed = false
-    @State private var isItemsCollapsed = false
-    @State private var isConversationsCollapsed = false
     @State private var promptModeSelection: PromptModeSelection? = nil
     @State private var promptModePanelWidth: CGFloat = LayoutSettings.width(for: .homePrompt) ?? 330
-    @State private var paywallPresentation: PaywallPresentation?
-    @State private var rankedSuggestions: [SuggestionRankingService.ScoredSuggestion] = []
 
     private var inboxCount: Int {
         allItems.filter { $0.status == .inbox }.count
     }
 
     private var discussionBubbles: [PromptBubble] {
-        let dynamicSlotCount = max(0, Self.maxDiscussionCards - 1) // Reserve one slot for "New Conversation".
-        return Array(starterService.bubbles.prefix(dynamicSlotCount))
-    }
-
-    private var recentItems: [Item] {
-        Array(allItems.filter { $0.status == .active || $0.status == .inbox }.prefix(6))
-    }
-
-    private var recentConversations: [Conversation] {
-        Array(allConversations.filter { !$0.isArchived && $0.isSavedToHistory }.prefix(5))
+        Array(starterService.bubbles.prefix(Self.maxDiscussionCards))
     }
 
     var body: some View {
@@ -98,11 +77,6 @@ struct HomeView: View {
                                 .padding(.bottom, Spacing.xl)
                         }
 
-                        if onboarding.shouldShowHomeTeaser && !entitlement.isPro {
-                            proTeaserCard
-                                .padding(.bottom, Spacing.xl)
-                        }
-
                         HomeInboxSection(
                             selectedItem: $selectedItem,
                             openedItem: $openedItem,
@@ -111,26 +85,8 @@ struct HomeView: View {
                         )
                         .padding(.bottom, Spacing.xl)
 
-                        if !rankedSuggestions.isEmpty {
-                            HomeSuggestionsSection(
-                                rankedSuggestions: rankedSuggestions,
-                                isCollapsed: $isSuggestionsCollapsed,
-                                onAdd: { addSuggestionToInbox($0) },
-                                onDismiss: { dismissSuggestion($0) },
-                                onOpen: { openSuggestionInDetail($0) },
-                                onExplorePro: {
-                                    paywallPresentation = paywallCoordinator.present(
-                                        feature: .suggestedArticles,
-                                        source: .suggestedArticles
-                                    )
-                                }
-                            )
-                            .padding(.bottom, Spacing.xl)
-                        }
-
                         HomeDiscussionSection(
                             discussionBubbles: discussionBubbles,
-                            maxCards: Self.maxDiscussionCards,
                             isCollapsed: $isDiscussionCollapsed,
                             onNewConversation: {
                                 promptModeSelection = nil
@@ -141,24 +97,6 @@ struct HomeView: View {
                             starterService: starterService
                         )
                         .padding(.bottom, Spacing.xl)
-
-                        HomeRecentItemsSection(
-                            recentItems: recentItems,
-                            isCollapsed: $isItemsCollapsed,
-                            onOpen: {
-                                selectedItem = $0
-                                openedItem = $0
-                            }
-                        )
-                        .padding(.bottom, Spacing.xl)
-
-                        if !recentConversations.isEmpty {
-                            HomeRecentConversationsSection(
-                                recentConversations: recentConversations,
-                                isCollapsed: $isConversationsCollapsed
-                            )
-                            .padding(.bottom, Spacing.xl)
-                        }
 
                         Spacer(minLength: Spacing.xxxl)
                     }
@@ -189,14 +127,8 @@ struct HomeView: View {
         .navigationTitle("")
         .task {
             await starterService.refresh(items: allItems)
-            await feedDiscovery.discoverFeeds(in: modelContext)
-            await feedFetch.refreshIfNeeded(in: modelContext)
-            rankedSuggestions = rankingService.rankSuggestions(in: modelContext)
         }
         .animation(.easeInOut(duration: 0.2), value: promptModeSelection != nil)
-        .sheet(item: $paywallPresentation) { presentation in
-            ProPaywallView(presentation: presentation)
-        }
     }
 
     // MARK: - Home Banners
@@ -240,80 +172,6 @@ struct HomeView: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(Color.borderPrimary, lineWidth: 1)
         )
-    }
-
-    private var proTeaserCard: some View {
-        HStack(alignment: .top, spacing: Spacing.md) {
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                Text("PRO")
-                    .font(.groveBadge)
-                    .tracking(0.8)
-                    .foregroundStyle(Color.textSecondary)
-                Text("Unlock advanced workflows")
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textPrimary)
-                Text("Enable cross-device sync, full conversation memory, automation controls, and smart cloud fallback.")
-                    .font(.groveBodySmall)
-                    .foregroundStyle(Color.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: 0)
-
-            VStack(spacing: Spacing.xs) {
-                Button("Explore Pro") {
-                    paywallPresentation = paywallCoordinator.present(
-                        feature: nil,
-                        source: .homeTeaser,
-                        bypassCooldown: true
-                    )
-                }
-                .buttonStyle(HomePrimaryButtonStyle())
-
-                Button("Dismiss") {
-                    onboarding.dismissHomeTeaser()
-                }
-                .buttonStyle(.plain)
-                .font(.groveBodySmall)
-                .foregroundStyle(Color.textSecondary)
-            }
-        }
-        .padding(Spacing.md)
-        .background(Color.bgCard)
-        .clipShape(.rect(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.borderPrimary, lineWidth: 1)
-        )
-    }
-
-    // MARK: - Suggestion Actions
-
-    private func addSuggestionToInbox(_ item: Item) {
-        guard entitlement.canUse(.suggestedArticles) else {
-            paywallPresentation = paywallCoordinator.present(
-                feature: .suggestedArticles,
-                source: .suggestedArticles
-            )
-            return
-        }
-
-        item.metadata["isSuggested"] = nil
-        item.metadata["suggestionSource"] = nil
-        item.metadata["feedSourceID"] = nil
-        item.updatedAt = .now
-        entitlement.recordUse(.suggestedArticles)
-        rankedSuggestions.removeAll { $0.item.id == item.id }
-    }
-
-    private func dismissSuggestion(_ item: Item) {
-        item.metadata["suggestionDismissed"] = "true"
-        rankedSuggestions.removeAll { $0.item.id == item.id }
-    }
-
-    private func openSuggestionInDetail(_ item: Item) {
-        selectedItem = item
-        openedItem = item
     }
 
     // MARK: - Prompt Mode Panel & Actions
@@ -425,7 +283,7 @@ struct HomeView: View {
             ConversationPromptPayload(
                 prompt: prompt,
                 seedItemIDs: seedItemIDs,
-                injectionMode: .asAssistantGreeting
+                injectionMode: .asUserMessage
             )
         )
     }

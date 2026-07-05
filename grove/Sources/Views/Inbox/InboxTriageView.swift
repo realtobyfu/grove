@@ -59,10 +59,9 @@ struct InboxTriageView: View {
                     recommendedBoardID: boardPickerRecommendedBoardID,
                     prioritizedBoardIDs: boardPickerAlternativeBoardIDs,
                     onSelectBoard: { board in
+                        BoardSuggestionMetadata.recordSelection(board, on: item)
                         let viewModel = ItemViewModel(modelContext: modelContext)
                         viewModel.assignToBoard(item, board: board)
-                        BoardSuggestionMetadata.clearPendingSuggestion(on: item)
-                        try? modelContext.save()
                         resetBoardPickerState()
                     },
                     onCreateBoard: { title in
@@ -310,12 +309,12 @@ struct InboxTriageView: View {
            let decision = BoardSuggestionMetadata.decision(from: item),
            let matchedBoard = autoAssignBoard(from: decision) {
             item.boards.append(matchedBoard)
-            BoardSuggestionMetadata.clearPendingSuggestion(on: item)
+            BoardSuggestionMetadata.recordSelection(matchedBoard, on: item)
         } else if item.boards.isEmpty,
                   let suggestedName = item.metadata["suggestedBoard"],
                   let matchedBoard = boards.first(where: { $0.title.localizedCaseInsensitiveCompare(suggestedName) == .orderedSame }) {
             item.boards.append(matchedBoard)
-            BoardSuggestionMetadata.clearPendingSuggestion(on: item)
+            BoardSuggestionMetadata.recordSelection(matchedBoard, on: item)
         }
 
         try? modelContext.save()
@@ -369,17 +368,16 @@ struct InboxTriageView: View {
         if let existingBoard = boards.first(where: {
             $0.title.localizedCaseInsensitiveCompare(title) == .orderedSame
         }) {
-            if !item.boards.contains(where: { $0.id == existingBoard.id }) {
-                item.boards.append(existingBoard)
-            }
+            BoardSuggestionMetadata.recordSelection(existingBoard, on: item)
+            let viewModel = ItemViewModel(modelContext: modelContext)
+            viewModel.assignToBoard(item, board: existingBoard)
         } else {
             let board = Board(title: title)
             modelContext.insert(board)
-            item.boards.append(board)
+            BoardSuggestionMetadata.recordSelection(board, on: item)
+            let viewModel = ItemViewModel(modelContext: modelContext)
+            viewModel.assignToBoard(item, board: board)
         }
-
-        BoardSuggestionMetadata.clearPendingSuggestion(on: item)
-        try? modelContext.save()
     }
 
     private func resetBoardPickerState() {

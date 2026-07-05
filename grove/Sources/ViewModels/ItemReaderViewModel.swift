@@ -59,9 +59,9 @@ final class ItemReaderViewModel {
         item.type == .video && localVideoURL != nil
     }
 
-    /// URL that can be loaded in the in-app WebView (article items only, not local video).
+    /// URL that can be loaded in the in-app WebView (article/codebase items, not local video).
     var articleURL: URL? {
-        guard item.type == .article,
+        guard (item.type == .article || item.type == .codebase),
               item.metadata["videoLocalFile"] != "true" else { return nil }
 
         return resolvedSourceURL(from: item.sourceURL)

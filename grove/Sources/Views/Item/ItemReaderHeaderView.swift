@@ -69,11 +69,28 @@ struct ItemReaderHeaderView: View {
                 .padding(.vertical, 3)
                 .background(Color.accentBadge)
                 .clipShape(Capsule())
-            }
+            } else if vm.item.metadata["hasLLMOverview"] == "true"
+                        || vm.item.metadata["summaryGeneratedByAI"] == "true" {
+                HStack(spacing: 6) {
+                    Label("AI-assisted", systemImage: "sparkles")
+                        .font(.groveBadge)
 
-            // Review banner (shown when LLM summary/overview is pending review)
-            if vm.item.metadata["summaryReviewPending"] == "true" || vm.item.metadata["overviewReviewPending"] == "true" {
-                ItemReaderReviewBanner(vm: vm)
+                    if vm.item.metadata["hasLLMOverview"] == "true",
+                       let original = vm.item.metadata["originalDescription"],
+                       !original.isEmpty {
+                        Button("Revert") {
+                            vm.item.metadata["overviewFeedback"] = "reverted"
+                            vm.revertOverview()
+                        }
+                        .font(.groveBadge)
+                        .buttonStyle(.plain)
+                    }
+                }
+                .foregroundStyle(Color.textSecondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Color.accentBadge)
+                .clipShape(Capsule())
             }
 
             // One-line summary display/edit
@@ -213,88 +230,5 @@ struct ItemReaderSummaryField: View {
                 }
             }
         }
-    }
-}
-
-// MARK: - Review Banner
-
-struct ItemReaderReviewBanner: View {
-    @Bindable var vm: ItemReaderViewModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color.textSecondary)
-                Text("AI-generated summary ready for review")
-                    .font(.groveBodySecondary)
-                    .foregroundStyle(Color.textSecondary)
-            }
-
-            if let summary = vm.item.metadata["summary"], !summary.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "text.quote")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Color.textTertiary)
-                        TextField("One-line summary", text: Binding(
-                            get: { vm.item.metadata["summary"] ?? "" },
-                            set: { vm.item.metadata["summary"] = $0 }
-                        ))
-                        .font(.groveBodySecondary)
-                        .textFieldStyle(.plain)
-                    }
-                }
-            }
-
-            if vm.item.metadata["hasLLMOverview"] == "true" {
-                Text("AI overview is shown below -- you can edit it with the Edit button.")
-                    .font(.groveMeta)
-                    .foregroundStyle(Color.textTertiary)
-            }
-
-            HStack(spacing: 8) {
-                Button {
-                    vm.acceptReview()
-                } label: {
-                    Label("Accept", systemImage: "checkmark")
-                        .font(.groveBodySecondary)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-                if vm.item.metadata["overviewReviewPending"] == "true",
-                   let original = vm.item.metadata["originalDescription"], !original.isEmpty {
-                    Button {
-                        vm.revertOverview()
-                    } label: {
-                        Label("Revert Overview", systemImage: "arrow.uturn.backward")
-                            .font(.groveBodySecondary)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-
-                Button {
-                    vm.dismissReview()
-                } label: {
-                    Text("Dismiss")
-                        .font(.groveBodySecondary)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Color.textTertiary)
-            }
-        }
-        .padding(12)
-        .background(Color.bgCard)
-        .clipShape(RoundedRectangle(cornerRadius: 4))
-        .overlay(
-            RoundedRectangle(cornerRadius: 4)
-                .strokeBorder(
-                    Color.borderTagDashed,
-                    style: StrokeStyle(lineWidth: 1, dash: [4, 3])
-                )
-        )
     }
 }

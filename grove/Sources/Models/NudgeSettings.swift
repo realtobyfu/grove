@@ -14,6 +14,7 @@ struct NudgeSettings: Sendable {
         case maxNudgesPerDay = "nudge.maxPerDay"
         case spacedResurfacingEnabled = "nudge.spacedResurfacing.enabled"
         case spacedResurfacingGlobalPause = "nudge.spacedResurfacing.globalPause"
+        case notificationsEnabled = "nudge.notifications.enabled"
     }
 
     // MARK: - Active Category Toggles
@@ -26,6 +27,12 @@ struct NudgeSettings: Sendable {
     static var staleInboxEnabled: Bool {
         get { defaults.object(forKey: Key.staleInboxEnabled.rawValue) as? Bool ?? true }
         set { defaults.set(newValue, forKey: Key.staleInboxEnabled.rawValue) }
+    }
+
+    /// System notifications are opt-in. In-app Today nudges work independently.
+    static var notificationsEnabled: Bool {
+        get { defaults.object(forKey: Key.notificationsEnabled.rawValue) as? Bool ?? false }
+        set { defaults.set(newValue, forKey: Key.notificationsEnabled.rawValue) }
     }
 
     // MARK: - Schedule

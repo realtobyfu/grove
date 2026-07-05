@@ -8,7 +8,32 @@ struct ProPaywallView: View {
     let presentation: PaywallPresentation
 
     @State private var didDismiss = false
-    @State private var isShowingAllFeatures = false
+
+    private static let defaultHeroFeatures: [ProFeature] = [.automations, .sync, .fullHistory, .dialectics]
+
+    private var heroFeatures: [ProFeature] {
+        var features = Self.defaultHeroFeatures
+        if let feature = presentation.feature {
+            features.removeAll { $0 == feature }
+            features.insert(feature, at: 0)
+        }
+        return Array(features.prefix(4))
+    }
+
+    private var remainingFeaturesLine: String {
+        let shown = Set(heroFeatures)
+        let remaining = ProFeature.allCases.filter { !shown.contains($0) }
+        let names = remaining.prefix(3).map { $0.title.lowercased() }
+        guard !names.isEmpty else { return "" }
+        return "Plus \(names.joined(separator: ", ")), and everything else in Pro."
+    }
+
+    private var overlineText: String {
+        if let feature = presentation.feature {
+            return "UNLOCK \(feature.title.uppercased())"
+        }
+        return "GROVE PRO"
+    }
 
     private var titleText: String {
         if let feature = presentation.feature {
@@ -19,49 +44,9 @@ struct ProPaywallView: View {
 
     private var subtitleText: String {
         if let feature = presentation.feature {
-            return "\(feature.summary) Get the full Pro toolkit with automations, instant history search, and seamless sync across every device."
+            return "\(feature.summary) Included with everything else in Pro."
         }
-        return "Turn Grove into your execution system: automate recurring busywork, find anything from your history in seconds, and keep momentum on every device."
-    }
-
-    private var overlineText: String {
-        if let feature = presentation.feature {
-            return "UNLOCK \(feature.title.uppercased())"
-        }
-        return "GROVE PRO"
-    }
-
-    private var everythingInProFeatures: [ProFeature] {
-        let defaults: [ProFeature] = [.automations, .sync, .fullHistory]
-        let prioritized: [ProFeature]
-
-        if let feature = presentation.feature {
-            prioritized = [feature] + defaults.filter { $0 != feature } + ProFeature.allCases
-        } else {
-            prioritized = defaults + ProFeature.allCases
-        }
-
-        var seen = Set<String>()
-        return prioritized.filter { seen.insert($0.id).inserted }
-    }
-
-    private var essentialFeatures: [ProFeature] {
-        let essentials: [ProFeature] = [.automations, .sync, .fullHistory, .dialectics, .autoTagging, .smartRouting]
-        let prioritized: [ProFeature]
-
-        if let feature = presentation.feature {
-            prioritized = [feature] + essentials.filter { $0 != feature }
-        } else {
-            prioritized = essentials
-        }
-
-        var seen = Set<String>()
-        return prioritized.filter { seen.insert($0.id).inserted }.prefix(6).map(\.self)
-    }
-
-    private var additionalFeatures: [ProFeature] {
-        let essentialIDs = Set(essentialFeatures.map(\.id))
-        return everythingInProFeatures.filter { !essentialIDs.contains($0.id) }
+        return "Automate busywork, search your full history, and stay in sync on every device."
     }
 
     private var isPurchasing: Bool {
@@ -78,121 +63,33 @@ struct ProPaywallView: View {
         return "Upgrade to Pro"
     }
 
-    private var pricingSummary: String {
+    private var pricingText: String {
         if let intro = storeKit.introOfferDescription {
-            if let monthlyPrice = storeKit.monthlyDisplayPrice {
-                return "\(intro.capitalized), then \(monthlyPrice) per month billed annually at \(storeKit.displayPrice)."
-            }
-            return "\(intro.capitalized), then \(storeKit.displayPrice) per year."
+            return "\(intro.capitalized), then \(storeKit.displayPrice) per year"
         }
         if let monthlyPrice = storeKit.monthlyDisplayPrice {
-            return "\(monthlyPrice) per month, billed annually at \(storeKit.displayPrice)."
+            return "\(storeKit.displayPrice) per year — about \(monthlyPrice) per month"
         }
-        return "\(storeKit.displayPrice) billed annually."
+        return "\(storeKit.displayPrice) per year"
     }
 
-    private var purchaseFootnote: String {
-        if let intro = storeKit.introOfferDescription {
-            return "Full access during your \(intro). After that, the subscription renews annually unless canceled in App Store subscriptions."
-        }
-        return "One yearly subscription that renews automatically unless canceled in App Store subscriptions."
-    }
-
-    private var aiUsageSummary: String {
-        "Free includes monthly AI limits. Pro unlocks unlimited AI tools, automations, full-history search, and sync."
-    }
-
-    private var aiUsageLimitFootnote: String {
-        "Free monthly caps: 6 Dialectics, 3 reflection prompts, 10 auto-tags, 5 connection suggestions, 1 synthesis, and 3 suggested articles."
+    private var renewalFootnote: String {
+        "Grove Pro Annual is a 1-year subscription that renews automatically unless canceled in App Store subscriptions."
     }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Spacing.xxl) {
-                heroHeader
-
-                VStack(spacing: Spacing.sm) {
-                    Button(action: beginPurchase) {
-                        HStack(spacing: Spacing.sm) {
-                            if isPurchasing {
-                                ProgressView()
-                                    .tint(Color.textInverse)
-                            }
-
-                            Text(isPurchasing ? "Purchasing..." : purchaseButtonTitle)
-                                .font(.groveBodyMedium)
-                                .frame(maxWidth: .infinity)
-                        }
-                        .frame(minHeight: LayoutDimensions.minTouchTarget)
-                    }
-                    .buttonStyle(PaywallFilledButtonStyle())
-                    .disabled(isPurchasing)
-
-                    Button("Restore Purchases", action: restorePurchases)
-                        .font(.groveBodyMedium)
-                        .foregroundStyle(Color.textPrimary)
-                        .frame(maxWidth: .infinity, minHeight: LayoutDimensions.minTouchTarget)
-                        .buttonStyle(.plain)
-
-                    Text(pricingSummary)
-                        .font(.groveBodySmall)
-                        .foregroundStyle(Color.textSecondary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Text(purchaseFootnote)
-                        .font(.groveBodySmall)
-                        .foregroundStyle(Color.textTertiary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    subscriptionDisclosureCard
-
-                    legalLinks
-                }
-
-                purchaseStateBanner
-
-                VStack(alignment: .leading, spacing: Spacing.md) {
-                    Text("Everything in Pro")
-                        .sectionHeaderStyle()
-
-                    Text("All features below are included in a single Pro plan.")
-                        .font(.groveBodySmall)
-                        .foregroundStyle(Color.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    VStack(spacing: Spacing.sm) {
-                        ForEach(essentialFeatures) { feature in
-                            featureRow(for: feature)
-                        }
-                    }
-
-                    if !additionalFeatures.isEmpty {
-                        DisclosureGroup(isExpanded: $isShowingAllFeatures) {
-                            VStack(alignment: .leading, spacing: Spacing.sm) {
-                                ForEach(additionalFeatures) { feature in
-                                    collapsedFeatureRow(for: feature)
-                                }
-                            }
-                            .padding(.top, Spacing.sm)
-                        } label: {
-                            Text("Show \(additionalFeatures.count) more features")
-                                .font(.groveBodySmall)
-                                .foregroundStyle(Color.textSecondary)
-                        }
-                        .padding(Spacing.md)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .cardStyle()
-                    }
-                }
-
-                footerNotes
-
+            VStack(alignment: .leading, spacing: Spacing.xl) {
+                header
+                featureList
             }
             .padding(.horizontal, LayoutDimensions.contentPaddingH)
             .padding(.top, Spacing.lg)
-            .padding(.bottom, LayoutDimensions.sectionSpacing)
+            .padding(.bottom, Spacing.xl)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            purchaseFooter
         }
         .background(Color.bgPrimary)
         .task {
@@ -207,13 +104,18 @@ struct ProPaywallView: View {
             didDismiss = true
             paywallCoordinator.dismiss(presentation, converted: false)
         }
+#if os(macOS)
+        .frame(width: 440, height: 600)
+#endif
 #if os(iOS)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
 #endif
     }
 
-    private var heroHeader: some View {
+    // MARK: - Header
+
+    private var header: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             HStack(spacing: Spacing.sm) {
                 ZStack {
@@ -239,11 +141,12 @@ struct ProPaywallView: View {
             Text(titleText)
                 .font(.groveTitleLarge)
                 .foregroundStyle(Color.textPrimary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-                .allowsTightening(true)
+                .fixedSize(horizontal: false, vertical: true)
 
-            valuePropositionCard
+            Text(subtitleText)
+                .font(.groveBody)
+                .foregroundStyle(Color.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -260,16 +163,32 @@ struct ProPaywallView: View {
         }
         .frame(width: LayoutDimensions.minTouchTarget, height: LayoutDimensions.minTouchTarget, alignment: .topTrailing)
         .buttonStyle(.plain)
+        .keyboardShortcut(.cancelAction)
+    }
+
+    // MARK: - Features
+
+    private var featureList: some View {
+        VStack(alignment: .leading, spacing: Spacing.lg) {
+            ForEach(heroFeatures) { feature in
+                featureRow(for: feature)
+            }
+
+            if !remainingFeaturesLine.isEmpty {
+                Text(remainingFeaturesLine)
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     private func featureRow(for feature: ProFeature) -> some View {
         HStack(alignment: .top, spacing: Spacing.md) {
             Image(systemName: icon(for: feature))
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color.textInverse)
-                .frame(width: 28, height: 28)
-                .background(Color.textPrimary)
-                .clipShape(.rect(cornerRadius: 8))
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(Color.textPrimary)
+                .frame(width: 24, height: 24)
 
             VStack(alignment: .leading, spacing: Spacing.xs) {
                 Text(feature.title)
@@ -284,121 +203,6 @@ struct ProPaywallView: View {
 
             Spacer(minLength: 0)
         }
-        .padding(Spacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .cardStyle()
-    }
-
-    private func collapsedFeatureRow(for feature: ProFeature) -> some View {
-        HStack(alignment: .top, spacing: Spacing.sm) {
-            Image(systemName: icon(for: feature))
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Color.textSecondary)
-                .frame(width: 16, height: 16)
-
-            Text(feature.title)
-                .font(.groveBodySmall)
-                .foregroundStyle(Color.textSecondary)
-
-            Spacer(minLength: 0)
-        }
-    }
-
-    private var valuePropositionCard: some View {
-        Text(subtitleText)
-            .font(.groveBody)
-            .foregroundStyle(Color.textSecondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(Spacing.md)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .cardStyle()
-    }
-
-    private var subscriptionDisclosureCard: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            Text("Subscription details")
-                .font(.groveBodyMedium)
-                .foregroundStyle(Color.textPrimary)
-
-            Text("Grove Pro Annual")
-                .font(.groveBodySmall)
-                .foregroundStyle(Color.textPrimary)
-
-            Text("Length: 1 year")
-                .font(.groveBodySmall)
-                .foregroundStyle(Color.textSecondary)
-
-            Text("Price: \(storeKit.displayPrice) per year")
-                .font(.groveBodySmall)
-                .foregroundStyle(Color.textSecondary)
-
-            if let monthlyPrice = storeKit.monthlyDisplayPrice {
-                Text("Equivalent: \(monthlyPrice) per month, billed annually")
-                    .font(.groveBodySmall)
-                    .foregroundStyle(Color.textSecondary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(Spacing.md)
-        .cardStyle()
-    }
-
-    private var legalLinks: some View {
-        ViewThatFits {
-            HStack(spacing: Spacing.sm) {
-                legalLink("Privacy Policy", url: AppConstants.URLs.privacyPolicy)
-
-                Text("•")
-                    .foregroundStyle(Color.textTertiary)
-
-                legalLink("Terms of Use", url: AppConstants.URLs.termsOfUse)
-
-                Text("•")
-                    .foregroundStyle(Color.textTertiary)
-
-                legalLink("Support", url: AppConstants.URLs.support)
-            }
-            .frame(maxWidth: .infinity)
-
-            VStack(spacing: Spacing.xs) {
-                legalLink("Privacy Policy", url: AppConstants.URLs.privacyPolicy)
-                legalLink("Terms of Use", url: AppConstants.URLs.termsOfUse)
-                legalLink("Support", url: AppConstants.URLs.support)
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .font(.groveBodySmall)
-    }
-
-    @ViewBuilder
-    private func legalLink(_ title: String, url: URL?) -> some View {
-        if let url {
-            Link(title, destination: url)
-                .foregroundStyle(Color.textSecondary)
-        } else {
-            Text(title)
-                .foregroundStyle(Color.textTertiary)
-        }
-    }
-
-    private var footerNotes: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            Text("Why upgrade")
-                .font(.groveBadge)
-                .tracking(1.0)
-                .foregroundStyle(Color.textTertiary)
-
-            Text(aiUsageSummary)
-                .font(.groveBodySmall)
-                .foregroundStyle(Color.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Text(aiUsageLimitFootnote)
-                .font(.groveBodySmall)
-                .foregroundStyle(Color.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func icon(for feature: ProFeature) -> String {
@@ -416,6 +220,98 @@ struct ProPaywallView: View {
         case .synthesis: return "wand.and.stars"
         case .weeklyDigest: return "newspaper.fill"
         case .suggestedArticles: return "doc.text.image.fill"
+        }
+    }
+
+    // MARK: - Purchase Footer
+
+    private var purchaseFooter: some View {
+        VStack(spacing: Spacing.sm) {
+            purchaseStateBanner
+
+            Text(pricingText)
+                .font(.groveBodyMedium)
+                .foregroundStyle(Color.textPrimary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button(action: beginPurchase) {
+                HStack(spacing: Spacing.sm) {
+                    if isPurchasing {
+                        ProgressView()
+                            .tint(Color.textInverse)
+                    }
+
+                    Text(isPurchasing ? "Purchasing..." : purchaseButtonTitle)
+                        .font(.groveBodyMedium)
+                        .frame(maxWidth: .infinity)
+                }
+                .frame(minHeight: LayoutDimensions.minTouchTarget)
+            }
+            .buttonStyle(PaywallFilledButtonStyle())
+            .disabled(isPurchasing)
+
+            Text(renewalFootnote)
+                .font(.groveBodySmall)
+                .foregroundStyle(Color.textTertiary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+
+            secondaryActions
+        }
+        .padding(.horizontal, LayoutDimensions.contentPaddingH)
+        .padding(.vertical, Spacing.md)
+        .frame(maxWidth: .infinity)
+        .background(Color.bgPrimary)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(Color.borderPrimary)
+                .frame(height: 1)
+        }
+    }
+
+    private var secondaryActions: some View {
+        ViewThatFits {
+            HStack(spacing: Spacing.sm) {
+                restoreButton
+
+                separatorDot
+
+                legalLink("Privacy Policy", url: AppConstants.URLs.privacyPolicy)
+
+                separatorDot
+
+                legalLink("Terms of Use", url: AppConstants.URLs.termsOfUse)
+            }
+
+            VStack(spacing: Spacing.xs) {
+                restoreButton
+                legalLink("Privacy Policy", url: AppConstants.URLs.privacyPolicy)
+                legalLink("Terms of Use", url: AppConstants.URLs.termsOfUse)
+            }
+        }
+        .font(.groveBodySmall)
+    }
+
+    private var restoreButton: some View {
+        Button("Restore Purchases", action: restorePurchases)
+            .foregroundStyle(Color.textSecondary)
+            .buttonStyle(.plain)
+    }
+
+    private var separatorDot: some View {
+        Text("•")
+            .foregroundStyle(Color.textTertiary)
+    }
+
+    @ViewBuilder
+    private func legalLink(_ title: String, url: URL?) -> some View {
+        if let url {
+            Link(title, destination: url)
+                .foregroundStyle(Color.textSecondary)
+        } else {
+            Text(title)
+                .foregroundStyle(Color.textTertiary)
         }
     }
 
@@ -450,6 +346,8 @@ struct ProPaywallView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .cardStyle()
     }
+
+    // MARK: - Actions
 
     private func beginPurchase() {
         Task { @MainActor in

@@ -3,7 +3,6 @@ import SwiftUI
 /// Discussion suggestions section on the Home screen with conversation starter cards.
 struct HomeDiscussionSection: View {
     let discussionBubbles: [PromptBubble]
-    let maxCards: Int
     @Binding var isCollapsed: Bool
     let onNewConversation: () -> Void
     let onBubbleTap: (PromptBubble) -> Void
@@ -14,8 +13,8 @@ struct HomeDiscussionSection: View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             HStack {
                 HomeSectionHeader(
-                    title: "DISCUSSION SUGGESTIONS",
-                    count: min(maxCards, 1 + discussionBubbles.count),
+                    title: "THINK NEXT",
+                    count: 1,
                     isCollapsed: $isCollapsed
                 )
 
@@ -29,10 +28,14 @@ struct HomeDiscussionSection: View {
             }
 
             if !isCollapsed {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 320, maximum: 400), spacing: Spacing.md)],
-                    spacing: Spacing.md
-                ) {
+                if let bubble = discussionBubbles.first {
+                    SuggestedConversationCard(
+                        label: bubble.label,
+                        title: bubble.prompt
+                    ) {
+                        onBubbleTap(bubble)
+                    }
+                } else {
                     SuggestedConversationCard(
                         label: "CHAT",
                         title: "New Conversation",
@@ -40,15 +43,6 @@ struct HomeDiscussionSection: View {
                         icon: "bubble.left.and.bubble.right"
                     ) {
                         onNewConversation()
-                    }
-
-                    ForEach(discussionBubbles) { bubble in
-                        SuggestedConversationCard(
-                            label: bubble.label,
-                            title: bubble.prompt
-                        ) {
-                            onBubbleTap(bubble)
-                        }
                     }
                 }
             }
