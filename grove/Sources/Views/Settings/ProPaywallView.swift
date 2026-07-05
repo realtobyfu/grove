@@ -187,22 +187,28 @@ struct ProPaywallView: View {
         HStack(alignment: .top, spacing: Spacing.md) {
             Image(systemName: icon(for: feature))
                 .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Color.textPrimary)
+                .symbolRenderingMode(.monochrome)
+                .foregroundStyle(Color.textInverse)
                 .frame(width: 24, height: 24)
 
             VStack(alignment: .leading, spacing: Spacing.xs) {
                 Text(feature.title)
                     .font(.groveBodyMedium)
-                    .foregroundStyle(Color.textPrimary)
+                    .foregroundStyle(Color.textInverse)
 
                 Text(feature.summary)
                     .font(.groveBodySmall)
-                    .foregroundStyle(Color.textSecondary)
+                    .foregroundStyle(Color.textInverse.opacity(0.7))
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer(minLength: 0)
         }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.textPrimary)
+        .clipShape(.rect(cornerRadius: max(LayoutDimensions.cardCornerRadius, 12)))
     }
 
     private func icon(for feature: ProFeature) -> String {
