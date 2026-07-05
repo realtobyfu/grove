@@ -283,7 +283,9 @@ struct HomeView: View {
             ConversationPromptPayload(
                 prompt: prompt,
                 seedItemIDs: seedItemIDs,
-                injectionMode: .asUserMessage
+                // Starters are assistant-voiced questions the user answers, so the
+                // prompt opens the conversation as the assistant, not the user.
+                injectionMode: .asAssistantGreeting
             )
         )
     }

@@ -125,7 +125,8 @@ struct TabRootView: View {
             if showFloatingCapture {
                 FloatingCaptureButton()
                     .padding(.trailing, Spacing.lg)
-                    .padding(.bottom, Spacing.xl)
+                    // Clear the floating tab bar (~64pt) so the button sits above it.
+                    .padding(.bottom, 76)
             }
         }
         // Board suggestion banner — slides in from top after auto-tagging

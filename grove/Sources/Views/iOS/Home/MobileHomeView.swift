@@ -322,7 +322,10 @@ struct MobileHomeView: View {
             ConversationPromptPayload(
                 prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
                 seedItemIDs: seedItemIDs,
-                injectionMode: .asUserMessage
+                // Starters are assistant-voiced questions the user answers
+                // ("What's worth thinking through?"), so the prompt opens the
+                // conversation as the assistant, not as the user's own message.
+                injectionMode: .asAssistantGreeting
             )
         )
     }
