@@ -3,15 +3,15 @@ import SwiftData
 
 @Model
 final class FeedSource {
-    var id: UUID
-    var feedURL: String
-    var domain: String
+    var id: UUID = UUID()
+    var feedURL: String = ""
+    var domain: String = ""
     var title: String?
     var lastFetchedAt: Date?
-    var isEnabled: Bool
-    var isAutoDiscovered: Bool
-    var errorCount: Int
-    var createdAt: Date
+    var isEnabled: Bool = false
+    var isAutoDiscovered: Bool = false
+    var errorCount: Int = 0
+    var createdAt: Date = Date.now
 
     init(
         feedURL: String,

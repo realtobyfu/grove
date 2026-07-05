@@ -92,17 +92,17 @@ enum ItemStatus: String, Codable {
 
 @Model
 final class Item {
-    var id: UUID
-    var title: String
-    var type: ItemType
-    var status: ItemStatus
+    var id: UUID = UUID()
+    var title: String = ""
+    var type: ItemType = ItemType.note
+    var status: ItemStatus = ItemStatus.inbox
     var sourceURL: String?
     var content: String?
     var thumbnail: Data?
-    var engagementScore: Float
-    var metadata: [String: String]
-    var createdAt: Date
-    var updatedAt: Date
+    var engagementScore: Float = 0
+    var metadata: [String: String] = [:]
+    var createdAt: Date = Date.now
+    var updatedAt: Date = Date.now
 
     // Inbox defer queue ("Read Later")
     var readLaterUntil: Date?
@@ -114,12 +114,12 @@ final class Item {
     var lastEngagedAt: Date?
     var isResurfacingPaused: Bool = false
 
-    @Relationship(inverse: \Board.items) var boards: [Board]
-    @Relationship(inverse: \Tag.items) var tags: [Tag]
-    @Relationship(deleteRule: .cascade, inverse: \Annotation.item) var annotations: [Annotation]
-    @Relationship(deleteRule: .cascade, inverse: \ReflectionBlock.item) var reflections: [ReflectionBlock]
-    @Relationship(deleteRule: .cascade, inverse: \Connection.sourceItem) var outgoingConnections: [Connection]
-    @Relationship(deleteRule: .cascade, inverse: \Connection.targetItem) var incomingConnections: [Connection]
+    @Relationship(inverse: \Board.items) var boards: [Board] = []
+    @Relationship(inverse: \Tag.items) var tags: [Tag] = []
+    @Relationship(deleteRule: .cascade, inverse: \Annotation.item) var annotations: [Annotation] = []
+    @Relationship(deleteRule: .cascade, inverse: \ReflectionBlock.item) var reflections: [ReflectionBlock] = []
+    @Relationship(deleteRule: .cascade, inverse: \Connection.sourceItem) var outgoingConnections: [Connection] = []
+    @Relationship(deleteRule: .cascade, inverse: \Connection.targetItem) var incomingConnections: [Connection] = []
 
     // MARK: - Depth Score & Growth Stage
 

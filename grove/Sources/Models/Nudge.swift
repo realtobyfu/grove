@@ -30,14 +30,14 @@ enum NudgeStatus: String, Codable {
 
 @Model
 final class Nudge {
-    var id: UUID
-    var type: NudgeType
+    var id: UUID = UUID()
+    var type: NudgeType = NudgeType.resurface
     var targetItem: Item?
     var relatedItemIDs: [UUID]?
-    var message: String
-    var status: NudgeStatus
-    var scheduledFor: Date
-    var createdAt: Date
+    var message: String = ""
+    var status: NudgeStatus = NudgeStatus.pending
+    var scheduledFor: Date = Date.now
+    var createdAt: Date = Date.now
 
     init(type: NudgeType, message: String, scheduledFor: Date = .now, targetItem: Item? = nil) {
         self.id = UUID()

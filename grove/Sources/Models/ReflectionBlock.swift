@@ -31,19 +31,19 @@ enum ReflectionBlockType: String, Codable, CaseIterable {
 
 @Model
 final class ReflectionBlock {
-    var id: UUID
+    var id: UUID = UUID()
     var item: Item?
-    var blockTypeRaw: String
+    var blockTypeRaw: String = ReflectionBlockType.keyInsight.rawValue
     @Transient var blockType: ReflectionBlockType {
         get { ReflectionBlockType(rawValue: blockTypeRaw) ?? .keyInsight }
         set { blockTypeRaw = newValue.rawValue }
     }
-    var content: String
+    var content: String = ""
     var highlight: String?
-    var position: Int
+    var position: Int = 0
     var videoTimestamp: Int?
     var conversation: Conversation?
-    var createdAt: Date
+    var createdAt: Date = Date.now
 
     init(item: Item, blockType: ReflectionBlockType, content: String = "", highlight: String? = nil, position: Int = 0, videoTimestamp: Int? = nil) {
         self.id = UUID()

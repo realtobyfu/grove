@@ -3,19 +3,19 @@ import SwiftData
 
 @Model
 final class Course {
-    var id: UUID
-    var title: String
+    var id: UUID = UUID()
+    var title: String = ""
     var sourceURL: String?
     var courseDescription: String?
-    var createdAt: Date
-    var updatedAt: Date
+    var createdAt: Date = Date.now
+    var updatedAt: Date = Date.now
 
-    @Relationship(deleteRule: .nullify) var lectures: [Item]
+    @Relationship(deleteRule: .nullify) var lectures: [Item] = []
     @Relationship(deleteRule: .nullify) var board: Board?
 
     /// Ordered lecture IDs — Item.id values in intended sequence.
     /// We maintain order separately since SwiftData relationships are unordered.
-    var lectureOrder: [UUID]
+    var lectureOrder: [UUID] = []
 
     init(title: String, sourceURL: String? = nil) {
         self.id = UUID()

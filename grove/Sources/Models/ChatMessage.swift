@@ -10,15 +10,15 @@ enum ChatRole: String, Codable {
 
 @Model
 final class ChatMessage {
-    var id: UUID
+    var id: UUID = UUID()
     var conversation: Conversation?
-    var role: ChatRole
-    var content: String
-    var position: Int
-    var createdAt: Date
-    var referencedItemIDs: [UUID]
+    var role: ChatRole = ChatRole.user
+    var content: String = ""
+    var position: Int = 0
+    var createdAt: Date = Date.now
+    var referencedItemIDs: [UUID] = []
     var toolCallName: String?
-    var isHidden: Bool
+    var isHidden: Bool = false
 
     init(
         role: ChatRole,

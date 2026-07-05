@@ -11,16 +11,16 @@ enum ConversationTrigger: String, Codable {
 
 @Model
 final class Conversation {
-    var id: UUID
-    var title: String
-    var trigger: ConversationTrigger
-    var createdAt: Date
-    var updatedAt: Date
-    var isArchived: Bool
+    var id: UUID = UUID()
+    var title: String = ""
+    var trigger: ConversationTrigger = ConversationTrigger.userInitiated
+    var createdAt: Date = Date.now
+    var updatedAt: Date = Date.now
+    var isArchived: Bool = false
     var board: Board?
-    @Relationship(deleteRule: .cascade, inverse: \ChatMessage.conversation) var messages: [ChatMessage]
-    @Relationship(inverse: \ReflectionBlock.conversation) var createdReflections: [ReflectionBlock]
-    var seedItemIDs: [UUID]
+    @Relationship(deleteRule: .cascade, inverse: \ChatMessage.conversation) var messages: [ChatMessage] = []
+    @Relationship(inverse: \ReflectionBlock.conversation) var createdReflections: [ReflectionBlock] = []
+    var seedItemIDs: [UUID] = []
 
     init(
         title: String = "New Conversation",

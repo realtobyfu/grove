@@ -1,5 +1,8 @@
 import SwiftData
 import Foundation
+import OSLog
+
+private let syncLog = Logger(subsystem: "dev.tuist.grove", category: "sync")
 
 /// Shared ModelContainer factory for both the main app and Share Extension.
 ///
@@ -47,10 +50,16 @@ enum SharedModelContainer {
     /// - If CloudKit initialization fails, falls back to a local-only store
     ///   and disables sync to prevent repeated failures.
     static func makeForApp() -> ModelContainer {
+        let wantsSync = SyncSettings.syncEnabled
         do {
-            return try makeContainer(syncEnabled: SyncSettings.syncEnabled)
+            return try makeContainer(syncEnabled: wantsSync)
         } catch {
-            // CloudKit may fail if not configured — fall back to local-only
+            if wantsSync {
+                // CloudKit setup failed (e.g. account unavailable, entitlement or
+                // schema mismatch). Fall back to local-only so the app still opens,
+                // but log loudly so the failure is diagnosable instead of silent.
+                syncLog.error("CloudKit container init failed, falling back to local-only: \(error, privacy: .public)")
+            }
             do {
                 let container = try makeContainer(syncEnabled: false)
                 SyncSettings.syncEnabled = false

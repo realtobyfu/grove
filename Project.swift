@@ -24,6 +24,9 @@ let project = Project(
                 "UILaunchScreen": [
                     "UIColorName": "bgPrimary",
                 ],
+                "UIBackgroundModes": [
+                    "remote-notification",
+                ],
                 "UIAppFonts": [
                     "IBMPlexMono-Medium.ttf",
                     "IBMPlexMono-Regular.ttf",

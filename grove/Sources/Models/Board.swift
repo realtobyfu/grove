@@ -22,22 +22,22 @@ enum SmartRuleLogic: String, Codable, CaseIterable {
 
 @Model
 final class Board {
-    var id: UUID
-    var title: String
+    var id: UUID = UUID()
+    var title: String = ""
     var boardDescription: String?
     var icon: String?
     var color: String?
-    var createdAt: Date
-    var sortOrder: Int
-    var isSmart: Bool
-    var smartRuleLogic: SmartRuleLogic
+    var createdAt: Date = Date.now
+    var sortOrder: Int = 0
+    var isSmart: Bool = false
+    var smartRuleLogic: SmartRuleLogic = SmartRuleLogic.or
     /// Per-board nudge frequency in hours. 0 = use global default, -1 = disabled for this board.
-    var nudgeFrequencyHours: Int
+    var nudgeFrequencyHours: Int = 0
     /// JSON-encoded [UUID] array for manual item ordering. Authoritative source for .manual sort order.
     var itemOrderData: Data?
 
-    var items: [Item]
-    var smartRuleTags: [Tag]
+    var items: [Item] = []
+    var smartRuleTags: [Tag] = []
 
     init(title: String, icon: String? = nil, color: String? = nil) {
         self.id = UUID()
