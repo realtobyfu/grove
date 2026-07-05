@@ -148,17 +148,163 @@ final class DialecticsService: DialecticsServiceProtocol {
         // Build message history for LLM
         let turns = buildTurns(for: conversation, context: context)
 
-        // Run agentic loop
+        // Run agentic loop — native tool calling when the provider supports it,
+        // prompt-based JSON tool calls otherwise.
         let tools = KnowledgeBaseTools(modelContext: context)
         var currentTurns = turns
         var assistantContent: String?
 
+        if await provider.supportsNativeTools {
+            assistantContent = await runNativeToolLoop(
+                turns: &currentTurns,
+                tools: tools,
+                conversation: conversation,
+                context: context
+            )
+        } else {
+            assistantContent = await runPromptToolLoop(
+                turns: &currentTurns,
+                tools: tools,
+                conversation: conversation,
+                context: context
+            )
+        }
+
+        guard let finalContent = assistantContent, !finalContent.isEmpty else {
+            if lastError == nil {
+                lastError = "Unable to generate a response. Try again."
+            }
+            isGenerating = false
+            return nil
+        }
+
+        // Extract referenced item titles from [[wiki-links]]
+        let referencedIDs = extractReferencedItemIDs(from: finalContent, context: context)
+
+        // Save assistant response
+        let assistantMsg = ChatMessage(
+            role: .assistant,
+            content: finalContent,
+            position: conversation.nextPosition,
+            referencedItemIDs: referencedIDs
+        )
+        assistantMsg.conversation = conversation
+        conversation.messages.append(assistantMsg)
+        context.insert(assistantMsg)
+        conversation.updatedAt = .now
+        try? context.save()
+
+        // Auto-title after first exchange
+        if conversation.title == "New Conversation" && conversation.visibleMessages.count >= 3 {
+            Task {
+                await generateTitle(for: conversation, context: context)
+            }
+        }
+
+        isGenerating = false
+        return assistantMsg
+    }
+
+    // MARK: - Native Tool Loop
+
+    private static let maxNativeToolRounds = 5
+    private static let nativeToolNote = "Use the provided tools to search or modify the knowledge base when needed."
+
+    private func runNativeToolLoop(
+        turns: inout [ChatTurn],
+        tools: KnowledgeBaseTools,
+        conversation: Conversation,
+        context: ModelContext
+    ) async -> String? {
+        // The persisted system prompt carries prompt-based tool instructions;
+        // swap them for a short note so the model uses native tools instead.
+        turns = turns.map { turn in
+            guard turn.role == "system", turn.content.contains(KnowledgeBaseTools.toolDescriptions) else {
+                return turn
+            }
+            return ChatTurn(
+                role: "system",
+                content: turn.content.replacingOccurrences(
+                    of: KnowledgeBaseTools.toolDescriptions,
+                    with: Self.nativeToolNote
+                )
+            )
+        }
+
+        for _ in 0..<Self.maxNativeToolRounds {
+            guard let response = await provider.completeChat(
+                messages: turns,
+                tools: KnowledgeBaseTools.toolSpecs,
+                service: "dialectics"
+            ) else {
+                lastError = await provider.lastError?.userMessage
+                return nil
+            }
+
+            guard !response.toolCalls.isEmpty else {
+                let content = response.content?.trimmingCharacters(in: .whitespacesAndNewlines)
+                return (content?.isEmpty == false) ? content : nil
+            }
+
+            turns.append(ChatTurn(
+                role: "assistant",
+                content: response.content ?? "",
+                toolCalls: response.toolCalls
+            ))
+
+            for call in response.toolCalls {
+                // Persist the call and its result as hidden messages for traceability
+                let toolCallMsg = ChatMessage(
+                    role: .assistant,
+                    content: "\(call.name)(\(call.argumentsJSON))",
+                    position: conversation.nextPosition,
+                    isHidden: true,
+                    toolCallName: call.name
+                )
+                toolCallMsg.conversation = conversation
+                conversation.messages.append(toolCallMsg)
+                context.insert(toolCallMsg)
+
+                let toolResult = await tools.fulfill(toolName: call.name, args: call.stringArguments)
+                    ?? "Tool \"\(call.name)\" returned no results."
+
+                let toolResultMsg = ChatMessage(
+                    role: .tool,
+                    content: toolResult,
+                    position: conversation.nextPosition,
+                    isHidden: true,
+                    toolCallName: call.name
+                )
+                toolResultMsg.conversation = conversation
+                conversation.messages.append(toolResultMsg)
+                context.insert(toolResultMsg)
+
+                turns.append(ChatTurn(role: "tool", content: toolResult, toolCallID: call.id))
+            }
+        }
+
+        // Round limit reached — request a final answer without tools
+        let result = await provider.completeChat(messages: turns, service: "dialectics")
+        if let content = result?.content.trimmingCharacters(in: .whitespacesAndNewlines), !content.isEmpty {
+            return content
+        }
+        lastError = await provider.lastError?.userMessage
+        return nil
+    }
+
+    // MARK: - Prompt-Based Tool Loop (providers without native tool calling)
+
+    private func runPromptToolLoop(
+        turns currentTurns: inout [ChatTurn],
+        tools: KnowledgeBaseTools,
+        conversation: Conversation,
+        context: ModelContext
+    ) async -> String? {
+        var assistantContent: String?
+
         for _ in 0..<Self.maxToolRounds {
             guard let result = await provider.completeChat(messages: currentTurns, service: "dialectics") else {
-                if let groqProvider = provider as? GroqProvider {
-                    let providerError = await groqProvider.lastError
-                    lastError = providerError?.userMessage
-                }
+                lastError = await provider.lastError?.userMessage
                 break
             }
 
@@ -221,9 +367,8 @@ final class DialecticsService: DialecticsServiceProtocol {
                     assistantContent = content
                 }
             }
-            if assistantContent == nil, let groqProvider = provider as? GroqProvider {
-                let providerError = await groqProvider.lastError
-                lastError = providerError?.userMessage
+            if assistantContent == nil {
+                lastError = await provider.lastError?.userMessage
             }
         }
 
@@ -238,39 +383,7 @@ final class DialecticsService: DialecticsServiceProtocol {
             }
         }
 
-        guard let finalContent = assistantContent, !finalContent.isEmpty else {
-            if lastError == nil {
-                lastError = "Unable to generate a response. Try again."
-            }
-            isGenerating = false
-            return nil
-        }
-
-        // Extract referenced item titles from [[wiki-links]]
-        let referencedIDs = extractReferencedItemIDs(from: finalContent, context: context)
-
-        // Save assistant response
-        let assistantMsg = ChatMessage(
-            role: .assistant,
-            content: finalContent,
-            position: conversation.nextPosition,
-            referencedItemIDs: referencedIDs
-        )
-        assistantMsg.conversation = conversation
-        conversation.messages.append(assistantMsg)
-        context.insert(assistantMsg)
-        conversation.updatedAt = .now
-        try? context.save()
-
-        // Auto-title after first exchange
-        if conversation.title == "New Conversation" && conversation.visibleMessages.count >= 3 {
-            Task {
-                await generateTitle(for: conversation, context: context)
-            }
-        }
-
-        isGenerating = false
-        return assistantMsg
+        return assistantContent
     }
 
     // MARK: - Title Generation
@@ -414,7 +527,7 @@ final class DialecticsService: DialecticsServiceProtocol {
         let titles = matches.map { String($0.1) }
 
         return titles.compactMap { title in
-            allItems.first(where: { $0.title.lowercased() == title.lowercased() })?.id
+            ItemResolver.resolve(title, in: allItems)?.id
         }
     }
 
@@ -480,7 +593,7 @@ final class DialecticsService: DialecticsServiceProtocol {
         context: ModelContext
     ) -> ReflectionBlock? {
         let allItems: [Item] = context.fetchAll()
-        guard let item = allItems.first(where: { $0.title.lowercased() == itemTitle.lowercased() }) else {
+        guard let item = ItemResolver.resolve(itemTitle, in: allItems) else {
             return nil
         }
 
@@ -542,8 +655,8 @@ final class DialecticsService: DialecticsServiceProtocol {
         context: ModelContext
     ) -> Connection? {
         let allItems: [Item] = context.fetchAll()
-        guard let source = allItems.first(where: { $0.title.lowercased() == sourceTitle.lowercased() }),
-              let target = allItems.first(where: { $0.title.lowercased() == targetTitle.lowercased() }) else {
+        guard let source = ItemResolver.resolve(sourceTitle, in: allItems),
+              let target = ItemResolver.resolve(targetTitle, in: allItems) else {
             return nil
         }
 

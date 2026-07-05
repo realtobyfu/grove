@@ -15,13 +15,13 @@ final class KnowledgeBaseTools {
     func fulfill(toolName: String, args: [String: String]) async -> String? {
         switch toolName {
         case "search_items":
-            return searchItems(query: args["query"] ?? "", limit: Int(args["limit"] ?? "5") ?? 5)
+            return await searchItems(query: args["query"] ?? "", limit: Int(args["limit"] ?? "5") ?? 5)
         case "get_item_detail":
-            return getItemDetail(title: args["title"] ?? "")
+            return getItemDetail(reference: args["id"] ?? args["item_id"] ?? args["title"] ?? "")
         case "get_reflections":
-            return getReflections(itemTitle: args["item_title"] ?? "")
+            return getReflections(reference: args["id"] ?? args["item_id"] ?? args["item_title"] ?? "")
         case "get_connections":
-            return getConnections(itemTitle: args["item_title"] ?? "")
+            return getConnections(reference: args["id"] ?? args["item_id"] ?? args["item_title"] ?? "")
         case "search_by_tag":
             return searchByTag(tagName: args["tag_name"] ?? "")
         case "get_board_items":
@@ -45,18 +45,19 @@ final class KnowledgeBaseTools {
     /// Available tool descriptions for the system prompt.
     static let toolDescriptions = """
     You have access to the user's knowledge base. To search or look up information, output a JSON object \
-    with a "tool_call" key (and nothing else before or after it). Available tools:
+    with a "tool_call" key (and nothing else before or after it). Search results include each item's id — \
+    prefer passing that id back to other tools instead of retyping the title. Available tools:
 
     {"tool_call": {"name": "search_items", "args": {"query": "search terms", "limit": "5"}}}
-    Search items by title/content keyword match. Returns titles, tags, and summaries.
+    Search items by meaning and keyword. Returns ids, titles, tags, and summaries.
 
-    {"tool_call": {"name": "get_item_detail", "args": {"title": "Item Title"}}}
+    {"tool_call": {"name": "get_item_detail", "args": {"id": "item id or exact title"}}}
     Get full details for a specific item: content excerpt, tags, reflections, connections.
 
-    {"tool_call": {"name": "get_reflections", "args": {"item_title": "Item Title"}}}
+    {"tool_call": {"name": "get_reflections", "args": {"id": "item id or exact title"}}}
     Get all reflection blocks the user wrote on a specific item.
 
-    {"tool_call": {"name": "get_connections", "args": {"item_title": "Item Title"}}}
+    {"tool_call": {"name": "get_connections", "args": {"id": "item id or exact title"}}}
     Get all connections (related, contradicts, builds-on, etc.) for an item.
 
     {"tool_call": {"name": "search_by_tag", "args": {"tag_name": "tag name"}}}
@@ -81,25 +82,82 @@ final class KnowledgeBaseTools {
     respond directly in conversational markdown.
     """
 
+    /// Native tool specs for providers with API-level tool calling.
+    /// Mirrors the prompt-based tools above.
+    static let toolSpecs: [LLMToolSpec] = [
+        LLMToolSpec(
+            name: "search_items",
+            description: "Search the user's knowledge base by meaning and keyword. Returns item ids, titles, tags, and summaries. Prefer passing returned ids to other tools.",
+            parametersJSON: #"{"type":"object","properties":{"query":{"type":"string","description":"Search terms"},"limit":{"type":"integer","description":"Max results, default 5"}},"required":["query"]}"#
+        ),
+        LLMToolSpec(
+            name: "get_item_detail",
+            description: "Get full details for one item: content excerpt, tags, reflections, connections.",
+            parametersJSON: #"{"type":"object","properties":{"id":{"type":"string","description":"Item id (preferred) or exact title"}},"required":["id"]}"#
+        ),
+        LLMToolSpec(
+            name: "get_reflections",
+            description: "Get all reflection blocks the user wrote on a specific item.",
+            parametersJSON: #"{"type":"object","properties":{"id":{"type":"string","description":"Item id (preferred) or exact title"}},"required":["id"]}"#
+        ),
+        LLMToolSpec(
+            name: "get_connections",
+            description: "Get all connections (related, contradicts, builds-on, etc.) for an item.",
+            parametersJSON: #"{"type":"object","properties":{"id":{"type":"string","description":"Item id (preferred) or exact title"}},"required":["id"]}"#
+        ),
+        LLMToolSpec(
+            name: "search_by_tag",
+            description: "Find all items that share a specific tag.",
+            parametersJSON: #"{"type":"object","properties":{"tag_name":{"type":"string"}},"required":["tag_name"]}"#
+        ),
+        LLMToolSpec(
+            name: "get_board_items",
+            description: "List all items in a specific board/collection.",
+            parametersJSON: #"{"type":"object","properties":{"board_name":{"type":"string"}},"required":["board_name"]}"#
+        ),
+        LLMToolSpec(
+            name: "create_board",
+            description: "Create a new board and assign the listed items to it. Use when the user confirms they want to organize items into a new board.",
+            parametersJSON: #"{"type":"object","properties":{"board_name":{"type":"string"},"item_titles":{"type":"string","description":"Comma-separated item ids or exact titles"}},"required":["board_name","item_titles"]}"#
+        ),
+        LLMToolSpec(
+            name: "create_synthesis",
+            description: "Generate a synthesis note from 2-30 items and save it as a new item. Use when the user asks to synthesize, summarize across, or integrate multiple items. Returns the created item's wiki-link, title, and id.",
+            parametersJSON: #"{"type":"object","properties":{"item_titles":{"type":"string","description":"Comma-separated item ids or exact titles (2-30)"},"focus_prompt":{"type":"string","description":"What angle or question the synthesis should address"},"title":{"type":"string","description":"Title for the new synthesis item"}},"required":["item_titles"]}"#
+        ),
+    ]
+
     // MARK: - Tool Implementations
 
-    private func searchItems(query: String, limit: Int) -> String {
+    private func searchItems(query: String, limit: Int) async -> String {
         let allItems = fetchAllItems()
         let queryLower = query.lowercased()
 
-        let matches = allItems.filter { item in
+        let keywordMatches = allItems.filter { item in
             item.title.lowercased().contains(queryLower) ||
             (item.content ?? "").lowercased().contains(queryLower) ||
             item.tags.contains(where: { $0.name.lowercased().contains(queryLower) })
         }
-        .prefix(limit)
+
+        // Semantic matches from the embedding index, merged after keyword hits
+        await EmbeddingIndexService.shared.indexItems(allItems.map(EmbeddingIndexService.snapshot))
+        let semanticHits = await EmbeddingIndexService.shared.search(query: query, limit: limit)
+        let itemsByID = Dictionary(uniqueKeysWithValues: allItems.map { ($0.id, $0) })
+        let semanticMatches = semanticHits.compactMap { itemsByID[$0.id] }
+
+        var seen = Set<UUID>()
+        var merged: [Item] = []
+        for item in keywordMatches + semanticMatches where seen.insert(item.id).inserted {
+            merged.append(item)
+        }
+        let matches = merged.prefix(limit)
 
         if matches.isEmpty {
             return "No items found matching \"\(query)\"."
         }
 
         return matches.map { item in
-            var line = "- \(item.title)"
+            var line = "- \(item.title) (id: \(item.id.uuidString))"
             let tags = item.tags.map(\.name).joined(separator: ", ")
             if !tags.isEmpty { line += " [tags: \(tags)]" }
             if let summary = item.metadata["summary"], !summary.isEmpty {
@@ -109,13 +167,12 @@ final class KnowledgeBaseTools {
         }.joined(separator: "\n")
     }
 
-    private func getItemDetail(title: String) -> String {
-        let allItems = fetchAllItems()
-        guard let item = allItems.first(where: { $0.title.lowercased() == title.lowercased() }) else {
-            return "Item \"\(title)\" not found."
+    private func getItemDetail(reference: String) -> String {
+        guard let item = ItemResolver.resolve(reference, in: fetchAllItems()) else {
+            return "Item \"\(reference)\" not found."
         }
 
-        var result = "Title: \(item.title)\nType: \(item.type.rawValue)\nStatus: \(item.status.rawValue)"
+        var result = "Title: \(item.title)\nID: \(item.id.uuidString)\nType: \(item.type.rawValue)\nStatus: \(item.status.rawValue)"
         let tags = item.tags.map(\.name).joined(separator: ", ")
         if !tags.isEmpty { result += "\nTags: \(tags)" }
         if let url = item.sourceURL { result += "\nSource: \(url)" }
@@ -144,14 +201,13 @@ final class KnowledgeBaseTools {
         return result
     }
 
-    private func getReflections(itemTitle: String) -> String {
-        let allItems = fetchAllItems()
-        guard let item = allItems.first(where: { $0.title.lowercased() == itemTitle.lowercased() }) else {
-            return "Item \"\(itemTitle)\" not found."
+    private func getReflections(reference: String) -> String {
+        guard let item = ItemResolver.resolve(reference, in: fetchAllItems()) else {
+            return "Item \"\(reference)\" not found."
         }
 
         if item.reflections.isEmpty {
-            return "No reflections found on \"\(itemTitle)\"."
+            return "No reflections found on \"\(item.title)\"."
         }
 
         return item.reflections.sorted(by: { $0.position < $1.position }).map { block in
@@ -159,15 +215,14 @@ final class KnowledgeBaseTools {
         }.joined(separator: "\n\n")
     }
 
-    private func getConnections(itemTitle: String) -> String {
-        let allItems = fetchAllItems()
-        guard let item = allItems.first(where: { $0.title.lowercased() == itemTitle.lowercased() }) else {
-            return "Item \"\(itemTitle)\" not found."
+    private func getConnections(reference: String) -> String {
+        guard let item = ItemResolver.resolve(reference, in: fetchAllItems()) else {
+            return "Item \"\(reference)\" not found."
         }
 
         let connections = item.outgoingConnections + item.incomingConnections
         if connections.isEmpty {
-            return "No connections found for \"\(itemTitle)\"."
+            return "No connections found for \"\(item.title)\"."
         }
 
         return connections.map { conn in
@@ -233,7 +288,7 @@ final class KnowledgeBaseTools {
         let allItems = fetchAllItems()
         var assignedTitles: [String] = []
         for title in itemTitles {
-            if let item = allItems.first(where: { $0.title.lowercased() == title.lowercased() }) {
+            if let item = ItemResolver.resolve(title, in: allItems) {
                 item.boards.append(board)
                 board.items.append(item)
                 assignedTitles.append(item.title)
@@ -261,7 +316,7 @@ final class KnowledgeBaseTools {
         var matchedItems: [Item] = []
         var missingTitles: [String] = []
         for title in itemTitles {
-            if let item = allItems.first(where: { $0.title.lowercased() == title.lowercased() }) {
+            if let item = ItemResolver.resolve(title, in: allItems) {
                 matchedItems.append(item)
             } else {
                 missingTitles.append(title)

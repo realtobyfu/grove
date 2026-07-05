@@ -1,0 +1,149 @@
+import Foundation
+import SwiftData
+
+/// Background pass that finds intellectual tensions in the knowledge base.
+/// Takes high-similarity unconnected item pairs from the embedding index,
+/// asks the LLM to classify the relationship, and materializes confident
+/// results as auto-generated Connections — the raw material for Hegelian
+/// dialectics, Home starters, and the graph.
+@MainActor
+final class TensionDetectionService {
+    private let modelContext: ModelContext
+    private let provider: LLMProvider
+
+    private static let lastRunKey = "grove.tensionDetection.lastRun"
+    private static let classifiedPairsKey = "grove.tensionDetection.classifiedPairs"
+    private static let runInterval: TimeInterval = 24 * 60 * 60
+    private static let maxPairsPerRun = 8
+    private static let minSimilarity = 0.7
+    private static let minConfidence = 0.6
+
+    init(modelContext: ModelContext, provider: LLMProvider = LLMServiceConfig.makeProvider()) {
+        self.modelContext = modelContext
+        self.provider = provider
+    }
+
+    /// Run at most once per day. Call from app launch.
+    func runIfDue() async {
+        let lastRun = UserDefaults.standard.object(forKey: Self.lastRunKey) as? Date ?? .distantPast
+        guard Date.now.timeIntervalSince(lastRun) >= Self.runInterval else { return }
+        await run()
+    }
+
+    func run(maxPairs: Int = TensionDetectionService.maxPairsPerRun) async {
+        guard LLMServiceConfig.isConfigured,
+              EntitlementService.shared.canUse(.connectionSuggestions) else { return }
+
+        let allItems: [Item] = modelContext.fetchAll()
+        let items = allItems.filter { $0.status != .archived && $0.status != .dismissed }
+        guard items.count >= 2 else { return }
+
+        // Refresh the index, then pull candidate pairs
+        await EmbeddingIndexService.shared.indexItems(items.map(EmbeddingIndexService.snapshot))
+        let rawPairs = await EmbeddingIndexService.shared.similarPairs(
+            among: items.map(\.id),
+            minScore: Self.minSimilarity
+        )
+
+        let itemsByID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+        var classified = Self.loadClassifiedPairs()
+
+        let candidates = rawPairs.filter { pair in
+            guard let a = itemsByID[pair.a], let b = itemsByID[pair.b] else { return false }
+            guard !classified.contains(Self.pairKey(pair.a, pair.b)) else { return false }
+            return !areConnected(a, b)
+        }.prefix(maxPairs)
+
+        guard !candidates.isEmpty else {
+            UserDefaults.standard.set(Date.now, forKey: Self.lastRunKey)
+            return
+        }
+
+        let pairList = candidates.enumerated().map { index, pair -> String in
+            let a = itemsByID[pair.a]!
+            let b = itemsByID[pair.b]!
+            let descA = LLMContextBuilder.itemDescription(a, contentLimit: 400, includeReflections: true)
+            let descB = LLMContextBuilder.itemDescription(b, contentLimit: 400, includeReflections: true)
+            return "PAIR \(index + 1):\nItem A:\n\(descA)\n\nItem B:\n\(descB)"
+        }.joined(separator: "\n\n---\n\n")
+
+        let system = """
+        You analyze pairs of items from a personal knowledge base and classify the intellectual \
+        relationship between each pair. For each pair, decide:
+        - "contradicts": the items take opposing positions or their claims are in genuine tension
+        - "builds_on": one item extends, deepens, or depends on the other's ideas
+        - "related": substantively about the same ideas, but neither of the above
+        - "none": superficial similarity only
+
+        Favor "contradicts" only for real intellectual tension, not mere difference in topic or tone. \
+        Output ONLY a JSON array, one object per pair:
+        [{"pair": 1, "relation": "contradicts", "confidence": 0.8, "reason": "one sentence naming the specific tension"}]
+        """
+
+        guard let result = await provider.complete(system: system, user: pairList, service: "tensionDetection"),
+              let parsed = LLMJSONParser.parseArray(from: result.content) else {
+            return
+        }
+
+        var createdCount = 0
+        for entry in parsed {
+            guard let pairNumber = entry["pair"] as? Int,
+                  pairNumber >= 1, pairNumber <= candidates.count else { continue }
+            let pair = Array(candidates)[pairNumber - 1]
+            classified.insert(Self.pairKey(pair.a, pair.b))
+
+            guard let relation = entry["relation"] as? String,
+                  let type = Self.connectionType(for: relation),
+                  let confidence = entry["confidence"] as? Double,
+                  confidence >= Self.minConfidence,
+                  let source = itemsByID[pair.a],
+                  let target = itemsByID[pair.b] else { continue }
+
+            let connection = Connection(sourceItem: source, targetItem: target, type: type)
+            connection.isAutoGenerated = true
+            if let reason = entry["reason"] as? String, !reason.isEmpty {
+                connection.note = reason
+            }
+            modelContext.insert(connection)
+            source.outgoingConnections.append(connection)
+            target.incomingConnections.append(connection)
+            createdCount += 1
+        }
+
+        if createdCount > 0 {
+            try? modelContext.save()
+        }
+        Self.saveClassifiedPairs(classified)
+        UserDefaults.standard.set(Date.now, forKey: Self.lastRunKey)
+    }
+
+    // MARK: - Helpers
+
+    private func areConnected(_ a: Item, _ b: Item) -> Bool {
+        let connections = a.outgoingConnections + a.incomingConnections
+        return connections.contains { conn in
+            conn.sourceItem?.id == b.id || conn.targetItem?.id == b.id
+        }
+    }
+
+    private static func connectionType(for relation: String) -> ConnectionType? {
+        switch relation {
+        case "contradicts": .contradicts
+        case "builds_on": .buildsOn
+        case "related": .related
+        default: nil
+        }
+    }
+
+    nonisolated static func pairKey(_ a: UUID, _ b: UUID) -> String {
+        [a.uuidString, b.uuidString].sorted().joined(separator: "|")
+    }
+
+    private static func loadClassifiedPairs() -> Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: classifiedPairsKey) ?? [])
+    }
+
+    private static func saveClassifiedPairs(_ pairs: Set<String>) {
+        UserDefaults.standard.set(Array(pairs), forKey: classifiedPairsKey)
+    }
+}

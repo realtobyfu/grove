@@ -82,6 +82,16 @@ struct LLMServiceConfig: Sendable {
     /// Factory that creates the currently selected provider.
     static func makeProvider() -> LLMProvider {
         enforceBuildPolicy()
+
+        if smartRoutingEnabled && isAppleIntelligenceSupported {
+            if #available(macOS 26, iOS 26, *) {
+                return FallbackLLMProvider(
+                    primary: AppleIntelligenceProvider(),
+                    fallback: GroqProvider()
+                )
+            }
+        }
+
         switch effectiveProviderType {
         case .appleIntelligence:
             if #available(macOS 26, iOS 26, *) {
