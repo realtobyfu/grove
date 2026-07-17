@@ -423,28 +423,17 @@ struct MobileItemReaderView: View {
 
     @ViewBuilder
     private var reflectionSheetContent: some View {
-        if horizontalSizeClass == .regular {
-            MobileReflectionSheet(
-                item: item,
-                requestedEditBlock: $pendingEditBlock,
-                onHighlightTap: articleURL != nil ? { jumpToHighlight($0) } : nil
-            )
-            .frame(minWidth: 400)
-            #if os(iOS)
-            .presentationDetents([.large], selection: $reflectionDetent)
-            .presentationDragIndicator(.visible)
-            #endif
-        } else {
-            MobileReflectionSheet(
-                item: item,
-                requestedEditBlock: $pendingEditBlock,
-                onHighlightTap: articleURL != nil ? { jumpToHighlight($0) } : nil
-            )
-            #if os(iOS)
-            .presentationDetents([.medium, .large], selection: $reflectionDetent)
-            .presentationDragIndicator(.visible)
-            #endif
-        }
+        let isRegular = horizontalSizeClass == .regular
+        MobileReflectionSheet(
+            item: item,
+            requestedEditBlock: $pendingEditBlock,
+            onHighlightTap: articleURL != nil ? { jumpToHighlight($0) } : nil
+        )
+        .frame(minWidth: isRegular ? 400 : nil)
+        #if os(iOS)
+        .presentationDetents(isRegular ? [.large] : [.medium, .large], selection: $reflectionDetent)
+        .presentationDragIndicator(.visible)
+        #endif
     }
 
     // MARK: - Right panel content (iPad)

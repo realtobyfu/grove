@@ -480,18 +480,26 @@ struct InboxTriageView: View {
     }
 
     /// Collapsible "Queued for later (N)" row that expands the reading queue inline.
-    private var queuedDisclosure: some View {
+    /// Shared chrome for the inbox's collapsible sections (queued + suggestions)
+    /// so their styling and animation stay identical.
+    @ViewBuilder
+    private func disclosureCard<Content: View>(
+        systemImage: String,
+        title: String,
+        isExpanded: Binding<Bool>,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
         VStack(spacing: 0) {
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) {
-                    showQueuedSection.toggle()
+                    isExpanded.wrappedValue.toggle()
                 }
             } label: {
                 HStack(spacing: Spacing.sm) {
-                    Image(systemName: "clock.badge")
+                    Image(systemName: systemImage)
                         .font(.groveMeta)
                         .foregroundStyle(Color.textSecondary)
-                    Text("Queued for later (\(queuedItems.count))")
+                    Text(title)
                         .font(.groveMeta)
                         .foregroundStyle(Color.textSecondary)
                         .lineLimit(1)
@@ -499,7 +507,7 @@ struct InboxTriageView: View {
                     Image(systemName: "chevron.right")
                         .font(.groveMeta)
                         .foregroundStyle(Color.textTertiary)
-                        .rotationEffect(showQueuedSection ? .degrees(90) : .zero)
+                        .rotationEffect(isExpanded.wrappedValue ? .degrees(90) : .zero)
                 }
                 .padding(.horizontal, Spacing.md)
                 .padding(.vertical, Spacing.xs)
@@ -507,14 +515,9 @@ struct InboxTriageView: View {
             }
             .buttonStyle(.plain)
 
-            if showQueuedSection {
+            if isExpanded.wrappedValue {
                 Divider()
-                ReadingQueueView(
-                    items: queuedItems,
-                    onReadNow: readQueuedItemNow,
-                    onReturnToInbox: returnQueuedItemToInbox
-                )
-                .padding(.vertical, Spacing.xs)
+                content()
             }
         }
         .background(Color.bgCard)
@@ -525,40 +528,32 @@ struct InboxTriageView: View {
         )
     }
 
+    private var queuedDisclosure: some View {
+        disclosureCard(
+            systemImage: "clock.badge",
+            title: "Queued for later (\(queuedItems.count))",
+            isExpanded: $showQueuedSection
+        ) {
+            ReadingQueueView(
+                items: queuedItems,
+                onReadNow: readQueuedItemNow,
+                onReturnToInbox: returnQueuedItemToInbox
+            )
+            .padding(.vertical, Spacing.xs)
+        }
+    }
+
     // MARK: - Suggested From Subscriptions
 
     /// Collapsible "From your subscriptions (N)" row, styled like the queued
     /// disclosure. Keeps feed suggestions quieter than personal captures.
     private var suggestedDisclosure: some View {
-        VStack(spacing: 0) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    showSuggestedSection.toggle()
-                }
-            } label: {
-                HStack(spacing: Spacing.sm) {
-                    Image(systemName: "newspaper")
-                        .font(.groveMeta)
-                        .foregroundStyle(Color.textSecondary)
-                    Text("From your subscriptions (\(suggestedItems.count))")
-                        .font(.groveMeta)
-                        .foregroundStyle(Color.textSecondary)
-                        .lineLimit(1)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.groveMeta)
-                        .foregroundStyle(Color.textTertiary)
-                        .rotationEffect(showSuggestedSection ? .degrees(90) : .zero)
-                }
-                .padding(.horizontal, Spacing.md)
-                .padding(.vertical, Spacing.xs)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            if showSuggestedSection {
-                Divider()
-                LazyVStack(spacing: 8) {
+        disclosureCard(
+            systemImage: "newspaper",
+            title: "From your subscriptions (\(suggestedItems.count))",
+            isExpanded: $showSuggestedSection
+        ) {
+            LazyVStack(spacing: 8) {
                     ForEach(suggestedItems) { item in
                         InboxCard(
                             item: item,
@@ -593,13 +588,6 @@ struct InboxTriageView: View {
                 .animation(.easeInOut(duration: 0.25), value: suggestedItems.map(\.id))
             }
         }
-        .background(Color.bgCard)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(Color.borderPrimary, lineWidth: 1)
-        )
-    }
 
     private func feedSource(for item: Item) -> FeedSource? {
         guard let idString = item.metadata["feedSourceID"],
@@ -615,10 +603,12 @@ struct InboxTriageView: View {
         return item.metadata["feedSourceDomain"] ?? "this feed"
     }
 
-    /// Disables the item's feed source so it stops producing suggestions.
+    /// Disables the item's feed source so it stops producing suggestions and
+    /// clears the subscription flag (returns it to "Suggested from your library").
     private func unsubscribe(from item: Item) {
         guard let source = feedSource(for: item) else { return }
         source.isEnabled = false
+        source.isUserSubscribed = false
         try? modelContext.save()
     }
 
@@ -650,22 +640,15 @@ struct InboxTriageView: View {
     /// Restore a queued item to the inbox and open it for reading,
     /// using the same open mechanism as Return on a focused inbox card.
     private func readQueuedItemNow(_ item: Item) {
-        restoreQueuedItemToInbox(item)
+        readLaterService.restore(item)
         selectedItem = item
         openedItem?.wrappedValue = item
     }
 
     private func returnQueuedItemToInbox(_ item: Item) {
         withAnimation(.easeInOut(duration: 0.2)) {
-            restoreQueuedItemToInbox(item)
+            readLaterService.restore(item)
         }
-    }
-
-    private func restoreQueuedItemToInbox(_ item: Item) {
-        item.status = .inbox
-        item.readLaterUntil = nil
-        item.updatedAt = .now
-        try? modelContext.save()
     }
 
     private func restoreDueQueuedItems() {

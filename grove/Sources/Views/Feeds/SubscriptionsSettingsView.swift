@@ -13,15 +13,15 @@ struct SubscriptionsSettingsView: View {
     @State private var addFeedError: String?
     @State private var showDirectory = false
 
-    /// Sources the user owns: manually added, subscribed from the directory,
-    /// or discovered feeds that have been subscribed at least once.
+    /// Sources the user owns: manually added or explicitly subscribed. Keyed on
+    /// the explicit isUserSubscribed flag so disabling a feed doesn't move it.
     private var subscriptions: [FeedSource] {
-        allSources.filter { !$0.isAutoDiscovered || $0.isEnabled || $0.lastFetchedAt != nil }
+        allSources.filter { $0.isUserSubscribed || !$0.isAutoDiscovered }
     }
 
     /// Discovered-but-never-subscribed feeds, surfaced as quiet suggestions.
     private var suggestedSources: [FeedSource] {
-        allSources.filter { $0.isAutoDiscovered && !$0.isEnabled && $0.lastFetchedAt == nil }
+        allSources.filter { $0.isAutoDiscovered && !$0.isUserSubscribed }
     }
 
     var body: some View {
@@ -176,8 +176,7 @@ struct SubscriptionsSettingsView: View {
     // MARK: - Actions
 
     private func subscribe(_ source: FeedSource) {
-        source.isEnabled = true
-        try? modelContext.save()
+        FeedSubscriptionService.subscribe(source, in: modelContext)
     }
 
     private func dismissSuggestion(_ source: FeedSource) {
@@ -197,58 +196,17 @@ struct SubscriptionsSettingsView: View {
         let trimmed = newFeedURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        let candidate = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
-        guard let url = URL(string: candidate),
-              let scheme = url.scheme?.lowercased(),
-              ["http", "https"].contains(scheme),
-              let host = url.host, !host.isEmpty else {
-            addFeedError = "Enter a valid http(s) feed URL."
-            return
-        }
-
         isValidatingFeed = true
         addFeedError = nil
 
         Task {
             defer { isValidatingFeed = false }
-
-            var request = URLRequest(url: url)
-            request.setValue("Grove/1.0", forHTTPHeaderField: "User-Agent")
-            request.timeoutInterval = 15
-
-            guard let (data, response) = try? await URLSession.shared.data(for: request),
-                  let httpResponse = response as? HTTPURLResponse,
-                  (200..<300).contains(httpResponse.statusCode) else {
-                addFeedError = "Couldn't reach that URL."
-                return
+            switch await FeedSubscriptionService.validateAndAdd(urlString: trimmed, in: modelContext) {
+            case .success:
+                newFeedURL = ""
+            case .failure(let error):
+                addFeedError = error.errorDescription
             }
-
-            let articles = FeedParserService.parse(data: data)
-            guard !articles.isEmpty else {
-                addFeedError = "That URL doesn't look like an RSS or Atom feed."
-                return
-            }
-
-            let feedURLString = url.absoluteString
-            let domain = host.lowercased().hasPrefix("www.")
-                ? String(host.lowercased().dropFirst(4))
-                : host.lowercased()
-
-            if let existing = allSources.first(where: { $0.feedURL == feedURLString }) {
-                existing.isEnabled = true
-                existing.errorCount = 0
-            } else {
-                let source = FeedSource(
-                    feedURL: feedURLString,
-                    domain: domain,
-                    title: FeedFetchService.extractFeedTitle(from: data),
-                    isAutoDiscovered: false,
-                    isEnabled: true
-                )
-                modelContext.insert(source)
-            }
-            try? modelContext.save()
-            newFeedURL = ""
         }
     }
 }

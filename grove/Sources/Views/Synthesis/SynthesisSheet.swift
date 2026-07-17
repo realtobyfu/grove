@@ -7,11 +7,10 @@ struct SynthesisSheet: View {
     let items: [Item]
     let scopeTitle: String
     let board: Board?
+    /// Called both for a newly-saved synthesis and to open an existing item from
+    /// a tapped [[wiki link]] in the preview — every caller implements it as
+    /// "select/open this item".
     let onCreated: (Item) -> Void
-    /// Optional override for opening an existing item from a tapped [[wiki link]]
-    /// in the preview. When nil, falls back to `onCreated`, which every current
-    /// caller implements as "select/open this item".
-    var onOpenItem: ((Item) -> Void)? = nil
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -292,11 +291,9 @@ struct SynthesisSheet: View {
         guard !trimmedTitle.isEmpty else { return }
 
         let allItems: [Item] = modelContext.fetchAll()
-        guard let target = allItems.first(where: {
-            $0.title.localizedCaseInsensitiveCompare(trimmedTitle) == .orderedSame
-        }) else { return }
+        guard let target = ItemResolver.resolveExactTitle(trimmedTitle, in: allItems) else { return }
 
         dismiss()
-        (onOpenItem ?? onCreated)(target)
+        onCreated(target)
     }
 }

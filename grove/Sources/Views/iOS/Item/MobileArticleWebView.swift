@@ -14,8 +14,6 @@ struct MobileArticleWebView: UIViewRepresentable {
     var findBackwardToken: Int = 0
     var onFindResult: ((Int, Int) -> Void)?
     var zoomLevel: CGFloat = 1.0
-    /// Fires when a page finishes loading — used to run Readability extraction.
-    var onPageFinished: ((WKWebView) -> Void)?
     /// Scroll-to-text request (see ReaderTemplate.scrollToTextJS).
     var scrollToTextQuery: String = ""
     var scrollToTextToken: Int = 0
@@ -60,13 +58,17 @@ struct MobileArticleWebView: UIViewRepresentable {
     func updateUIView(_ webView: WKWebView, context: Context) {
         let coordinator = context.coordinator
         coordinator.onTextSelected = onTextSelected
-        coordinator.onPageFinished = onPageFinished
 
-        // Handle scroll-to-text requests
+        // Handle scroll-to-text requests. Defer to didFinish while the page is
+        // still loading (e.g. a highlight tap that just opened the panel) so the
+        // request isn't fired before the helper script exists.
         if scrollToTextToken != coordinator.lastScrollToTextToken {
             coordinator.lastScrollToTextToken = scrollToTextToken
-            if !scrollToTextQuery.isEmpty {
-                let escaped = ReaderTemplate.escapeForJSString(scrollToTextQuery)
+            let query = scrollToTextQuery.isEmpty ? nil : scrollToTextQuery
+            coordinator.pendingScrollQuery = query
+            if let query, !webView.isLoading {
+                coordinator.pendingScrollQuery = nil
+                let escaped = ReaderTemplate.escapeForJSString(query)
                 webView.evaluateJavaScript("window.__groveScrollToText('\(escaped)');", completionHandler: nil)
             }
         }
@@ -130,12 +132,12 @@ struct MobileArticleWebView: UIViewRepresentable {
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var onTextSelected: ((String?) -> Void)?
-        var onPageFinished: ((WKWebView) -> Void)?
         let openURL: OpenURLAction
         var lastFindQuery = ""
         var lastForwardToken = 0
         var lastBackwardToken = 0
         var lastScrollToTextToken = 0
+        var pendingScrollQuery: String? = nil
         var lastZoomLevel: CGFloat = 1.0
 
         init(onTextSelected: ((String?) -> Void)?, openURL: OpenURLAction) {
@@ -156,7 +158,11 @@ struct MobileArticleWebView: UIViewRepresentable {
 
         @MainActor
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            onPageFinished?(webView)
+            if let query = pendingScrollQuery {
+                pendingScrollQuery = nil
+                let escaped = ReaderTemplate.escapeForJSString(query)
+                webView.evaluateJavaScript("window.__groveScrollToText('\(escaped)');", completionHandler: nil)
+            }
         }
 
         // Receive text selection from JavaScript

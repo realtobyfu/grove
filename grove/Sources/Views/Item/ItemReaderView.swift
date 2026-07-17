@@ -42,24 +42,11 @@ struct ItemReaderView: View {
         .overlay(alignment: .bottom) {
             // Native-content highlight actions. The web panel shows its own
             // bar internally, so this only covers non-web selections.
-            if !vm.showArticleWebView, let selection = nativeSelection(vm) {
-                HighlightActionBar(
-                    onHighlight: { vm.addHighlight(selection) },
-                    onHighlightAndReflect: {
-                        vm.webSelectedText = nil
-                        vm.openReflectionEditor(
-                            type: .keyInsight,
-                            content: "",
-                            highlight: selection,
-                            focusTrigger: focusReflectionEditor
-                        )
-                    }
-                )
-                .padding(.bottom, 20)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+            if !vm.showArticleWebView, let selection = vm.highlightableSelection {
+                HighlightActionBarOverlay(vm: vm, selection: selection, focusTrigger: focusReflectionEditor)
             }
         }
-        .animation(.easeOut(duration: 0.15), value: nativeSelection(vm) != nil)
+        .animation(.easeOut(duration: 0.15), value: !vm.showArticleWebView && vm.highlightableSelection != nil)
         .onAppear {
             vm.backfillThumbnailIfNeeded()
         }
@@ -409,11 +396,6 @@ struct ItemReaderView: View {
     // MARK: - Selection Helper
 
     /// Non-empty trimmed native-content selection, or nil.
-    private func nativeSelection(_ vm: ItemReaderViewModel) -> String? {
-        guard let text = vm.webSelectedText?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !text.isEmpty else { return nil }
-        return text
-    }
 }
 
 // MARK: - Block Drop Delegate

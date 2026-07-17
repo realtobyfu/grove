@@ -60,6 +60,14 @@ final class ItemReaderViewModel {
     /// Latest scroll fraction (not persisted every event; see updateReadingProgress).
     private(set) var liveReadingProgress: Double = 0
 
+    /// The current text selection eligible for highlighting (trimmed, non-empty),
+    /// or nil. Single source of truth for the web panel and native-content bars.
+    var highlightableSelection: String? {
+        guard let text = webSelectedText?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty else { return nil }
+        return text
+    }
+
     // MARK: - Init
 
     init(item: Item, modelContext: ModelContext, onNavigateToItem: ((Item) -> Void)? = nil) {
@@ -415,7 +423,7 @@ final class ItemReaderViewModel {
         guard !trimmedTitle.isEmpty else { return }
 
         let allItems: [Item] = modelContext.fetchAll()
-        if let matchedItem = allItems.first(where: { $0.title.localizedCaseInsensitiveCompare(trimmedTitle) == .orderedSame }) {
+        if let matchedItem = ItemResolver.resolveExactTitle(trimmedTitle, in: allItems) {
             onNavigateToItem?(matchedItem)
         }
     }

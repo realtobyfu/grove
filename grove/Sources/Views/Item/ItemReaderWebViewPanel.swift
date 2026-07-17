@@ -34,12 +34,6 @@ struct ItemReaderWebViewPanel: View {
     }
 
     /// Non-empty trimmed selection from either web mode, or nil.
-    private var trimmedSelection: String? {
-        guard let text = vm.webSelectedText?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !text.isEmpty else { return nil }
-        return text
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             // Slim navigation bar
@@ -173,24 +167,11 @@ struct ItemReaderWebViewPanel: View {
                     originalContent
                 }
 
-                if let selection = trimmedSelection {
-                    HighlightActionBar(
-                        onHighlight: { vm.addHighlight(selection) },
-                        onHighlightAndReflect: {
-                            vm.webSelectedText = nil
-                            vm.openReflectionEditor(
-                                type: .keyInsight,
-                                content: "",
-                                highlight: selection,
-                                focusTrigger: focusTrigger
-                            )
-                        }
-                    )
-                    .padding(.bottom, 20)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                if let selection = vm.highlightableSelection {
+                    HighlightActionBarOverlay(vm: vm, selection: selection, focusTrigger: focusTrigger)
                 }
             }
-            .animation(.easeOut(duration: 0.15), value: trimmedSelection != nil)
+            .animation(.easeOut(duration: 0.15), value: vm.highlightableSelection != nil)
         }
         .task(id: url) {
             // Drop any stale scroll-to-text query from a previous panel
@@ -291,9 +272,6 @@ struct ItemReaderWebViewPanel: View {
                 vm.findMatchCount = total
             },
             zoomLevel: vm.webViewZoomLevel,
-            onPageFinished: { webView in
-                vm.handleArticlePageDidFinish(webView)
-            },
             scrollToTextQuery: vm.scrollToTextQuery,
             scrollToTextToken: vm.scrollToTextToken
         )
@@ -385,6 +363,31 @@ struct ItemReaderWebViewPanel: View {
 }
 
 // MARK: - Highlight Action Bar
+
+/// The full bottom overlay (bar + highlight/reflect actions + transition) used
+/// by both macOS reader surfaces so their selection handling can't drift.
+struct HighlightActionBarOverlay: View {
+    let vm: ItemReaderViewModel
+    let selection: String
+    let focusTrigger: () -> Void
+
+    var body: some View {
+        HighlightActionBar(
+            onHighlight: { vm.addHighlight(selection) },
+            onHighlightAndReflect: {
+                vm.webSelectedText = nil
+                vm.openReflectionEditor(
+                    type: .keyInsight,
+                    content: "",
+                    highlight: selection,
+                    focusTrigger: focusTrigger
+                )
+            }
+        )
+        .padding(.bottom, 20)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+}
 
 /// Quiet floating bar shown while a text selection is active in the reader.
 /// Offers saving the selection as a highlight, optionally with a reflection.

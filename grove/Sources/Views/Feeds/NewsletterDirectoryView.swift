@@ -130,21 +130,12 @@ struct NewsletterDirectoryView: View {
     }
 
     private func subscribe(_ entry: NewsletterCatalogEntry) {
-        if let existing = sources.first(where: { $0.feedURL == entry.feedURL }) {
-            existing.isEnabled = true
-            existing.errorCount = 0
-            if existing.title == nil { existing.title = entry.title }
-        } else {
-            let source = FeedSource(
-                feedURL: entry.feedURL,
-                domain: entry.domain,
-                title: entry.title,
-                isAutoDiscovered: false,
-                isEnabled: true
-            )
-            modelContext.insert(source)
-        }
-        try? modelContext.save()
+        FeedSubscriptionService.subscribe(
+            feedURL: entry.feedURL,
+            domain: entry.domain,
+            title: entry.title,
+            in: modelContext
+        )
     }
 
     private func dismissEntry(_ entry: NewsletterCatalogEntry) {
@@ -184,7 +175,10 @@ struct NewsletterDirectoryView: View {
         // Second pass: embedding similarity against a compact profile text.
         let topTagNames = userTags.sorted { $0.weight > $1.weight }.prefix(15).map(\.name)
         let profileText = (topTagNames + recentTitles.prefix(20)).joined(separator: ", ")
-        ranked = await NewsletterRanker.refine(keywordRanked, profileText: profileText)
+        let refined = await NewsletterRanker.refine(keywordRanked, profileText: profileText)
+        // Re-drop anything dismissed while the embedding pass was awaiting, so a
+        // card the user tapped X on doesn't reappear from the stale snapshot.
+        ranked = refined.filter { !FeedPreferencesStore.isCatalogEntryDismissed($0.entry.id) }
     }
 }
 

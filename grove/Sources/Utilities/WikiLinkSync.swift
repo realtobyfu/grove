@@ -68,9 +68,7 @@ enum WikiLinkSync {
         let viewModel = ItemViewModel(modelContext: modelContext)
 
         for title in titles {
-            guard let target = allItems.first(where: {
-                $0.id != item.id && $0.title.localizedCaseInsensitiveCompare(title) == .orderedSame
-            }) else { continue }
+            guard let target = ItemResolver.resolveExactTitle(title, in: allItems, excluding: item.id) else { continue }
 
             // Dedupe in either direction — same check as the autocomplete path.
             let alreadyConnected = item.outgoingConnections.contains { $0.targetItem?.id == target.id }

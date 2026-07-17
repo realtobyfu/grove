@@ -189,7 +189,7 @@ final class DialecticalChatViewModel {
 
     func navigateToItemByTitle(_ title: String, onNavigateToItem: ((Item) -> Void)?) {
         let allItems: [Item] = modelContext.fetchAll()
-        if let item = allItems.first(where: { $0.title.localizedCaseInsensitiveCompare(title) == .orderedSame }) {
+        if let item = ItemResolver.resolveExactTitle(title, in: allItems) {
             onNavigateToItem?(item)
         }
     }

@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 @MainActor
 protocol CaptureServiceProtocol {
     func captureItem(input: String, board: Board?) -> Item
+    func captureItemDetailed(input: String, board: Board?) -> (item: Item, isDuplicate: Bool)
     func createVideoItem(filePath: String, board: Board?) -> Item
 }
 
