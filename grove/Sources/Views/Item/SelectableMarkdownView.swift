@@ -5,7 +5,9 @@ import SwiftUI
 #if os(macOS)
 struct SelectableMarkdownView: View {
     let markdown: String
-    var onSelectText: ((String) -> Void)?
+    /// Fires with the trimmed selected text, nil when the selection is
+    /// cleared. Debounced so drag-selection doesn't spam state updates.
+    var onSelectText: ((String?) -> Void)?
 
     var body: some View {
         SelectableMarkdownRepresentable(markdown: markdown, onSelectText: onSelectText)
@@ -15,7 +17,7 @@ struct SelectableMarkdownView: View {
 
 private struct SelectableMarkdownRepresentable: NSViewRepresentable {
     let markdown: String
-    var onSelectText: ((String) -> Void)?
+    var onSelectText: ((String?) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onSelectText: onSelectText)
@@ -402,29 +404,42 @@ private struct SelectableMarkdownRepresentable: NSViewRepresentable {
         return components.url
     }
 
+    @MainActor
     class Coordinator: NSObject, NSTextViewDelegate {
-        var onSelectText: ((String) -> Void)?
+        var onSelectText: ((String?) -> Void)?
+        private var pendingSelectionTask: Task<Void, Never>?
 
-        init(onSelectText: ((String) -> Void)?) {
+        init(onSelectText: ((String?) -> Void)?) {
             self.onSelectText = onSelectText
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             let selectedRange = textView.selectedRange()
+            var selection: String? = nil
             if selectedRange.length > 0,
-               let text = textView.textStorage?.attributedSubstring(from: selectedRange).string,
-               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                onSelectText?(text.trimmingCharacters(in: .whitespacesAndNewlines))
+               let text = textView.textStorage?.attributedSubstring(from: selectedRange).string {
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { selection = trimmed }
+            }
+            // Debounce (matches the web views' 150ms) so drag-selection
+            // reports once instead of on every mouse move.
+            pendingSelectionTask?.cancel()
+            pendingSelectionTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(150))
+                guard !Task.isCancelled else { return }
+                self?.onSelectText?(selection)
             }
         }
     }
 }
 #else
 /// iOS fallback: renders markdown as plain selectable text.
+/// Note: system text selection here cannot report changes, so
+/// `onSelectText` is accepted for API parity but never fires.
 struct SelectableMarkdownView: View {
     let markdown: String
-    var onSelectText: ((String) -> Void)?
+    var onSelectText: ((String?) -> Void)?
 
     var body: some View {
         Text(markdown)

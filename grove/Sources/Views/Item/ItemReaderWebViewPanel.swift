@@ -1,12 +1,17 @@
 import SwiftUI
 import SwiftData
+import WebKit
 
 struct ItemReaderWebViewPanel: View {
     @Bindable var vm: ItemReaderViewModel
     let url: URL
     @Environment(\.openURL) private var openURL
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.colorScheme) private var colorScheme
     var focusTrigger: () -> Void
+    /// Unified selection callback: fires with the selected text in EITHER
+    /// mode (Reader or Original), nil when the selection is cleared.
+    var onTextSelected: ((String?) -> Void)? = nil
 
     @State private var canGoBack = false
     @State private var canGoForward = false
@@ -14,6 +19,26 @@ struct ItemReaderWebViewPanel: View {
     @State private var goBackToken = 0
     @State private var goForwardToken = 0
     @State private var justSaved = false
+
+    // Reader typography (persisted app-wide)
+    @AppStorage(ReaderTypographySettings.sizeStepKey) private var readerSizeStep = 1
+    @AppStorage(ReaderTypographySettings.isWideKey) private var readerIsWide = false
+    @AppStorage(ReaderTypographySettings.useSerifKey) private var readerUseSerif = true
+
+    private var readerTypography: ReaderTypographySettings {
+        ReaderTypographySettings(sizeStep: readerSizeStep, isWide: readerIsWide, useSerif: readerUseSerif)
+    }
+
+    private var showsReaderContent: Bool {
+        vm.isReaderMode && vm.readerArticle != nil
+    }
+
+    /// Non-empty trimmed selection from either web mode, or nil.
+    private var trimmedSelection: String? {
+        guard let text = vm.webSelectedText?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty else { return nil }
+        return text
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -34,26 +59,28 @@ struct ItemReaderWebViewPanel: View {
 
                 Divider().frame(height: 12)
 
-                // Browser back/forward
-                Button { goBackToken += 1 } label: {
-                    Image(systemName: "chevron.backward")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(canGoBack ? Color.textSecondary : Color.textMuted)
-                }
-                .buttonStyle(.plain)
-                .disabled(!canGoBack)
-                .help("Back")
+                if !showsReaderContent {
+                    // Browser back/forward (Original mode only)
+                    Button { goBackToken += 1 } label: {
+                        Image(systemName: "chevron.backward")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(canGoBack ? Color.textSecondary : Color.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canGoBack)
+                    .help("Back")
 
-                Button { goForwardToken += 1 } label: {
-                    Image(systemName: "chevron.forward")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(canGoForward ? Color.textSecondary : Color.textMuted)
-                }
-                .buttonStyle(.plain)
-                .disabled(!canGoForward)
-                .help("Forward")
+                    Button { goForwardToken += 1 } label: {
+                        Image(systemName: "chevron.forward")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(canGoForward ? Color.textSecondary : Color.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canGoForward)
+                    .help("Forward")
 
-                Divider().frame(height: 12)
+                    Divider().frame(height: 12)
+                }
 
                 Text((currentWebURL ?? url).host ?? (currentWebURL ?? url).absoluteString)
                     .font(.groveMeta)
@@ -63,33 +90,25 @@ struct ItemReaderWebViewPanel: View {
 
                 Spacer()
 
-                // Zoom controls
-                HStack(spacing: 4) {
-                    Button { vm.zoomOut() } label: {
-                        Image(systemName: "minus.magnifyingglass")
+                if showsReaderContent {
+                    typographyControls
+                } else {
+                    zoomControls
+                }
+
+                if vm.readerArticle != nil {
+                    Divider().frame(height: 12)
+
+                    Button {
+                        withAnimation(.easeOut(duration: 0.2)) { vm.isReaderMode.toggle() }
+                    } label: {
+                        Image(systemName: vm.isReaderMode ? "globe" : "doc.plaintext")
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(Color.textMuted)
+                            .foregroundStyle(Color.textSecondary)
                     }
                     .buttonStyle(.plain)
-                    .help("Zoom out (⌘−)")
-                    .disabled(vm.webViewZoomLevel <= 0.5)
-
-                    Text("\(vm.zoomPercentage)%")
-                        .font(.groveMeta)
-                        .foregroundStyle(Color.textTertiary)
-                        .monospacedDigit()
-                        .frame(minWidth: 36, alignment: .center)
-                        .onTapGesture { vm.resetZoom() }
-                        .help("Reset zoom")
-
-                    Button { vm.zoomIn() } label: {
-                        Image(systemName: "plus.magnifyingglass")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(Color.textMuted)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Zoom in (⌘+)")
-                    .disabled(vm.webViewZoomLevel >= 2.0)
+                    .help(vm.isReaderMode ? "Show original page" : "Show reader view")
+                    .accessibilityLabel(vm.isReaderMode ? "Show original page" : "Show reader view")
                 }
 
                 Divider().frame(height: 12)
@@ -104,7 +123,8 @@ struct ItemReaderWebViewPanel: View {
                 .buttonStyle(.plain)
                 .help("Open reflection panel")
 
-                if let navigatedURL = currentWebURL, navigatedURL.absoluteString != url.absoluteString {
+                if !showsReaderContent,
+                   let navigatedURL = currentWebURL, navigatedURL.absoluteString != url.absoluteString {
                     Button {
                         let service = CaptureService(modelContext: modelContext)
                         _ = service.captureItem(input: navigatedURL.absoluteString)
@@ -142,43 +162,41 @@ struct ItemReaderWebViewPanel: View {
             .background(Color.bgCard)
             Divider()
 
-            if vm.showFindBar {
+            if vm.showFindBar && !showsReaderContent {
                 ItemReaderFindBar(vm: vm)
             }
 
-            #if os(macOS)
-            ArticleWebView(
-                url: url,
-                findQuery: vm.findQuery,
-                findForwardToken: vm.findForwardToken,
-                findBackwardToken: vm.findBackwardToken,
-                onFindResult: { current, total in
-                    vm.findCurrentMatch = current
-                    vm.findMatchCount = total
-                },
-                zoomLevel: vm.webViewZoomLevel,
-                goBackToken: goBackToken,
-                goForwardToken: goForwardToken,
-                onNavigationChanged: { canBack, canFwd, currentURL in
-                    canGoBack = canBack
-                    canGoForward = canFwd
-                    currentWebURL = currentURL
+            ZStack(alignment: .bottom) {
+                if showsReaderContent, let article = vm.readerArticle {
+                    readerContent(article: article)
+                } else {
+                    originalContent
                 }
-            )
-            #else
-            MobileArticleWebView(
-                url: url,
-                findQuery: vm.findQuery,
-                findForwardToken: vm.findForwardToken,
-                findBackwardToken: vm.findBackwardToken,
-                onFindResult: { current, total in
-                    vm.findCurrentMatch = current
-                    vm.findMatchCount = total
-                },
-                zoomLevel: vm.webViewZoomLevel
-            )
-            .ignoresSafeArea(edges: .bottom)
-            #endif
+
+                if let selection = trimmedSelection {
+                    HighlightActionBar(
+                        onHighlight: { vm.addHighlight(selection) },
+                        onHighlightAndReflect: {
+                            vm.webSelectedText = nil
+                            vm.openReflectionEditor(
+                                type: .keyInsight,
+                                content: "",
+                                highlight: selection,
+                                focusTrigger: focusTrigger
+                            )
+                        }
+                    )
+                    .padding(.bottom, 20)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.easeOut(duration: 0.15), value: trimmedSelection != nil)
+        }
+        .task(id: url) {
+            // Drop any stale scroll-to-text query from a previous panel
+            // session so a freshly mounted web view doesn't auto-scroll.
+            vm.scrollToTextQuery = ""
+            vm.loadCachedReaderArticleIfAvailable()
         }
         #if os(macOS)
         .background {
@@ -195,6 +213,235 @@ struct ItemReaderWebViewPanel: View {
             .opacity(0)
         }
         #endif
+    }
+
+    // MARK: - Content
+
+    @ViewBuilder
+    private func readerContent(article: ReadableArticle) -> some View {
+        ReaderModeWebView(
+            article: article,
+            typography: readerTypography,
+            isDark: colorScheme == .dark,
+            initialProgress: vm.readingProgress,
+            scrollToTextQuery: vm.scrollToTextQuery,
+            scrollToTextToken: vm.scrollToTextToken,
+            onTextSelected: { text in
+                vm.webSelectedText = text
+                onTextSelected?(text)
+            },
+            onScrollProgress: { fraction in
+                vm.updateReadingProgress(fraction)
+            },
+            onOpenExternalLink: { linkURL in
+                #if os(macOS)
+                NSWorkspace.shared.open(linkURL)
+                #else
+                openURL(linkURL)
+                #endif
+            }
+        )
+        #if os(iOS)
+        .ignoresSafeArea(edges: .bottom)
+        #endif
+    }
+
+    @ViewBuilder
+    private var originalContent: some View {
+        #if os(macOS)
+        ArticleWebView(
+            url: url,
+            onTextSelected: { text in
+                vm.webSelectedText = text
+                onTextSelected?(text)
+            },
+            findQuery: vm.findQuery,
+            findForwardToken: vm.findForwardToken,
+            findBackwardToken: vm.findBackwardToken,
+            onFindResult: { current, total in
+                vm.findCurrentMatch = current
+                vm.findMatchCount = total
+            },
+            zoomLevel: vm.webViewZoomLevel,
+            goBackToken: goBackToken,
+            goForwardToken: goForwardToken,
+            onNavigationChanged: { canBack, canFwd, currentURL in
+                canGoBack = canBack
+                canGoForward = canFwd
+                currentWebURL = currentURL
+            },
+            onPageFinished: { webView in
+                vm.handleArticlePageDidFinish(webView)
+            },
+            scrollToTextQuery: vm.scrollToTextQuery,
+            scrollToTextToken: vm.scrollToTextToken
+        )
+        #else
+        MobileArticleWebView(
+            url: url,
+            onTextSelected: { text in
+                vm.webSelectedText = text
+                onTextSelected?(text)
+            },
+            findQuery: vm.findQuery,
+            findForwardToken: vm.findForwardToken,
+            findBackwardToken: vm.findBackwardToken,
+            onFindResult: { current, total in
+                vm.findCurrentMatch = current
+                vm.findMatchCount = total
+            },
+            zoomLevel: vm.webViewZoomLevel,
+            onPageFinished: { webView in
+                vm.handleArticlePageDidFinish(webView)
+            },
+            scrollToTextQuery: vm.scrollToTextQuery,
+            scrollToTextToken: vm.scrollToTextToken
+        )
+        .ignoresSafeArea(edges: .bottom)
+        #endif
+    }
+
+    // MARK: - Toolbar Clusters
+
+    private var zoomControls: some View {
+        HStack(spacing: 4) {
+            Button { vm.zoomOut() } label: {
+                Image(systemName: "minus.magnifyingglass")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.textMuted)
+            }
+            .buttonStyle(.plain)
+            .help("Zoom out (⌘−)")
+            .disabled(vm.webViewZoomLevel <= 0.5)
+
+            Text("\(vm.zoomPercentage)%")
+                .font(.groveMeta)
+                .foregroundStyle(Color.textTertiary)
+                .monospacedDigit()
+                .frame(minWidth: 36, alignment: .center)
+                .onTapGesture { vm.resetZoom() }
+                .help("Reset zoom")
+
+            Button { vm.zoomIn() } label: {
+                Image(systemName: "plus.magnifyingglass")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.textMuted)
+            }
+            .buttonStyle(.plain)
+            .help("Zoom in (⌘+)")
+            .disabled(vm.webViewZoomLevel >= 2.0)
+        }
+    }
+
+    private var typographyControls: some View {
+        HStack(spacing: 6) {
+            Button {
+                readerSizeStep = max(readerSizeStep - 1, ReaderTypographySettings.sizeStepRange.lowerBound)
+            } label: {
+                Image(systemName: "textformat.size.smaller")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.textMuted)
+            }
+            .buttonStyle(.plain)
+            .disabled(readerSizeStep <= ReaderTypographySettings.sizeStepRange.lowerBound)
+            .help("Smaller text")
+            .accessibilityLabel("Smaller text")
+
+            Button {
+                readerSizeStep = min(readerSizeStep + 1, ReaderTypographySettings.sizeStepRange.upperBound)
+            } label: {
+                Image(systemName: "textformat.size.larger")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.textMuted)
+            }
+            .buttonStyle(.plain)
+            .disabled(readerSizeStep >= ReaderTypographySettings.sizeStepRange.upperBound)
+            .help("Larger text")
+            .accessibilityLabel("Larger text")
+
+            Button {
+                readerUseSerif.toggle()
+            } label: {
+                Image(systemName: "textformat")
+                    .font(.system(size: 11, weight: readerUseSerif ? .semibold : .regular))
+                    .foregroundStyle(readerUseSerif ? Color.textSecondary : Color.textMuted)
+            }
+            .buttonStyle(.plain)
+            .help(readerUseSerif ? "Switch to sans-serif" : "Switch to serif")
+            .accessibilityLabel(readerUseSerif ? "Switch to sans-serif font" : "Switch to serif font")
+
+            Button {
+                readerIsWide.toggle()
+            } label: {
+                Image(systemName: readerIsWide ? "arrow.right.and.line.vertical.and.arrow.left" : "arrow.left.and.right")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.textMuted)
+            }
+            .buttonStyle(.plain)
+            .help(readerIsWide ? "Narrow column" : "Wide column")
+            .accessibilityLabel(readerIsWide ? "Narrow column" : "Wide column")
+        }
+    }
+}
+
+// MARK: - Highlight Action Bar
+
+/// Quiet floating bar shown while a text selection is active in the reader.
+/// Offers saving the selection as a highlight, optionally with a reflection.
+/// Shared by the desktop web panel and the iOS mobile reader.
+struct HighlightActionBar: View {
+    var onHighlight: () -> Void
+    var onHighlightAndReflect: () -> Void
+
+    #if os(iOS)
+    private static let minTargetSize: CGFloat = 44
+    #else
+    private static let minTargetSize: CGFloat = 0
+    #endif
+
+    var body: some View {
+        HStack(spacing: 0) {
+            barButton(
+                title: "Highlight",
+                systemImage: "highlighter",
+                action: onHighlight
+            )
+            .help("Save selection as a highlight")
+
+            Divider()
+                .frame(height: 16)
+
+            barButton(
+                title: "Highlight & Reflect",
+                systemImage: "square.and.pencil",
+                action: onHighlightAndReflect
+            )
+            .help("Save selection and write a reflection")
+        }
+        .background(Color.bgCard)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Color.borderPrimary, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+    }
+
+    private func barButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 11, weight: .medium))
+                Text(title)
+                    .font(.groveMeta)
+            }
+            .foregroundStyle(Color.textSecondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(minWidth: Self.minTargetSize, minHeight: Self.minTargetSize)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

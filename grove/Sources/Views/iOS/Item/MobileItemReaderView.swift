@@ -40,6 +40,9 @@ struct MobileItemReaderView: View {
     @State private var findCurrentMatch = 0
     @State private var findTotalMatches = 0
     @State private var selectedText: String?
+    @State private var scrollToTextQuery = ""
+    @State private var scrollToTextToken = 0
+    @State private var pendingEditBlock: ReflectionBlock?
     @State private var navigateToChat: Conversation?
     @State private var reflectionDetent: PresentationDetent = .medium
     @State private var zoomLevel: CGFloat = 1.0
@@ -103,6 +106,7 @@ struct MobileItemReaderView: View {
                                 .transition(.move(edge: .top).combined(with: .opacity))
                         }
                     }
+                    .overlay(alignment: .bottom) { highlightActionOverlay }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                     ResizableTrailingDivider(
@@ -129,6 +133,65 @@ struct MobileItemReaderView: View {
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
+            .overlay(alignment: .bottom) { highlightActionOverlay }
+        }
+    }
+
+    // MARK: - Highlight actions
+
+    private var trimmedSelection: String? {
+        guard let text = selectedText?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty else { return nil }
+        return text
+    }
+
+    @ViewBuilder
+    private var highlightActionOverlay: some View {
+        if item.type != .note, let selection = trimmedSelection {
+            HighlightActionBar(
+                onHighlight: { addHighlight(selection) },
+                onHighlightAndReflect: { highlightAndReflect(selection) }
+            )
+            .padding(.bottom, Spacing.lg)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .animation(.easeOut(duration: 0.15), value: trimmedSelection != nil)
+        }
+    }
+
+    @discardableResult
+    private func addHighlight(_ text: String) -> ReflectionBlock {
+        let nextPosition = (item.reflections.map(\.position).max() ?? -1) + 1
+        let block = ReflectionBlock(
+            item: item,
+            blockType: .keyInsight,
+            content: "",
+            highlight: text,
+            position: nextPosition
+        )
+        modelContext.insert(block)
+        try? modelContext.save()
+        selectedText = nil
+        return block
+    }
+
+    private func highlightAndReflect(_ text: String) {
+        let block = addHighlight(text)
+        pendingEditBlock = block
+        if usesSidePanel {
+            withAnimation { rightPanel = .reflections }
+        } else {
+            if horizontalSizeClass == .regular {
+                reflectionDetent = .large
+            }
+            showReflections = true
+        }
+    }
+
+    private func jumpToHighlight(_ text: String) {
+        scrollToTextQuery = text
+        scrollToTextToken += 1
+        if !usesSidePanel {
+            showReflections = false
         }
     }
 
@@ -158,7 +221,9 @@ struct MobileItemReaderView: View {
                     findCurrentMatch = current
                     findTotalMatches = total
                 },
-                zoomLevel: zoomLevel
+                zoomLevel: zoomLevel,
+                scrollToTextQuery: scrollToTextQuery,
+                scrollToTextToken: scrollToTextToken
             )
             .ignoresSafeArea(edges: .bottom)
             #else
@@ -355,18 +420,26 @@ struct MobileItemReaderView: View {
     @ViewBuilder
     private var reflectionSheetContent: some View {
         if horizontalSizeClass == .regular {
-            MobileReflectionSheet(item: item)
-                .frame(minWidth: 400)
-                #if os(iOS)
-                .presentationDetents([.large], selection: $reflectionDetent)
-                .presentationDragIndicator(.visible)
-                #endif
+            MobileReflectionSheet(
+                item: item,
+                requestedEditBlock: $pendingEditBlock,
+                onHighlightTap: articleURL != nil ? { jumpToHighlight($0) } : nil
+            )
+            .frame(minWidth: 400)
+            #if os(iOS)
+            .presentationDetents([.large], selection: $reflectionDetent)
+            .presentationDragIndicator(.visible)
+            #endif
         } else {
-            MobileReflectionSheet(item: item)
-                #if os(iOS)
-                .presentationDetents([.medium, .large], selection: $reflectionDetent)
-                .presentationDragIndicator(.visible)
-                #endif
+            MobileReflectionSheet(
+                item: item,
+                requestedEditBlock: $pendingEditBlock,
+                onHighlightTap: articleURL != nil ? { jumpToHighlight($0) } : nil
+            )
+            #if os(iOS)
+            .presentationDetents([.medium, .large], selection: $reflectionDetent)
+            .presentationDragIndicator(.visible)
+            #endif
         }
     }
 
@@ -378,9 +451,14 @@ struct MobileItemReaderView: View {
         case .none:
             EmptyView()
         case .reflections:
-            MobileReflectionSheet(item: item, onDismiss: {
-                withAnimation { rightPanel = .none }
-            })
+            MobileReflectionSheet(
+                item: item,
+                onDismiss: {
+                    withAnimation { rightPanel = .none }
+                },
+                requestedEditBlock: $pendingEditBlock,
+                onHighlightTap: articleURL != nil ? { jumpToHighlight($0) } : nil
+            )
         case .chat(let conversation):
             NavigationStack {
                 MobileChatView(conversation: conversation)

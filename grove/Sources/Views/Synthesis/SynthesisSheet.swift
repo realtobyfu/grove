@@ -8,6 +8,10 @@ struct SynthesisSheet: View {
     let scopeTitle: String
     let board: Board?
     let onCreated: (Item) -> Void
+    /// Optional override for opening an existing item from a tapped [[wiki link]]
+    /// in the preview. When nil, falls back to `onCreated`, which every current
+    /// caller implements as "select/open this item".
+    var onOpenItem: ((Item) -> Void)? = nil
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -192,9 +196,11 @@ struct SynthesisSheet: View {
                         .padding()
                         .frame(minHeight: 300)
                 } else {
-                    MarkdownTextView(markdown: draftContent)
-                        .padding()
-                        .textSelection(.enabled)
+                    MarkdownTextView(markdown: draftContent) { title in
+                        handleWikiLinkTap(title)
+                    }
+                    .padding()
+                    .textSelection(.enabled)
                 }
             }
         }
@@ -269,7 +275,28 @@ struct SynthesisSheet: View {
             item.metadata["isAIEdited"] = "true"
         }
 
+        // Synthesis drafts may contain [[wiki links]] — turn them into connections.
+        // Dedupes against the source-item connections createSynthesisItem already made.
+        WikiLinkSync.sync(item: item, modelContext: modelContext)
+
         onCreated(item)
         dismiss()
+    }
+
+    /// Mirrors the wiki-link tap pattern in `ChatMessageBubble` /
+    /// `DialecticalChatViewModel.navigateToItemByTitle`: trim, resolve the title
+    /// case-insensitively, then navigate. The sheet is dismissed first so the
+    /// destination view is not obscured.
+    private func handleWikiLinkTap(_ title: String) {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else { return }
+
+        let allItems: [Item] = modelContext.fetchAll()
+        guard let target = allItems.first(where: {
+            $0.title.localizedCaseInsensitiveCompare(trimmedTitle) == .orderedSame
+        }) else { return }
+
+        dismiss()
+        (onOpenItem ?? onCreated)(target)
     }
 }

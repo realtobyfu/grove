@@ -161,6 +161,9 @@ struct NoteWriterPanelView: View {
             editingItem.content = noteContent
             editingItem.updatedAt = .now
             try? modelContext.save()
+            // The editor runs with `sourceItem: nil`, so autocomplete never creates
+            // connections here — sync typed [[wiki links]] into connections on save.
+            WikiLinkSync.sync(item: editingItem, modelContext: modelContext)
             onCreated?(editingItem)
         } else {
             let board: Board? = currentBoardID.flatMap { id in
@@ -173,6 +176,7 @@ struct NoteWriterPanelView: View {
             modelContext.insert(note)
             if let board { note.boards.append(board) }
             try? modelContext.save()
+            WikiLinkSync.sync(item: note, modelContext: modelContext)
             onCreated?(note)
         }
     }

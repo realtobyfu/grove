@@ -116,6 +116,7 @@ struct ReflectionsListPanel: View {
                         vm.blockToDelete = blk
                     },
                     onNavigateToItemByTitle: { vm.navigateToItemByTitle($0) },
+                    onHighlightTap: vm.articleURL != nil ? { vm.jumpToHighlight($0) } : nil,
                     modelContext: vm.modelContext
                 )
             }
@@ -228,6 +229,7 @@ struct InlineReflectionsSection: View {
                             vm.blockToDelete = blk
                         },
                         onNavigateToItemByTitle: { vm.navigateToItemByTitle($0) },
+                        onHighlightTap: vm.articleURL != nil ? { vm.jumpToHighlight($0) } : nil,
                         modelContext: vm.modelContext
                     )
                 }

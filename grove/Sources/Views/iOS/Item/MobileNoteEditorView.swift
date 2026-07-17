@@ -128,6 +128,7 @@ struct MobileNoteEditorView: View {
         item.content = content
         item.updatedAt = .now
         try? modelContext.save()
+        WikiLinkSync.sync(item: item, modelContext: modelContext)
     }
 
     private func toggleBoard(_ board: Board) {

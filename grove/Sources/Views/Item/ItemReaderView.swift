@@ -39,6 +39,27 @@ struct ItemReaderView: View {
                 singleColumnLayout(vm: vm)
             }
         }
+        .overlay(alignment: .bottom) {
+            // Native-content highlight actions. The web panel shows its own
+            // bar internally, so this only covers non-web selections.
+            if !vm.showArticleWebView, let selection = nativeSelection(vm) {
+                HighlightActionBar(
+                    onHighlight: { vm.addHighlight(selection) },
+                    onHighlightAndReflect: {
+                        vm.webSelectedText = nil
+                        vm.openReflectionEditor(
+                            type: .keyInsight,
+                            content: "",
+                            highlight: selection,
+                            focusTrigger: focusReflectionEditor
+                        )
+                    }
+                )
+                .padding(.bottom, 20)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: nativeSelection(vm) != nil)
         .onAppear {
             vm.backfillThumbnailIfNeeded()
         }
@@ -248,7 +269,7 @@ struct ItemReaderView: View {
 
                 if let content = vm.item.content, !content.isEmpty {
                     Divider()
-                    SelectableMarkdownView(markdown: content)
+                    SelectableMarkdownView(markdown: content, onSelectText: { vm.webSelectedText = $0 })
                 }
             }
         } else if vm.isEditingContent && (vm.item.type == .note || (vm.item.type == .article && vm.item.metadata["hasLLMOverview"] == "true")) {
@@ -275,7 +296,7 @@ struct ItemReaderView: View {
                 .padding(.bottom, 4)
             }
 
-            SelectableMarkdownView(markdown: content)
+            SelectableMarkdownView(markdown: content, onSelectText: { vm.webSelectedText = $0 })
         } else {
             Text("No content available.")
                 .font(.groveBody)
@@ -329,7 +350,7 @@ struct ItemReaderView: View {
 
                 // Highlight preview (if reflecting on selection)
                 if let highlight = block.highlight, !highlight.isEmpty {
-                    HStack(spacing: 0) {
+                    let quote = HStack(spacing: 0) {
                         Rectangle()
                             .fill(Color.borderPrimary)
                             .frame(width: 2)
@@ -338,6 +359,23 @@ struct ItemReaderView: View {
                             .foregroundStyle(Color.textTertiary)
                             .lineLimit(3)
                             .padding(.leading, 10)
+                    }
+
+                    Group {
+                        if vm.articleURL != nil {
+                            Button {
+                                vm.jumpToHighlight(highlight)
+                            } label: {
+                                quote
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .help("Show in source")
+                            .accessibilityLabel("Show highlight in source")
+                        } else {
+                            quote
+                        }
                     }
                     .padding(.horizontal, 40)
                     .padding(.bottom, 12)
@@ -366,6 +404,15 @@ struct ItemReaderView: View {
 
     private func focusReflectionEditor() {
         isNewReflectionFocused = true
+    }
+
+    // MARK: - Selection Helper
+
+    /// Non-empty trimmed native-content selection, or nil.
+    private func nativeSelection(_ vm: ItemReaderViewModel) -> String? {
+        guard let text = vm.webSelectedText?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty else { return nil }
+        return text
     }
 }
 

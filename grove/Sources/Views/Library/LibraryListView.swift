@@ -1,7 +1,9 @@
 import SwiftUI
+import SwiftData
 
 /// The main list of items in the library with multi-select support.
 struct LibraryListView: View {
+    @Environment(\.modelContext) private var modelContext
     let displayedItems: [Item]
     let searchQuery: String
     let isMultiSelectMode: Bool
@@ -90,9 +92,27 @@ struct LibraryListView: View {
             Label("Discuss", systemImage: "bubble.left.and.bubble.right")
         }
         Divider()
+        Button {
+            toggleArchive(for: item)
+        } label: {
+            Label(item.status == .archived ? "Unarchive" : "Archive",
+                  systemImage: item.status == .archived ? "tray.and.arrow.up" : "archivebox")
+        }
         Button("Delete Item", role: .destructive) {
             onDeleteRequest(item)
         }
+    }
+
+    /// Archive an active item, or restore an archived one to active.
+    private func toggleArchive(for item: Item) {
+        let archiving = item.status != .archived
+        item.status = archiving ? .archived : .active
+        item.updatedAt = .now
+        if archiving {
+            if selectedItem?.id == item.id { selectedItem = nil }
+            if openedItem?.id == item.id { openedItem = nil }
+        }
+        try? modelContext.save()
     }
 
     // MARK: - Empty State

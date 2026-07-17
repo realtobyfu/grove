@@ -8,6 +8,9 @@ struct ReflectionBlockRow: View {
     var onEdit: (ReflectionBlock) -> Void
     var onDelete: (ReflectionBlock) -> Void
     var onNavigateToItemByTitle: (String) -> Void
+    /// Jump to the highlighted passage in the source (nil when the item has
+    /// no web-readable source to scroll).
+    var onHighlightTap: ((String) -> Void)? = nil
     var modelContext: ModelContext
 
     @State private var isHovered = false
@@ -80,7 +83,7 @@ struct ReflectionBlockRow: View {
 
             // Highlight (linked source text)
             if let highlight = block.highlight, !highlight.isEmpty {
-                HStack(spacing: 0) {
+                let quote = HStack(spacing: 0) {
                     Rectangle()
                         .fill(Color.borderPrimary)
                         .frame(width: 2)
@@ -91,6 +94,21 @@ struct ReflectionBlockRow: View {
                         .padding(.vertical, 4)
                 }
                 .padding(.leading, 4)
+
+                if let onHighlightTap {
+                    Button {
+                        onHighlightTap(highlight)
+                    } label: {
+                        quote
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Show in source")
+                    .accessibilityLabel("Show highlight in source")
+                } else {
+                    quote
+                }
             }
 
             // Content -- click to edit

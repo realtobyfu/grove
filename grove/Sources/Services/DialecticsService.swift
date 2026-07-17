@@ -604,6 +604,7 @@ final class DialecticsService: DialecticsServiceProtocol {
         item.reflections.append(block)
         conversation.createdReflections.append(block)
         try? context.save()
+        WikiLinkSync.sync(item: item, content: content, modelContext: context)
         return block
     }
 

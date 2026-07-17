@@ -110,6 +110,12 @@ struct ItemReaderHeaderView: View {
                     .font(.groveMeta)
                     .foregroundStyle(Color.textTertiary)
 
+                if let readTime = vm.item.metadata["readTimeMinutes"], !readTime.isEmpty {
+                    Label("\(readTime) min read", systemImage: "clock")
+                        .font(.groveMeta)
+                        .foregroundStyle(Color.textTertiary)
+                }
+
                 Spacer()
 
                 HStack(spacing: 4) {

@@ -2,6 +2,41 @@ import SwiftUI
 import SwiftData
 import Combine
 
+// MARK: - Library Sort Option
+
+/// User-selectable sort order for the library list.
+/// Search-result ranking (fuzzy score) is unaffected.
+enum LibrarySortOption: String, CaseIterable, Identifiable {
+    case recentlyUpdated
+    case dateAdded
+    case titleAZ
+    case depth
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .recentlyUpdated: "Recently updated"
+        case .dateAdded: "Date added"
+        case .titleAZ: "Title A\u{2013}Z"
+        case .depth: "Depth"
+        }
+    }
+
+    func sorted(_ items: [Item]) -> [Item] {
+        switch self {
+        case .recentlyUpdated:
+            items.sorted { $0.updatedAt > $1.updatedAt }
+        case .dateAdded:
+            items.sorted { $0.createdAt > $1.createdAt }
+        case .titleAZ:
+            items.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        case .depth:
+            items.sorted { $0.depthScore > $1.depthScore }
+        }
+    }
+}
+
 // MARK: - LibraryView
 
 /// Full library: persistent search bar + all items in reverse-chronological order.
@@ -21,12 +56,16 @@ struct LibraryView: View {
     @State private var filteredResults: [Item] = []
     @State private var isSearching = false
     @State private var showingRevisitFilter = false
+    @State private var showingArchived = false
     @State private var itemToDelete: Item?
+
+    @AppStorage("librarySortOption") private var sortOption: LibrarySortOption = .recentlyUpdated
 
     // Multi-select state
     @State private var isMultiSelectMode = false
     @State private var selectedIDs: Set<UUID> = []
     @State private var showBoardPicker = false
+    @State private var showBulkDeleteConfirm = false
 
     // MARK: - Computed
 
@@ -45,14 +84,25 @@ struct LibraryView: View {
         if showingRevisitFilter {
             return overdueItems
         }
-        guard let boardID = selectedBoardID,
-              let board = allBoards.first(where: { $0.id == boardID }) else {
-            return allItems.filter { $0.status == .active || $0.status == .inbox }
+        let base: [Item]
+        if let boardID = selectedBoardID,
+           let board = allBoards.first(where: { $0.id == boardID }) {
+            base = board.isSmart
+                ? BoardViewModel.smartBoardItems(for: board, from: allItems)
+                : board.items
+        } else {
+            base = allItems
         }
-        if board.isSmart {
-            return BoardViewModel.smartBoardItems(for: board, from: allItems)
+        let statusFiltered: [Item]
+        if showingArchived {
+            statusFiltered = base.filter { $0.status == .archived }
+        } else if selectedBoardID != nil {
+            // Board views keep their historical status behavior, minus archived
+            statusFiltered = base.filter { $0.status != .archived }
+        } else {
+            statusFiltered = base.filter { $0.status == .active || $0.status == .inbox }
         }
-        return board.items.sorted { $0.updatedAt > $1.updatedAt }
+        return sortOption.sorted(statusFiltered)
     }
 
     /// Displayed items: search-filtered or default
@@ -73,6 +123,14 @@ struct LibraryView: View {
             } message: {
                 Text("\"\(itemToDelete?.title ?? "")\" will be permanently deleted.")
             }
+            .alert("Delete \(selectedIDs.count) Items", isPresented: $showBulkDeleteConfirm) {
+                Button("Cancel", role: .cancel) {}
+                Button("Delete", role: .destructive) {
+                    performBulkDelete()
+                }
+            } message: {
+                Text("The selected items will be permanently deleted.")
+            }
             .sheet(isPresented: $showBoardPicker) {
                 boardPickerSheet
             }
@@ -82,6 +140,7 @@ struct LibraryView: View {
         VStack(spacing: 0) {
             LibrarySearchBar(
                 searchQuery: $searchQuery,
+                sortOption: $sortOption,
                 isSearching: isSearching,
                 isMultiSelectMode: isMultiSelectMode,
                 onToggleMultiSelect: {
@@ -104,10 +163,11 @@ struct LibraryView: View {
                 )
             }
 
-            if !allBoards.isEmpty && !showingRevisitFilter {
+            if !showingRevisitFilter {
                 LibraryBoardFilterBar(
                     boards: allBoards,
-                    selectedBoardID: $selectedBoardID
+                    selectedBoardID: $selectedBoardID,
+                    showingArchived: $showingArchived
                 )
             }
 
@@ -144,6 +204,9 @@ struct LibraryView: View {
         .onChange(of: selectedBoardID) { _, _ in
             scheduleSearch(query: searchQuery)
         }
+        .onChange(of: showingArchived) { _, _ in
+            scheduleSearch(query: searchQuery)
+        }
         .onChange(of: allItems.count) { _, _ in
             scheduleSearch(query: searchQuery)
         }
@@ -151,16 +214,6 @@ struct LibraryView: View {
             guard isMultiSelectMode else { return .ignored }
             exitMultiSelect()
             return .handled
-        }
-        .background {
-            // Hidden button to capture Cmd+Shift+M
-            Button("") {
-                if isMultiSelectMode && !selectedIDs.isEmpty {
-                    showBoardPicker = true
-                }
-            }
-            .keyboardShortcut("m", modifiers: [.command, .shift])
-            .hidden()
         }
     }
 
@@ -214,6 +267,35 @@ struct LibraryView: View {
         exitMultiSelect()
     }
 
+    /// Currently selected items in multi-select mode
+    private var selectedItems: [Item] {
+        displayedItems.filter { selectedIDs.contains($0.id) }
+    }
+
+    private func performBulkArchive() {
+        let newStatus: ItemStatus = showingArchived ? .active : .archived
+        for item in selectedItems {
+            item.status = newStatus
+            item.updatedAt = .now
+            if newStatus == .archived {
+                if selectedItem?.id == item.id { selectedItem = nil }
+                if openedItem?.id == item.id { openedItem = nil }
+            }
+        }
+        try? modelContext.save()
+        exitMultiSelect()
+    }
+
+    private func performBulkDelete() {
+        for item in selectedItems {
+            if selectedItem?.id == item.id { selectedItem = nil }
+            if openedItem?.id == item.id { openedItem = nil }
+            modelContext.delete(item)
+        }
+        try? modelContext.save()
+        exitMultiSelect()
+    }
+
     // MARK: - Multi-Select Toolbar
 
     private var multiSelectToolbar: some View {
@@ -234,6 +316,26 @@ struct LibraryView: View {
                 Label("Move to Board\u{2026}", systemImage: "folder")
                     .font(.groveBodySmall)
                     .foregroundStyle(Color.textPrimary)
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("m", modifiers: [.command, .shift])
+
+            Button {
+                performBulkArchive()
+            } label: {
+                Label(showingArchived ? "Unarchive" : "Archive",
+                      systemImage: showingArchived ? "tray.and.arrow.up" : "archivebox")
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textPrimary)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                showBulkDeleteConfirm = true
+            } label: {
+                Label("Delete", systemImage: "trash")
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textSecondary)
             }
             .buttonStyle(.plain)
 

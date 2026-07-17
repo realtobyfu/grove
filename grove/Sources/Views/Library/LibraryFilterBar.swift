@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// Search bar for the library with text field and multi-select toggle.
+/// Search bar for the library with text field, sort menu, and multi-select toggle.
 struct LibrarySearchBar: View {
     @Binding var searchQuery: String
+    @Binding var sortOption: LibrarySortOption
     let isSearching: Bool
     let isMultiSelectMode: Bool
     let onToggleMultiSelect: () -> Void
@@ -30,6 +31,24 @@ struct LibrarySearchBar: View {
                 .buttonStyle(.plain)
             }
 
+            // Sort order menu
+            Menu {
+                Picker("Sort by", selection: $sortOption) {
+                    ForEach(LibrarySortOption.allCases) { option in
+                        Text(option.label).tag(option)
+                    }
+                }
+            } label: {
+                Image(systemName: "arrow.up.arrow.down")
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textSecondary)
+            }
+            .menuIndicator(.hidden)
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .fixedSize()
+            .help("Sort: \(sortOption.label)")
+
             // Select mode toggle
             Button {
                 onToggleMultiSelect()
@@ -50,6 +69,7 @@ struct LibrarySearchBar: View {
 struct LibraryBoardFilterBar: View {
     let boards: [Board]
     @Binding var selectedBoardID: UUID?
+    @Binding var showingArchived: Bool
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -60,11 +80,43 @@ struct LibraryBoardFilterBar: View {
                 ForEach(boards) { board in
                     boardChip(title: board.title, boardID: board.id)
                 }
+
+                Divider()
+                    .frame(height: 16)
+
+                archivedChip
             }
             .padding(.horizontal, Spacing.md)
             .padding(.vertical, Spacing.sm)
         }
         .background(Color.bgPrimary)
+    }
+
+    /// Toggle chip that switches the list to archived items.
+    private var archivedChip: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                showingArchived.toggle()
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "archivebox")
+                    .font(.groveMeta)
+                Text("Archived")
+                    .font(.groveTag)
+            }
+            .foregroundStyle(showingArchived ? Color.textInverse : Color.textSecondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(showingArchived ? Color.bgTagActive : Color.bgCard)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .overlay(
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(showingArchived ? Color.clear : Color.borderTag, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .help(showingArchived ? "Show active items" : "Show archived items")
     }
 
     private func boardChip(title: String, boardID: UUID?) -> some View {

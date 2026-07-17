@@ -6,7 +6,6 @@ enum SidebarItem: Hashable, Codable {
     case inbox
     case library
     case board(UUID)
-    case graph
     case course(UUID)
     case settings
 
@@ -17,7 +16,6 @@ enum SidebarItem: Hashable, Codable {
         case .inbox: "inbox"
         case .library: "library"
         case .board(let id): "board:\(id.uuidString)"
-        case .graph: "graph"
         case .course(let id): "course:\(id.uuidString)"
         case .settings: "settings"
         }
@@ -28,7 +26,6 @@ enum SidebarItem: Hashable, Codable {
         if sceneStorageValue == "home" { self = .home }
         else if sceneStorageValue == "inbox" { self = .inbox }
         else if sceneStorageValue == "library" { self = .library }
-        else if sceneStorageValue == "graph" { self = .graph }
         else if sceneStorageValue == "settings" { self = .settings }
         else if sceneStorageValue.hasPrefix("board:"),
                 let uuid = UUID(uuidString: String(sceneStorageValue.dropFirst(6))) {
@@ -375,7 +372,10 @@ struct ContentView: View {
                 LayoutSettings.setWidth(width, for: .contentInspector)
             }
             if let inspectorItem = viewModel.selectedItem ?? viewModel.openedItem {
-                InspectorPanelView(item: inspectorItem)
+                InspectorPanelView(item: inspectorItem, onNavigateToItem: { target in
+                    vm.selectedItem = target
+                    vm.openedItem = target
+                })
                     .frame(width: widthBinding.wrappedValue)
                     .transition(.move(edge: .trailing))
             } else {
@@ -408,8 +408,6 @@ struct ContentView: View {
                 } else {
                     PlaceholderView(icon: "square.grid.2x2", title: "Board", message: "Board not found.")
                 }
-            case .graph:
-                GraphVisualizationView(selectedItem: $vm.selectedItem, openedItem: $vm.openedItem)
             case .course(let courseID):
                 if let course = courses.first(where: { $0.id == courseID }) {
                     CourseDetailView(course: course, selectedItem: $vm.selectedItem, openedItem: $vm.openedItem)
