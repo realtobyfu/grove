@@ -17,14 +17,15 @@ final class FeedSource {
         feedURL: String,
         domain: String,
         title: String? = nil,
-        isAutoDiscovered: Bool = true
+        isAutoDiscovered: Bool = true,
+        isEnabled: Bool = true
     ) {
         self.id = UUID()
         self.feedURL = feedURL
         self.domain = domain
         self.title = title
         self.lastFetchedAt = nil
-        self.isEnabled = true
+        self.isEnabled = isEnabled
         self.isAutoDiscovered = isAutoDiscovered
         self.errorCount = 0
         self.createdAt = .now

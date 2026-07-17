@@ -1,0 +1,162 @@
+[
+  {
+    "id": "ios-dev-weekly",
+    "title": "iOS Dev Weekly",
+    "feedURL": "https://iosdevweekly.com/issues.rss",
+    "siteURL": "https://iosdevweekly.com",
+    "topics": ["ios", "swift"],
+    "blurb": "Dave Verwer's hand-picked round-up of the best iOS development links, every Friday."
+  },
+  {
+    "id": "swiftlee",
+    "title": "SwiftLee",
+    "feedURL": "https://www.avanderlee.com/feed/",
+    "siteURL": "https://www.avanderlee.com",
+    "topics": ["swift", "ios"],
+    "blurb": "Weekly articles from Antoine van der Lee on Swift, SwiftUI, and workflow tips for app developers."
+  },
+  {
+    "id": "swift-by-sundell",
+    "title": "Swift by Sundell",
+    "feedURL": "https://www.swiftbysundell.com/rss",
+    "siteURL": "https://www.swiftbysundell.com",
+    "topics": ["swift", "ios"],
+    "blurb": "John Sundell's in-depth articles and podcasts about Swift and software craftsmanship."
+  },
+  {
+    "id": "nshipster",
+    "title": "NSHipster",
+    "feedURL": "https://nshipster.com/feed.xml",
+    "siteURL": "https://nshipster.com",
+    "topics": ["ios", "swift", "engineering"],
+    "blurb": "A journal of the overlooked bits in Swift, Objective-C, and the Apple platforms."
+  },
+  {
+    "id": "hacking-with-swift",
+    "title": "Hacking with Swift",
+    "feedURL": "https://www.hackingwithswift.com/articles/rss",
+    "siteURL": "https://www.hackingwithswift.com",
+    "topics": ["swift", "ios"],
+    "blurb": "Paul Hudson's articles and tutorials covering the full breadth of Swift and SwiftUI."
+  },
+  {
+    "id": "pragmatic-engineer",
+    "title": "The Pragmatic Engineer",
+    "feedURL": "https://newsletter.pragmaticengineer.com/feed",
+    "siteURL": "https://newsletter.pragmaticengineer.com",
+    "topics": ["engineering", "product"],
+    "blurb": "Gergely Orosz on big tech and startups, from the perspective of engineers and engineering leaders."
+  },
+  {
+    "id": "tidy-first",
+    "title": "Tidy First?",
+    "feedURL": "https://tidyfirst.substack.com/feed",
+    "siteURL": "https://tidyfirst.substack.com",
+    "topics": ["engineering", "writing"],
+    "blurb": "Kent Beck's essays on software design, incremental change, and the economics of code."
+  },
+  {
+    "id": "frontend-focus",
+    "title": "Frontend Focus",
+    "feedURL": "https://frontendfoc.us/rss",
+    "siteURL": "https://frontendfoc.us",
+    "topics": ["web", "engineering", "design"],
+    "blurb": "A weekly round-up of HTML, CSS, and browser platform news for frontend developers."
+  },
+  {
+    "id": "javascript-weekly",
+    "title": "JavaScript Weekly",
+    "feedURL": "https://javascriptweekly.com/rss",
+    "siteURL": "https://javascriptweekly.com",
+    "topics": ["web", "engineering"],
+    "blurb": "The big stories and useful tools of the JavaScript world, curated weekly."
+  },
+  {
+    "id": "lennys-newsletter",
+    "title": "Lenny's Newsletter",
+    "feedURL": "https://www.lennysnewsletter.com/feed",
+    "siteURL": "https://www.lennysnewsletter.com",
+    "topics": ["product", "business"],
+    "blurb": "Lenny Rachitsky's weekly advice column on product, growth, and building a career in tech."
+  },
+  {
+    "id": "stratechery",
+    "title": "Stratechery",
+    "feedURL": "https://stratechery.com/feed/",
+    "siteURL": "https://stratechery.com",
+    "topics": ["business", "product"],
+    "blurb": "Ben Thompson's analysis of the strategy and business side of technology and media."
+  },
+  {
+    "id": "benedict-evans",
+    "title": "Benedict Evans",
+    "feedURL": "https://www.ben-evans.com/benedictevans?format=rss",
+    "siteURL": "https://www.ben-evans.com",
+    "topics": ["business", "ai"],
+    "blurb": "Essays on what matters in tech and where it's going, from analyst Benedict Evans."
+  },
+  {
+    "id": "import-ai",
+    "title": "Import AI",
+    "feedURL": "https://importai.substack.com/feed",
+    "siteURL": "https://importai.substack.com",
+    "topics": ["ai"],
+    "blurb": "Jack Clark's weekly digest of the most important AI research, policy, and industry news."
+  },
+  {
+    "id": "simon-willison",
+    "title": "Simon Willison's Weblog",
+    "feedURL": "https://simonwillison.net/atom/everything/",
+    "siteURL": "https://simonwillison.net",
+    "topics": ["ai", "engineering"],
+    "blurb": "Prolific notes and experiments on LLMs, open source, and practical AI engineering."
+  },
+  {
+    "id": "one-useful-thing",
+    "title": "One Useful Thing",
+    "feedURL": "https://www.oneusefulthing.org/feed",
+    "siteURL": "https://www.oneusefulthing.org",
+    "topics": ["ai", "writing"],
+    "blurb": "Ethan Mollick's research-grounded takes on how AI actually changes work and education."
+  },
+  {
+    "id": "latent-space",
+    "title": "Latent Space",
+    "feedURL": "https://www.latent.space/feed",
+    "siteURL": "https://www.latent.space",
+    "topics": ["ai", "engineering"],
+    "blurb": "The AI engineer newsletter and podcast: technical deep dives on building with foundation models."
+  },
+  {
+    "id": "dense-discovery",
+    "title": "Dense Discovery",
+    "feedURL": "https://www.densediscovery.com/feed/",
+    "siteURL": "https://www.densediscovery.com",
+    "topics": ["design", "thinking"],
+    "blurb": "A thoughtful weekly on design, technology, and sustainable, attention-respecting culture."
+  },
+  {
+    "id": "smashing-magazine",
+    "title": "Smashing Magazine",
+    "feedURL": "https://www.smashingmagazine.com/feed/",
+    "siteURL": "https://www.smashingmagazine.com",
+    "topics": ["design", "web"],
+    "blurb": "Practical articles on UX, interface design, and frontend techniques for web makers."
+  },
+  {
+    "id": "ness-labs",
+    "title": "Ness Labs",
+    "feedURL": "https://nesslabs.com/feed",
+    "siteURL": "https://nesslabs.com",
+    "topics": ["thinking", "writing"],
+    "blurb": "Anne-Laure Le Cunff on mindful productivity, note-taking, and thinking in public."
+  },
+  {
+    "id": "farnam-street",
+    "title": "Farnam Street",
+    "feedURL": "https://fs.blog/feed/",
+    "siteURL": "https://fs.blog",
+    "topics": ["thinking", "writing"],
+    "blurb": "Timeless mental models and ideas for clearer thinking and better decisions."
+  }
+]

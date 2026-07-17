@@ -5,8 +5,11 @@ struct QuickCapturePanel: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @State private var linkText = ""
-    @State private var showInvalidLink = false
     @FocusState private var isFocused: Bool
+
+    private var trimmedInput: String {
+        linkText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     private var validLink: String? {
         normalizedLink(from: linkText)
@@ -15,10 +18,10 @@ struct QuickCapturePanel: View {
     var body: some View {
         VStack(spacing: Spacing.md) {
             HStack(spacing: Spacing.sm) {
-                Image(systemName: "link")
+                Image(systemName: "square.and.pencil")
                     .font(.groveItemTitle)
                     .foregroundStyle(Color.textSecondary)
-                Text("Paste a Link")
+                Text("Quick Capture")
                     .font(.groveBodyMedium)
                 Spacer()
                 Button {
@@ -34,15 +37,12 @@ struct QuickCapturePanel: View {
             }
 
             HStack(spacing: Spacing.sm) {
-                TextField("https://example.com", text: $linkText)
+                TextField("Paste a link or jot a note", text: $linkText)
                     .textFieldStyle(.plain)
                     .font(.groveBody)
                     .focused($isFocused)
                     .onSubmit {
                         capture()
-                    }
-                    .onChange(of: linkText) { _, _ in
-                        showInvalidLink = false
                     }
 
                 Button {
@@ -50,11 +50,11 @@ struct QuickCapturePanel: View {
                 } label: {
                     Image(systemName: "arrow.right.circle.fill")
                         .font(.groveBody)
-                        .foregroundStyle(validLink == nil ? Color.textTertiary : Color.textSecondary)
+                        .foregroundStyle(trimmedInput.isEmpty ? Color.textTertiary : Color.textSecondary)
                 }
                 .buttonStyle(.plain)
-                .disabled(validLink == nil)
-                .accessibilityLabel("Capture link")
+                .disabled(trimmedInput.isEmpty)
+                .accessibilityLabel("Capture")
             }
             .padding(Spacing.sm)
             .background(Color.bgInput)
@@ -64,7 +64,7 @@ struct QuickCapturePanel: View {
                     .stroke(Color.borderInput, lineWidth: 1)
             )
 
-            Text(showInvalidLink ? "Enter a valid http(s) link." : "Press Return to capture.")
+            Text("Press Return to capture. Links become articles, everything else a note.")
                 .font(.groveMeta)
                 .foregroundStyle(Color.textTertiary)
         }
@@ -76,16 +76,15 @@ struct QuickCapturePanel: View {
     }
 
     private func capture() {
-        guard let validLink else {
-            showInvalidLink = true
-            return
-        }
+        guard !trimmedInput.isEmpty else { return }
 
+        // URL fast path: normalized http(s) links capture exactly as before;
+        // anything else is saved as a note.
+        let input = validLink ?? trimmedInput
         let captureService = CaptureService(modelContext: modelContext)
-        _ = captureService.captureItem(input: validLink)
+        _ = captureService.captureItemDetailed(input: input)
 
         linkText = ""
-        showInvalidLink = false
         dismiss()
     }
 

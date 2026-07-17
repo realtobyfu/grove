@@ -31,11 +31,17 @@ final class FeedDiscoveryService {
             guard processed < Self.maxDomainsPerCycle else { break }
 
             if let feeds = await fetchFeedLinks(for: domain) {
-                for feed in feeds where !existingFeedURLs.contains(feed.url) {
+                for feed in feeds
+                where !existingFeedURLs.contains(feed.url)
+                    && !FeedPreferencesStore.isDiscoveryDismissed(feed.url) {
+                    // Discovered feeds are suggestions, not silent subscriptions:
+                    // they stay disabled until the user subscribes in Settings.
                     let source = FeedSource(
                         feedURL: feed.url,
                         domain: domain,
-                        title: feed.title
+                        title: feed.title,
+                        isAutoDiscovered: true,
+                        isEnabled: false
                     )
                     context.insert(source)
                 }

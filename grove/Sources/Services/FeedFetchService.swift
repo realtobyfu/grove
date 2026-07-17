@@ -39,14 +39,14 @@ final class FeedFetchService {
         }
         guard let sources = try? context.fetch(descriptor) else { return }
 
-        let existingURLs = existingSuggestedURLs(in: context)
+        var existingURLs = existingSuggestedURLs(in: context)
         var totalCreated = 0
 
         for source in sources {
             guard source.errorCount < Self.maxErrorCount else { continue }
             guard totalCreated < Self.maxNewSuggestionsPerCycle else { break }
 
-            let created = await fetchFeed(source, existingURLs: existingURLs, in: context)
+            let created = await fetchFeed(source, existingURLs: &existingURLs, in: context)
             totalCreated += created
         }
 
@@ -55,7 +55,7 @@ final class FeedFetchService {
 
     private func fetchFeed(
         _ source: FeedSource,
-        existingURLs: Set<String>,
+        existingURLs: inout Set<String>,
         in context: ModelContext
     ) async -> Int {
         guard let url = URL(string: source.feedURL) else {
@@ -80,16 +80,21 @@ final class FeedFetchService {
 
         // Update feed title if we don't have one yet
         if source.title == nil {
-            source.title = extractFeedTitle(from: data)
+            source.title = Self.extractFeedTitle(from: data)
         }
 
         let articles = FeedParserService.parse(data: data)
         var created = 0
 
+        // Sources the user consistently dismisses (and never keeps) are
+        // throttled to a single new suggestion per cycle.
+        let perFeedCap = FeedPreferencesStore.isThrottled(sourceID: source.id)
+            ? 1
+            : Self.maxNewSuggestionsPerFeed
+
         for article in articles {
-            guard created < Self.maxNewSuggestionsPerFeed else { break }
+            guard created < perFeedCap else { break }
             guard !existingURLs.contains(article.url) else { continue }
-            guard !isDuplicate(url: article.url, in: context) else { continue }
 
             let item = Item(title: article.title, type: .article)
             item.sourceURL = article.url
@@ -107,6 +112,7 @@ final class FeedFetchService {
             }
 
             context.insert(item)
+            existingURLs.insert(article.url)
             created += 1
         }
 
@@ -115,16 +121,12 @@ final class FeedFetchService {
 
     // MARK: - Deduplication
 
+    /// All source URLs already in the library. Built once per refresh cycle;
+    /// URLs created during the cycle are appended by the caller.
     private func existingSuggestedURLs(in context: ModelContext) -> Set<String> {
         let descriptor = FetchDescriptor<Item>()
         guard let items = try? context.fetch(descriptor) else { return [] }
         return Set(items.compactMap(\.sourceURL))
-    }
-
-    private func isDuplicate(url: String, in context: ModelContext) -> Bool {
-        let descriptor = FetchDescriptor<Item>()
-        guard let items = try? context.fetch(descriptor) else { return false }
-        return items.contains { $0.sourceURL == url }
     }
 
     // MARK: - Expiration
@@ -145,7 +147,7 @@ final class FeedFetchService {
 
     // MARK: - Feed Title Extraction
 
-    private func extractFeedTitle(from data: Data) -> String? {
+    nonisolated static func extractFeedTitle(from data: Data) -> String? {
         // Simple extraction: parse as feed and grab the first non-item title
         // This is a lightweight approach; FeedParserService focuses on items
         guard let xmlString = String(data: data, encoding: .utf8) else { return nil }
