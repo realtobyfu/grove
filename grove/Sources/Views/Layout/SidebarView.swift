@@ -129,9 +129,6 @@ struct SidebarView: View {
                         Label("New Course", systemImage: "plus")
                     }
                     .buttonStyle(.plain)
-
-                    Label("Graph", systemImage: "point.3.connected.trianglepath.dotted")
-                        .tag(SidebarItem.graph)
                 } label: {
                     Label("More", systemImage: "ellipsis.circle")
                 }

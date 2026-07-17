@@ -126,12 +126,6 @@ struct iPadSidebarView: View {
                 }
             }
 
-            // MARK: - Graph
-            Section {
-                Label("Graph", systemImage: "point.3.connected.trianglepath.dotted")
-                    .tag(SidebarItem.graph)
-            }
-
             // MARK: - Settings (bottom)
             Section {
                 Label("Settings", systemImage: "gearshape")

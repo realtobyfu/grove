@@ -86,50 +86,6 @@ struct NudgeSettings: Sendable {
         }
     }
 
-    // MARK: - Smart Nudge Dismissed Tracking (Legacy)
-
-    private static let smartNudgeDismissedKey = "nudge.smart.dismissed"
-
-    /// Retained for compatibility with historical smart nudge records.
-    static func recordSmartDismissal(type: NudgeType, itemID: UUID?) {
-        var entries = smartDismissedEntries()
-        entries.append(SmartDismissEntry(
-            type: type.rawValue,
-            itemID: itemID?.uuidString,
-            date: Date.now.timeIntervalSince1970
-        ))
-        if let data = try? JSONEncoder().encode(entries) {
-            defaults.set(data, forKey: smartNudgeDismissedKey)
-        }
-    }
-
-    /// Retained for compatibility with historical smart nudge records.
-    static func isSmartNudgeDismissed(type: NudgeType, itemID: UUID?) -> Bool {
-        let thirtyDaysAgo = Date.now.timeIntervalSince1970 - (30 * 24 * 3600)
-        return smartDismissedEntries().contains { entry in
-            entry.type == type.rawValue &&
-            entry.itemID == itemID?.uuidString &&
-            entry.date > thirtyDaysAgo
-        }
-    }
-
-    private static func smartDismissedEntries() -> [SmartDismissEntry] {
-        guard let data = defaults.data(forKey: smartNudgeDismissedKey),
-              let entries = try? JSONDecoder().decode([SmartDismissEntry].self, from: data)
-        else { return [] }
-        return entries
-    }
-
-    // MARK: - Weekly Digest Metadata (Manual-Only)
-
-    private static let digestLastGeneratedAtKey = "digest.lastGeneratedAt"
-
-    /// Timestamp of the last digest generation (TimeInterval since 1970). Default: 0 (never).
-    static var digestLastGeneratedAt: TimeInterval {
-        get { defaults.double(forKey: digestLastGeneratedAtKey) }
-        set { defaults.set(newValue, forKey: digestLastGeneratedAtKey) }
-    }
-
     // MARK: - Analytics Keys
 
     private static let analyticsKey = "nudge.analytics"
@@ -148,12 +104,4 @@ struct NudgeSettings: Sendable {
         let key = "\(analyticsKey).\(type.rawValue).\(suffix)"
         return defaults.integer(forKey: key)
     }
-}
-
-// MARK: - Smart Dismiss Entry
-
-private struct SmartDismissEntry: Codable {
-    let type: String
-    let itemID: String?
-    let date: TimeInterval
 }

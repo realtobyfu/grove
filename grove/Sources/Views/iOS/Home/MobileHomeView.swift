@@ -189,11 +189,13 @@ struct MobileHomeView: View {
                         nudge: nudge,
                         onOpen: {
                             nudge.status = .actedOn
+                            NudgeSettings.recordAction(type: nudge.type, actedOn: true)
                             try? modelContext.save()
                         },
                         onDismiss: {
                             withAnimation {
                                 nudge.status = .dismissed
+                                NudgeSettings.recordAction(type: nudge.type, actedOn: false)
                                 try? modelContext.save()
                             }
                         }

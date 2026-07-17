@@ -121,8 +121,6 @@ final class AutoTagService: AutoTagServiceProtocol {
             item.metadata["summary"] = String(summary.prefix(120))
         }
 
-        let connectionService = ConnectionSuggestionService(modelContext: context)
-
         // Apply suggested board
         if let suggestedBoard = parsed.suggested_board, !suggestedBoard.isEmpty {
             let boardDescriptorAll = FetchDescriptor<Board>()
@@ -147,15 +145,9 @@ final class AutoTagService: AutoTagServiceProtocol {
                     isColdStart: isColdStart
                 )
             )
-
-            // Auto-connect: find and persist high-confidence links to existing items
-            await connectionService.autoConnect(item: item, in: context)
             return
         }
 
         try? context.save()
-
-        // Auto-connect: find and persist high-confidence links to existing items
-        await connectionService.autoConnect(item: item, in: context)
     }
 }

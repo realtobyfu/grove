@@ -6,8 +6,6 @@ struct HomeDiscussionSection: View {
     @Binding var isCollapsed: Bool
     let onNewConversation: () -> Void
     let onBubbleTap: (PromptBubble) -> Void
-    var allItems: [Item] = []
-    var starterService: ConversationStarterService?
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
@@ -19,12 +17,6 @@ struct HomeDiscussionSection: View {
                 )
 
                 Spacer()
-
-                #if DEBUG
-                if let starterService {
-                    debugRefreshButton(starterService: starterService)
-                }
-                #endif
             }
 
             if !isCollapsed {
@@ -48,31 +40,4 @@ struct HomeDiscussionSection: View {
             }
         }
     }
-
-    #if DEBUG
-    private func debugRefreshButton(starterService: ConversationStarterService) -> some View {
-        Button {
-            Task {
-                await starterService.forceRefresh(items: allItems)
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "arrow.clockwise")
-                Text("Refresh")
-            }
-            .font(.groveMeta)
-            .foregroundStyle(Color.textTertiary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Color.bgCard)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-            .overlay(
-                RoundedRectangle(cornerRadius: 4)
-                    .strokeBorder(Color.borderPrimary, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .help("Force-refresh discussion suggestions (debug)")
-    }
-    #endif
 }
