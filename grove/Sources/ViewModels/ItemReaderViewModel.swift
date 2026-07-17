@@ -57,6 +57,8 @@ final class ItemReaderViewModel {
     var scrollToTextToken = 0
 
     private var lastSavedReadingProgress: Double = -1
+    /// Latest scroll fraction (not persisted every event; see updateReadingProgress).
+    private(set) var liveReadingProgress: Double = 0
 
     // MARK: - Init
 
@@ -153,6 +155,11 @@ final class ItemReaderViewModel {
     /// silently.
     func handleArticlePageDidFinish(_ webView: WKWebView) {
         guard readerArticle == nil, !readerExtractionAttempted else { return }
+        // Only extract when the finished page is actually this item's article —
+        // not a consent interstitial, redirect shell on another host, or a link
+        // the user clicked. Otherwise the wrong page gets cached under this
+        // item's ID and shown as its reader content forever.
+        guard let finished = webView.url, articleURLMatches(finished) else { return }
         readerExtractionAttempted = true
         let itemID = item.id
         Task { @MainActor in
@@ -160,8 +167,6 @@ final class ItemReaderViewModel {
                 from: webView,
                 sourceURL: webView.url
             ) else { return }
-            // Item may have changed while extraction ran.
-            guard item.id == itemID else { return }
             ArticleReaderService.shared.saveArticle(article, for: itemID)
             readerArticle = article
             item.metadata["readTimeMinutes"] = String(article.readMinutes)
@@ -170,14 +175,27 @@ final class ItemReaderViewModel {
         }
     }
 
-    /// Persists throttled reading progress (0–1) to item metadata.
+    /// Whether a finished web navigation is the item's own article, tolerating
+    /// http/https and www differences but rejecting other hosts.
+    private func articleURLMatches(_ url: URL) -> Bool {
+        guard let source = item.sourceURL,
+              let sourceHost = URL(string: source)?.host?.lowercased(),
+              let finishedHost = url.host?.lowercased() else { return false }
+        func stripWWW(_ h: String) -> String { h.hasPrefix("www.") ? String(h.dropFirst(4)) : h }
+        return stripWWW(sourceHost) == stripWWW(finishedHost)
+    }
+
+    /// Persists throttled reading progress (0–1) to item metadata. Only touches
+    /// the model past a 0.05 delta so continuous scrolling (~4 reports/sec)
+    /// doesn't dirty the Item and fan out observation invalidations on every
+    /// scroll event.
     func updateReadingProgress(_ fraction: Double) {
         let clamped = min(max(fraction, 0), 1)
+        liveReadingProgress = clamped
+        guard abs(clamped - lastSavedReadingProgress) >= 0.05 || clamped >= 0.995 else { return }
+        lastSavedReadingProgress = clamped
         item.metadata["readingProgress"] = String(format: "%.3f", clamped)
-        if abs(clamped - lastSavedReadingProgress) >= 0.05 || clamped >= 0.995 {
-            lastSavedReadingProgress = clamped
-            try? modelContext.save()
-        }
+        try? modelContext.save()
     }
 
     /// Scrolls the active web mode (Reader or Original) to the first
@@ -193,16 +211,14 @@ final class ItemReaderViewModel {
     /// panel first if it is not currently visible.
     func jumpToHighlight(_ text: String) {
         guard articleURL != nil else { return }
-        if showArticleWebView {
-            scrollToText(text)
-        } else {
+        // Set the scroll request unconditionally; the web view applies it once
+        // its page finishes loading (see the pending-scroll handling in
+        // ArticleWebView / ReaderModeWebView), so this works whether the panel
+        // was already open or is only now mounting — no fixed-delay guess.
+        if !showArticleWebView {
             withAnimation(.easeOut(duration: 0.2)) { showArticleWebView = true }
-            // Give the web panel a moment to mount and load before scrolling.
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(600))
-                scrollToText(text)
-            }
         }
+        scrollToText(text)
     }
 
     // MARK: - Highlights

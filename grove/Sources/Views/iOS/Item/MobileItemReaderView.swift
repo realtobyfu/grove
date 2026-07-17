@@ -169,6 +169,10 @@ struct MobileItemReaderView: View {
             position: nextPosition
         )
         modelContext.insert(block)
+        // Mirror ItemReaderViewModel.addHighlight: maintain the relationship and
+        // bump updatedAt so highlights created on iOS sort/sync consistently.
+        item.reflections.append(block)
+        item.updatedAt = .now
         try? modelContext.save()
         selectedText = nil
         return block

@@ -227,6 +227,7 @@ struct MobileReflectionSheet: View {
 
                 Button {
                     try? modelContext.save()
+                    WikiLinkSync.sync(item: item, content: block.content, modelContext: modelContext)
                     editingBlock = nil
                 } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -266,6 +267,7 @@ struct MobileReflectionSheet: View {
         )
         modelContext.insert(block)
         try? modelContext.save()
+        WikiLinkSync.sync(item: item, content: trimmed, modelContext: modelContext)
 
         newBlockContent = ""
         isAddingNew = false
@@ -283,9 +285,10 @@ struct MobileReflectionSheet: View {
         // Save in-progress new reflection
         autoSaveNewReflection()
         // Save any in-progress block edit
-        if editingBlock != nil {
+        if let editingBlock {
             try? modelContext.save()
-            editingBlock = nil
+            WikiLinkSync.sync(item: item, content: editingBlock.content, modelContext: modelContext)
+            self.editingBlock = nil
         }
     }
 

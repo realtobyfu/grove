@@ -94,7 +94,9 @@ final class FeedFetchService {
 
         for article in articles {
             guard created < perFeedCap else { break }
-            guard !existingURLs.contains(article.url) else { continue }
+            // Match CaptureService's normalized dedupe so feed variants of an
+            // already-saved article (e.g. ?utm_source=rss) don't slip through.
+            guard !existingURLs.contains(CaptureService.normalizedURLString(article.url)) else { continue }
 
             let item = Item(title: article.title, type: .article)
             item.sourceURL = article.url
@@ -112,7 +114,7 @@ final class FeedFetchService {
             }
 
             context.insert(item)
-            existingURLs.insert(article.url)
+            existingURLs.insert(CaptureService.normalizedURLString(article.url))
             created += 1
         }
 
@@ -126,7 +128,7 @@ final class FeedFetchService {
     private func existingSuggestedURLs(in context: ModelContext) -> Set<String> {
         let descriptor = FetchDescriptor<Item>()
         guard let items = try? context.fetch(descriptor) else { return [] }
-        return Set(items.compactMap(\.sourceURL))
+        return Set(items.compactMap(\.sourceURL).map(CaptureService.normalizedURLString))
     }
 
     // MARK: - Expiration
@@ -142,6 +144,13 @@ final class FeedFetchService {
                   item.metadata["suggestionDismissed"] != "true",
                   item.createdAt < cutoff else { continue }
             item.metadata["suggestionDismissed"] = "true"
+            // Move expired suggestions out of the inbox entirely. Leaving them
+            // at .inbox made them invisible in the triage list (which filters
+            // out dismissed suggestions) yet still counted by every inbox badge
+            // and the stale-inbox nudge — permanent zombies.
+            if item.status == .inbox {
+                item.status = .dismissed
+            }
         }
     }
 

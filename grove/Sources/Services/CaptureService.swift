@@ -47,6 +47,12 @@ final class CaptureService: CaptureServiceProtocol {
            ["http", "https"].contains(scheme.lowercased()),
            url.host != nil {
             if let existing = existingItem(matchingURL: trimmed) {
+                // Honor an explicit board target even on a duplicate, so
+                // "save to Research" isn't a silent no-op for an existing item.
+                if let board, !existing.boards.contains(where: { $0.id == board.id }) {
+                    existing.boards.append(board)
+                    try? modelContext.save()
+                }
                 return (existing, true)
             }
             return (captureURLItem(trimmed, board: board), false)
@@ -81,7 +87,14 @@ final class CaptureService: CaptureServiceProtocol {
         let candidates = (try? modelContext.fetch(descriptor)) ?? []
         return candidates.first { candidate in
             guard let source = candidate.sourceURL else { return false }
-            return Self.normalizedURLString(source) == normalized
+            guard Self.normalizedURLString(source) == normalized else { return false }
+            // Only dedupe against items the user can still reach. A dismissed,
+            // archived, or expired-suggestion item is invisible in every list,
+            // so treating it as a duplicate would silently swallow a deliberate
+            // re-capture with no way to surface the item.
+            if candidate.status == .dismissed || candidate.status == .archived { return false }
+            if candidate.metadata["suggestionDismissed"] == "true" { return false }
+            return true
         }
     }
 

@@ -79,31 +79,53 @@ enum ReaderTemplate {
     static let scrollToTextJS = """
     window.__groveScrollToText = function(query) {
         if (!query) { return false; }
-        var lower = query.toLowerCase();
+        // Concatenate all visible text nodes so a match can span inline markup
+        // (links, <em>/<strong>/<code>) instead of only matching within a
+        // single text node.
         var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+        var nodes = [];
+        var full = '';
         while (walker.nextNode()) {
             var node = walker.currentNode;
             var p = node.parentElement;
             if (p && (p.tagName === 'SCRIPT' || p.tagName === 'STYLE' || p.tagName === 'NOSCRIPT')) { continue; }
-            var idx = node.textContent.toLowerCase().indexOf(lower);
-            if (idx === -1) { continue; }
-            var range = document.createRange();
-            range.setStart(node, idx);
-            range.setEnd(node, Math.min(idx + query.length, node.textContent.length));
-            var rect = range.getBoundingClientRect();
-            window.scrollTo({ top: window.scrollY + rect.top - window.innerHeight * 0.3, behavior: 'smooth' });
-            var mark = document.createElement('div');
-            mark.style.cssText = 'position:absolute;pointer-events:none;background:rgba(128,128,128,0.35);border-radius:2px;transition:opacity 0.6s ease 0.9s;opacity:1;z-index:2147483647;';
-            mark.style.left = (window.scrollX + rect.left - 2) + 'px';
-            mark.style.top = (window.scrollY + rect.top - 1) + 'px';
-            mark.style.width = (rect.width + 4) + 'px';
-            mark.style.height = (rect.height + 2) + 'px';
-            document.body.appendChild(mark);
-            requestAnimationFrame(function() { mark.style.opacity = '0'; });
-            setTimeout(function() { mark.remove(); }, 1800);
-            return true;
+            nodes.push({ node: node, start: full.length });
+            full += node.textContent;
         }
-        return false;
+        if (nodes.length === 0) { return false; }
+        var idx = full.toLowerCase().indexOf(query.toLowerCase());
+        if (idx === -1) { return false; }
+        var endIdx = idx + query.length;
+        function locate(offset) {
+            for (var i = 0; i < nodes.length; i++) {
+                var n = nodes[i];
+                var len = n.node.textContent.length;
+                if (offset <= n.start + len) {
+                    return { node: n.node, offset: Math.max(0, Math.min(offset - n.start, len)) };
+                }
+            }
+            var last = nodes[nodes.length - 1];
+            return { node: last.node, offset: last.node.textContent.length };
+        }
+        var startLoc = locate(idx);
+        var endLoc = locate(endIdx);
+        var range = document.createRange();
+        try {
+            range.setStart(startLoc.node, startLoc.offset);
+            range.setEnd(endLoc.node, endLoc.offset);
+        } catch (e) { return false; }
+        var rect = range.getBoundingClientRect();
+        window.scrollTo({ top: window.scrollY + rect.top - window.innerHeight * 0.3, behavior: 'smooth' });
+        var mark = document.createElement('div');
+        mark.style.cssText = 'position:absolute;pointer-events:none;background:rgba(128,128,128,0.35);border-radius:2px;transition:opacity 0.6s ease 0.9s;opacity:1;z-index:2147483647;';
+        mark.style.left = (window.scrollX + rect.left - 2) + 'px';
+        mark.style.top = (window.scrollY + rect.top - 1) + 'px';
+        mark.style.width = (rect.width + 4) + 'px';
+        mark.style.height = (rect.height + 2) + 'px';
+        document.body.appendChild(mark);
+        requestAnimationFrame(function() { mark.style.opacity = '0'; });
+        setTimeout(function() { mark.remove(); }, 1800);
+        return true;
     };
     """
 
@@ -365,9 +387,29 @@ enum ReaderTemplate {
     static func restoreProgressJS(_ fraction: Double) -> String {
         """
         (function() {
-            var doc = document.documentElement;
-            var max = doc.scrollHeight - window.innerHeight;
-            if (max > 0) { window.scrollTo(0, \(fraction) * max); }
+            var f = \(fraction);
+            function apply() {
+                var doc = document.documentElement;
+                var max = doc.scrollHeight - window.innerHeight;
+                if (max > 0) { window.scrollTo(0, f * max); }
+            }
+            apply();
+            // Late-loading images grow the page after didFinish; re-apply the
+            // fraction for a few seconds so restore lands at the real position
+            // instead of short (which would then be re-persisted too small).
+            window.addEventListener('load', apply);
+            var count = 0;
+            var timer = setInterval(function() {
+                apply();
+                if (++count >= 6) { clearInterval(timer); }
+            }, 500);
+            // Stop fighting the user the moment they scroll intentionally.
+            ['wheel', 'touchstart', 'keydown', 'mousedown'].forEach(function(ev) {
+                window.addEventListener(ev, function() {
+                    clearInterval(timer);
+                    window.removeEventListener('load', apply);
+                }, { once: true, passive: true });
+            });
         })();
         """
     }
@@ -546,6 +588,14 @@ enum ReaderModeSupport {
         coordinator.onScrollProgress = onScrollProgress
         coordinator.onOpenExternalLink = onOpenExternalLink
 
+        // Capture a scroll-to-text request before any early return so it can be
+        // applied on didFinish if the article is still loading (e.g. a highlight
+        // tap that just mounted this view).
+        if scrollToTextToken != coordinator.lastScrollToTextToken {
+            coordinator.lastScrollToTextToken = scrollToTextToken
+            coordinator.pendingScrollQuery = scrollToTextQuery.isEmpty ? nil : scrollToTextQuery
+        }
+
         if coordinator.loadedArticleKey != articleKey(article) {
             load(article, typography: typography, isDark: isDark, initialProgress: initialProgress, into: webView, coordinator: coordinator)
             return
@@ -561,12 +611,10 @@ enum ReaderModeSupport {
             webView.evaluateJavaScript(ReaderTemplate.themeUpdateJS(isDark: isDark), completionHandler: nil)
         }
 
-        if scrollToTextToken != coordinator.lastScrollToTextToken {
-            coordinator.lastScrollToTextToken = scrollToTextToken
-            if !scrollToTextQuery.isEmpty {
-                let escaped = ReaderTemplate.escapeForJSString(scrollToTextQuery)
-                webView.evaluateJavaScript("window.__groveScrollToText('\(escaped)');", completionHandler: nil)
-            }
+        if let query = coordinator.pendingScrollQuery {
+            coordinator.pendingScrollQuery = nil
+            let escaped = ReaderTemplate.escapeForJSString(query)
+            webView.evaluateJavaScript("window.__groveScrollToText('\(escaped)');", completionHandler: nil)
         }
     }
 
@@ -587,6 +635,7 @@ final class ReaderModeCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
     var lastTypography: ReaderTypographySettings? = nil
     var lastIsDark: Bool? = nil
     var lastScrollToTextToken = 0
+    var pendingScrollQuery: String? = nil
     var pendingRestoreProgress: Double? = nil
 
     init(
@@ -618,6 +667,11 @@ final class ReaderModeCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
         if let fraction = pendingRestoreProgress {
             pendingRestoreProgress = nil
             webView.evaluateJavaScript(ReaderTemplate.restoreProgressJS(fraction), completionHandler: nil)
+        }
+        if let query = pendingScrollQuery {
+            pendingScrollQuery = nil
+            let escaped = ReaderTemplate.escapeForJSString(query)
+            webView.evaluateJavaScript("window.__groveScrollToText('\(escaped)');", completionHandler: nil)
         }
     }
 
