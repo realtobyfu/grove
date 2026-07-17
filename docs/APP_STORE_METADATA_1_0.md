@@ -16,17 +16,21 @@ Grove is your thinking workspace for notes, boards, and ideas, with fast capture
 Grove is a focused knowledge workspace for capturing ideas, organizing them into meaningful structures, and turning scattered notes into deeper understanding.
 
 Capture quickly:
-- Save notes in seconds
-- Paste links and keep source context
+- Save notes and links in seconds
+- Follow your favorite newsletters and feeds in one inbox
 - Use quick capture workflows to reduce friction
+
+Read comfortably:
+- Open saved articles in a clean, distraction-free reader
+- Highlight passages and turn them into reflections
+- Pick up where you left off with saved reading progress
 
 Organize naturally:
 - Group related ideas into Boards
-- Connect notes, concepts, and references
+- Connect notes with wiki-links and see backlinks everywhere
 - Browse by tags and relationships
 
 Think better:
-- Explore your knowledge graph
 - Revisit and refine earlier thoughts
 - Use conversation-style reflection tools to clarify what you know
 
@@ -41,7 +45,7 @@ Grove Pro is an auto-renewable subscription available as a yearly plan. Payment 
 
 ## Keywords (<=100 chars, comma-separated)
 
-notes,knowledge,productivity,pkm,second brain,thinking,study,research,writing,graph
+notes,knowledge,productivity,pkm,second brain,thinking,study,research,writing,reader
 
 ## Copyright
 

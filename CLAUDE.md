@@ -1,13 +1,14 @@
-# CLAUDE.md — Grove iOS/iPad
+# CLAUDE.md — Grove (macOS + iOS/iPad)
 
 ## Build & Test (use xclaude MCP tools)
-- Build: `xcode_build` (scheme: "grove-ios", destination: iPhone 16 simulator)
-- Test: `xcode_test` (scheme: "groveTests")
-- Screenshot: `simulator_screenshot` after UI changes
+- macOS build (primary): `xcode_build` (scheme: "grove", destination: "platform=macOS")
+- iOS build: `xcode_build` (scheme: "grove-ios", destination: iPhone 16 simulator)
+- Test: `xcode_test` (scheme: "grove", destination: "platform=macOS") — there is NO separate "groveTests" scheme
+- Screenshot: `simulator_screenshot` after iOS UI changes
 - UI verify: `idb_describe` to check accessibility tree
 
 ## Project Structure
-- Tuist-managed. Run `tuist generate` after changing Project.swift.
+- Tuist-managed. Run `tuist generate --no-open` after changing Project.swift or adding/deleting source files (buildableFolders glob).
 - Shared code: grove/Sources/{Models,Services,ViewModels,Utilities,Extensions}/
 - Views: grove/Sources/Views/{iOS,Board,Chat,Home,Inbox,Library,...} (feature-grouped; iOS-specific in iOS/)
 - Share Extension: grove/ShareExtension/
