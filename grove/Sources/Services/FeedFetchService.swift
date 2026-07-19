@@ -39,14 +39,14 @@ final class FeedFetchService {
         }
         guard let sources = try? context.fetch(descriptor) else { return }
 
-        let existingURLs = existingSuggestedURLs(in: context)
+        var existingURLs = existingSuggestedURLs(in: context)
         var totalCreated = 0
 
         for source in sources {
             guard source.errorCount < Self.maxErrorCount else { continue }
             guard totalCreated < Self.maxNewSuggestionsPerCycle else { break }
 
-            let created = await fetchFeed(source, existingURLs: existingURLs, in: context)
+            let created = await fetchFeed(source, existingURLs: &existingURLs, in: context)
             totalCreated += created
         }
 
@@ -55,7 +55,7 @@ final class FeedFetchService {
 
     private func fetchFeed(
         _ source: FeedSource,
-        existingURLs: Set<String>,
+        existingURLs: inout Set<String>,
         in context: ModelContext
     ) async -> Int {
         guard let url = URL(string: source.feedURL) else {
@@ -80,16 +80,23 @@ final class FeedFetchService {
 
         // Update feed title if we don't have one yet
         if source.title == nil {
-            source.title = extractFeedTitle(from: data)
+            source.title = Self.extractFeedTitle(from: data)
         }
 
         let articles = FeedParserService.parse(data: data)
         var created = 0
 
+        // Sources the user consistently dismisses (and never keeps) are
+        // throttled to a single new suggestion per cycle.
+        let perFeedCap = FeedPreferencesStore.isThrottled(sourceID: source.id)
+            ? 1
+            : Self.maxNewSuggestionsPerFeed
+
         for article in articles {
-            guard created < Self.maxNewSuggestionsPerFeed else { break }
-            guard !existingURLs.contains(article.url) else { continue }
-            guard !isDuplicate(url: article.url, in: context) else { continue }
+            guard created < perFeedCap else { break }
+            // Match CaptureService's normalized dedupe so feed variants of an
+            // already-saved article (e.g. ?utm_source=rss) don't slip through.
+            guard !existingURLs.contains(CaptureService.normalizedURLString(article.url)) else { continue }
 
             let item = Item(title: article.title, type: .article)
             item.sourceURL = article.url
@@ -107,6 +114,7 @@ final class FeedFetchService {
             }
 
             context.insert(item)
+            existingURLs.insert(CaptureService.normalizedURLString(article.url))
             created += 1
         }
 
@@ -115,16 +123,12 @@ final class FeedFetchService {
 
     // MARK: - Deduplication
 
+    /// All source URLs already in the library. Built once per refresh cycle;
+    /// URLs created during the cycle are appended by the caller.
     private func existingSuggestedURLs(in context: ModelContext) -> Set<String> {
         let descriptor = FetchDescriptor<Item>()
         guard let items = try? context.fetch(descriptor) else { return [] }
-        return Set(items.compactMap(\.sourceURL))
-    }
-
-    private func isDuplicate(url: String, in context: ModelContext) -> Bool {
-        let descriptor = FetchDescriptor<Item>()
-        guard let items = try? context.fetch(descriptor) else { return false }
-        return items.contains { $0.sourceURL == url }
+        return Set(items.compactMap(\.sourceURL).map(CaptureService.normalizedURLString))
     }
 
     // MARK: - Expiration
@@ -140,12 +144,19 @@ final class FeedFetchService {
                   item.metadata["suggestionDismissed"] != "true",
                   item.createdAt < cutoff else { continue }
             item.metadata["suggestionDismissed"] = "true"
+            // Move expired suggestions out of the inbox entirely. Leaving them
+            // at .inbox made them invisible in the triage list (which filters
+            // out dismissed suggestions) yet still counted by every inbox badge
+            // and the stale-inbox nudge — permanent zombies.
+            if item.status == .inbox {
+                item.status = .dismissed
+            }
         }
     }
 
     // MARK: - Feed Title Extraction
 
-    private func extractFeedTitle(from data: Data) -> String? {
+    nonisolated static func extractFeedTitle(from data: Data) -> String? {
         // Simple extraction: parse as feed and grab the first non-item title
         // This is a lightweight approach; FeedParserService focuses on items
         guard let xmlString = String(data: data, encoding: .utf8) else { return nil }

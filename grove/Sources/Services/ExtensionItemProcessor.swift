@@ -30,6 +30,15 @@ enum ExtensionItemProcessor {
             // Clear the extension flag immediately to avoid reprocessing
             item.metadata["pendingFromExtension"] = nil
 
+            // Dedupe: the Share Extension can't run the main app's URL dedupe, so
+            // reconcile here — if this URL already exists as a reachable item,
+            // drop the duplicate the extension created.
+            if let urlString = item.sourceURL,
+               duplicateExists(of: urlString, excluding: item.id, in: items) {
+                context.delete(item)
+                continue
+            }
+
             let itemID = item.id
             let sourceURL = item.sourceURL
             let needsMetadata = item.metadata["fetchingMetadata"] == "true"
@@ -52,6 +61,20 @@ enum ExtensionItemProcessor {
         }
 
         try? context.save()
+    }
+
+    /// Whether a reachable (non-pending, non-dismissed/archived) item already
+    /// has the same normalized source URL.
+    private static func duplicateExists(of urlString: String, excluding id: UUID, in items: [Item]) -> Bool {
+        let normalized = CaptureService.normalizedURLString(urlString)
+        return items.contains { other in
+            guard other.id != id,
+                  other.metadata["pendingFromExtension"] != "true",
+                  other.metadata["suggestionDismissed"] != "true",
+                  other.status != .dismissed, other.status != .archived,
+                  let source = other.sourceURL else { return false }
+            return CaptureService.normalizedURLString(source) == normalized
+        }
     }
 
     // MARK: - Metadata Fetch

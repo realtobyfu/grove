@@ -88,10 +88,6 @@ struct ContentViewNotificationHandlers: ViewModifier {
                     withAnimation { viewModel.showChatPanel = true }
                 }
             }
-            .onReceive(NotificationCenter.default.publisher(for: .groveStartCheckIn)) { notification in
-                guard let nudge = notification.object as? Nudge else { return }
-                startCheckInConversation(from: nudge)
-            }
             .onReceive(NotificationCenter.default.publisher(for: .groveStartConversationWithPrompt)) { notification in
                 let payload = NotificationCenter.conversationPromptPayload(from: notification)
                 startConversation(
@@ -103,10 +99,6 @@ struct ContentViewNotificationHandlers: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .groveDiscussItem)) { notification in
                 guard let payload = NotificationCenter.discussItemPayload(from: notification) else { return }
                 startDiscussion(item: payload.item)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .groveStartDialecticWithDisplayPrompt)) { notification in
-                let prompt = notification.object as? String ?? ""
-                startDialecticWithDisplayPrompt(prompt)
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveOpenNudgeNotification)) { notification in
                 guard let nudgeID = notification.object as? UUID else { return }
@@ -155,19 +147,15 @@ struct ContentViewNotificationHandlers: ViewModifier {
         try? modelContext.save()
 
         switch nudge.type {
-        case .resurface, .continueCourse, .reflectionPrompt, .contradiction,
-             .knowledgeGap, .synthesisPrompt:
-            guard let item = nudge.targetItem else { return }
-            viewModel.selectedItem = item
-            viewModel.openedItem = item
         case .staleInbox:
             viewModel.openedItem = nil
             viewModel.selectedItem = nil
             viewModel.selection = .library
-        case .dialecticalCheckIn:
-            startCheckInConversation(from: nudge)
-        case .connectionPrompt, .streak:
-            break
+        default:
+            // Resurface plus legacy types retained only for persisted records.
+            guard let item = nudge.targetItem else { return }
+            viewModel.selectedItem = item
+            viewModel.openedItem = item
         }
     }
 
@@ -261,62 +249,4 @@ struct ContentViewNotificationHandlers: ViewModifier {
         }
     }
 
-    private func startCheckInConversation(from nudge: Nudge) {
-        let trigger = nudge.checkInTrigger ?? .userInitiated
-        let openingPrompt = nudge.checkInOpeningPrompt ?? ""
-        let seedIDs = nudge.relatedItemIDs ?? []
-
-        let allItems: [Item] = modelContext.fetchAll()
-        let seedItems = seedIDs.compactMap { id in
-            allItems.first(where: { $0.id == id })
-        }
-
-        let service = DialecticsService()
-        let conversation = service.startConversation(
-            trigger: trigger,
-            seedItems: seedItems,
-            board: nil,
-            context: modelContext
-        )
-
-        if !openingPrompt.isEmpty {
-            let assistantMsg = ChatMessage(
-                role: .assistant,
-                content: openingPrompt,
-                position: conversation.nextPosition
-            )
-            assistantMsg.conversation = conversation
-            conversation.messages.append(assistantMsg)
-            modelContext.insert(assistantMsg)
-            conversation.updatedAt = .now
-            try? modelContext.save()
-        }
-
-        viewModel.selectedConversation = conversation
-        withAnimation { viewModel.showChatPanel = true }
-    }
-
-    private func startDialecticWithDisplayPrompt(_ prompt: String) {
-        let service = DialecticsService()
-        let conversation = service.startConversation(
-            trigger: .userInitiated,
-            seedItems: [],
-            board: nil,
-            context: modelContext
-        )
-        if !prompt.isEmpty {
-            let assistantMsg = ChatMessage(
-                role: .assistant,
-                content: prompt,
-                position: conversation.nextPosition
-            )
-            assistantMsg.conversation = conversation
-            conversation.messages.append(assistantMsg)
-            modelContext.insert(assistantMsg)
-            conversation.updatedAt = .now
-            try? modelContext.save()
-        }
-        viewModel.selectedConversation = conversation
-        withAnimation { viewModel.showChatPanel = true }
-    }
 }

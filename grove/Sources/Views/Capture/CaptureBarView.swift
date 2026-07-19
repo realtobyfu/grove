@@ -101,6 +101,7 @@ struct CaptureBarView: View {
     @Query(sort: \Board.sortOrder) private var boards: [Board]
     @State private var inputText = ""
     @State private var showConfirmation = false
+    @State private var confirmationMessage = "Captured"
     @FocusState private var isFocused: Bool
 
     // Board suggestion state
@@ -175,7 +176,7 @@ struct CaptureBarView: View {
                     HStack(spacing: Spacing.xs) {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.groveBody)
-                        Text("Captured")
+                        Text(confirmationMessage)
                             .font(.groveBodySmall)
                     }
                     .foregroundStyle(Color.textSecondary)
@@ -254,11 +255,12 @@ struct CaptureBarView: View {
         let board = currentBoardID.flatMap { boardID in
             boards.first(where: { $0.id == boardID })
         }
-        _ = captureService.captureItem(input: trimmed, board: board)
+        let result = captureService.captureItemDetailed(input: trimmed, board: board)
 
         inputText = ""
 
         // Flash confirmation
+        confirmationMessage = result.isDuplicate ? "Already in your library" : "Captured"
         withAnimation(.easeIn(duration: 0.15)) {
             showConfirmation = true
         }
@@ -377,6 +379,7 @@ struct CaptureBarOverlayView: View {
     @Binding var isPresented: Bool
     @State private var inputText = ""
     @State private var showConfirmation = false
+    @State private var confirmationMessage = "Captured"
     @FocusState private var isFocused: Bool
 
     // Board suggestion state
@@ -464,7 +467,7 @@ struct CaptureBarOverlayView: View {
                 HStack(spacing: Spacing.xs) {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.groveBody)
-                    Text("Captured")
+                    Text(confirmationMessage)
                         .font(.groveBodySmall)
                 }
                 .foregroundStyle(Color.textSecondary)
@@ -526,10 +529,11 @@ struct CaptureBarOverlayView: View {
         let board = currentBoardID.flatMap { boardID in
             boards.first(where: { $0.id == boardID })
         }
-        _ = captureService.captureItem(input: trimmed, board: board)
+        let result = captureService.captureItemDetailed(input: trimmed, board: board)
 
         inputText = ""
 
+        confirmationMessage = result.isDuplicate ? "Already in your library" : "Captured"
         withAnimation(.easeIn(duration: 0.15)) {
             showConfirmation = true
         }

@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 @MainActor
 protocol CaptureServiceProtocol {
     func captureItem(input: String, board: Board?) -> Item
+    func captureItemDetailed(input: String, board: Board?) -> (item: Item, isDuplicate: Bool)
     func createVideoItem(filePath: String, board: Board?) -> Item
 }
 
@@ -34,15 +35,67 @@ final class CaptureService: CaptureServiceProtocol {
     /// Quick capture: detects URL vs plain text, creates appropriate Item.
     /// Metadata fetching and auto-tagging run asynchronously after creation.
     func captureItem(input: String, board: Board? = nil) -> Item {
+        captureItemDetailed(input: input, board: board).item
+    }
+
+    /// Like `captureItem`, but reports whether an already-captured item was
+    /// returned instead of creating a duplicate (matched by normalized source URL).
+    func captureItemDetailed(input: String, board: Board? = nil) -> (item: Item, isDuplicate: Bool) {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if let url = URL(string: trimmed),
            let scheme = url.scheme,
            ["http", "https"].contains(scheme.lowercased()),
            url.host != nil {
-            return captureURLItem(trimmed, board: board)
+            if let existing = existingItem(matchingURL: trimmed) {
+                // Honor an explicit board target even on a duplicate, so
+                // "save to Research" isn't a silent no-op for an existing item.
+                if let board, !existing.boards.contains(where: { $0.id == board.id }) {
+                    existing.boards.append(board)
+                    try? modelContext.save()
+                }
+                return (existing, true)
+            }
+            return (captureURLItem(trimmed, board: board), false)
         } else {
-            return captureTextItem(trimmed, board: board)
+            return (captureTextItem(trimmed, board: board), false)
+        }
+    }
+
+    // MARK: - URL Dedupe
+
+    /// Normalizes a URL for duplicate detection: lowercases scheme/host,
+    /// strips the fragment, tracking (`utm_*`) query params, and any trailing slash.
+    nonisolated static func normalizedURLString(_ urlString: String) -> String {
+        guard var components = URLComponents(string: urlString) else { return urlString }
+        components.scheme = components.scheme?.lowercased()
+        components.host = components.host?.lowercased()
+        components.fragment = nil
+        if let queryItems = components.queryItems {
+            let kept = queryItems.filter { !$0.name.lowercased().hasPrefix("utm_") }
+            components.queryItems = kept.isEmpty ? nil : kept
+        }
+        if components.path.count > 1, components.path.hasSuffix("/") {
+            components.path = String(components.path.dropLast())
+        }
+        return components.string ?? urlString
+    }
+
+    /// Returns an existing item whose source URL matches the given URL after normalization.
+    private func existingItem(matchingURL urlString: String) -> Item? {
+        let normalized = Self.normalizedURLString(urlString)
+        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.sourceURL != nil })
+        let candidates = (try? modelContext.fetch(descriptor)) ?? []
+        return candidates.first { candidate in
+            guard let source = candidate.sourceURL else { return false }
+            guard Self.normalizedURLString(source) == normalized else { return false }
+            // Only dedupe against items the user can still reach. A dismissed,
+            // archived, or expired-suggestion item is invisible in every list,
+            // so treating it as a duplicate would silently swallow a deliberate
+            // re-capture with no way to surface the item.
+            if candidate.status == .dismissed || candidate.status == .archived { return false }
+            if candidate.metadata["suggestionDismissed"] == "true" { return false }
+            return true
         }
     }
 
@@ -71,7 +124,7 @@ final class CaptureService: CaptureServiceProtocol {
         let tagger = self.tagger
 
         Task {
-            let meta = await enricher.enrichURLItem(
+            _ = await enricher.enrichURLItem(
                 itemID: itemID,
                 urlString: trimmed,
                 context: context
@@ -82,18 +135,6 @@ final class CaptureService: CaptureServiceProtocol {
 
             // Mark summary review if needed
             enricher.markSummaryReviewIfNeeded(itemID: itemID, context: context)
-
-            // Generate LLM overview for articles
-            if itemType == .article {
-                await enricher.generateOverview(
-                    itemID: itemID,
-                    context: context,
-                    title: meta.title ?? trimmed,
-                    description: meta.description,
-                    bodyText: meta.bodyText
-                )
-                enricher.extractSummaryFallback(itemID: itemID, context: context)
-            }
         }
 
         return item

@@ -16,16 +16,25 @@ struct GroveApp: App {
     @State private var coachMarkService = CoachMarkService.shared
     @State private var feedDiscoveryService = FeedDiscoveryService.shared
     @State private var feedFetchService = FeedFetchService.shared
-    @State private var suggestionRankingService = SuggestionRankingService.shared
     #if os(iOS)
     @State private var deepLinkRouter = DeepLinkRouter()
     #endif
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         modelContainer = SharedModelContainer.makeForApp()
         #if !SHARE_EXTENSION
         GroveIntentModelStore.configure(with: modelContainer)
         #endif
+    }
+
+    /// Newsletter pipeline: fetch new issues from enabled feeds (4h interval
+    /// enforced inside the service) and discover feeds on domains the user
+    /// saves from (24h cooldown, creates disabled suggestion sources only).
+    private func refreshFeedPipeline() async {
+        let context = modelContainer.mainContext
+        await feedFetchService.refreshIfNeeded(in: context)
+        await feedDiscoveryService.discoverFeeds(in: context)
     }
 
     var body: some Scene {
@@ -43,6 +52,11 @@ struct GroveApp: App {
                     let items: [Item] = context.fetchAll()
                     await EmbeddingIndexService.shared.indexItems(items.map(EmbeddingIndexService.snapshot))
                     await TensionDetectionService(modelContext: context).runIfDue()
+                    await refreshFeedPipeline()
+                }
+                .onChange(of: scenePhase) { _, phase in
+                    guard phase == .active else { return }
+                    Task { await refreshFeedPipeline() }
                 }
                 .environment(entitlementService)
                 .environment(onboardingService)
@@ -52,7 +66,6 @@ struct GroveApp: App {
                 .environment(coachMarkService)
                 .environment(feedDiscoveryService)
                 .environment(feedFetchService)
-                .environment(suggestionRankingService)
         }
         .modelContainer(modelContainer)
         .defaultSize(width: 1200, height: 800)
@@ -70,7 +83,6 @@ struct GroveApp: App {
                 .environment(coachMarkService)
                 .environment(feedDiscoveryService)
                 .environment(feedFetchService)
-                .environment(suggestionRankingService)
         } label: {
             Label("Grove", systemImage: "leaf")
                 .labelStyle(.iconOnly)
@@ -89,7 +101,6 @@ struct GroveApp: App {
                 .environment(coachMarkService)
                 .environment(feedDiscoveryService)
                 .environment(feedFetchService)
-                .environment(suggestionRankingService)
         }
         .modelContainer(modelContainer)
         .windowStyle(.hiddenTitleBar)
@@ -107,6 +118,10 @@ struct GroveApp: App {
                 NudgeSettingsView()
                     .tabItem {
                         Label("Nudges", systemImage: "bell")
+                    }
+                SubscriptionsSettingsView()
+                    .tabItem {
+                        Label("Newsletters", systemImage: "newspaper")
                     }
                 AISettingsView()
                     .tabItem {
@@ -140,8 +155,8 @@ struct GroveApp: App {
             .environment(coachMarkService)
             .environment(feedDiscoveryService)
             .environment(feedFetchService)
-            .environment(suggestionRankingService)
         }
+        .modelContainer(modelContainer)
         #else
         // iOS: MobileRootView uses TabRootView with .sidebarAdaptable (sidebar on iPad landscape, tabs elsewhere)
         WindowGroup {
@@ -157,6 +172,11 @@ struct GroveApp: App {
                     let items: [Item] = context.fetchAll()
                     await EmbeddingIndexService.shared.indexItems(items.map(EmbeddingIndexService.snapshot))
                     await TensionDetectionService(modelContext: context).runIfDue()
+                    await refreshFeedPipeline()
+                }
+                .onChange(of: scenePhase) { _, phase in
+                    guard phase == .active else { return }
+                    Task { await refreshFeedPipeline() }
                 }
                 .onOpenURL { url in
                     deepLinkRouter.handle(url)
@@ -170,7 +190,6 @@ struct GroveApp: App {
                 .environment(coachMarkService)
                 .environment(feedDiscoveryService)
                 .environment(feedFetchService)
-                .environment(suggestionRankingService)
         }
         .modelContainer(modelContainer)
         #endif
@@ -255,8 +274,12 @@ struct MenuBarView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var linkText = ""
     @State private var showSaved = false
-    @State private var showInvalidLink = false
+    @State private var savedMessage = ""
     @FocusState private var isFocused: Bool
+
+    private var trimmedInput: String {
+        linkText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     private var validLink: String? {
         normalizedLink(from: linkText)
@@ -264,12 +287,9 @@ struct MenuBarView: View {
 
     private var helperText: String {
         if showSaved {
-            return "Link saved."
+            return savedMessage
         }
-        if showInvalidLink {
-            return "Enter a valid http(s) link."
-        }
-        return "Paste a link and press Return."
+        return "Paste a link or jot a note, then press Return."
     }
 
     var body: some View {
@@ -279,32 +299,31 @@ struct MenuBarView: View {
                 .foregroundStyle(Color.textPrimary)
 
             HStack(spacing: Spacing.sm) {
-                Image(systemName: "link")
+                Image(systemName: "square.and.pencil")
                     .font(.groveMeta)
                     .foregroundStyle(Color.textSecondary)
 
-                TextField("https://example.com", text: $linkText)
+                TextField("Paste a link or jot a note", text: $linkText)
                     .textFieldStyle(.roundedBorder)
                     .font(.groveBody)
                     .focused($isFocused)
                     .onSubmit {
-                        captureLink()
+                        capture()
                     }
                     .onChange(of: linkText) { _, _ in
                         showSaved = false
-                        showInvalidLink = false
                     }
 
                 Button {
-                    captureLink()
+                    capture()
                 } label: {
                     Image(systemName: "arrow.right.circle.fill")
                         .font(.groveBody)
-                        .foregroundStyle(validLink == nil ? Color.textTertiary : Color.textSecondary)
+                        .foregroundStyle(trimmedInput.isEmpty ? Color.textTertiary : Color.textSecondary)
                 }
                 .buttonStyle(.plain)
-                .disabled(validLink == nil)
-                .accessibilityLabel("Capture link")
+                .disabled(trimmedInput.isEmpty)
+                .accessibilityLabel("Capture")
             }
 
             Text(helperText)
@@ -323,18 +342,22 @@ struct MenuBarView: View {
         }
     }
 
-    private func captureLink() {
-        guard let validLink else {
-            showSaved = false
-            showInvalidLink = true
-            return
+    private func capture() {
+        guard !trimmedInput.isEmpty else { return }
+
+        // URL fast path: normalized http(s) links capture exactly as before;
+        // anything else is saved as a note.
+        let input = validLink ?? trimmedInput
+        let captureService = CaptureService(modelContext: modelContext)
+        let result = captureService.captureItemDetailed(input: input)
+
+        if result.isDuplicate {
+            savedMessage = "Already in your library."
+        } else {
+            savedMessage = result.item.type == .note ? "Note saved." : "Link saved."
         }
 
-        let captureService = CaptureService(modelContext: modelContext)
-        _ = captureService.captureItem(input: validLink)
-
         linkText = ""
-        showInvalidLink = false
         withAnimation(.easeInOut(duration: 0.15)) {
             showSaved = true
         }

@@ -39,6 +39,7 @@ struct HomeView: View {
 
     @Binding var selectedItem: Item?
     @Binding var openedItem: Item?
+    @Environment(\.modelContext) private var modelContext
     @Environment(OnboardingService.self) private var onboarding
     @Query(sort: \Item.updatedAt, order: .reverse) private var allItems: [Item]
 
@@ -77,6 +78,21 @@ struct HomeView: View {
                                 .padding(.bottom, Spacing.xl)
                         }
 
+                        // Quiet nudge row — only occupies space when a pending/shown nudge exists.
+                        NudgeBarView(
+                            onOpenItem: { item in
+                                selectedItem = item
+                                openedItem = item
+                            },
+                            onTriageInbox: {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    isInboxCollapsed = false
+                                }
+                            },
+                            resurfacingService: ResurfacingService(modelContext: modelContext)
+                        )
+                        .padding(.bottom, Spacing.md)
+
                         HomeInboxSection(
                             selectedItem: $selectedItem,
                             openedItem: $openedItem,
@@ -92,9 +108,7 @@ struct HomeView: View {
                                 promptModeSelection = nil
                                 openConversation(with: "")
                             },
-                            onBubbleTap: { presentModePanel(for: $0) },
-                            allItems: allItems,
-                            starterService: starterService
+                            onBubbleTap: { presentModePanel(for: $0) }
                         )
                         .padding(.bottom, Spacing.xl)
 

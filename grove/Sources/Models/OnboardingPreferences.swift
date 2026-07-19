@@ -10,20 +10,19 @@ enum GroveUseCase: String, CaseIterable, Identifiable {
         case .reading: return "Reading & Research"
         case .notes: return "Notes & Writing"
         case .projects: return "Project Organization"
-        case .learning: return "Courses & Learning"
+        case .learning: return "Learning & Study"
         case .journaling: return "Journaling & Reflection"
         }
     }
 }
 
 enum CaptureType: String, CaseIterable, Identifiable {
-    case links, notes, courses
+    case links, notes
     var id: String { rawValue }
     var label: String {
         switch self {
         case .links: return "Links & articles"
         case .notes: return "Notes & ideas"
-        case .courses: return "Course materials"
         }
     }
 }

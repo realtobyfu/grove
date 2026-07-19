@@ -106,8 +106,6 @@ struct NudgeBarView: View {
                 RoundedRectangle(cornerRadius: 6)
                     .stroke(Color.borderPrimary, lineWidth: 1)
             )
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
             .transition(.move(edge: .top).combined(with: .opacity))
             .onAppear {
                 if nudge.status == .pending {
@@ -131,6 +129,7 @@ struct NudgeBarView: View {
         let block = ReflectionBlock(item: item, blockType: .keyInsight, content: text, position: nextPosition)
         modelContext.insert(block)
         item.reflections.append(block)
+        WikiLinkSync.sync(item: item, content: text, modelContext: modelContext)
 
         resurfacingService?.recordEngagement(for: item)
 
@@ -158,17 +157,13 @@ struct NudgeBarView: View {
         NudgeNotificationService.shared.cancel(for: nudge.id)
 
         switch nudge.type {
-        case .resurface, .continueCourse, .reflectionPrompt, .contradiction,
-             .knowledgeGap, .synthesisPrompt:
+        case .staleInbox:
+            onTriageInbox?()
+        default:
+            // Resurface plus legacy types retained only for persisted records.
             if let item = nudge.targetItem {
                 onOpenItem?(item)
             }
-        case .staleInbox:
-            onTriageInbox?()
-        case .dialecticalCheckIn:
-            NotificationCenter.default.post(name: .groveStartCheckIn, object: nudge)
-        case .connectionPrompt, .streak:
-            break
         }
     }
 
@@ -193,21 +188,6 @@ extension Nudge {
         return message
     }
 
-    /// The conversation trigger for check-in nudges.
-    var checkInTrigger: ConversationTrigger? {
-        guard type == .dialecticalCheckIn else { return nil }
-        let parts = message.components(separatedBy: "|||")
-        guard parts.count >= 2 else { return nil }
-        return ConversationTrigger(rawValue: parts[1])
-    }
-
-    /// The opening prompt for check-in nudges.
-    var checkInOpeningPrompt: String? {
-        guard type == .dialecticalCheckIn else { return nil }
-        let parts = message.components(separatedBy: "|||")
-        guard parts.count >= 3 else { return nil }
-        return parts[2]
-    }
 }
 
 // MARK: - NudgeType UI Helpers
@@ -217,39 +197,14 @@ extension NudgeType {
         switch self {
         case .resurface: "arrow.clockwise.circle"
         case .staleInbox: "tray.full"
-        case .connectionPrompt: "link.circle"
-        case .streak: "flame"
-        case .continueCourse: "graduationcap"
-        case .reflectionPrompt: "text.bubble"
-        case .contradiction: "exclamationmark.triangle"
-        case .knowledgeGap: "questionmark.circle"
-        case .synthesisPrompt: "doc.on.doc"
-        case .dialecticalCheckIn: "bubble.left.and.bubble.right"
+        default: "bell"
         }
     }
 
     var actionLabel: String {
         switch self {
-        case .resurface: "Open"
         case .staleInbox: "Triage"
-        case .connectionPrompt: "Connect"
-        case .streak: "View"
-        case .continueCourse: "Continue"
-        case .reflectionPrompt: "Reflect"
-        case .contradiction: "Compare"
-        case .knowledgeGap: "Explore"
-        case .synthesisPrompt: "Synthesize"
-        case .dialecticalCheckIn: "Chat"
-        }
-    }
-
-    /// Whether this is an LLM-generated smart nudge type.
-    var isSmartNudge: Bool {
-        switch self {
-        case .reflectionPrompt, .contradiction, .knowledgeGap, .synthesisPrompt:
-            return true
-        default:
-            return false
+        default: "Open"
         }
     }
 }

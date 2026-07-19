@@ -22,7 +22,6 @@ enum SharedModelContainer {
         Annotation.self,
         ReflectionBlock.self,
         Nudge.self,
-        Course.self,
         Conversation.self,
         ChatMessage.self,
         FeedSource.self,

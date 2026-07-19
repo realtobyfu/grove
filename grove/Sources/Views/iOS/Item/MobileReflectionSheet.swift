@@ -7,6 +7,12 @@ import SwiftData
 struct MobileReflectionSheet: View {
     let item: Item
     var onDismiss: (() -> Void)? = nil
+    /// Set by the caller to open a specific block for editing (e.g. right
+    /// after "Highlight & Reflect"). Consumed (reset to nil) once handled.
+    var requestedEditBlock: Binding<ReflectionBlock?>? = nil
+    /// Jump to the highlighted passage in the source article; nil when the
+    /// item has no web-readable source.
+    var onHighlightTap: ((String) -> Void)? = nil
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
@@ -55,7 +61,19 @@ struct MobileReflectionSheet: View {
                     .accessibilityLabel("Close")
                 }
             }
+            .onAppear { consumeRequestedEditBlock() }
+            .onChange(of: requestedEditBlock?.wrappedValue?.id) {
+                consumeRequestedEditBlock()
+            }
         }
+    }
+
+    /// Opens the caller-requested block for editing, then clears the request.
+    private func consumeRequestedEditBlock() {
+        guard let binding = requestedEditBlock, let block = binding.wrappedValue else { return }
+        editingBlock = block
+        isAddingNew = false
+        binding.wrappedValue = nil
     }
 
     // MARK: - Empty state
@@ -111,7 +129,7 @@ struct MobileReflectionSheet: View {
             }
 
             if let highlight = block.highlight, !highlight.isEmpty {
-                Text(highlight)
+                let quote = Text(highlight)
                     .font(.groveBodySecondary)
                     .foregroundStyle(Color.textSecondary)
                     .italic()
@@ -122,6 +140,22 @@ struct MobileReflectionSheet: View {
                             .fill(Color.textMuted.opacity(0.3))
                             .frame(width: 2)
                     }
+
+                if let onHighlightTap {
+                    Button {
+                        onHighlightTap(highlight)
+                    } label: {
+                        quote
+                            .frame(maxWidth: .infinity,
+                                   minHeight: LayoutDimensions.minTouchTarget,
+                                   alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Show highlight in article")
+                } else {
+                    quote
+                }
             }
 
             Text(block.content)
@@ -193,6 +227,7 @@ struct MobileReflectionSheet: View {
 
                 Button {
                     try? modelContext.save()
+                    WikiLinkSync.sync(item: item, content: block.content, modelContext: modelContext)
                     editingBlock = nil
                 } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -232,6 +267,7 @@ struct MobileReflectionSheet: View {
         )
         modelContext.insert(block)
         try? modelContext.save()
+        WikiLinkSync.sync(item: item, content: trimmed, modelContext: modelContext)
 
         newBlockContent = ""
         isAddingNew = false
@@ -249,9 +285,10 @@ struct MobileReflectionSheet: View {
         // Save in-progress new reflection
         autoSaveNewReflection()
         // Save any in-progress block edit
-        if editingBlock != nil {
+        if let editingBlock {
             try? modelContext.save()
-            editingBlock = nil
+            WikiLinkSync.sync(item: item, content: editingBlock.content, modelContext: modelContext)
+            self.editingBlock = nil
         }
     }
 

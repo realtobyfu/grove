@@ -20,6 +20,11 @@ struct ArticleWebView: NSViewRepresentable {
     var goBackToken: Int = 0
     var goForwardToken: Int = 0
     var onNavigationChanged: ((Bool, Bool, URL?) -> Void)?
+    /// Fires when a page finishes loading — used to run Readability extraction.
+    var onPageFinished: ((WKWebView) -> Void)?
+    /// Scroll-to-text request (see ReaderTemplate.scrollToTextJS).
+    var scrollToTextQuery: String = ""
+    var scrollToTextToken: Int = 0
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onTextSelected: onTextSelected, onFindResult: onFindResult, onNavigationChanged: onNavigationChanged)
@@ -55,6 +60,10 @@ struct ArticleWebView: NSViewRepresentable {
         userContentController.addUserScript(findScript)
         userContentController.add(context.coordinator, name: "findResult")
 
+        // Inject scroll-to-text helper (shared with Reader mode)
+        let scrollToTextScript = WKUserScript(source: ReaderTemplate.scrollToTextJS, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+        userContentController.addUserScript(scrollToTextScript)
+
         config.userContentController = userContentController
 
         let webView = WKWebView(frame: .zero, configuration: config)
@@ -70,6 +79,21 @@ struct ArticleWebView: NSViewRepresentable {
         context.coordinator.onTextSelected = onTextSelected
         context.coordinator.onFindResult = onFindResult
         context.coordinator.onNavigationChanged = onNavigationChanged
+        context.coordinator.onPageFinished = onPageFinished
+
+        // Handle scroll-to-text requests. If the page is still loading (e.g. a
+        // highlight tap that just opened this panel), defer to didFinish rather
+        // than firing against a page where the helper isn't injected yet.
+        if scrollToTextToken != context.coordinator.lastScrollToTextToken {
+            context.coordinator.lastScrollToTextToken = scrollToTextToken
+            let query = scrollToTextQuery.isEmpty ? nil : scrollToTextQuery
+            context.coordinator.pendingScrollQuery = query
+            if let query, !webView.isLoading {
+                context.coordinator.pendingScrollQuery = nil
+                let escaped = ReaderTemplate.escapeForJSString(query)
+                webView.evaluateJavaScript("window.__groveScrollToText('\(escaped)');", completionHandler: nil)
+            }
+        }
 
         // Apply zoom level
         webView.pageZoom = zoomLevel
@@ -229,11 +253,14 @@ struct ArticleWebView: NSViewRepresentable {
         var onTextSelected: ((String?) -> Void)?
         var onFindResult: ((Int, Int) -> Void)?
         var onNavigationChanged: ((Bool, Bool, URL?) -> Void)?
+        var onPageFinished: ((WKWebView) -> Void)?
         var lastFindQuery = ""
         var lastForwardToken = 0
         var lastBackwardToken = 0
         var lastGoBackToken = 0
         var lastGoForwardToken = 0
+        var lastScrollToTextToken = 0
+        var pendingScrollQuery: String? = nil
         var lastLoadedURL: URL? = nil
         private var observations: [NSKeyValueObservation] = []
 
@@ -264,6 +291,15 @@ struct ArticleWebView: NSViewRepresentable {
             decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
         ) {
             decisionHandler(.allow)
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            onPageFinished?(webView)
+            if let query = pendingScrollQuery {
+                pendingScrollQuery = nil
+                let escaped = ReaderTemplate.escapeForJSString(query)
+                webView.evaluateJavaScript("window.__groveScrollToText('\(escaped)');", completionHandler: nil)
+            }
         }
 
         // Handle messages from injected JS

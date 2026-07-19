@@ -123,16 +123,6 @@ struct NudgeSettingsView: View {
                 }
             }
 
-            Section("Weekly Digest") {
-                Text("Weekly Digest is manual-only and not part of the active nudge engine.")
-                    .font(.groveBodySmall)
-                    .foregroundStyle(Color.textSecondary)
-
-                digestStatusText
-                    .font(.groveBodySmall)
-                    .foregroundStyle(Color.textSecondary)
-            }
-
             Section("Advanced") {
                 if entitlement.hasAccess(to: .automations) {
                     DisclosureGroup("Resurfacing queue and analytics", isExpanded: $showAdvancedDetails) {
@@ -227,18 +217,6 @@ struct NudgeSettingsView: View {
             Text(label)
                 .font(.groveBadge)
                 .foregroundStyle(Color.textSecondary)
-        }
-    }
-
-    private var digestStatusText: Text {
-        let lastGenerated = NudgeSettings.digestLastGeneratedAt
-        if lastGenerated > 0 {
-            let date = Date(timeIntervalSince1970: lastGenerated)
-            let formatter = RelativeDateTimeFormatter()
-            formatter.unitsStyle = .full
-            return Text("Last generated \(formatter.localizedString(for: date, relativeTo: .now))")
-        } else {
-            return Text("No digest generated yet.")
         }
     }
 

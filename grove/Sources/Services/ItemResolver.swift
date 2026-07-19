@@ -34,6 +34,19 @@ enum ItemResolver {
         return contains.count == 1 ? contains.first : nil
     }
 
+    /// Exact case-insensitive title match — the single source of truth for what
+    /// a `[[wiki link]]` resolves to (connection creation and tap navigation).
+    /// Deliberately strict (no fuzzy fallback) so a link never silently jumps to
+    /// the wrong item.
+    static func resolveExactTitle(_ title: String, in items: [Item], excluding excludedID: UUID? = nil) -> Item? {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return items.first { item in
+            if let excludedID, item.id == excludedID { return false }
+            return item.title.localizedCaseInsensitiveCompare(trimmed) == .orderedSame
+        }
+    }
+
     /// Lowercase, strip punctuation, collapse whitespace.
     static func normalize(_ text: String) -> String {
         let allowed = CharacterSet.alphanumerics.union(.whitespaces)

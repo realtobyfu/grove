@@ -3,6 +3,9 @@ import SwiftData
 
 struct InspectorPanelView: View {
     @Bindable var item: Item
+    /// Invoked when the user clicks a backlink row to open the linking item.
+    /// Optional so existing call sites compile unchanged.
+    var onNavigateToItem: ((Item) -> Void)? = nil
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Board.sortOrder) private var allBoards: [Board]
     @Query private var allItems: [Item]
@@ -19,6 +22,8 @@ struct InspectorPanelView: View {
                 boardMembershipSection
                 Divider().padding(.horizontal)
                 connectionsSection
+                Divider().padding(.horizontal)
+                backlinksSection
                 Divider().padding(.horizontal)
                 resurfacingSection
                 if item.type == .article {
@@ -167,14 +172,14 @@ struct InspectorPanelView: View {
             }
             .padding(.horizontal)
 
-            let allConnections = item.outgoingConnections + item.incomingConnections
-            if allConnections.isEmpty && !isAddingConnection {
+            let outgoing = item.outgoingConnections
+            if outgoing.isEmpty && !isAddingConnection {
                 Text("No connections yet")
                     .font(.groveBodySmall)
                     .foregroundStyle(Color.textTertiary)
                     .padding(.horizontal)
             } else {
-                ForEach(allConnections) { connection in
+                ForEach(outgoing) { connection in
                     connectionRow(connection)
                 }
             }
@@ -183,6 +188,43 @@ struct InspectorPanelView: View {
                 addConnectionPanel
             }
         }
+    }
+
+    // MARK: - Backlinks Section
+
+    /// Incoming connections — items whose content or connections point TO this
+    /// item. Presented separately from outgoing connections so the direction of
+    /// the relationship is unambiguous. Rows are clickable and open the linking item.
+    private var backlinksSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text("Backlinks")
+                .sectionHeaderStyle()
+                .padding(.horizontal)
+
+            let incoming = item.incomingConnections
+            if incoming.isEmpty {
+                Text("No items link here yet")
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textTertiary)
+                    .padding(.horizontal)
+            } else {
+                ForEach(incoming) { connection in
+                    backlinkRow(connection)
+                }
+            }
+        }
+    }
+
+    private func backlinkRow(_ connection: Connection) -> some View {
+        connectionRow(connection)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if let source = connection.sourceItem {
+                    onNavigateToItem?(source)
+                }
+            }
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint("Opens the item that links here.")
     }
 
     private var addConnectionPanel: some View {

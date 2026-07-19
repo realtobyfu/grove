@@ -8,7 +8,6 @@ struct iPadSidebarView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var allItems: [Item]
     @Query(sort: \Board.sortOrder) private var boards: [Board]
-    @Query(sort: \Course.createdAt) private var courses: [Course]
 
     @State private var showNewBoardSheet = false
     @State private var boardToEdit: Board?
@@ -98,38 +97,6 @@ struct iPadSidebarView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("New board")
                 }
-            }
-
-            // MARK: - Courses
-            if !courses.isEmpty {
-                Section {
-                    ForEach(courses) { course in
-                        Label {
-                            HStack(spacing: 6) {
-                                Text(course.title)
-                                Spacer()
-                                if course.totalCount > 0 {
-                                    Text("\(course.completedCount)/\(course.totalCount)")
-                                        .font(.groveBadge)
-                                        .foregroundStyle(Color.textSecondary)
-                                        .monospacedDigit()
-                                }
-                            }
-                        } icon: {
-                            Image(systemName: "graduationcap")
-                        }
-                        .tag(SidebarItem.course(course.id))
-                    }
-                } header: {
-                    Text("Courses")
-                        .sectionHeaderStyle()
-                }
-            }
-
-            // MARK: - Graph
-            Section {
-                Label("Graph", systemImage: "point.3.connected.trianglepath.dotted")
-                    .tag(SidebarItem.graph)
             }
 
             // MARK: - Settings (bottom)

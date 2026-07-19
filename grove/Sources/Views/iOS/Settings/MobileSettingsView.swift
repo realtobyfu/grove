@@ -16,6 +16,7 @@ struct MobileSettingsView: View {
         List {
             aiSection
             notificationsSection
+            newslettersSection
             syncSection
             appearanceSection
             subscriptionSection
@@ -51,6 +52,18 @@ struct MobileSettingsView: View {
             Text("When off, reminders appear only inside Today.")
                 .font(.groveBodySmall)
                 .foregroundStyle(Color.textSecondary)
+        }
+    }
+
+    // MARK: - Newsletters
+
+    private var newslettersSection: some View {
+        Section("Newsletters") {
+            NavigationLink {
+                SubscriptionsSettingsView()
+            } label: {
+                Label("Subscriptions", systemImage: "newspaper")
+            }
         }
     }
 

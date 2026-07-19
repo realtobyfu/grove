@@ -7,6 +7,9 @@ struct SynthesisSheet: View {
     let items: [Item]
     let scopeTitle: String
     let board: Board?
+    /// Called both for a newly-saved synthesis and to open an existing item from
+    /// a tapped [[wiki link]] in the preview — every caller implements it as
+    /// "select/open this item".
     let onCreated: (Item) -> Void
 
     @Environment(\.modelContext) private var modelContext
@@ -192,9 +195,11 @@ struct SynthesisSheet: View {
                         .padding()
                         .frame(minHeight: 300)
                 } else {
-                    MarkdownTextView(markdown: draftContent)
-                        .padding()
-                        .textSelection(.enabled)
+                    MarkdownTextView(markdown: draftContent) { title in
+                        handleWikiLinkTap(title)
+                    }
+                    .padding()
+                    .textSelection(.enabled)
                 }
             }
         }
@@ -269,7 +274,26 @@ struct SynthesisSheet: View {
             item.metadata["isAIEdited"] = "true"
         }
 
+        // Synthesis drafts may contain [[wiki links]] — turn them into connections.
+        // Dedupes against the source-item connections createSynthesisItem already made.
+        WikiLinkSync.sync(item: item, modelContext: modelContext)
+
         onCreated(item)
         dismiss()
+    }
+
+    /// Mirrors the wiki-link tap pattern in `ChatMessageBubble` /
+    /// `DialecticalChatViewModel.navigateToItemByTitle`: trim, resolve the title
+    /// case-insensitively, then navigate. The sheet is dismissed first so the
+    /// destination view is not obscured.
+    private func handleWikiLinkTap(_ title: String) {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else { return }
+
+        let allItems: [Item] = modelContext.fetchAll()
+        guard let target = ItemResolver.resolveExactTitle(trimmedTitle, in: allItems) else { return }
+
+        dismiss()
+        onCreated(target)
     }
 }

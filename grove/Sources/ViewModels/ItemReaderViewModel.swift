@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 import SwiftUI
+import WebKit
 
 @MainActor
 @Observable
@@ -40,6 +41,32 @@ final class ItemReaderViewModel {
     var findCurrentMatch = 0
     var findForwardToken = 0
     var findBackwardToken = 0
+
+    // MARK: - Reader Mode State
+
+    /// Extracted readable article (from disk cache or live extraction).
+    var readerArticle: ReadableArticle? = nil
+    /// Whether the web panel currently shows Reader mode vs. the original page.
+    var isReaderMode = false
+    /// Extraction is attempted at most once per item visit.
+    var readerExtractionAttempted = false
+    /// Latest text selection reported from either web mode (future highlight plumbing).
+    var webSelectedText: String? = nil
+    /// Scroll-to-text request routed to whichever web mode is active.
+    var scrollToTextQuery = ""
+    var scrollToTextToken = 0
+
+    private var lastSavedReadingProgress: Double = -1
+    /// Latest scroll fraction (not persisted every event; see updateReadingProgress).
+    private(set) var liveReadingProgress: Double = 0
+
+    /// The current text selection eligible for highlighting (trimmed, non-empty),
+    /// or nil. Single source of truth for the web panel and native-content bars.
+    var highlightableSelection: String? {
+        guard let text = webSelectedText?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty else { return nil }
+        return text
+    }
 
     // MARK: - Init
 
@@ -111,6 +138,121 @@ final class ItemReaderViewModel {
         Int(round(webViewZoomLevel * 100))
     }
 
+    // MARK: - Reader Mode
+
+    /// Persisted 0–1 reading progress for this item.
+    var readingProgress: Double {
+        Double(item.metadata["readingProgress"] ?? "") ?? 0
+    }
+
+    /// Loads a cached extraction if present, and opens straight into Reader
+    /// mode (offline-capable) when one exists.
+    func loadCachedReaderArticleIfAvailable() {
+        guard readerArticle == nil else { return }
+        guard let cached = ArticleReaderService.shared.cachedArticle(for: item.id) else { return }
+        readerArticle = cached
+        isReaderMode = true
+        if item.metadata["readTimeMinutes"] == nil {
+            item.metadata["readTimeMinutes"] = String(cached.readMinutes)
+        }
+    }
+
+    /// Called when the live page finishes loading: runs Readability extraction
+    /// once. On success caches the result and auto-switches to Reader mode;
+    /// on failure (null parse, error, paywall shell) stays on the live page
+    /// silently.
+    func handleArticlePageDidFinish(_ webView: WKWebView) {
+        guard readerArticle == nil, !readerExtractionAttempted else { return }
+        // Only extract when the finished page is actually this item's article —
+        // not a consent interstitial, redirect shell on another host, or a link
+        // the user clicked. Otherwise the wrong page gets cached under this
+        // item's ID and shown as its reader content forever.
+        guard let finished = webView.url, articleURLMatches(finished) else { return }
+        readerExtractionAttempted = true
+        let itemID = item.id
+        Task { @MainActor in
+            guard let article = await ArticleReaderService.shared.extractArticle(
+                from: webView,
+                sourceURL: webView.url
+            ) else { return }
+            ArticleReaderService.shared.saveArticle(article, for: itemID)
+            readerArticle = article
+            item.metadata["readTimeMinutes"] = String(article.readMinutes)
+            try? modelContext.save()
+            withAnimation(.easeOut(duration: 0.2)) { isReaderMode = true }
+        }
+    }
+
+    /// Whether a finished web navigation is the item's own article, tolerating
+    /// http/https and www differences but rejecting other hosts.
+    private func articleURLMatches(_ url: URL) -> Bool {
+        guard let source = item.sourceURL,
+              let sourceHost = URL(string: source)?.host?.lowercased(),
+              let finishedHost = url.host?.lowercased() else { return false }
+        func stripWWW(_ h: String) -> String { h.hasPrefix("www.") ? String(h.dropFirst(4)) : h }
+        return stripWWW(sourceHost) == stripWWW(finishedHost)
+    }
+
+    /// Persists throttled reading progress (0–1) to item metadata. Only touches
+    /// the model past a 0.05 delta so continuous scrolling (~4 reports/sec)
+    /// doesn't dirty the Item and fan out observation invalidations on every
+    /// scroll event.
+    func updateReadingProgress(_ fraction: Double) {
+        let clamped = min(max(fraction, 0), 1)
+        liveReadingProgress = clamped
+        guard abs(clamped - lastSavedReadingProgress) >= 0.05 || clamped >= 0.995 else { return }
+        lastSavedReadingProgress = clamped
+        item.metadata["readingProgress"] = String(format: "%.3f", clamped)
+        try? modelContext.save()
+    }
+
+    /// Scrolls the active web mode (Reader or Original) to the first
+    /// occurrence of the given text.
+    func scrollToText(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        scrollToTextQuery = trimmed
+        scrollToTextToken += 1
+    }
+
+    /// Jumps to a saved highlight in the source article, opening the web
+    /// panel first if it is not currently visible.
+    func jumpToHighlight(_ text: String) {
+        guard articleURL != nil else { return }
+        // Set the scroll request unconditionally; the web view applies it once
+        // its page finishes loading (see the pending-scroll handling in
+        // ArticleWebView / ReaderModeWebView), so this works whether the panel
+        // was already open or is only now mounting — no fixed-delay guess.
+        if !showArticleWebView {
+            withAnimation(.easeOut(duration: 0.2)) { showArticleWebView = true }
+        }
+        scrollToText(text)
+    }
+
+    // MARK: - Highlights
+
+    /// Creates a standalone highlight block (source quote with no prose yet)
+    /// from the current text selection.
+    func addHighlight(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let nextPosition = (sortedReflections.last?.position ?? -1) + 1
+        let timestamp: Int? = isVideoItem ? Int(videoCurrentTime) : nil
+        let block = ReflectionBlock(
+            item: item,
+            blockType: .keyInsight,
+            content: "",
+            highlight: trimmed,
+            position: nextPosition,
+            videoTimestamp: timestamp
+        )
+        modelContext.insert(block)
+        item.reflections.append(block)
+        item.updatedAt = .now
+        try? modelContext.save()
+        webSelectedText = nil
+    }
+
     // MARK: - Find Bar
 
     func closeFindBar() {
@@ -171,13 +313,19 @@ final class ItemReaderViewModel {
     func closeReflectionEditor() {
         if let block = editingBlock {
             let trimmed = block.content.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty {
-                // Empty block -- clean up orphan
+            let hasHighlight = !(block.highlight ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            if trimmed.isEmpty && !hasHighlight {
+                // Empty block with no highlight -- clean up orphan.
+                // A pure highlight (empty content, non-empty highlight) is valid.
                 item.reflections.removeAll { $0.id == block.id }
                 modelContext.delete(block)
                 item.updatedAt = .now
             } else {
                 item.updatedAt = .now
+                if !trimmed.isEmpty {
+                    WikiLinkSync.sync(item: item, content: block.content, modelContext: modelContext)
+                }
             }
             try? modelContext.save()
         }
@@ -264,6 +412,7 @@ final class ItemReaderViewModel {
             if item.metadata["isAIGenerated"] == "true" && item.metadata["isAIEdited"] != "true" {
                 item.metadata["isAIEdited"] = "true"
             }
+            WikiLinkSync.sync(item: item, modelContext: modelContext)
         }
     }
 
@@ -274,7 +423,7 @@ final class ItemReaderViewModel {
         guard !trimmedTitle.isEmpty else { return }
 
         let allItems: [Item] = modelContext.fetchAll()
-        if let matchedItem = allItems.first(where: { $0.title.localizedCaseInsensitiveCompare(trimmedTitle) == .orderedSame }) {
+        if let matchedItem = ItemResolver.resolveExactTitle(trimmedTitle, in: allItems) {
             onNavigateToItem?(matchedItem)
         }
     }
@@ -305,5 +454,11 @@ final class ItemReaderViewModel {
         isReflectionPanelCollapsed = false
         webViewZoomLevel = 1.0
         closeFindBar()
+        readerArticle = nil
+        isReaderMode = false
+        readerExtractionAttempted = false
+        webSelectedText = nil
+        scrollToTextQuery = ""
+        lastSavedReadingProgress = -1
     }
 }

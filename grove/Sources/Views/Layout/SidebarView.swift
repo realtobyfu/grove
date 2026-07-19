@@ -6,14 +6,10 @@ struct SidebarView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var allItems: [Item]
     @Query(sort: \Board.sortOrder) private var boards: [Board]
-    @Query(sort: \Course.createdAt) private var courses: [Course]
 
     @State private var showNewBoardSheet = false
-    @State private var showNewCourseSheet = false
     @State private var boardToEdit: Board?
     @State private var boardToDelete: Board?
-    @State private var courseToDelete: Course?
-    @State private var isMoreExpanded = false
 
     private var inboxCount: Int {
         allItems.filter { $0.status == .inbox }.count
@@ -97,45 +93,6 @@ struct SidebarView: View {
                     }
                 }
             }
-
-            Section {
-                DisclosureGroup(isExpanded: $isMoreExpanded) {
-                    ForEach(courses) { course in
-                        Label {
-                            HStack(spacing: 6) {
-                                Text(course.title)
-                                Spacer()
-                                if course.totalCount > 0 {
-                                    Text("\(course.completedCount)/\(course.totalCount)")
-                                        .font(.groveBadge)
-                                        .foregroundStyle(Color.textSecondary)
-                                        .monospacedDigit()
-                                }
-                            }
-                        } icon: {
-                            Image(systemName: "graduationcap")
-                        }
-                        .tag(SidebarItem.course(course.id))
-                        .contextMenu {
-                            Button("Delete Course", role: .destructive) {
-                                courseToDelete = course
-                            }
-                        }
-                    }
-
-                    Button {
-                        showNewCourseSheet = true
-                    } label: {
-                        Label("New Course", systemImage: "plus")
-                    }
-                    .buttonStyle(.plain)
-
-                    Label("Graph", systemImage: "point.3.connected.trianglepath.dotted")
-                        .tag(SidebarItem.graph)
-                } label: {
-                    Label("More", systemImage: "ellipsis.circle")
-                }
-            }
         }
         .listStyle(.sidebar)
         .onReceive(NotificationCenter.default.publisher(for: .groveNewBoard)) { _ in
@@ -178,36 +135,6 @@ struct SidebarView: View {
         } message: {
             if let board = boardToDelete {
                 Text("Are you sure you want to delete \"\(board.title)\"? Items in this board will not be deleted.")
-            }
-        }
-        .sheet(isPresented: $showNewCourseSheet) {
-            NewCourseSheet { course in
-                selection = .course(course.id)
-            }
-        }
-        .alert(
-            "Delete Course",
-            isPresented: Binding(
-                get: { courseToDelete != nil },
-                set: { if !$0 { courseToDelete = nil } }
-            )
-        ) {
-            Button("Cancel", role: .cancel) {
-                courseToDelete = nil
-            }
-            Button("Delete", role: .destructive) {
-                if let course = courseToDelete {
-                    if case .course(let id) = selection, id == course.id {
-                        selection = nil
-                    }
-                    modelContext.delete(course)
-                    try? modelContext.save()
-                }
-                courseToDelete = nil
-            }
-        } message: {
-            if let course = courseToDelete {
-                Text("Are you sure you want to delete \"\(course.title)\"? Lectures will not be deleted.")
             }
         }
     }

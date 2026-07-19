@@ -53,6 +53,7 @@ enum ReadLaterPreset: String, CaseIterable, Identifiable, Sendable {
 protocol ReadLaterServiceProtocol {
     func queue(_ item: Item, for preset: ReadLaterPreset)
     func queue(_ item: Item, until date: Date)
+    func restore(_ item: Item)
     @discardableResult func restoreDueItems(referenceDate: Date) -> Int
 }
 
@@ -82,6 +83,16 @@ final class ReadLaterService: ReadLaterServiceProtocol {
 
         item.status = .queued
         item.readLaterUntil = date
+        item.updatedAt = .now
+        try? modelContext.save()
+    }
+
+    /// Immediately returns a single queued item to the inbox. The one owner of
+    /// the queued→inbox transition, so a future side effect (analytics, clearing
+    /// a scheduled notification) lands everywhere.
+    func restore(_ item: Item) {
+        item.status = .inbox
+        item.readLaterUntil = nil
         item.updatedAt = .now
         try? modelContext.save()
     }
