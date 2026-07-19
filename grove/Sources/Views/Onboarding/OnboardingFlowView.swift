@@ -435,7 +435,6 @@ struct OnboardingFlowView: View {
         var result = Set<GroveUseCase>()
         if selectedCapture.contains(.links) { result.insert(.reading) }
         if selectedCapture.contains(.notes) { result.insert(.notes) }
-        if selectedCapture.contains(.courses) { result.insert(.learning) }
         if selectedGoals.contains(.research) { result.insert(.reading) }
         if selectedGoals.contains(.journaling) { result.insert(.journaling) }
         if selectedOrganize == .byProject { result.insert(.projects) }

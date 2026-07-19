@@ -152,7 +152,6 @@ struct MobileOnboardingView: View {
             VStack(spacing: Spacing.md) {
                 captureChip(.links, icon: "link", label: "Links & Articles")
                 captureChip(.notes, icon: "note.text", label: "Notes & Ideas")
-                captureChip(.courses, icon: "graduationcap", label: "Courses & Lectures")
             }
             .padding(.horizontal, Spacing.xl)
         }
@@ -397,7 +396,6 @@ private extension CaptureType {
         switch self {
         case .links: "Links"
         case .notes: "Notes"
-        case .courses: "Courses"
         }
     }
 }

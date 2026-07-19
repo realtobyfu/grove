@@ -6,7 +6,6 @@ enum SidebarItem: Hashable, Codable {
     case inbox
     case library
     case board(UUID)
-    case course(UUID)
     case settings
 
     /// String encoding for @SceneStorage persistence.
@@ -16,7 +15,6 @@ enum SidebarItem: Hashable, Codable {
         case .inbox: "inbox"
         case .library: "library"
         case .board(let id): "board:\(id.uuidString)"
-        case .course(let id): "course:\(id.uuidString)"
         case .settings: "settings"
         }
     }
@@ -30,9 +28,6 @@ enum SidebarItem: Hashable, Codable {
         else if sceneStorageValue.hasPrefix("board:"),
                 let uuid = UUID(uuidString: String(sceneStorageValue.dropFirst(6))) {
             self = .board(uuid)
-        } else if sceneStorageValue.hasPrefix("course:"),
-                  let uuid = UUID(uuidString: String(sceneStorageValue.dropFirst(7))) {
-            self = .course(uuid)
         } else {
             return nil
         }
@@ -44,7 +39,6 @@ struct ContentView: View {
     @Environment(OnboardingService.self) private var onboarding
     @State private var coachMarks = CoachMarkService.shared
     @Query(sort: \Board.sortOrder) private var boards: [Board]
-    @Query(sort: \Course.createdAt) private var courses: [Course]
     @Query private var allItemsForOnboarding: [Item]
     @Query private var allConversationsForOnboarding: [Conversation]
     @State private var viewModel = ContentViewModel()
@@ -407,12 +401,6 @@ struct ContentView: View {
                     BoardDetailView(board: board, selectedItem: $vm.selectedItem, openedItem: $vm.openedItem)
                 } else {
                     PlaceholderView(icon: "square.grid.2x2", title: "Board", message: "Board not found.")
-                }
-            case .course(let courseID):
-                if let course = courses.first(where: { $0.id == courseID }) {
-                    CourseDetailView(course: course, selectedItem: $vm.selectedItem, openedItem: $vm.openedItem)
-                } else {
-                    PlaceholderView(icon: "graduationcap", title: "Course", message: "Course not found.")
                 }
             case .inbox, .settings:
                 // iPad-only sidebar items; unused on macOS
