@@ -172,7 +172,11 @@ final class FeedFetchService {
             } else if item.metadata["suggestionDismissed"] != "true" {
                 item.metadata["suggestionDismissed"] = "true"
                 if item.status == .inbox {
-                    item.status = .dismissed
+                    // Archive rather than dismiss. Nothing in the app surfaces
+                    // `.dismissed`, so dismissing here stranded expired items
+                    // permanently out of reach; `.archived` keeps them
+                    // browsable under Library's archived filter.
+                    item.status = .archived
                 }
             }
         }

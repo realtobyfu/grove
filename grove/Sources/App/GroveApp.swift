@@ -45,6 +45,7 @@ struct GroveApp: App {
                     NudgeNotificationService.shared.configure()
                     let context = modelContainer.mainContext
                     AnnotationMigrationService.migrateIfNeeded(context: context)
+                    FeedSuggestionMigrationService.migrateIfNeeded(context: context)
                     storeKitService.start()
                     #if !SHARE_EXTENSION
                     await GroveSpotlightIndexer.refreshAll(using: modelContainer)
@@ -164,6 +165,7 @@ struct GroveApp: App {
                 .task {
                     let context = modelContainer.mainContext
                     AnnotationMigrationService.migrateIfNeeded(context: context)
+                    FeedSuggestionMigrationService.migrateIfNeeded(context: context)
                     ExtensionItemProcessor.processIfNeeded(context: context)
                     storeKitService.start()
                     #if !SHARE_EXTENSION
