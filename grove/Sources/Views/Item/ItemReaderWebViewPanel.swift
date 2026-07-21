@@ -35,7 +35,7 @@ struct ItemReaderWebViewPanel: View {
     }
 
     private var showsReaderContent: Bool {
-        vm.isReaderMode && vm.readerArticle != nil
+        vm.isReaderMode && vm.activeReaderArticle != nil
     }
 
     /// Back can walk web history, or fall through to the article's own
@@ -115,7 +115,7 @@ struct ItemReaderWebViewPanel: View {
 
                 boardsMenu
 
-                if vm.readerArticle != nil {
+                if vm.activeReaderArticle != nil {
                     Divider().frame(height: 12)
 
                     Button {
@@ -201,7 +201,7 @@ struct ItemReaderWebViewPanel: View {
             }
 
             ZStack(alignment: .bottom) {
-                if showsReaderContent, let article = vm.readerArticle {
+                if showsReaderContent, let article = vm.activeReaderArticle {
                     readerContent(article: article)
                 } else {
                     originalContent
@@ -303,7 +303,7 @@ struct ItemReaderWebViewPanel: View {
                 if onArticlePage, returnToReaderOnArticle {
                     returnToReaderOnArticle = false
                     vm.pendingNavigationURL = nil
-                    if vm.readerArticle != nil {
+                    if vm.activeReaderArticle != nil {
                         withAnimation(.easeOut(duration: 0.15)) { vm.isReaderMode = true }
                     }
                 }

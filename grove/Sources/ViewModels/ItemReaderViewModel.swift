@@ -59,6 +59,13 @@ final class ItemReaderViewModel {
     /// own page or not in web mode). Drives capture-on-write for pages
     /// navigated to inside the reader.
     var navigatedWebURL: URL? = nil
+    /// Reader extraction for a page navigated to inside the pane. Held in
+    /// memory only — never written to the item's disk cache, which belongs to
+    /// the item's own article. Cleared whenever navigation moves elsewhere.
+    var navigatedReaderArticle: ReadableArticle? = nil
+    /// URL `navigatedReaderArticle` was extracted from, so a stale extraction
+    /// is never shown for a page the user has since navigated away from.
+    var navigatedReaderArticleURL: URL? = nil
     /// Pending in-pane navigation request (a link tapped in Reader mode).
     var pendingNavigationURL: URL? = nil
     var pendingNavigationToken = 0
@@ -162,6 +169,16 @@ final class ItemReaderViewModel {
     /// on failure (null parse, error, paywall shell) stays on the live page
     /// silently.
     func handleArticlePageDidFinish(_ webView: WKWebView) {
+        // A page the user navigated to inside the pane gets its own extraction
+        // so Reader mode reflects what is on screen. It is deliberately kept
+        // out of the item's disk cache — only the item's own article belongs
+        // there — but without this, toggling Reader on a link target fell back
+        // to the root article and showed the wrong page entirely.
+        if let finished = webView.url, !articleURLMatches(finished) {
+            extractNavigatedArticle(from: webView, url: finished)
+            return
+        }
+
         guard readerArticle == nil, !readerExtractionAttempted else { return }
         // Only extract when the finished page is actually this item's article —
         // not a consent interstitial, redirect shell on another host, or a link
@@ -180,6 +197,38 @@ final class ItemReaderViewModel {
             item.metadata["readTimeMinutes"] = String(article.readMinutes)
             try? modelContext.save()
             withAnimation(.easeOut(duration: 0.2)) { isReaderMode = true }
+        }
+    }
+
+    /// The article Reader mode should render right now: the navigated page's
+    /// extraction when the pane has browsed away from the item's own article,
+    /// otherwise the item's cached article.
+    var activeReaderArticle: ReadableArticle? {
+        if let navigated = navigatedWebURL {
+            guard let extracted = navigatedReaderArticle,
+                  navigatedReaderArticleURL?.absoluteString == navigated.absoluteString
+            else { return nil }
+            return extracted
+        }
+        return readerArticle
+    }
+
+    /// Extracts a readable article for a page navigated to inside the pane.
+    /// Memory-only: nothing here is written to the item's cache.
+    private func extractNavigatedArticle(from webView: WKWebView, url: URL) {
+        // Already have this exact page extracted.
+        guard navigatedReaderArticleURL?.absoluteString != url.absoluteString else { return }
+        navigatedReaderArticle = nil
+        navigatedReaderArticleURL = nil
+        Task { @MainActor in
+            guard let article = await ArticleReaderService.shared.extractArticle(
+                from: webView,
+                sourceURL: url
+            ) else { return }
+            // The pane may have navigated on while extraction was in flight.
+            guard webView.url?.absoluteString == url.absoluteString else { return }
+            navigatedReaderArticle = article
+            navigatedReaderArticleURL = url
         }
     }
 
@@ -493,6 +542,8 @@ final class ItemReaderViewModel {
         webViewZoomLevel = 1.0
         closeFindBar()
         readerArticle = nil
+        navigatedReaderArticle = nil
+        navigatedReaderArticleURL = nil
         isReaderMode = false
         readerExtractionAttempted = false
         webSelectedText = nil
