@@ -14,6 +14,11 @@ let project = Project(
                 "CFBundleDisplayName": "Grove",
                 "CFBundleName": "Grove",
                 "CFBundleIconName": "AppIcon",
+                // Tuist's default Info.plist hardcodes 1.0/1 and ignores the
+                // version build settings, so these must be wired up explicitly
+                // or every release ships as 1.0 (1).
+                "CFBundleShortVersionString": "$(MARKETING_VERSION)",
+                "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
                 "CFBundleURLTypes": [
                     [
                         "CFBundleTypeRole": "Editor",
@@ -56,7 +61,7 @@ let project = Project(
                 "CODE_SIGN_STYLE": "Automatic",
                 "DEVELOPMENT_TEAM": "679K683SQ5",
                 "MARKETING_VERSION": "2.0.0",
-                "CURRENT_PROJECT_VERSION": "3",
+                "CURRENT_PROJECT_VERSION": "4",
             ])
         ),
         // MARK: - GroveShareExtension (iOS Share Extension)
@@ -68,6 +73,9 @@ let project = Project(
             deploymentTargets: .iOS("18.0"),
             infoPlist: .extendingDefault(with: [
                 "CFBundleDisplayName": "Save to Grove",
+                // Must match the host app exactly or App Store validation fails.
+                "CFBundleShortVersionString": "$(MARKETING_VERSION)",
+                "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
                 "NSExtension": [
                     "NSExtensionPointIdentifier": "com.apple.share-services",
                     "NSExtensionPrincipalClass": "$(PRODUCT_MODULE_NAME).ShareViewController",
@@ -91,7 +99,7 @@ let project = Project(
                 "CODE_SIGN_STYLE": "Automatic",
                 "DEVELOPMENT_TEAM": "679K683SQ5",
                 "MARKETING_VERSION": "2.0.0",
-                "CURRENT_PROJECT_VERSION": "3",
+                "CURRENT_PROJECT_VERSION": "4",
             ])
         ),
         // MARK: - grove (macOS)
@@ -104,6 +112,8 @@ let project = Project(
                 "CFBundleDisplayName": "Grove",
                 "CFBundleName": "Grove",
                 "CFBundleIconName": "AppIcon",
+                "CFBundleShortVersionString": "$(MARKETING_VERSION)",
+                "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
                 "ATSApplicationFontsPath": "Fonts",
                 "LSApplicationCategoryType": "public.app-category.productivity",
                 "NSMainStoryboardFile": "",
@@ -124,7 +134,7 @@ let project = Project(
                 "CODE_SIGN_IDENTITY[sdk=macosx*]": "Apple Development",
                 "DEVELOPMENT_TEAM": "679K683SQ5",
                 "MARKETING_VERSION": "2.0.0",
-                "CURRENT_PROJECT_VERSION": "3",
+                "CURRENT_PROJECT_VERSION": "4",
             ])
         ),
         .target(
@@ -136,6 +146,8 @@ let project = Project(
                 "CFBundleDisplayName": "Grove Demo",
                 "CFBundleName": "Grove Demo",
                 "CFBundleIconName": "AppIcon",
+                "CFBundleShortVersionString": "$(MARKETING_VERSION)",
+                "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
                 "ATSApplicationFontsPath": "Fonts",
                 "LSApplicationCategoryType": "public.app-category.productivity",
                 "NSMainStoryboardFile": "",
