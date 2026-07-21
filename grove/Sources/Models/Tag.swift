@@ -49,13 +49,32 @@ final class Tag {
     var confidence: Float?
     var category: TagCategory = TagCategory.custom
 
-    /// Parent tag for informational hierarchy (e.g., "Swift" is parent of "SwiftUI")
-    @Relationship(inverse: \Tag.childTags) var parentTag: Tag?
-    /// Child tags in the hierarchy
-    var childTags: [Tag] = []
+    // See the note in `Board` — CloudKit requires optional relationships with
+    // inverses; the computed accessors keep call sites on plain `[T]`.
 
-    var items: [Item] = []
-    @Relationship(inverse: \Board.smartRuleTags) var smartRuleBoards: [Board] = []
+    /// Parent tag for informational hierarchy (e.g., "Swift" is parent of "SwiftUI")
+    @Relationship(inverse: \Tag.childTagsStorage) var parentTag: Tag?
+    /// Child tags in the hierarchy
+    @Relationship(originalName: "childTags") var childTagsStorage: [Tag]? = []
+
+    @Relationship(originalName: "items") var itemsStorage: [Item]? = []
+    @Relationship(originalName: "smartRuleBoards", inverse: \Board.smartRuleTagsStorage)
+    var smartRuleBoardsStorage: [Board]? = []
+
+    var childTags: [Tag] {
+        get { childTagsStorage ?? [] }
+        set { childTagsStorage = newValue }
+    }
+
+    var items: [Item] {
+        get { itemsStorage ?? [] }
+        set { itemsStorage = newValue }
+    }
+
+    var smartRuleBoards: [Board] {
+        get { smartRuleBoardsStorage ?? [] }
+        set { smartRuleBoardsStorage = newValue }
+    }
 
     /// Number of items using this tag at last trend calculation
     var previousItemCount: Int = 0
@@ -69,9 +88,9 @@ final class Tag {
         self.confidence = confidence
         self.category = category
         self.parentTag = nil
-        self.childTags = []
-        self.items = []
-        self.smartRuleBoards = []
+        self.childTagsStorage = []
+        self.itemsStorage = []
+        self.smartRuleBoardsStorage = []
         self.previousItemCount = 0
         self.trendCalculatedAt = nil
     }

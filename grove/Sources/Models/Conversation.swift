@@ -18,8 +18,23 @@ final class Conversation {
     var updatedAt: Date = Date.now
     var isArchived: Bool = false
     var board: Board?
-    @Relationship(deleteRule: .cascade, inverse: \ChatMessage.conversation) var messages: [ChatMessage] = []
-    @Relationship(inverse: \ReflectionBlock.conversation) var createdReflections: [ReflectionBlock] = []
+    // See the note in `Board` — CloudKit requires optional relationships with
+    // inverses; the computed accessors keep call sites on plain `[T]`.
+
+    @Relationship(deleteRule: .cascade, originalName: "messages", inverse: \ChatMessage.conversation)
+    var messagesStorage: [ChatMessage]? = []
+    @Relationship(originalName: "createdReflections", inverse: \ReflectionBlock.conversation)
+    var createdReflectionsStorage: [ReflectionBlock]? = []
+
+    var messages: [ChatMessage] {
+        get { messagesStorage ?? [] }
+        set { messagesStorage = newValue }
+    }
+
+    var createdReflections: [ReflectionBlock] {
+        get { createdReflectionsStorage ?? [] }
+        set { createdReflectionsStorage = newValue }
+    }
     var seedItemIDs: [UUID] = []
 
     init(
@@ -35,8 +50,8 @@ final class Conversation {
         self.updatedAt = .now
         self.isArchived = false
         self.board = board
-        self.messages = []
-        self.createdReflections = []
+        self.messagesStorage = []
+        self.createdReflectionsStorage = []
         self.seedItemIDs = seedItemIDs
     }
 

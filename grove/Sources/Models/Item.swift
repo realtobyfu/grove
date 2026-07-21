@@ -51,15 +51,60 @@ final class Item {
     var lastEngagedAt: Date?
     var isResurfacingPaused: Bool = false
 
-    @Relationship(inverse: \Board.items) var boards: [Board] = []
-    @Relationship(inverse: \Tag.items) var tags: [Tag] = []
-    @Relationship(deleteRule: .cascade, inverse: \Annotation.item) var annotations: [Annotation] = []
-    @Relationship(deleteRule: .cascade, inverse: \ReflectionBlock.item) var reflections: [ReflectionBlock] = []
-    @Relationship(deleteRule: .cascade, inverse: \Connection.sourceItem) var outgoingConnections: [Connection] = []
-    @Relationship(deleteRule: .cascade, inverse: \Connection.targetItem) var incomingConnections: [Connection] = []
-    /// Inverse of `Nudge.targetItem`. CloudKit requires every relationship to
-    /// declare an inverse; cascading also stops orphaned nudges outliving the item.
-    @Relationship(deleteRule: .cascade, inverse: \Nudge.targetItem) var nudges: [Nudge] = []
+    // See the note in `Board` — CloudKit requires optional relationships with
+    // inverses; the computed accessors keep call sites on plain `[T]`.
+
+    @Relationship(originalName: "boards", inverse: \Board.itemsStorage)
+    var boardsStorage: [Board]? = []
+    @Relationship(originalName: "tags", inverse: \Tag.itemsStorage)
+    var tagsStorage: [Tag]? = []
+    @Relationship(deleteRule: .cascade, originalName: "annotations", inverse: \Annotation.item)
+    var annotationsStorage: [Annotation]? = []
+    @Relationship(deleteRule: .cascade, originalName: "reflections", inverse: \ReflectionBlock.item)
+    var reflectionsStorage: [ReflectionBlock]? = []
+    @Relationship(deleteRule: .cascade, originalName: "outgoingConnections", inverse: \Connection.sourceItem)
+    var outgoingConnectionsStorage: [Connection]? = []
+    @Relationship(deleteRule: .cascade, originalName: "incomingConnections", inverse: \Connection.targetItem)
+    var incomingConnectionsStorage: [Connection]? = []
+    /// Inverse of `Nudge.targetItem`. New in 2.0, so it has no `originalName`.
+    /// Cascading stops orphaned nudges outliving the item.
+    @Relationship(deleteRule: .cascade, inverse: \Nudge.targetItem)
+    var nudgesStorage: [Nudge]? = []
+
+    var boards: [Board] {
+        get { boardsStorage ?? [] }
+        set { boardsStorage = newValue }
+    }
+
+    var tags: [Tag] {
+        get { tagsStorage ?? [] }
+        set { tagsStorage = newValue }
+    }
+
+    var annotations: [Annotation] {
+        get { annotationsStorage ?? [] }
+        set { annotationsStorage = newValue }
+    }
+
+    var reflections: [ReflectionBlock] {
+        get { reflectionsStorage ?? [] }
+        set { reflectionsStorage = newValue }
+    }
+
+    var outgoingConnections: [Connection] {
+        get { outgoingConnectionsStorage ?? [] }
+        set { outgoingConnectionsStorage = newValue }
+    }
+
+    var incomingConnections: [Connection] {
+        get { incomingConnectionsStorage ?? [] }
+        set { incomingConnectionsStorage = newValue }
+    }
+
+    var nudges: [Nudge] {
+        get { nudgesStorage ?? [] }
+        set { nudgesStorage = newValue }
+    }
 
     // MARK: - Depth Score
 
@@ -192,11 +237,12 @@ final class Item {
         self.resurfaceCount = 0
         self.lastEngagedAt = nil
         self.isResurfacingPaused = false
-        self.boards = []
-        self.tags = []
-        self.annotations = []
-        self.reflections = []
-        self.outgoingConnections = []
-        self.incomingConnections = []
+        self.boardsStorage = []
+        self.tagsStorage = []
+        self.annotationsStorage = []
+        self.reflectionsStorage = []
+        self.outgoingConnectionsStorage = []
+        self.incomingConnectionsStorage = []
+        self.nudgesStorage = []
     }
 }

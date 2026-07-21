@@ -36,11 +36,36 @@ final class Board {
     /// JSON-encoded [UUID] array for manual item ordering. Authoritative source for .manual sort order.
     var itemOrderData: Data?
 
-    var items: [Item] = []
-    var smartRuleTags: [Tag] = []
-    /// Inverse of `Conversation.board`. CloudKit requires every relationship to
-    /// declare an inverse, or container init fails and sync silently degrades.
-    @Relationship(inverse: \Conversation.board) var conversations: [Conversation] = []
+    // MARK: - Relationships
+    //
+    // CloudKit requires every relationship to be optional and to declare an
+    // inverse, or `NSPersistentCloudKitContainer` refuses to load the model and
+    // sync silently falls back to local-only. So the stored properties are
+    // optional arrays, and each is fronted by a non-optional computed accessor
+    // so call sites can keep treating them as plain `[T]`.
+    //
+    // `originalName` maps each renamed property back onto the pre-existing store
+    // so local data survives the migration.
+
+    @Relationship(originalName: "items") var itemsStorage: [Item]? = []
+    @Relationship(originalName: "smartRuleTags") var smartRuleTagsStorage: [Tag]? = []
+    /// Inverse of `Conversation.board`. New in 2.0, so it has no `originalName`.
+    @Relationship(inverse: \Conversation.board) var conversationsStorage: [Conversation]? = []
+
+    var items: [Item] {
+        get { itemsStorage ?? [] }
+        set { itemsStorage = newValue }
+    }
+
+    var smartRuleTags: [Tag] {
+        get { smartRuleTagsStorage ?? [] }
+        set { smartRuleTagsStorage = newValue }
+    }
+
+    var conversations: [Conversation] {
+        get { conversationsStorage ?? [] }
+        set { conversationsStorage = newValue }
+    }
 
     init(title: String, icon: String? = nil, color: String? = nil) {
         self.id = UUID()
@@ -54,8 +79,9 @@ final class Board {
         self.smartRuleLogic = .or
         self.nudgeFrequencyHours = 0
         self.itemOrderData = nil
-        self.items = []
-        self.smartRuleTags = []
+        self.itemsStorage = []
+        self.smartRuleTagsStorage = []
+        self.conversationsStorage = []
     }
 }
 
