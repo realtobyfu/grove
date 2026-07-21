@@ -38,6 +38,9 @@ final class Board {
 
     var items: [Item] = []
     var smartRuleTags: [Tag] = []
+    /// Inverse of `Conversation.board`. CloudKit requires every relationship to
+    /// declare an inverse, or container init fails and sync silently degrades.
+    @Relationship(inverse: \Conversation.board) var conversations: [Conversation] = []
 
     init(title: String, icon: String? = nil, color: String? = nil) {
         self.id = UUID()

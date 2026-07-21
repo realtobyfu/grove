@@ -13,12 +13,17 @@ struct ItemReaderWebViewPanel: View {
     /// mode (Reader or Original), nil when the selection is cleared.
     var onTextSelected: ((String?) -> Void)? = nil
 
+    @Query(sort: \Board.sortOrder) private var boards: [Board]
+
     @State private var canGoBack = false
     @State private var canGoForward = false
     @State private var currentWebURL: URL? = nil
     @State private var goBackToken = 0
     @State private var goForwardToken = 0
     @State private var justSaved = false
+    /// Set when a Reader-mode link click dropped us into Original mode;
+    /// navigating back to the article's own page restores Reader mode.
+    @State private var returnToReaderOnArticle = false
 
     // Reader typography (persisted app-wide)
     @AppStorage(ReaderTypographySettings.sizeStepKey) private var readerSizeStep = 1
@@ -33,12 +38,28 @@ struct ItemReaderWebViewPanel: View {
         vm.isReaderMode && vm.readerArticle != nil
     }
 
+    /// Back can walk web history, or fall through to the article's own
+    /// page when the pane mounted directly on a link target.
+    private var webBackEnabled: Bool {
+        guard !showsReaderContent else { return false }
+        if canGoBack { return true }
+        if let current = currentWebURL, current.absoluteString != url.absoluteString { return true }
+        return false
+    }
+
+    private var webForwardEnabled: Bool {
+        !showsReaderContent && canGoForward
+    }
+
     /// Non-empty trimmed selection from either web mode, or nil.
     var body: some View {
         VStack(spacing: 0) {
             // Slim navigation bar
             HStack(spacing: 10) {
                 Button {
+                    vm.pendingNavigationURL = nil
+                    vm.navigatedWebURL = nil
+                    returnToReaderOnArticle = false
                     withAnimation(.easeOut(duration: 0.2)) { vm.showArticleWebView = false }
                 } label: {
                     HStack(spacing: 4) {
@@ -53,28 +74,28 @@ struct ItemReaderWebViewPanel: View {
 
                 Divider().frame(height: 12)
 
-                if !showsReaderContent {
-                    // Browser back/forward (Original mode only)
-                    Button { goBackToken += 1 } label: {
-                        Image(systemName: "chevron.backward")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(canGoBack ? Color.textSecondary : Color.textMuted)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!canGoBack)
-                    .help("Back")
-
-                    Button { goForwardToken += 1 } label: {
-                        Image(systemName: "chevron.forward")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(canGoForward ? Color.textSecondary : Color.textMuted)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!canGoForward)
-                    .help("Forward")
-
-                    Divider().frame(height: 12)
+                // Browser back/forward — always present so the bar reads
+                // the same in both modes; inert while Reader mode is
+                // showing (no web history to walk).
+                Button { goBackToken += 1 } label: {
+                    Image(systemName: "chevron.backward")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(webBackEnabled ? Color.textSecondary : Color.textMuted)
                 }
+                .buttonStyle(.plain)
+                .disabled(!webBackEnabled)
+                .help("Back")
+
+                Button { goForwardToken += 1 } label: {
+                    Image(systemName: "chevron.forward")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(webForwardEnabled ? Color.textSecondary : Color.textMuted)
+                }
+                .buttonStyle(.plain)
+                .disabled(!webForwardEnabled)
+                .help("Forward")
+
+                Divider().frame(height: 12)
 
                 Text((currentWebURL ?? url).host ?? (currentWebURL ?? url).absoluteString)
                     .font(.groveMeta)
@@ -90,10 +111,15 @@ struct ItemReaderWebViewPanel: View {
                     zoomControls
                 }
 
+                Divider().frame(height: 12)
+
+                boardsMenu
+
                 if vm.readerArticle != nil {
                     Divider().frame(height: 12)
 
                     Button {
+                        returnToReaderOnArticle = false
                         withAnimation(.easeOut(duration: 0.2)) { vm.isReaderMode.toggle() }
                     } label: {
                         Image(systemName: vm.isReaderMode ? "globe" : "doc.plaintext")
@@ -117,24 +143,38 @@ struct ItemReaderWebViewPanel: View {
                 .buttonStyle(.plain)
                 .help("Open reflection panel")
 
-                if !showsReaderContent,
+                if vm.showAutoCaptureIndicator || justSaved {
+                    // Inline confirmation for saves (explicit or capture-on-write).
+                    Label("Saved", systemImage: "checkmark.circle")
+                        .font(.groveMeta)
+                        .foregroundStyle(Color.textSecondary)
+                        .transition(.opacity)
+                } else if !showsReaderContent,
                    let navigatedURL = currentWebURL, navigatedURL.absoluteString != url.absoluteString {
                     Button {
                         let service = CaptureService(modelContext: modelContext)
-                        _ = service.captureItem(input: navigatedURL.absoluteString)
+                        let (item, _) = service.captureItemDetailed(input: navigatedURL.absoluteString)
+                        // Saving while reading is deliberate — straight to
+                        // the library, unfiled, skipping inbox triage.
+                        if item.status == .inbox {
+                            item.status = .active
+                        }
+                        if vm.item.isNewsletterIssue {
+                            vm.item.isFeedIssueRead = true
+                        }
+                        try? modelContext.save()
                         justSaved = true
                         Task {
                             try? await Task.sleep(for: .seconds(1.5))
                             justSaved = false
                         }
                     } label: {
-                        Image(systemName: justSaved ? "checkmark.circle" : "plus.circle")
+                        Image(systemName: "plus.circle")
                             .font(.groveBody)
-                            .foregroundStyle(justSaved ? Color.textSecondary : Color.textMuted)
+                            .foregroundStyle(Color.textMuted)
                     }
                     .buttonStyle(.plain)
-                    .disabled(justSaved)
-                    .help("Add to Grove")
+                    .help("Save page to library")
                 }
 
                 Button {
@@ -177,6 +217,7 @@ struct ItemReaderWebViewPanel: View {
             // Drop any stale scroll-to-text query from a previous panel
             // session so a freshly mounted web view doesn't auto-scroll.
             vm.scrollToTextQuery = ""
+            vm.navigatedWebURL = nil
             vm.loadCachedReaderArticleIfAvailable()
         }
         #if os(macOS)
@@ -215,11 +256,12 @@ struct ItemReaderWebViewPanel: View {
                 vm.updateReadingProgress(fraction)
             },
             onOpenExternalLink: { linkURL in
-                #if os(macOS)
-                NSWorkspace.shared.open(linkURL)
-                #else
-                openURL(linkURL)
-                #endif
+                // Links stay inside the reader: drop to the web panel and
+                // navigate there. "Open in Browser" remains the escape hatch.
+                vm.pendingNavigationURL = linkURL
+                vm.pendingNavigationToken += 1
+                returnToReaderOnArticle = true
+                withAnimation(.easeOut(duration: 0.15)) { vm.isReaderMode = false }
             }
         )
         #if os(iOS)
@@ -246,10 +288,25 @@ struct ItemReaderWebViewPanel: View {
             zoomLevel: vm.webViewZoomLevel,
             goBackToken: goBackToken,
             goForwardToken: goForwardToken,
+            navigateURL: vm.pendingNavigationURL,
+            navigateToken: vm.pendingNavigationToken,
             onNavigationChanged: { canBack, canFwd, currentURL in
                 canGoBack = canBack
                 canGoForward = canFwd
                 currentWebURL = currentURL
+                // Mirror into the VM so capture-on-write knows what page
+                // a reflection belongs to.
+                let onArticlePage = currentURL?.absoluteString == url.absoluteString
+                vm.navigatedWebURL = onArticlePage ? nil : currentURL
+                // Coming back to the article after a Reader-mode link
+                // click returns to Reader mode — the detour is over.
+                if onArticlePage, returnToReaderOnArticle {
+                    returnToReaderOnArticle = false
+                    vm.pendingNavigationURL = nil
+                    if vm.readerArticle != nil {
+                        withAnimation(.easeOut(duration: 0.15)) { vm.isReaderMode = true }
+                    }
+                }
             },
             onPageFinished: { webView in
                 vm.handleArticlePageDidFinish(webView)
@@ -280,6 +337,40 @@ struct ItemReaderWebViewPanel: View {
     }
 
     // MARK: - Toolbar Clusters
+
+    /// "+" menu: file this article into boards without leaving the reader.
+    private var boardsMenu: some View {
+        Menu {
+            ForEach(boards.filter { !$0.isSmart }) { board in
+                Toggle(isOn: Binding(
+                    get: { vm.item.boards.contains { $0.id == board.id } },
+                    set: { isOn in
+                        let itemViewModel = ItemViewModel(modelContext: modelContext)
+                        if isOn {
+                            itemViewModel.assignToBoard(vm.item, board: board)
+                        } else {
+                            itemViewModel.removeFromBoard(vm.item, board: board)
+                        }
+                    }
+                )) {
+                    Label(board.title, systemImage: board.icon ?? "folder")
+                }
+            }
+            if boards.allSatisfy(\.isSmart) {
+                Text("No boards yet")
+            }
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(vm.item.boards.isEmpty ? Color.textMuted : Color.textSecondary)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Add to board")
+        .accessibilityLabel("Add to board")
+    }
 
     private var zoomControls: some View {
         HStack(spacing: 4) {

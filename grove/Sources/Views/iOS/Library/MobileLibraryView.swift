@@ -23,7 +23,10 @@ struct MobileLibraryView: View {
     private var boardFilteredItems: [Item] {
         guard let boardID = selectedBoardID,
               let board = boards.first(where: { $0.id == boardID }) else {
-            return allItems.filter { $0.status == .active || $0.status == .inbox }
+            // Unkept newsletter issues live in the Newsletters tab, not here.
+            return allItems.filter {
+                ($0.status == .active || $0.status == .inbox) && !$0.isFeedSuggestion
+            }
         }
         if board.isSmart {
             return BoardViewModel.smartBoardItems(for: board, from: allItems)

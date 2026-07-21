@@ -117,17 +117,6 @@ struct ItemReaderHeaderView: View {
                 }
 
                 Spacer()
-
-                HStack(spacing: 4) {
-                    GrowthStageIndicator(stage: vm.item.growthStage, showLabel: true)
-                    Text("\u{00B7}")
-                        .font(.groveMeta)
-                        .foregroundStyle(Color.textTertiary)
-                    Text("\(vm.item.depthScore) pts")
-                        .font(.groveMeta)
-                        .foregroundStyle(Color.textTertiary)
-                }
-                .help(vm.scoreBreakdownTooltip)
             }
         }
         .padding()

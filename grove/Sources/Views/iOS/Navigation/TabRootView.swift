@@ -31,8 +31,9 @@ struct TabRootView: View {
     @State private var showBoardPicker = false
     @State private var suggestionDismissTask: Task<Void, Never>?
 
+    /// Personal captures only — newsletter issues stay in the Newsletters tab.
     private var inboxCount: Int {
-        allItems.filter { $0.status == .inbox }.count
+        allItems.filter { $0.status == .inbox && !$0.isFeedSuggestion }.count
     }
 
     private var showFloatingCapture: Bool {
@@ -49,7 +50,7 @@ struct TabRootView: View {
     }
 
     enum Tab: Hashable {
-        case home, library, chat, settings
+        case home, library, newsletters, chat, settings
         case board(UUID)
     }
 
@@ -67,6 +68,12 @@ struct TabRootView: View {
             SwiftUI.Tab("Library", systemImage: "books.vertical", value: Tab.library) {
                 NavigationStack {
                     MobileLibraryView()
+                }
+            }
+
+            SwiftUI.Tab("Newsletters", systemImage: "newspaper", value: Tab.newsletters) {
+                NavigationStack {
+                    NewsletterInboxView()
                 }
             }
 

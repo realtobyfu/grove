@@ -3,33 +3,6 @@ import AppKit
 #endif
 import SwiftUI
 
-// MARK: - Growth Stage Indicator
-
-struct GrowthStageIndicator: View {
-    let stage: GrowthStage
-    var showLabel: Bool = false
-
-    @Environment(\.colorScheme) private var colorScheme
-
-    private var stageColor: Color {
-        Color(hex: colorScheme == .dark ? stage.darkColorHex : stage.colorHex)
-    }
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: stage.systemImage)
-                .font(.system(size: stage.iconSize))
-                .foregroundStyle(stageColor)
-
-            if showLabel {
-                Text(stage.displayName)
-                    .font(.groveBadge)
-                    .foregroundStyle(stageColor)
-            }
-        }
-    }
-}
-
 struct ItemCardView: View {
     let item: Item
     var showTags: Bool = true
@@ -88,9 +61,6 @@ struct ItemCardView: View {
 
             // Minimal badge row
             HStack(spacing: Spacing.md) {
-                GrowthStageIndicator(stage: item.growthStage)
-                    .help("\(item.growthStage.displayName) — \(item.depthScore) pts")
-
                 let connectionCount = item.outgoingConnections.count + item.incomingConnections.count
                 if connectionCount > 0 {
                     Label("\(connectionCount)", systemImage: "link")
@@ -175,9 +145,6 @@ struct ItemCardView: View {
             Spacer(minLength: 0)
 
             HStack(spacing: Spacing.md) {
-                GrowthStageIndicator(stage: item.growthStage)
-                    .help("\(item.growthStage.displayName) — \(item.depthScore) pts")
-
                 let connectionCount = item.outgoingConnections.count + item.incomingConnections.count
                 if connectionCount > 0 {
                     Label("\(connectionCount)", systemImage: "link")

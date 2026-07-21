@@ -49,8 +49,10 @@ struct HomeView: View {
     @State private var promptModeSelection: PromptModeSelection? = nil
     @State private var promptModePanelWidth: CGFloat = LayoutSettings.width(for: .homePrompt) ?? 330
 
+    /// Personal captures only — newsletter issues live in the Newsletters
+    /// section and must not inflate the inbox badge.
     private var inboxCount: Int {
-        allItems.filter { $0.status == .inbox }.count
+        allItems.filter { $0.status == .inbox && !$0.isFeedSuggestion }.count
     }
 
     private var discussionBubbles: [PromptBubble] {

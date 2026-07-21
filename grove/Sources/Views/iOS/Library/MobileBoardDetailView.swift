@@ -5,7 +5,7 @@ import UIKit
 #endif
 
 /// iOS board detail.
-/// - iPad regular width: mac-like board workspace with grid/list toggle, suggestions, synthesis, and reorder.
+/// - iPad regular width: mac-like board workspace with grid/list toggle, suggestions, and reorder.
 /// - iPhone/compact width: simplified adaptive grid with navigation pushes.
 struct MobileBoardDetailView: View {
     private static let maxDiscussionSuggestions = 2
@@ -35,9 +35,6 @@ struct MobileBoardDetailView: View {
     @State private var viewMode: BoardViewMode = .grid
     @State private var sortOption: BoardSortOption = .dateAdded
     @State private var draggingItemID: UUID?
-    @State private var showSynthesisSheet = false
-    @State private var showItemPicker = false
-    @State private var pickedItems: [Item] = []
     @State private var itemToDelete: Item?
     @State private var isSuggestionsCollapsed = false
     @State private var starterService = ConversationStarterService.shared
@@ -142,32 +139,6 @@ struct MobileBoardDetailView: View {
             viewMode = .grid
             selectedSuggestion = nil
         }
-        .sheet(isPresented: $showItemPicker, onDismiss: {
-            if !pickedItems.isEmpty {
-                showSynthesisSheet = true
-            }
-        }) {
-            SynthesisItemPickerSheet(
-                items: effectiveItems,
-                scopeTitle: board.title,
-                onConfirm: { items in
-                    pickedItems = items
-                }
-            )
-        }
-        .sheet(isPresented: $showSynthesisSheet) {
-            SynthesisSheet(
-                items: pickedItems,
-                scopeTitle: board.title,
-                board: board,
-                onCreated: { item in
-                    openItem(item)
-                }
-            )
-        }
-        .sheet(item: $paywallPresentation) { presentation in
-            ProPaywallView(presentation: presentation)
-        }
         .sheet(item: $selectedSuggestion) { suggestion in
             MobilePromptActionSheet(
                 contextTitle: board.title,
@@ -179,6 +150,9 @@ struct MobileBoardDetailView: View {
                     startWriting(with: suggestion.prompt)
                 }
             )
+        }
+        .sheet(item: $paywallPresentation) { presentation in
+            ProPaywallView(presentation: presentation)
         }
         .alert(
             "Delete Item",
@@ -336,20 +310,6 @@ struct MobileBoardDetailView: View {
                     Label(viewMode == .grid ? "List" : "Grid", systemImage: viewMode.iconName)
                 }
             }
-
-            Button {
-                guard entitlement.canUse(.synthesis) else {
-                    paywallPresentation = paywallCoordinator.present(
-                        feature: .synthesis,
-                        source: .synthesisAction
-                    )
-                    return
-                }
-                showItemPicker = true
-            } label: {
-                Label("Synthesize", systemImage: "sparkles")
-            }
-            .disabled(effectiveItems.count < AppConstants.Activity.synthesisMinItems)
 
             if isRegularSplitMode && sortOption == .manual && viewMode == .list && !board.isSmart {
 #if os(iOS)

@@ -55,8 +55,8 @@ let project = Project(
                 "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
                 "CODE_SIGN_STYLE": "Automatic",
                 "DEVELOPMENT_TEAM": "679K683SQ5",
-                "MARKETING_VERSION": "1.0.0",
-                "CURRENT_PROJECT_VERSION": "1",
+                "MARKETING_VERSION": "2.0.0",
+                "CURRENT_PROJECT_VERSION": "3",
             ])
         ),
         // MARK: - GroveShareExtension (iOS Share Extension)
@@ -90,8 +90,8 @@ let project = Project(
                 "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "SHARE_EXTENSION",
                 "CODE_SIGN_STYLE": "Automatic",
                 "DEVELOPMENT_TEAM": "679K683SQ5",
-                "MARKETING_VERSION": "1.0.0",
-                "CURRENT_PROJECT_VERSION": "1",
+                "MARKETING_VERSION": "2.0.0",
+                "CURRENT_PROJECT_VERSION": "3",
             ])
         ),
         // MARK: - grove (macOS)
@@ -123,8 +123,8 @@ let project = Project(
                 "CODE_SIGN_STYLE": "Automatic",
                 "CODE_SIGN_IDENTITY[sdk=macosx*]": "Apple Development",
                 "DEVELOPMENT_TEAM": "679K683SQ5",
-                "MARKETING_VERSION": "1.0.0",
-                "CURRENT_PROJECT_VERSION": "1",
+                "MARKETING_VERSION": "2.0.0",
+                "CURRENT_PROJECT_VERSION": "3",
             ])
         ),
         .target(

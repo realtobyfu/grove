@@ -4,8 +4,9 @@ import SwiftUI
 import WebKit
 
 /// UIViewRepresentable wrapping WKWebView for in-app article reading.
-/// Handles link interception (opens external browser), text selection tracking,
-/// and find-in-page via JavaScript highlighting.
+/// Links navigate in place (reporting position via onNavigationChanged) so
+/// reading a digest issue's linked articles never leaves the app. Also
+/// handles text selection tracking and find-in-page.
 struct MobileArticleWebView: UIViewRepresentable {
     let url: URL
     var onTextSelected: ((String?) -> Void)?
@@ -17,10 +18,13 @@ struct MobileArticleWebView: UIViewRepresentable {
     /// Scroll-to-text request (see ReaderTemplate.scrollToTextJS).
     var scrollToTextQuery: String = ""
     var scrollToTextToken: Int = 0
-    @Environment(\.openURL) private var openURL
+    var goBackToken: Int = 0
+    var goForwardToken: Int = 0
+    /// Reports (canGoBack, canGoForward, currentURL) as the user browses.
+    var onNavigationChanged: ((Bool, Bool, URL?) -> Void)?
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onTextSelected: onTextSelected, openURL: openURL)
+        Coordinator(onTextSelected: onTextSelected, onNavigationChanged: onNavigationChanged)
     }
 
     func makeUIView(context: Context) -> WKWebView {
@@ -46,11 +50,15 @@ struct MobileArticleWebView: UIViewRepresentable {
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
+        // Left as false: the edge-swipe would fight NavigationStack's
+        // interactive pop gesture. Use the explicit back control instead.
         webView.allowsBackForwardNavigationGestures = false
         webView.isOpaque = false
         webView.backgroundColor = .systemBackground
 
-        // Enable reader mode via content rules (strip ads) if possible
+        context.coordinator.startObserving(webView)
+        context.coordinator.lastLoadedURL = url
         webView.load(URLRequest(url: url))
         return webView
     }
@@ -58,6 +66,7 @@ struct MobileArticleWebView: UIViewRepresentable {
     func updateUIView(_ webView: WKWebView, context: Context) {
         let coordinator = context.coordinator
         coordinator.onTextSelected = onTextSelected
+        coordinator.onNavigationChanged = onNavigationChanged
 
         // Handle scroll-to-text requests. Defer to didFinish while the page is
         // still loading (e.g. a highlight tap that just opened the panel) so the
@@ -73,7 +82,22 @@ struct MobileArticleWebView: UIViewRepresentable {
             }
         }
 
-        if webView.url?.absoluteString != url.absoluteString, !webView.isLoading {
+        // Browser history controls
+        if goBackToken != coordinator.lastGoBackToken {
+            coordinator.lastGoBackToken = goBackToken
+            webView.goBack()
+            return
+        }
+        if goForwardToken != coordinator.lastGoForwardToken {
+            coordinator.lastGoForwardToken = goForwardToken
+            webView.goForward()
+            return
+        }
+
+        // Reload only when the item's own URL prop changes — never because
+        // the user navigated somewhere inside the page.
+        if url != coordinator.lastLoadedURL {
+            coordinator.lastLoadedURL = url
             webView.load(URLRequest(url: url))
             coordinator.lastFindQuery = ""
             coordinator.lastForwardToken = 0
@@ -130,33 +154,65 @@ struct MobileArticleWebView: UIViewRepresentable {
 
     // MARK: - Coordinator
 
-    final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+    @MainActor
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
         var onTextSelected: ((String?) -> Void)?
-        let openURL: OpenURLAction
+        var onNavigationChanged: ((Bool, Bool, URL?) -> Void)?
         var lastFindQuery = ""
         var lastForwardToken = 0
         var lastBackwardToken = 0
         var lastScrollToTextToken = 0
+        var lastGoBackToken = 0
+        var lastGoForwardToken = 0
         var pendingScrollQuery: String? = nil
         var lastZoomLevel: CGFloat = 1.0
+        var lastLoadedURL: URL? = nil
+        private var observations: [NSKeyValueObservation] = []
 
-        init(onTextSelected: ((String?) -> Void)?, openURL: OpenURLAction) {
+        init(onTextSelected: ((String?) -> Void)?, onNavigationChanged: ((Bool, Bool, URL?) -> Void)?) {
             self.onTextSelected = onTextSelected
-            self.openURL = openURL
+            self.onNavigationChanged = onNavigationChanged
         }
 
-        // Intercept links — open externally instead of navigating in-app
-        @MainActor
+        func startObserving(_ webView: WKWebView) {
+            observations = [
+                webView.observe(\.canGoBack) { [weak self] wv, _ in
+                    MainActor.assumeIsolated { self?.onNavigationChanged?(wv.canGoBack, wv.canGoForward, wv.url) }
+                },
+                webView.observe(\.canGoForward) { [weak self] wv, _ in
+                    MainActor.assumeIsolated { self?.onNavigationChanged?(wv.canGoBack, wv.canGoForward, wv.url) }
+                },
+                webView.observe(\.url) { [weak self] wv, _ in
+                    MainActor.assumeIsolated { self?.onNavigationChanged?(wv.canGoBack, wv.canGoForward, wv.url) }
+                }
+            ]
+        }
+
+        // Links navigate in place — reading stays inside Grove. Links that
+        // target a new window/tab have no target frame — load them in place
+        // instead of dropping them.
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
-            guard navigationAction.navigationType == .linkActivated,
-                  let linkURL = navigationAction.request.url else {
-                return .allow
+            if navigationAction.targetFrame == nil {
+                webView.load(navigationAction.request)
+                return .cancel
             }
-            openURL(linkURL)
-            return .cancel
+            return .allow
         }
 
-        @MainActor
+        // window.open / target="_blank": keep the page in this pane rather
+        // than silently discarding the navigation.
+        func webView(
+            _ webView: WKWebView,
+            createWebViewWith configuration: WKWebViewConfiguration,
+            for navigationAction: WKNavigationAction,
+            windowFeatures: WKWindowFeatures
+        ) -> WKWebView? {
+            if let targetURL = navigationAction.request.url {
+                webView.load(URLRequest(url: targetURL))
+            }
+            return nil
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             if let query = pendingScrollQuery {
                 pendingScrollQuery = nil

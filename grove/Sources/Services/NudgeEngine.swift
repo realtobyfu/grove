@@ -202,7 +202,7 @@ final class NudgeEngine: NudgeEngineProtocol {
 
         let allItems: [Item] = modelContext.fetchAll()
         let staleInboxItems = allItems.filter {
-            $0.status == .inbox && $0.createdAt < fourteenDaysAgo
+            $0.status == .inbox && !$0.isFeedSuggestion && $0.createdAt < fourteenDaysAgo
         }
         guard staleInboxItems.count >= AppConstants.Nudge.staleInboxMinCount else { return }
 

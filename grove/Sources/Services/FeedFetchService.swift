@@ -8,6 +8,7 @@ final class FeedFetchService {
 
     private static let refreshIntervalSeconds: TimeInterval = 4 * 60 * 60 // 4 hours
     private static let maxNewSuggestionsPerFeed = 3
+    private static let maxNewItemsPerSubscribedFeed = 20
     private static let maxNewSuggestionsPerCycle = 20
     private static let maxErrorCount = 5
     private static let suggestionExpiryDays = 14
@@ -44,10 +45,20 @@ final class FeedFetchService {
 
         for source in sources {
             guard source.errorCount < Self.maxErrorCount else { continue }
-            guard totalCreated < Self.maxNewSuggestionsPerCycle else { break }
+            // The per-cycle cap only throttles auto-discovered suggestion
+            // sources; user subscriptions always fetch.
+            if !source.isUserSubscribed, totalCreated >= Self.maxNewSuggestionsPerCycle { continue }
+            // lastFetchedAt syncs via CloudKit, so this also skips sources
+            // another device fetched recently — fewer duplicate-item races.
+            if let lastFetched = source.lastFetchedAt,
+               Date.now.timeIntervalSince(lastFetched) < Self.refreshIntervalSeconds {
+                continue
+            }
 
             let created = await fetchFeed(source, existingURLs: &existingURLs, in: context)
-            totalCreated += created
+            if !source.isUserSubscribed {
+                totalCreated += created
+            }
         }
 
         try? context.save()
@@ -86,11 +97,16 @@ final class FeedFetchService {
         let articles = FeedParserService.parse(data: data)
         var created = 0
 
-        // Sources the user consistently dismisses (and never keeps) are
-        // throttled to a single new suggestion per cycle.
-        let perFeedCap = FeedPreferencesStore.isThrottled(sourceID: source.id)
-            ? 1
-            : Self.maxNewSuggestionsPerFeed
+        // Subscribed feeds keep their full recent history; auto-discovered
+        // sources stay capped, and ones the user consistently dismisses
+        // (and never keeps) are throttled to a single new suggestion per cycle.
+        let perFeedCap = if source.isUserSubscribed {
+            Self.maxNewItemsPerSubscribedFeed
+        } else if FeedPreferencesStore.isThrottled(sourceID: source.id) {
+            1
+        } else {
+            Self.maxNewSuggestionsPerFeed
+        }
 
         for article in articles {
             guard created < perFeedCap else { break }
@@ -101,7 +117,13 @@ final class FeedFetchService {
             let item = Item(title: article.title, type: .article)
             item.sourceURL = article.url
             item.status = .inbox
-            item.content = article.description
+            // The feed description is an excerpt (often the issue's own
+            // intro), not the article body: store it as list-preview summary
+            // only. The reader loads the real page; promotion generates a
+            // proper overview.
+            if let description = article.description, !description.isEmpty {
+                item.metadata["summary"] = String(description.prefix(200))
+            }
             item.metadata["isSuggested"] = "true"
             item.metadata["suggestionSource"] = "rss"
             item.metadata["feedSourceID"] = source.id.uuidString
@@ -140,16 +162,18 @@ final class FeedFetchService {
         let cutoff = Calendar.current.date(byAdding: .day, value: -Self.suggestionExpiryDays, to: .now) ?? .now
 
         for item in items {
-            guard item.metadata["isSuggested"] == "true",
-                  item.metadata["suggestionDismissed"] != "true",
+            guard item.isFeedSuggestion,
                   item.createdAt < cutoff else { continue }
-            item.metadata["suggestionDismissed"] = "true"
-            // Move expired suggestions out of the inbox entirely. Leaving them
-            // at .inbox made them invisible in the triage list (which filters
-            // out dismissed suggestions) yet still counted by every inbox badge
-            // and the stale-inbox nudge — permanent zombies.
-            if item.status == .inbox {
-                item.status = .dismissed
+            if item.isNewsletterIssue {
+                // Newsletter issues stay browsable as history in the
+                // Newsletters section; expiry just clears their unread state.
+                guard !item.isFeedIssueRead else { continue }
+                item.isFeedIssueRead = true
+            } else if item.metadata["suggestionDismissed"] != "true" {
+                item.metadata["suggestionDismissed"] = "true"
+                if item.status == .inbox {
+                    item.status = .dismissed
+                }
             }
         }
     }

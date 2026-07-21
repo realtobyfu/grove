@@ -18,7 +18,7 @@ struct MobileInboxView: View {
     var openedItem: Binding<Item?>? = nil
 
     private var inboxItems: [Item] {
-        allItems.filter { $0.status == .inbox }
+        allItems.filter { $0.status == .inbox && !$0.isFeedSuggestion }
     }
 
     var body: some View {

@@ -24,6 +24,7 @@ final class ItemViewModel {
            !item.boards.contains(where: { $0.id == board.id }) {
             item.boards.append(board)
         }
+        item.promoteFromFeedSuggestionIfNeeded()
         item.status = .active
         item.updatedAt = .now
         try? modelContext.save()
@@ -69,6 +70,8 @@ final class ItemViewModel {
         modelContext.insert(connection)
         source.outgoingConnections.append(connection)
         target.incomingConnections.append(connection)
+        source.promoteFromFeedSuggestionIfNeeded()
+        target.promoteFromFeedSuggestionIfNeeded()
         source.updatedAt = .now
         target.updatedAt = .now
         try? modelContext.save()

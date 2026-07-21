@@ -4,6 +4,7 @@ import SwiftData
 enum SidebarItem: Hashable, Codable {
     case home
     case inbox
+    case newsletters
     case library
     case board(UUID)
     case settings
@@ -13,6 +14,7 @@ enum SidebarItem: Hashable, Codable {
         switch self {
         case .home: "home"
         case .inbox: "inbox"
+        case .newsletters: "newsletters"
         case .library: "library"
         case .board(let id): "board:\(id.uuidString)"
         case .settings: "settings"
@@ -23,6 +25,7 @@ enum SidebarItem: Hashable, Codable {
     init?(sceneStorageValue: String) {
         if sceneStorageValue == "home" { self = .home }
         else if sceneStorageValue == "inbox" { self = .inbox }
+        else if sceneStorageValue == "newsletters" { self = .newsletters }
         else if sceneStorageValue == "library" { self = .library }
         else if sceneStorageValue == "settings" { self = .settings }
         else if sceneStorageValue.hasPrefix("board:"),
@@ -77,6 +80,7 @@ struct ContentView: View {
         @Bindable var vm = viewModel
         NavigationSplitView(columnVisibility: $vm.columnVisibility) {
             SidebarView(selection: $vm.selection)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 248, max: 320)
         } detail: {
             detailZStack
         }
@@ -396,6 +400,11 @@ struct ContentView: View {
                 HomeView(selectedItem: $vm.selectedItem, openedItem: $vm.openedItem)
             case .library:
                 LibraryView(selectedItem: $vm.selectedItem, openedItem: $vm.openedItem)
+            case .newsletters:
+                NewsletterInboxView { item in
+                    viewModel.selectedItem = item
+                    viewModel.openedItem = item
+                }
             case .board(let boardID):
                 if let board = boards.first(where: { $0.id == boardID }) {
                     BoardDetailView(board: board, selectedItem: $vm.selectedItem, openedItem: $vm.openedItem)

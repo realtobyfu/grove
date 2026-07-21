@@ -29,6 +29,7 @@ struct iPadRootView: View {
     enum SidebarSelection: Hashable {
         case home
         case library
+        case newsletters
         case board(UUID)
         case chat
         case settings
@@ -37,6 +38,7 @@ struct iPadRootView: View {
             switch self {
             case .home: "home"
             case .library: "library"
+            case .newsletters: "newsletters"
             case .board(let id): "board:\(id.uuidString)"
             case .chat: "chat"
             case .settings: "settings"
@@ -47,6 +49,7 @@ struct iPadRootView: View {
             if sceneStorageValue == "home" { self = .home }
             else if sceneStorageValue == "inbox" { self = .home }
             else if sceneStorageValue == "library" { self = .library }
+            else if sceneStorageValue == "newsletters" { self = .newsletters }
             else if sceneStorageValue == "chat" { self = .chat }
             else if sceneStorageValue == "settings" { self = .settings }
             else if sceneStorageValue.hasPrefix("board:"),
@@ -79,7 +82,7 @@ struct iPadRootView: View {
     @State private var suggestionDismissTask: Task<Void, Never>?
 
     private var inboxCount: Int {
-        allItems.filter { $0.status == .inbox }.count
+        allItems.filter { $0.status == .inbox && !$0.isFeedSuggestion }.count
     }
 
     private var boardViewModel: BoardViewModel {
@@ -160,6 +163,7 @@ struct iPadRootView: View {
             switch newTab {
             case .home: sidebarSelection = .home
             case .library: sidebarSelection = .library
+            case .newsletters: sidebarSelection = .newsletters
             case .chat: sidebarSelection = .chat
             case .settings: sidebarSelection = .settings
             case .board(let id): sidebarSelection = .board(id)
@@ -262,6 +266,9 @@ struct iPadRootView: View {
 
                 Label("Library", systemImage: "books.vertical")
                     .tag(SidebarSelection.library)
+
+                Label("Newsletters", systemImage: "newspaper")
+                    .tag(SidebarSelection.newsletters)
             }
 
             Section {
@@ -334,6 +341,10 @@ struct iPadRootView: View {
             })
         case .library:
             MobileLibraryView(onOpenItem: { item in
+                openItemInPreferredContext(item)
+            })
+        case .newsletters:
+            NewsletterInboxView(onOpenItem: { item in
                 openItemInPreferredContext(item)
             })
         case .board(let boardID):

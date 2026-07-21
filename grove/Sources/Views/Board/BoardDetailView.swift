@@ -47,9 +47,6 @@ struct BoardDetailView: View {
     @State private var viewMode: BoardViewMode = .grid
     @State private var sortOption: BoardSortOption = .manual
     @State private var draggingItemID: UUID?
-    @State private var showSynthesisSheet = false
-    @State private var showItemPicker = false
-    @State private var pickedItems: [Item] = []
     @State private var itemToDelete: Item?
     @State private var isSuggestionsCollapsed = false
     @State private var starterService = ConversationStarterService.shared
@@ -89,9 +86,7 @@ struct BoardDetailView: View {
             sortOption: sortOption,
             viewMode: $viewMode,
             sortOptionBinding: $sortOption,
-            showItemPicker: $showItemPicker,
             isSuggestionsCollapsed: $isSuggestionsCollapsed,
-            paywallPresentation: $paywallPresentation,
             onSelectSuggestion: presentPromptActions(for:),
             onRefreshSuggestions: {
                 Task {
@@ -172,30 +167,6 @@ struct BoardDetailView: View {
             handleVideoDrop(providers: providers)
         }
         .navigationTitle(board.title)
-        .sheet(isPresented: $showItemPicker, onDismiss: {
-            if !pickedItems.isEmpty {
-                showSynthesisSheet = true
-            }
-        }) {
-            SynthesisItemPickerSheet(
-                items: effectiveItems,
-                scopeTitle: board.title,
-                onConfirm: { items in
-                    pickedItems = items
-                }
-            )
-        }
-        .sheet(isPresented: $showSynthesisSheet) {
-            SynthesisSheet(
-                items: pickedItems,
-                scopeTitle: board.title,
-                board: board,
-                onCreated: { item in
-                    selectedItem = item
-                    openedItem = item
-                }
-            )
-        }
         .sheet(item: $paywallPresentation) { presentation in
             ProPaywallView(presentation: presentation)
         }
@@ -301,7 +272,7 @@ struct BoardDetailView: View {
     // MARK: - Keyboard Handlers
 
     private var canHandleBoardShortcuts: Bool {
-        !showItemPicker && !showSynthesisSheet && !isTextInputFocusedInKeyWindow
+        !isTextInputFocusedInKeyWindow
     }
 
     private var isTextInputFocusedInKeyWindow: Bool {

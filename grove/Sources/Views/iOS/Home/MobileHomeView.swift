@@ -27,7 +27,7 @@ struct MobileHomeView: View {
     var openedItem: Binding<Item?>? = nil
 
     private var inboxItems: [Item] {
-        allItemsByDate.filter { $0.status == .inbox }
+        allItemsByDate.filter { $0.status == .inbox && !$0.isFeedSuggestion }
     }
 
     private var pendingNudges: [Nudge] {

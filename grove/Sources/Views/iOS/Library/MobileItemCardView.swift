@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Compact list row for items on iOS — title, source domain, growth indicator,
+/// Compact list row for items on iOS — title, source domain,
 /// optional thumbnail. Minimum 44pt height for touch targets.
 struct MobileItemCardView: View {
     let item: Item
@@ -29,35 +29,16 @@ struct MobileItemCardView: View {
 
                 HStack(spacing: Spacing.sm) {
                     // Board indicator
-                    if let firstBoard = item.boards.first {
-                        Text(firstBoard.title)
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                        Text("·")
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                    } else {
-                        Text("Unfiled")
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                        Text("·")
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                    }
-
-                    // Growth stage indicator
-                    HStack(spacing: 3) {
-                        Image(systemName: item.growthStage.systemImage)
-                            .font(.system(size: item.growthStage.iconSize))
-                            .foregroundStyle(Color.textTertiary)
-                        Text(item.growthStage.displayName)
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                    }
+                    Text(item.boards.first?.title ?? "Unfiled")
+                        .font(.groveMeta)
+                        .foregroundStyle(Color.textTertiary)
 
                     // Source domain
                     if let sourceURL = item.sourceURL,
                        let host = URL(string: sourceURL)?.host(percentEncoded: false) {
+                        Text("·")
+                            .font(.groveMeta)
+                            .foregroundStyle(Color.textTertiary)
                         Text(host)
                             .font(.groveMeta)
                             .foregroundStyle(Color.textMuted)

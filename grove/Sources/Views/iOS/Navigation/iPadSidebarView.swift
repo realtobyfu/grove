@@ -13,8 +13,9 @@ struct iPadSidebarView: View {
     @State private var boardToEdit: Board?
     @State private var boardToDelete: Board?
 
+    /// Personal captures only — newsletter issues stay in the Newsletters tab.
     private var inboxCount: Int {
-        allItems.filter { $0.status == .inbox }.count
+        allItems.filter { $0.status == .inbox && !$0.isFeedSuggestion }.count
     }
 
     private var viewModel: BoardViewModel {
@@ -34,12 +35,9 @@ struct iPadSidebarView: View {
                         Spacer()
                         if inboxCount > 0 {
                             Text("\(inboxCount)")
-                                .font(.groveBadge)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.accentBadge)
-                                .foregroundStyle(Color.textPrimary)
-                                .clipShape(Capsule())
+                                .font(.groveMeta)
+                                .foregroundStyle(Color.textTertiary)
+                                .monospacedDigit()
                         }
                     }
                 } icon: {

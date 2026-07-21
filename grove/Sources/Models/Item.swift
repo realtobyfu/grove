@@ -1,69 +1,6 @@
 import Foundation
 import SwiftData
 
-// MARK: - Growth Stage
-
-enum GrowthStage: String, CaseIterable, Sendable {
-    case seed
-    case sprout
-    case sapling
-    case tree
-
-    var displayName: String {
-        switch self {
-        case .seed: "Seed"
-        case .sprout: "Sprout"
-        case .sapling: "Sapling"
-        case .tree: "Tree"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .seed: "leaf"
-        case .sprout: "leaf.fill"
-        case .sapling: "leaf.fill"
-        case .tree: "tree.fill"
-        }
-    }
-
-    var iconSize: CGFloat {
-        switch self {
-        case .seed: 8
-        case .sprout: 10
-        case .sapling: 12
-        case .tree: 14
-        }
-    }
-
-    var colorHex: String {
-        switch self {
-        case .seed: "BBBBBB"     // text.muted
-        case .sprout: "AAAAAA"   // text.tertiary
-        case .sapling: "777777"  // text.secondary
-        case .tree: "1A1A1A"     // text.primary
-        }
-    }
-
-    var darkColorHex: String {
-        switch self {
-        case .seed: "444444"     // text.muted (dark)
-        case .sprout: "555555"   // text.tertiary (dark)
-        case .sapling: "888888"  // text.secondary (dark)
-        case .tree: "E8E8E8"     // text.primary (dark)
-        }
-    }
-
-    init(score: Int) {
-        switch score {
-        case 0...10: self = .seed
-        case 11...30: self = .sprout
-        case 31...60: self = .sapling
-        default: self = .tree
-        }
-    }
-}
-
 enum ItemType: String, Codable {
     case article
     case codebase
@@ -120,11 +57,14 @@ final class Item {
     @Relationship(deleteRule: .cascade, inverse: \ReflectionBlock.item) var reflections: [ReflectionBlock] = []
     @Relationship(deleteRule: .cascade, inverse: \Connection.sourceItem) var outgoingConnections: [Connection] = []
     @Relationship(deleteRule: .cascade, inverse: \Connection.targetItem) var incomingConnections: [Connection] = []
+    /// Inverse of `Nudge.targetItem`. CloudKit requires every relationship to
+    /// declare an inverse; cascading also stops orphaned nudges outliving the item.
+    @Relationship(deleteRule: .cascade, inverse: \Nudge.targetItem) var nudges: [Nudge] = []
 
-    // MARK: - Depth Score & Growth Stage
+    // MARK: - Depth Score
 
-    /// Single-source breakdown of depth score components.
-    /// Both `depthScore` and `scoreBreakdown` derive from this.
+    /// Breakdown of engagement-depth components. UI no longer surfaces this;
+    /// it survives as an internal ranking signal (e.g. chat context selection).
     private var computedScoreBreakdown: [(label: String, points: Int)] {
         var breakdown: [(label: String, points: Int)] = []
 
@@ -146,10 +86,6 @@ final class Item {
             breakdown.append(("Connections ×\(connectionCount)", connectionCount * 15))
         }
 
-        if metadata["referencedInSynthesis"] == "true" {
-            breakdown.append(("In Synthesis", 20))
-        }
-
         if let lastEngaged = lastEngagedAt {
             let daysSinceCreation = Calendar.current.dateComponents([.day], from: createdAt, to: lastEngaged).day ?? 0
             if daysSinceCreation >= 7 {
@@ -160,19 +96,44 @@ final class Item {
         return breakdown
     }
 
-    /// Computed depth score based on engagement activities.
+    /// Computed engagement score based on meaningful activities.
     var depthScore: Int {
         computedScoreBreakdown.reduce(0) { $0 + $1.points }
     }
 
-    /// Growth stage derived from depth score.
-    var growthStage: GrowthStage {
-        GrowthStage(score: depthScore)
+    // MARK: - Feed / Newsletter
+
+    /// True for any item that originated from a subscribed feed, regardless
+    /// of whether it was later kept into the library.
+    var isNewsletterIssue: Bool {
+        metadata["feedSourceID"] != nil
     }
 
-    /// Breakdown of the depth score for tooltip display.
-    var scoreBreakdown: [(label: String, points: Int)] {
-        computedScoreBreakdown
+    /// True for feed-pipeline items the user has not explicitly kept.
+    /// These stay out of inbox triage counts and lists.
+    var isFeedSuggestion: Bool {
+        metadata["isSuggested"] == "true"
+    }
+
+    /// Read state for newsletter issues. Opening an issue marks it read;
+    /// expiry also marks it read so history stays browsable.
+    var isFeedIssueRead: Bool {
+        get { metadata["feedRead"] == "true" }
+        set { metadata["feedRead"] = newValue ? "true" : nil }
+    }
+
+    /// Writing is keeping: any durable artifact (reflection, highlight,
+    /// board assignment, connection) promotes a feed suggestion into the
+    /// library proper — same effect as the explicit Keep action.
+    func promoteFromFeedSuggestionIfNeeded() {
+        guard isFeedSuggestion else { return }
+        metadata["isSuggested"] = nil
+        metadata["suggestionDismissed"] = nil
+        isFeedIssueRead = true
+        if status == .inbox {
+            status = .active
+        }
+        updatedAt = .now
     }
 
     /// Whether this item is eligible for the resurfacing queue.

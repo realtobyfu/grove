@@ -55,6 +55,15 @@ final class ItemReaderViewModel {
     /// Scroll-to-text request routed to whichever web mode is active.
     var scrollToTextQuery = ""
     var scrollToTextToken = 0
+    /// Current URL of the web panel while browsing (nil when on the item's
+    /// own page or not in web mode). Drives capture-on-write for pages
+    /// navigated to inside the reader.
+    var navigatedWebURL: URL? = nil
+    /// Pending in-pane navigation request (a link tapped in Reader mode).
+    var pendingNavigationURL: URL? = nil
+    var pendingNavigationToken = 0
+    /// Transient "saved to library" feedback for silent captures.
+    var showAutoCaptureIndicator = false
 
     private var lastSavedReadingProgress: Double = -1
     /// Latest scroll fraction (not persisted every event; see updateReadingProgress).
@@ -109,15 +118,6 @@ final class ItemReaderViewModel {
             return url
         }
         return nil
-    }
-
-    var scoreBreakdownTooltip: String {
-        let breakdown = item.scoreBreakdown
-        if breakdown.isEmpty {
-            return "\(item.growthStage.displayName) -- 0 pts"
-        }
-        let lines = breakdown.map { "\($0.label): +\($0.points)" }
-        return "\(item.growthStage.displayName) -- \(item.depthScore) pts\n" + lines.joined(separator: "\n")
     }
 
     // MARK: - Zoom
@@ -229,6 +229,37 @@ final class ItemReaderViewModel {
         scrollToText(text)
     }
 
+    // MARK: - Reflection Host
+
+    /// The item a new reflection/highlight should attach to. Normally the
+    /// reader's own item — but when the user has browsed to a different
+    /// page inside the web panel, writing silently captures that page into
+    /// the library (unfiled, skipping inbox triage) and attaches there.
+    private func reflectionHost() -> Item {
+        guard showArticleWebView else { return item }
+        let resolution = ReadingCapture.host(
+            for: item,
+            navigatedURL: navigatedWebURL,
+            in: modelContext
+        )
+        if resolution.didCapture {
+            flashAutoCaptureIndicator()
+        }
+        return resolution.host
+    }
+
+    private func flashAutoCaptureIndicator() {
+        showAutoCaptureIndicator = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            showAutoCaptureIndicator = false
+        }
+    }
+
+    private func promoteAfterWriting(_ host: Item) {
+        ReadingCapture.promoteAfterWriting(host, in: modelContext)
+    }
+
     // MARK: - Highlights
 
     /// Creates a standalone highlight block (source quote with no prose yet)
@@ -236,10 +267,11 @@ final class ItemReaderViewModel {
     func addHighlight(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        let nextPosition = (sortedReflections.last?.position ?? -1) + 1
+        let host = reflectionHost()
+        let nextPosition = (host.reflections.map(\.position).max() ?? -1) + 1
         let timestamp: Int? = isVideoItem ? Int(videoCurrentTime) : nil
         let block = ReflectionBlock(
-            item: item,
+            item: host,
             blockType: .keyInsight,
             content: "",
             highlight: trimmed,
@@ -247,8 +279,9 @@ final class ItemReaderViewModel {
             videoTimestamp: timestamp
         )
         modelContext.insert(block)
-        item.reflections.append(block)
-        item.updatedAt = .now
+        host.reflections.append(block)
+        promoteAfterWriting(host)
+        host.updatedAt = .now
         try? modelContext.save()
         webSelectedText = nil
     }
@@ -279,10 +312,11 @@ final class ItemReaderViewModel {
 
     func openReflectionEditor(type: ReflectionBlockType, content: String, highlight: String?, focusTrigger: @escaping () -> Void) {
         if isReflectionPanelCollapsed { isReflectionPanelCollapsed = false }
-        let nextPosition = (sortedReflections.last?.position ?? -1) + 1
+        let host = reflectionHost()
+        let nextPosition = (host.reflections.map(\.position).max() ?? -1) + 1
         let timestamp: Int? = isVideoItem ? Int(videoCurrentTime) : nil
         let block = ReflectionBlock(
-            item: item,
+            item: host,
             blockType: type,
             content: content,
             highlight: highlight,
@@ -290,7 +324,7 @@ final class ItemReaderViewModel {
             videoTimestamp: timestamp
         )
         modelContext.insert(block)
-        item.reflections.append(block)
+        host.reflections.append(block)
         editingBlock = block
         withAnimation(.easeOut(duration: 0.25)) {
             showReflectionEditor = true
@@ -312,19 +346,23 @@ final class ItemReaderViewModel {
 
     func closeReflectionEditor() {
         if let block = editingBlock {
+            // The block may live on a captured page item rather than the
+            // reader's own item (capture-on-write); operate on its owner.
+            let host = block.item ?? item
             let trimmed = block.content.trimmingCharacters(in: .whitespacesAndNewlines)
             let hasHighlight = !(block.highlight ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             if trimmed.isEmpty && !hasHighlight {
                 // Empty block with no highlight -- clean up orphan.
                 // A pure highlight (empty content, non-empty highlight) is valid.
-                item.reflections.removeAll { $0.id == block.id }
+                host.reflections.removeAll { $0.id == block.id }
                 modelContext.delete(block)
-                item.updatedAt = .now
+                host.updatedAt = .now
             } else {
-                item.updatedAt = .now
+                promoteAfterWriting(host)
+                host.updatedAt = .now
                 if !trimmed.isEmpty {
-                    WikiLinkSync.sync(item: item, content: block.content, modelContext: modelContext)
+                    WikiLinkSync.sync(item: host, content: block.content, modelContext: modelContext)
                 }
             }
             try? modelContext.save()

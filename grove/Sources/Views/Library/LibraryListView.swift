@@ -220,9 +220,6 @@ struct LibraryRowView: View {
                 .font(.groveMeta)
                 .foregroundStyle(Color.textTertiary)
 
-            GrowthStageIndicator(stage: item.growthStage)
-                .help("\(item.growthStage.displayName) — \(item.depthScore) pts")
-
             let connectionCount = item.outgoingConnections.count + item.incomingConnections.count
             if connectionCount > 0 {
                 Label("\(connectionCount)", systemImage: "link")

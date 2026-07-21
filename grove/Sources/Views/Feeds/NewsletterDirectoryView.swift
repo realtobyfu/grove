@@ -100,27 +100,11 @@ struct NewsletterDirectoryView: View {
     }
 
     private func topicChip(label: String, topic: String?) -> some View {
-        let isActive = selectedTopic == topic
-        return Button {
+        FilterChip(label: label, isActive: selectedTopic == topic) {
             withAnimation(.easeInOut(duration: 0.15)) {
                 selectedTopic = topic
             }
-        } label: {
-            Text(label)
-                .font(.groveTag)
-                .foregroundStyle(isActive ? Color.textInverse : Color.textSecondary)
-                .padding(.horizontal, Spacing.sm)
-                .padding(.vertical, Spacing.xs)
-                .background(isActive ? Color.textPrimary : Color.bgCard)
-                .clipShape(Capsule())
-                .overlay(
-                    Capsule().stroke(isActive ? Color.clear : Color.borderTag, lineWidth: 1)
-                )
         }
-        .buttonStyle(.plain)
-        #if os(iOS)
-        .frame(minHeight: 44)
-        #endif
     }
 
     // MARK: - Subscription State

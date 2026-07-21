@@ -109,9 +109,6 @@ struct BoardListView: View {
 
             Spacer()
 
-            GrowthStageIndicator(stage: item.growthStage)
-                .help("\(item.growthStage.displayName) — \(item.depthScore) pts")
-
             let connectionCount = item.outgoingConnections.count + item.incomingConnections.count
             if connectionCount > 0 {
                 Label("\(connectionCount)", systemImage: "link")

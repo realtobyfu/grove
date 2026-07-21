@@ -168,13 +168,20 @@ final class FeedParserService: NSObject, XMLParserDelegate {
 
     private static func stripHTML(_ string: String) -> String {
         let stripped = string.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-        return stripped
+        let decoded = stripped
             .replacingOccurrences(of: "&amp;", with: "&")
             .replacingOccurrences(of: "&lt;", with: "<")
             .replacingOccurrences(of: "&gt;", with: ">")
             .replacingOccurrences(of: "&quot;", with: "\"")
             .replacingOccurrences(of: "&#39;", with: "'")
             .replacingOccurrences(of: "&nbsp;", with: " ")
+        // Tag-heavy markup leaves runs of blank lines and indentation behind;
+        // collapse them so descriptions read as prose, not layout debris.
+        return decoded
+            .replacingOccurrences(of: "[ \\t]+", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: " ?\\n ?", with: "\n", options: .regularExpression)
+            .replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static let dateFormatters: [DateFormatter] = {

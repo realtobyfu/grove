@@ -13,15 +13,11 @@ struct BoardDetailHeaderView {
 
     @Binding var viewMode: BoardViewMode
     @Binding var sortOptionBinding: BoardSortOption
-    @Binding var showItemPicker: Bool
     @Binding var isSuggestionsCollapsed: Bool
-    @Binding var paywallPresentation: PaywallPresentation?
 
     let onSelectSuggestion: (PromptBubble) -> Void
     let onRefreshSuggestions: () -> Void
 
-    @Environment(EntitlementService.self) private var entitlement
-    @Environment(PaywallCoordinator.self) private var paywallCoordinator
 
     // MARK: - Empty State
 
@@ -61,24 +57,6 @@ struct BoardDetailHeaderView {
 
     // MARK: - Toolbar Cluster
 
-    var synthesisButton: some View {
-        Button {
-            guard entitlement.canUse(.synthesis) else {
-                paywallPresentation = paywallCoordinator.present(
-                    feature: .synthesis,
-                    source: .synthesisAction
-                )
-                return
-            }
-            showItemPicker = true
-        } label: {
-            Label("Synthesize", systemImage: "sparkles")
-        }
-        .buttonStyle(.bordered)
-        .help("Generate an AI synthesis note from items in this board")
-        .disabled(effectiveItems.count < AppConstants.Activity.synthesisMinItems)
-    }
-
     var sortPicker: some View {
         Menu {
             ForEach(BoardSortOption.allCases, id: \.self) { option in
@@ -117,7 +95,6 @@ struct BoardDetailHeaderView {
         HStack(spacing: Spacing.sm) {
             sortPicker
             viewModeButton
-            synthesisButton
             if board.isSmart && !board.smartRuleTags.isEmpty {
                 Image(systemName: "gearshape.2")
                     .help("Smart board rules: \(board.smartRuleTags.map(\.name).joined(separator: board.smartRuleLogic == .and ? " AND " : " OR "))")

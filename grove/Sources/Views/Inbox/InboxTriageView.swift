@@ -16,7 +16,6 @@ struct InboxTriageView: View {
     @Query(sort: \Board.sortOrder) private var boards: [Board]
     @State private var focusedIndex: Int = 0
     @State private var showQueuedSection = false
-    @State private var showSuggestedSection = false
     @State private var showBoardPicker = false
     @State private var itemToAssign: Item?
     @State private var boardPickerSuggestedName: String = ""
@@ -27,24 +26,10 @@ struct InboxTriageView: View {
         ReadLaterService(modelContext: modelContext)
     }
 
-    /// Personal captures awaiting triage. Feed suggestions are grouped
-    /// separately so the user's own material stays visually primary.
+    /// Personal captures awaiting triage. Feed items live in the
+    /// Newsletters section, not here.
     private var inboxItems: [Item] {
-        allItems.filter { $0.status == .inbox && !isSuggested($0) }
-    }
-
-    /// Items created by the feed pipeline (metadata isSuggested == "true"),
-    /// excluding expired/dismissed suggestions.
-    private var suggestedItems: [Item] {
-        allItems.filter {
-            $0.status == .inbox
-                && isSuggested($0)
-                && $0.metadata["suggestionDismissed"] != "true"
-        }
-    }
-
-    private func isSuggested(_ item: Item) -> Bool {
-        item.metadata["isSuggested"] == "true"
+        allItems.filter { $0.status == .inbox && !$0.isFeedSuggestion }
     }
 
     private var queuedItems: [Item] {
@@ -149,9 +134,6 @@ struct InboxTriageView: View {
                         }
                     }
 
-                    if !suggestedItems.isEmpty {
-                        suggestedDisclosure
-                    }
                 }
                 .padding()
                 .animation(.easeInOut(duration: 0.25), value: inboxItems.map(\.id))
@@ -220,9 +202,6 @@ struct InboxTriageView: View {
                 .padding(.top, Spacing.xs)
             }
 
-            if !suggestedItems.isEmpty {
-                suggestedDisclosure
-            }
         }
         .padding()
         .animation(.easeInOut(duration: 0.25), value: inboxItems.map(\.id))
@@ -261,10 +240,6 @@ struct InboxTriageView: View {
                     .frame(maxWidth: 420)
             }
 
-            if !suggestedItems.isEmpty {
-                suggestedDisclosure
-                    .frame(maxWidth: 420)
-            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, Spacing.lg)
@@ -334,7 +309,7 @@ struct InboxTriageView: View {
     }
 
     private func keepItem(_ item: Item) {
-        if isSuggested(item) {
+        if item.isFeedSuggestion {
             recordSuggestionSignal(for: item, kept: true)
             // Kept suggestions become regular items; clear the flag so they
             // leave the "From your subscriptions" grouping for good.
@@ -543,91 +518,10 @@ struct InboxTriageView: View {
         }
     }
 
-    // MARK: - Suggested From Subscriptions
-
-    /// Collapsible "From your subscriptions (N)" row, styled like the queued
-    /// disclosure. Keeps feed suggestions quieter than personal captures.
-    private var suggestedDisclosure: some View {
-        disclosureCard(
-            systemImage: "newspaper",
-            title: "From your subscriptions (\(suggestedItems.count))",
-            isExpanded: $showSuggestedSection
-        ) {
-            LazyVStack(spacing: 8) {
-                    ForEach(suggestedItems) { item in
-                        InboxCard(
-                            item: item,
-                            isSelected: false,
-                            onKeep: { keepItem(item) },
-                            onDrop: { dropItem(item) },
-                            onQueue: { preset in queueItem(item, preset: preset) },
-                            onConfirmTag: { tag in confirmTag(tag) },
-                            onDismissTag: { tag in dismissTag(tag, from: item) }
-                        )
-                        .contextMenu {
-                            Button {
-                                fewerLikeThis(item)
-                            } label: {
-                                Label("Fewer like this", systemImage: "hand.thumbsdown")
-                            }
-                            Button {
-                                unsubscribe(from: item)
-                            } label: {
-                                Label(
-                                    "Unsubscribe from \(feedDisplayName(for: item))",
-                                    systemImage: "bell.slash"
-                                )
-                            }
-                        }
-                        .onTapGesture {
-                            selectedItem = item
-                        }
-                    }
-                }
-                .padding(Spacing.sm)
-                .animation(.easeInOut(duration: 0.25), value: suggestedItems.map(\.id))
-            }
-        }
-
-    private func feedSource(for item: Item) -> FeedSource? {
-        guard let idString = item.metadata["feedSourceID"],
-              let id = UUID(uuidString: idString) else { return nil }
-        let descriptor = FetchDescriptor<FeedSource>(predicate: #Predicate { $0.id == id })
-        return try? modelContext.fetch(descriptor).first
-    }
-
-    private func feedDisplayName(for item: Item) -> String {
-        if let source = feedSource(for: item) {
-            return source.title ?? source.domain
-        }
-        return item.metadata["feedSourceDomain"] ?? "this feed"
-    }
-
-    /// Disables the item's feed source so it stops producing suggestions and
-    /// clears the subscription flag (returns it to "Suggested from your library").
-    private func unsubscribe(from item: Item) {
-        guard let source = feedSource(for: item) else { return }
-        source.isEnabled = false
-        source.isUserSubscribed = false
-        try? modelContext.save()
-    }
-
-    /// Records a dismissal signal for the item's source and drops the item.
-    /// Sources with many dismissals and no keeps get throttled by the fetcher.
-    private func fewerLikeThis(_ item: Item) {
-        recordSuggestionSignal(for: item, kept: false)
-        withAnimation(.easeOut(duration: 0.3)) {
-            item.status = .dismissed
-            item.metadata["suggestionDismissed"] = "true"
-            item.updatedAt = .now
-            try? modelContext.save()
-        }
-    }
-
     /// Per-source keep/dismiss counters feeding the auto-throttle in
     /// FeedFetchService. No-op for non-suggested items.
     private func recordSuggestionSignal(for item: Item, kept: Bool) {
-        guard isSuggested(item),
+        guard item.isFeedSuggestion,
               let idString = item.metadata["feedSourceID"],
               let id = UUID(uuidString: idString) else { return }
         if kept {

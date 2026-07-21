@@ -19,6 +19,10 @@ struct ArticleWebView: NSViewRepresentable {
     var zoomLevel: CGFloat = 1.0
     var goBackToken: Int = 0
     var goForwardToken: Int = 0
+    /// In-pane navigation request (e.g. a link tapped in Reader mode):
+    /// bump the token to load `navigateURL` in place.
+    var navigateURL: URL? = nil
+    var navigateToken: Int = 0
     var onNavigationChanged: ((Bool, Bool, URL?) -> Void)?
     /// Fires when a page finishes loading — used to run Readability extraction.
     var onPageFinished: ((WKWebView) -> Void)?
@@ -68,10 +72,18 @@ struct ArticleWebView: NSViewRepresentable {
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
         webView.allowsLinkPreview = false
         context.coordinator.startObserving(webView)
         context.coordinator.lastLoadedURL = url
-        webView.load(URLRequest(url: url))
+        // A pending in-pane navigation (link tapped in Reader mode before
+        // this web view mounted) takes precedence over the item's own page.
+        if let navigateURL, navigateToken != 0 {
+            context.coordinator.lastNavigateToken = navigateToken
+            webView.load(URLRequest(url: navigateURL))
+        } else {
+            webView.load(URLRequest(url: url))
+        }
         return webView
     }
 
@@ -98,10 +110,25 @@ struct ArticleWebView: NSViewRepresentable {
         // Apply zoom level
         webView.pageZoom = zoomLevel
 
-        // Handle back/forward navigation tokens
+        // Handle in-pane navigation requests
+        if navigateToken != context.coordinator.lastNavigateToken {
+            context.coordinator.lastNavigateToken = navigateToken
+            if let navigateURL {
+                webView.load(URLRequest(url: navigateURL))
+                return
+            }
+        }
+
+        // Handle back/forward navigation tokens. When the web history is
+        // empty (e.g. this pane mounted directly on a link target after a
+        // Reader-mode click), Back falls through to the article's own page.
         if goBackToken != context.coordinator.lastGoBackToken {
             context.coordinator.lastGoBackToken = goBackToken
-            webView.goBack()
+            if webView.canGoBack {
+                webView.goBack()
+            } else if webView.url?.absoluteString != url.absoluteString {
+                webView.load(URLRequest(url: url))
+            }
             return
         }
         if goForwardToken != context.coordinator.lastGoForwardToken {
@@ -249,7 +276,7 @@ struct ArticleWebView: NSViewRepresentable {
     // MARK: - Coordinator
 
     @MainActor
-    final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
         var onTextSelected: ((String?) -> Void)?
         var onFindResult: ((Int, Int) -> Void)?
         var onNavigationChanged: ((Bool, Bool, URL?) -> Void)?
@@ -259,6 +286,7 @@ struct ArticleWebView: NSViewRepresentable {
         var lastBackwardToken = 0
         var lastGoBackToken = 0
         var lastGoForwardToken = 0
+        var lastNavigateToken = 0
         var lastScrollToTextToken = 0
         var pendingScrollQuery: String? = nil
         var lastLoadedURL: URL? = nil
@@ -284,13 +312,34 @@ struct ArticleWebView: NSViewRepresentable {
             ]
         }
 
-        // Allow link clicks to navigate within the WebView
+        // Allow link clicks to navigate within the WebView. Links that
+        // target a new window/tab have no target frame — load them in
+        // place instead of dropping them.
         func webView(
             _ webView: WKWebView,
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
         ) {
+            if navigationAction.targetFrame == nil {
+                webView.load(navigationAction.request)
+                decisionHandler(.cancel)
+                return
+            }
             decisionHandler(.allow)
+        }
+
+        // window.open / target="_blank": keep the page in this pane rather
+        // than silently discarding the navigation.
+        func webView(
+            _ webView: WKWebView,
+            createWebViewWith configuration: WKWebViewConfiguration,
+            for navigationAction: WKNavigationAction,
+            windowFeatures: WKWindowFeatures
+        ) -> WKWebView? {
+            if let targetURL = navigationAction.request.url {
+                webView.load(URLRequest(url: targetURL))
+            }
+            return nil
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

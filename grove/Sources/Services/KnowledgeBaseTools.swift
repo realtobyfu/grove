@@ -197,7 +197,6 @@ final class KnowledgeBaseTools {
             }
         }
 
-        result += "\nDepth score: \(item.depthScore) (\(item.growthStage.displayName))"
         return result
     }
 

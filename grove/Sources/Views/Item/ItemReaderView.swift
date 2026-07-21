@@ -49,6 +49,10 @@ struct ItemReaderView: View {
         .animation(.easeOut(duration: 0.15), value: !vm.showArticleWebView && vm.highlightableSelection != nil)
         .onAppear {
             vm.backfillThumbnailIfNeeded()
+            openWebViewForNewsletterIssueIfNeeded(vm)
+        }
+        .onChange(of: item.id) {
+            openWebViewForNewsletterIssueIfNeeded(vm)
         }
         .onReceive(NotificationCenter.default.publisher(for: .groveOpenReflectMode)) { _ in
             vm.toggleReflectionEditor(focusTrigger: focusReflectionEditor)
@@ -388,6 +392,16 @@ struct ItemReaderView: View {
     }
 
     // MARK: - Focus Helper
+
+    /// Newsletter issues carry no local body (the feed description is just
+    /// an excerpt), so the reader goes straight to the real page.
+    private func openWebViewForNewsletterIssueIfNeeded(_ vm: ItemReaderViewModel) {
+        guard item.isNewsletterIssue,
+              (item.content ?? "").isEmpty,
+              vm.articleURL != nil,
+              !vm.showArticleWebView else { return }
+        vm.showArticleWebView = true
+    }
 
     private func focusReflectionEditor() {
         isNewReflectionFocused = true

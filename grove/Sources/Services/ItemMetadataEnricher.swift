@@ -64,6 +64,29 @@ final class ItemMetadataEnricher {
         return (metadata.title, metadata.description, metadata.bodyText)
     }
 
+    /// Full enrichment pass for a newsletter issue promoted into the
+    /// library: fetch real page metadata, then generate an overview with
+    /// the configured LLM (Apple Intelligence by default). If no LLM is
+    /// available, the page's own metadata description remains as content.
+    func enrichPromotedIssue(itemID: UUID, urlString: String, context: ModelContext) async {
+        let (title, description, bodyText) = await enrichURLItem(
+            itemID: itemID,
+            urlString: urlString,
+            context: context
+        )
+
+        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
+        let itemTitle = (try? context.fetch(descriptor).first)?.title ?? title ?? ""
+
+        await generateOverview(
+            itemID: itemID,
+            context: context,
+            title: itemTitle,
+            description: description,
+            bodyText: bodyText
+        )
+    }
+
     /// Generates a multi-paragraph overview/summary for an article using the LLM.
     /// Stores the result in item.content, replacing the short OG description.
     func generateOverview(

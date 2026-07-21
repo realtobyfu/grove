@@ -49,6 +49,31 @@ struct MobileItemReaderView: View {
     @State private var sidePanelWidth: CGFloat? = LayoutSettings.width(for: .mobileReaderSidePanel)
     @FocusState private var findBarFocused: Bool
 
+    // MARK: - In-reader browsing
+
+    @State private var canGoBack = false
+    @State private var canGoForward = false
+    @State private var currentWebURL: URL?
+    @State private var goBackToken = 0
+    @State private var goForwardToken = 0
+    /// Library item for the page currently being browsed, once it has been
+    /// captured (explicitly or by writing). Reflections follow it.
+    @State private var capturedPageItem: Item?
+    @State private var capturedPageURL: String?
+    @State private var showSavedIndicator = false
+
+    /// True when the reader has navigated away from the item's own page.
+    private var isBrowsingLinkedPage: Bool {
+        guard let currentWebURL else { return false }
+        return ReadingCapture.isDifferentPage(currentWebURL, from: item)
+    }
+
+    /// The item reflections and highlights belong to: the linked page once
+    /// it has been captured, otherwise the item being read.
+    private var readingItem: Item {
+        capturedPageItem ?? item
+    }
+
     private var usesSidePanel: Bool {
         horizontalSizeClass == .regular && !preferFullScreenReaderExperience
     }
@@ -160,9 +185,10 @@ struct MobileItemReaderView: View {
 
     @discardableResult
     private func addHighlight(_ text: String) -> ReflectionBlock {
-        let nextPosition = (item.reflections.map(\.position).max() ?? -1) + 1
+        let host = resolveWritingHost()
+        let nextPosition = (host.reflections.map(\.position).max() ?? -1) + 1
         let block = ReflectionBlock(
-            item: item,
+            item: host,
             blockType: .keyInsight,
             content: "",
             highlight: text,
@@ -171,11 +197,49 @@ struct MobileItemReaderView: View {
         modelContext.insert(block)
         // Mirror ItemReaderViewModel.addHighlight: maintain the relationship and
         // bump updatedAt so highlights created on iOS sort/sync consistently.
-        item.reflections.append(block)
-        item.updatedAt = .now
+        host.reflections.append(block)
+        ReadingCapture.promoteAfterWriting(host, in: modelContext)
+        host.updatedAt = .now
         try? modelContext.save()
         selectedText = nil
         return block
+    }
+
+    /// Capture-on-write: a note taken on a linked page saves that page to
+    /// the library first, so the note has a durable home.
+    private func resolveWritingHost() -> Item {
+        if let capturedPageItem, capturedPageURL == currentWebURL?.absoluteString {
+            return capturedPageItem
+        }
+        let resolution = ReadingCapture.host(
+            for: item,
+            navigatedURL: isBrowsingLinkedPage ? currentWebURL : nil,
+            in: modelContext
+        )
+        if resolution.host.id != item.id {
+            capturedPageItem = resolution.host
+            capturedPageURL = currentWebURL?.absoluteString
+            if resolution.didCapture {
+                flashSavedIndicator()
+            }
+        }
+        return resolution.host
+    }
+
+    private func saveCurrentPage() {
+        guard let currentWebURL, isBrowsingLinkedPage else { return }
+        let (captured, _) = ReadingCapture.capturePage(currentWebURL, readFrom: item, in: modelContext)
+        capturedPageItem = captured
+        capturedPageURL = currentWebURL.absoluteString
+        flashSavedIndicator()
+    }
+
+    private func flashSavedIndicator() {
+        withAnimation { showSavedIndicator = true }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            withAnimation { showSavedIndicator = false }
+        }
     }
 
     private func highlightAndReflect(_ text: String) {
@@ -215,21 +279,42 @@ struct MobileItemReaderView: View {
     private var articleContent: some View {
         if let url = articleURL {
             #if os(iOS)
-            MobileArticleWebView(
-                url: url,
-                onTextSelected: { text in selectedText = text },
-                findQuery: findQuery,
-                findForwardToken: findForwardToken,
-                findBackwardToken: findBackwardToken,
-                onFindResult: { current, total in
-                    findCurrentMatch = current
-                    findTotalMatches = total
-                },
-                zoomLevel: zoomLevel,
-                scrollToTextQuery: scrollToTextQuery,
-                scrollToTextToken: scrollToTextToken
-            )
-            .ignoresSafeArea(edges: .bottom)
+            VStack(spacing: 0) {
+                if isBrowsingLinkedPage || canGoBack {
+                    browseBar
+                    Divider()
+                }
+
+                MobileArticleWebView(
+                    url: url,
+                    onTextSelected: { text in selectedText = text },
+                    findQuery: findQuery,
+                    findForwardToken: findForwardToken,
+                    findBackwardToken: findBackwardToken,
+                    onFindResult: { current, total in
+                        findCurrentMatch = current
+                        findTotalMatches = total
+                    },
+                    zoomLevel: zoomLevel,
+                    scrollToTextQuery: scrollToTextQuery,
+                    scrollToTextToken: scrollToTextToken,
+                    goBackToken: goBackToken,
+                    goForwardToken: goForwardToken,
+                    onNavigationChanged: { back, forward, currentURL in
+                        canGoBack = back
+                        canGoForward = forward
+                        currentWebURL = currentURL
+                        // A different page means any captured page item no
+                        // longer applies to what's on screen.
+                        if currentURL?.absoluteString != capturedPageURL {
+                            capturedPageItem = nil
+                            capturedPageURL = nil
+                        }
+                    }
+                )
+                .ignoresSafeArea(edges: .bottom)
+            }
+            .animation(.easeInOut(duration: 0.2), value: isBrowsingLinkedPage || canGoBack)
             #else
             Text("Article view not available on this platform")
             #endif
@@ -257,6 +342,70 @@ struct MobileItemReaderView: View {
                 Text("This item has no readable content.")
             }
         }
+    }
+
+    // MARK: - Browse bar
+
+    /// Appears once reading leaves the item's own page: history controls,
+    /// the current domain, and a save action for the page on screen.
+    private var browseBar: some View {
+        HStack(spacing: Spacing.md) {
+            Button {
+                goBackToken += 1
+            } label: {
+                Image(systemName: "chevron.backward")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(canGoBack ? Color.textSecondary : Color.textMuted)
+                    .frame(width: LayoutDimensions.minTouchTarget, height: LayoutDimensions.minTouchTarget)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!canGoBack)
+            .accessibilityLabel("Back")
+
+            Button {
+                goForwardToken += 1
+            } label: {
+                Image(systemName: "chevron.forward")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(canGoForward ? Color.textSecondary : Color.textMuted)
+                    .frame(width: LayoutDimensions.minTouchTarget, height: LayoutDimensions.minTouchTarget)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!canGoForward)
+            .accessibilityLabel("Forward")
+
+            Text(currentWebURL?.host(percentEncoded: false) ?? "")
+                .font(.groveMeta)
+                .foregroundStyle(Color.textTertiary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            Spacer(minLength: Spacing.sm)
+
+            if showSavedIndicator {
+                Label("Saved", systemImage: "checkmark.circle")
+                    .font(.groveMeta)
+                    .foregroundStyle(Color.textSecondary)
+                    .transition(.opacity)
+            } else if isBrowsingLinkedPage, capturedPageItem == nil {
+                Button {
+                    saveCurrentPage()
+                } label: {
+                    Image(systemName: "plus.circle")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(Color.textSecondary)
+                        .frame(width: LayoutDimensions.minTouchTarget, height: LayoutDimensions.minTouchTarget)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Save page to library")
+            }
+        }
+        .padding(.horizontal, LayoutDimensions.contentPaddingH)
+        .frame(height: LayoutDimensions.minTouchTarget)
+        .background(Color.bgCard)
     }
 
     // MARK: - Toolbar
@@ -425,7 +574,7 @@ struct MobileItemReaderView: View {
     private var reflectionSheetContent: some View {
         let isRegular = horizontalSizeClass == .regular
         MobileReflectionSheet(
-            item: item,
+            item: readingItem,
             requestedEditBlock: $pendingEditBlock,
             onHighlightTap: articleURL != nil ? { jumpToHighlight($0) } : nil
         )
@@ -445,7 +594,7 @@ struct MobileItemReaderView: View {
             EmptyView()
         case .reflections:
             MobileReflectionSheet(
-                item: item,
+                item: readingItem,
                 onDismiss: {
                     withAnimation { rightPanel = .none }
                 },

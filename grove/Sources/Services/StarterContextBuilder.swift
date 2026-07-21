@@ -45,7 +45,9 @@ enum StarterContextBuilder {
         let thirtyDaysAgo = now.addingTimeInterval(-30 * 24 * 3600)
 
         let recentItems = suggestionEligibleItems.filter {
-            ($0.status == .active || $0.status == .inbox) && $0.createdAt > sevenDaysAgo
+            ($0.status == .active || $0.status == .inbox)
+                && !$0.isFeedSuggestion
+                && $0.createdAt > sevenDaysAgo
         }
 
         let staleItems = suggestionEligibleItems.filter {
@@ -127,7 +129,11 @@ enum StarterContextBuilder {
     /// Returns the largest such cluster, keyed on the most-shared tag.
     @MainActor
     private static func findUnboardedCluster(from allItems: [Item]) -> UnboardedCluster? {
-        let unboarded = allItems.filter { $0.boards.isEmpty && ($0.status == .active || $0.status == .inbox) }
+        let unboarded = allItems.filter {
+            $0.boards.isEmpty
+                && ($0.status == .active || $0.status == .inbox)
+                && !$0.isFeedSuggestion
+        }
         guard unboarded.count >= 4 else { return nil }
 
         // Count how many unboarded items share each tag

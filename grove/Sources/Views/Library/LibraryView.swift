@@ -100,7 +100,11 @@ struct LibraryView: View {
             // Board views keep their historical status behavior, minus archived
             statusFiltered = base.filter { $0.status != .archived }
         } else {
-            statusFiltered = base.filter { $0.status == .active || $0.status == .inbox }
+            // Unkept newsletter issues stay in the Newsletters section
+            // until explicitly promoted into the library.
+            statusFiltered = base.filter {
+                ($0.status == .active || $0.status == .inbox) && !$0.isFeedSuggestion
+            }
         }
         return sortOption.sorted(statusFiltered)
     }
