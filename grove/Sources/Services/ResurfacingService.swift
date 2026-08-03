@@ -78,24 +78,16 @@ final class ResurfacingService: ResurfacingServiceProtocol {
             .first
     }
 
-    /// Get context for a resurface nudge: a key reflection or connection title.
+    /// Get context for a resurface nudge: the user's own latest reflection.
+    /// Connection titles are deliberately not used — they can be raw URLs or
+    /// markdown and read as noise in a one-line nudge.
     func resurfaceContext(for item: Item) -> String? {
-        // Prefer the most recent reflection as context
-        if let latestReflection = item.reflections.sorted(by: { $0.createdAt > $1.createdAt }).first {
-            let preview = String(latestReflection.content.prefix(AppConstants.LLM.reasonMaxLength))
-            let suffix = latestReflection.content.count > AppConstants.LLM.reasonMaxLength ? "..." : ""
-            return "Your note: \"\(preview)\(suffix)\""
+        guard let latestReflection = item.reflections.sorted(by: { $0.createdAt > $1.createdAt }).first else {
+            return nil
         }
-
-        // Fall back to a connected item title
-        if let connection = item.outgoingConnections.first, let target = connection.targetItem {
-            return "Connected to: \(target.title)"
-        }
-        if let connection = item.incomingConnections.first, let source = connection.sourceItem {
-            return "Connected to: \(source.title)"
-        }
-
-        return nil
+        let preview = String(latestReflection.content.prefix(AppConstants.LLM.reasonMaxLength))
+        let suffix = latestReflection.content.count > AppConstants.LLM.reasonMaxLength ? "..." : ""
+        return "Your note: \"\(preview)\(suffix)\""
     }
 
     // MARK: - Queue Statistics

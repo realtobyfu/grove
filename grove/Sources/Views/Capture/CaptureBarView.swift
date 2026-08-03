@@ -94,6 +94,54 @@ private struct BoardSuggestionBanner: View {
     }
 }
 
+// MARK: - Capture Confirmation
+
+/// Post-capture flash. A duplicate paste is not a capture, so it never shows
+/// the success checkmark — it names the existing item and offers to open it.
+private struct CaptureConfirmationChip: View {
+    let message: String
+    let duplicateItemID: UUID?
+    let onOpen: (UUID) -> Void
+
+    var body: some View {
+        HStack(spacing: Spacing.xs) {
+            if let duplicateItemID {
+                Text(message)
+                    .font(.groveMeta)
+                    .foregroundStyle(Color.textSecondary)
+
+                Text("\u{2014}")
+                    .font(.groveMeta)
+                    .foregroundStyle(Color.textMuted)
+
+                Button("Open") {
+                    onOpen(duplicateItemID)
+                }
+                .buttonStyle(.plain)
+                .font(.groveMeta)
+                .foregroundStyle(Color.textPrimary)
+            } else {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.groveMeta)
+                    .foregroundStyle(Color.textSecondary)
+                Text(message)
+                    .font(.groveMeta)
+                    .foregroundStyle(Color.textSecondary)
+            }
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.xs)
+        .background(Color.bgCard)
+        .clipShape(Capsule())
+        .overlay {
+            if duplicateItemID != nil {
+                Capsule().stroke(Color.borderPrimary, lineWidth: 1)
+            }
+        }
+        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+    }
+}
+
 // MARK: - CaptureBarView
 
 struct CaptureBarView: View {
@@ -102,6 +150,8 @@ struct CaptureBarView: View {
     @State private var inputText = ""
     @State private var showConfirmation = false
     @State private var confirmationMessage = "Captured"
+    /// Set when the last capture matched an item already in the library.
+    @State private var duplicateItemID: UUID? = nil
     @FocusState private var isFocused: Bool
 
     // Board suggestion state
@@ -173,18 +223,11 @@ struct CaptureBarView: View {
             .padding(.vertical, Spacing.sm)
             .overlay {
                 if showConfirmation {
-                    HStack(spacing: Spacing.xs) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.groveBody)
-                        Text(confirmationMessage)
-                            .font(.groveBodySmall)
-                    }
-                    .foregroundStyle(Color.textSecondary)
-                    .padding(.horizontal, Spacing.md)
-                    .padding(.vertical, Spacing.xs)
-                    .background(Color.bgCard)
-                    .clipShape(Capsule())
-                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    CaptureConfirmationChip(
+                        message: confirmationMessage,
+                        duplicateItemID: duplicateItemID,
+                        onOpen: { openDuplicate($0) }
+                    )
                 }
             }
 
@@ -215,15 +258,16 @@ struct CaptureBarView: View {
         }
         .sheet(isPresented: $showBoardPicker) {
             if let pendingSuggestion {
-                SmartBoardPickerSheet(
+                BoardPickerView(
                     boards: boards,
+                    mode: .add,
                     suggestedName: pendingSuggestion.suggestedName,
                     recommendedBoardID: pendingSuggestion.recommendedBoardID,
-                    prioritizedBoardIDs: pendingSuggestion.alternativeBoardIDs,
-                    onSelectBoard: { board in
+                    alternativeBoardIDs: pendingSuggestion.alternativeBoardIDs,
+                    onSelect: { board in
                         selectBoardFromPicker(board)
                     },
-                    onCreateBoard: { boardName in
+                    onCreate: { boardName in
                         createBoardFromPicker(named: boardName)
                     }
                 )
@@ -259,17 +303,24 @@ struct CaptureBarView: View {
 
         inputText = ""
 
-        // Flash confirmation
+        // A duplicate is not a capture: no new item, no success checkmark.
+        // The flash names the existing item and stays long enough to open it.
+        duplicateItemID = result.isDuplicate ? result.item.id : nil
         confirmationMessage = result.isDuplicate ? "Already in your library" : "Captured"
         withAnimation(.easeIn(duration: 0.15)) {
             showConfirmation = true
         }
         Task { @MainActor in
-            try? await Task.sleep(for: .seconds(1))
+            try? await Task.sleep(for: .seconds(result.isDuplicate ? 5 : 1))
             withAnimation(.easeOut(duration: 0.3)) {
                 showConfirmation = false
             }
         }
+    }
+
+    private func openDuplicate(_ itemID: UUID) {
+        withAnimation(.easeOut(duration: 0.2)) { showConfirmation = false }
+        NotificationCenter.default.post(name: .groveOpenItem, object: itemID)
     }
 
     // MARK: - Board Suggestion Actions
@@ -380,6 +431,8 @@ struct CaptureBarOverlayView: View {
     @State private var inputText = ""
     @State private var showConfirmation = false
     @State private var confirmationMessage = "Captured"
+    /// Set when the last capture matched an item already in the library.
+    @State private var duplicateItemID: UUID? = nil
     @FocusState private var isFocused: Bool
 
     // Board suggestion state
@@ -464,18 +517,11 @@ struct CaptureBarOverlayView: View {
         .shadow(color: .black.opacity(0.15), radius: 20, y: 8)
         .overlay {
             if showConfirmation {
-                HStack(spacing: Spacing.xs) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.groveBody)
-                    Text(confirmationMessage)
-                        .font(.groveBodySmall)
-                }
-                .foregroundStyle(Color.textSecondary)
-                .padding(.horizontal, Spacing.md)
-                .padding(.vertical, Spacing.xs)
-                .background(Color.bgCard)
-                .clipShape(Capsule())
-                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                CaptureConfirmationChip(
+                    message: confirmationMessage,
+                    duplicateItemID: duplicateItemID,
+                    onOpen: { openDuplicate($0) }
+                )
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .groveNewBoardSuggestion)) { notification in
@@ -492,15 +538,16 @@ struct CaptureBarOverlayView: View {
         }
         .sheet(isPresented: $showBoardPicker) {
             if let pendingSuggestion {
-                SmartBoardPickerSheet(
+                BoardPickerView(
                     boards: boards,
+                    mode: .add,
                     suggestedName: pendingSuggestion.suggestedName,
                     recommendedBoardID: pendingSuggestion.recommendedBoardID,
-                    prioritizedBoardIDs: pendingSuggestion.alternativeBoardIDs,
-                    onSelectBoard: { board in
+                    alternativeBoardIDs: pendingSuggestion.alternativeBoardIDs,
+                    onSelect: { board in
                         selectBoardFromPicker(board)
                     },
-                    onCreateBoard: { boardName in
+                    onCreate: { boardName in
                         createBoardFromPicker(named: boardName)
                     }
                 )
@@ -533,12 +580,15 @@ struct CaptureBarOverlayView: View {
 
         inputText = ""
 
+        // A duplicate is not a capture: no new item, no success checkmark.
+        duplicateItemID = result.isDuplicate ? result.item.id : nil
         confirmationMessage = result.isDuplicate ? "Already in your library" : "Captured"
         withAnimation(.easeIn(duration: 0.15)) {
             showConfirmation = true
         }
+        let isDuplicate = result.isDuplicate
         Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(800))
+            try? await Task.sleep(for: isDuplicate ? .seconds(5) : .milliseconds(800))
             withAnimation(.easeOut(duration: 0.2)) {
                 showConfirmation = false
                 if !showBoardSuggestion {
@@ -546,6 +596,14 @@ struct CaptureBarOverlayView: View {
                 }
             }
         }
+    }
+
+    /// Opening the existing item replaces the overlay — the handler for
+    /// `.groveOpenItem` closes it on the way to the reader.
+    private func openDuplicate(_ itemID: UUID) {
+        withAnimation(.easeOut(duration: 0.2)) { showConfirmation = false }
+        NotificationCenter.default.post(name: .groveOpenItem, object: itemID)
+        dismiss()
     }
 
     private func dismiss() {

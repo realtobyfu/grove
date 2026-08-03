@@ -172,8 +172,28 @@ private struct SelectableMarkdownRepresentable: NSViewRepresentable {
             for (index, item) in list.items.enumerated() {
                 result.append(
                     listItemAttributedString(
-                        item,
+                        marker: "\u{2022} ",
+                        indentation: item.indentation,
+                        contentRange: item.contentRange,
                         document: document
+                    )
+                )
+                if index < list.items.count - 1 {
+                    result.append(NSAttributedString(string: "\n"))
+                }
+            }
+            return result
+
+        case .orderedList(let list):
+            let result = NSMutableAttributedString()
+            for (index, item) in list.items.enumerated() {
+                result.append(
+                    listItemAttributedString(
+                        marker: "\(item.number). ",
+                        indentation: item.indentation,
+                        contentRange: item.contentRange,
+                        document: document,
+                        markerFontName: MarkdownTypeSpec.FontName.mono
                     )
                 )
                 if index < list.items.count - 1 {
@@ -272,10 +292,13 @@ private struct SelectableMarkdownRepresentable: NSViewRepresentable {
     }
 
     private func listItemAttributedString(
-        _ item: MarkdownDocument.ListItem,
-        document: MarkdownDocument
+        marker: String,
+        indentation: Int,
+        contentRange: Range<Int>,
+        document: MarkdownDocument,
+        markerFontName: String = MarkdownTypeSpec.FontName.body
     ) -> NSAttributedString {
-        let bulletIndent = CGFloat(item.indentation / 2) * 12
+        let bulletIndent = CGFloat(MarkdownTypeSpec.nestingLevel(forIndentation: indentation)) * MarkdownTypeSpec.Scale.compact.listNestIndent
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = 4
         paragraphStyle.paragraphSpacing = 4
@@ -283,17 +306,17 @@ private struct SelectableMarkdownRepresentable: NSViewRepresentable {
         paragraphStyle.headIndent = bulletIndent + 14
 
         let prefix = NSAttributedString(
-            string: "\u{2022} ",
+            string: marker,
             attributes: [
-                .font: NSFont(name: "IBMPlexSans-Regular", size: 13)
-                    ?? NSFont.systemFont(ofSize: 13),
+                .font: NSFont(name: markerFontName, size: MarkdownTypeSpec.Scale.compact.bodySize)
+                    ?? NSFont.systemFont(ofSize: MarkdownTypeSpec.Scale.compact.bodySize),
                 .foregroundColor: NSColor.secondaryLabelColor,
                 .paragraphStyle: paragraphStyle
             ]
         )
         let content = NSMutableAttributedString(
             attributedString: inlineAttributedString(
-                in: item.contentRange,
+                in: contentRange,
                 style: .body,
                 document: document
             )

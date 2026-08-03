@@ -57,8 +57,27 @@ final class ItemViewModel {
         try? modelContext.save()
     }
 
+    /// The single UI-facing deletion path for `Item`. Views must never call
+    /// `modelContext.delete(_:)` on an Item directly: presentation layers hold
+    /// strong references to the model (write panel, reader, inspector,
+    /// selection) and only find out through `.groveItemWillDelete`.
+    ///
+    /// The notification is posted *before* the delete so observers can read
+    /// `item.id` and tear down while the model is still valid.
     func deleteItem(_ item: Item) {
+        NotificationCenter.default.postItemWillDelete(id: item.id)
         modelContext.delete(item)
+        try? modelContext.save()
+    }
+
+    /// Bulk variant of `deleteItem(_:)` — announces every item before deleting,
+    /// then saves once.
+    func deleteItems(_ items: [Item]) {
+        guard !items.isEmpty else { return }
+        for item in items {
+            NotificationCenter.default.postItemWillDelete(id: item.id)
+            modelContext.delete(item)
+        }
         try? modelContext.save()
     }
 

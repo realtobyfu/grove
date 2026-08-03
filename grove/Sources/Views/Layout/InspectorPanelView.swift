@@ -195,13 +195,19 @@ struct InspectorPanelView: View {
     /// Incoming connections — items whose content or connections point TO this
     /// item. Presented separately from outgoing connections so the direction of
     /// the relationship is unambiguous. Rows are clickable and open the linking item.
+    ///
+    /// Every kind of incoming link belongs here on equal footing: wiki-links
+    /// written by hand, connections made in the inspector or chat, and the
+    /// "Linked From" trails recorded when a page was reached by reading
+    /// another item. Newest first, since a to-many relationship has no
+    /// inherent order and an arbitrary one would reshuffle between launches.
     private var backlinksSection: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             Text("Backlinks")
                 .sectionHeaderStyle()
                 .padding(.horizontal)
 
-            let incoming = item.incomingConnections
+            let incoming = item.incomingConnections.sorted { $0.createdAt > $1.createdAt }
             if incoming.isEmpty {
                 Text("No items link here yet")
                     .font(.groveBodySmall)
@@ -230,7 +236,7 @@ struct InspectorPanelView: View {
     private var addConnectionPanel: some View {
         VStack(alignment: .leading, spacing: 6) {
             Picker("Type", selection: $selectedConnectionType) {
-                ForEach(ConnectionType.allCases, id: \.self) { type in
+                ForEach(ConnectionType.userSelectableCases, id: \.self) { type in
                     Text(type.displayLabel).tag(type)
                 }
             }
@@ -412,20 +418,6 @@ struct InspectorPanelView: View {
     }
 }
 
-// MARK: - Inspector Empty State
-
-struct InspectorEmptyView: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.lg) {
-            Text("Select an item to see details.")
-                .font(.groveBody)
-                .foregroundStyle(Color.textSecondary)
-                .padding(.horizontal)
-                .padding(.top)
-
-            Spacer()
-        }
-        .frame(maxHeight: .infinity)
-        .background(Color.bgInspector)
-    }
-}
+// No inspector empty state: with nothing selected the right rail resolves to
+// `.hidden` and doesn't render, so the content area takes the full width
+// instead of showing a placeholder column.

@@ -22,6 +22,20 @@ struct ShortcutsSettingsView: View {
                 shortcutRow("Toggle Dialectics", shortcut: "⌘⇧D")
             }
 
+            Section("Library") {
+                shortcutRow("Move to Board…", shortcut: "⌘⇧M")
+            }
+
+            Section("Reader") {
+                shortcutRow("Zoom In", shortcut: "⌘+")
+                shortcutRow("Zoom Out", shortcut: "⌘−")
+                shortcutRow("Actual Size", shortcut: "⌘0")
+            }
+
+            Section("Boards") {
+                shortcutRow("Copy Board Link", shortcut: "⌘⇧C")
+            }
+
             Section("Export") {
                 shortcutRow("Export Selected Item...", shortcut: "Menu only")
             }

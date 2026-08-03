@@ -29,7 +29,7 @@ struct ChatConnectionSheet: View {
                         .font(.groveBody)
 
                     Picker("Type", selection: $connectionType) {
-                        ForEach(ConnectionType.allCases, id: \.self) { type in
+                        ForEach(ConnectionType.userSelectableCases, id: \.self) { type in
                             Text(type.displayLabel).tag(type)
                         }
                     }

@@ -80,9 +80,111 @@ struct MarkdownDocumentTests {
 
         #expect(!document.shouldRevealInlineSpan(boldSpan, for: .init(caret: 0)))
         #expect(document.shouldRevealInlineSpan(boldSpan, for: .init(caret: boldSpan.fullRange.lowerBound)))
-        #expect(document.shouldRevealInlineSpan(boldSpan, for: .init(caret: boldSpan.contentRange.lowerBound + 1)))
+        // Markers stay hidden while the caret sits inside the styled content.
+        #expect(!document.shouldRevealInlineSpan(boldSpan, for: .init(caret: boldSpan.contentRange.lowerBound + 1)))
+        // Touching either delimiter run reveals them.
+        #expect(document.shouldRevealInlineSpan(boldSpan, for: .init(caret: boldSpan.contentRange.lowerBound)))
+        #expect(document.shouldRevealInlineSpan(boldSpan, for: .init(caret: boldSpan.contentRange.upperBound)))
         #expect(document.shouldRevealInlineSpan(boldSpan, for: .init(caret: boldSpan.fullRange.upperBound)))
         #expect(document.shouldRevealInlineSpan(italicSpan, for: .init(range: italicSpan.contentRange.lowerBound..<(italicSpan.contentRange.lowerBound + 2))))
+    }
+
+    @Test func typingInsideABoldPhraseKeepsItsMarkersHidden() {
+        let source = "A **bold phrase** here."
+        let document = MarkdownDocument(source)
+
+        guard let boldSpan = document.inlineSpans.first(where: {
+            if case .bold = $0.kind { return true }
+            return false
+        }) else {
+            Issue.record("Expected bold span")
+            return
+        }
+
+        // Every strictly interior caret keeps the asterisks hidden.
+        for caret in (boldSpan.contentRange.lowerBound + 1)..<boldSpan.contentRange.upperBound {
+            #expect(!document.shouldRevealInlineSpan(boldSpan, for: .init(caret: caret)))
+        }
+
+        // A selection wholly inside the content does not reveal them either.
+        let interior = (boldSpan.contentRange.lowerBound + 1)..<(boldSpan.contentRange.upperBound - 1)
+        #expect(!document.shouldRevealInlineSpan(boldSpan, for: .init(range: interior)))
+
+        // A selection covering the whole span does.
+        #expect(document.shouldRevealInlineSpan(boldSpan, for: .init(range: boldSpan.fullRange)))
+    }
+
+    @Test func emptyBoldPairIsTrackedForPlaceholderStyling() {
+        let document = MarkdownDocument("before ****")
+
+        #expect(document.emptyMarkerPairs.count == 1)
+        #expect(document.emptyMarkerPairs.first?.range == 7..<11)
+        if case .bold = document.emptyMarkerPairs.first?.kind {
+            // expected
+        } else {
+            Issue.record("Expected an empty bold pair")
+        }
+
+        // A real bold span is not reported as an empty pair.
+        #expect(MarkdownDocument("**text**").emptyMarkerPairs.isEmpty)
+    }
+
+    @Test func orderedListsParseWithNumbersAndOneNestingLevel() {
+        let source = """
+        1. First
+        2) Second
+          1. Nested
+        """
+        let document = MarkdownDocument(source)
+
+        #expect(document.blocks.count == 1)
+        guard case .orderedList(let list) = document.blocks.first?.kind else {
+            Issue.record("Expected ordered list block")
+            return
+        }
+
+        #expect(list.items.count == 3)
+        #expect(list.items.map(\.number) == [1, 2, 1])
+        #expect(document.text(in: list.items[0].contentRange) == "First")
+        #expect(document.text(in: list.items[1].contentRange) == "Second")
+        #expect(document.text(in: list.items[2].contentRange) == "Nested")
+        #expect(list.items[0].indentation == 0)
+        #expect(list.items[2].indentation == 2)
+        #expect(MarkdownTypeSpec.nestingLevel(forIndentation: list.items[0].indentation) == 0)
+        #expect(MarkdownTypeSpec.nestingLevel(forIndentation: list.items[2].indentation) == 1)
+
+        // Prefix hides the marker run, content keeps the text.
+        #expect(document.text(in: list.items[0].prefixRange) == "1. ")
+    }
+
+    @Test func orderedListMarkersRequireADelimiterAndSpace() {
+        #expect(!MarkdownDocument("1.No space").blocks.isEmpty)
+        guard case .paragraph = MarkdownDocument("1.No space").blocks.first?.kind else {
+            Issue.record("Expected `1.No space` to stay a paragraph")
+            return
+        }
+
+        guard case .paragraph = MarkdownDocument("2024 was a year").blocks.first?.kind else {
+            Issue.record("Expected a bare year to stay a paragraph")
+            return
+        }
+    }
+
+    @Test func bulletListsKeepIndentationForNesting() {
+        let source = """
+        - Top
+          - Nested
+        """
+        let document = MarkdownDocument(source)
+
+        guard case .bulletList(let list) = document.blocks.first?.kind else {
+            Issue.record("Expected bullet list block")
+            return
+        }
+
+        #expect(list.items.count == 2)
+        #expect(MarkdownTypeSpec.nestingLevel(forIndentation: list.items[0].indentation) == 0)
+        #expect(MarkdownTypeSpec.nestingLevel(forIndentation: list.items[1].indentation) == 1)
     }
 
     @Test func boldItalicRevealKeepsTripleMarkersEditableWhenActive() {
@@ -95,7 +197,8 @@ struct MarkdownDocumentTests {
         }
 
         #expect(!document.shouldRevealInlineSpan(span, for: .init(caret: source.count + 1)))
-        #expect(document.shouldRevealInlineSpan(span, for: .init(caret: span.contentRange.lowerBound + 1)))
+        #expect(!document.shouldRevealInlineSpan(span, for: .init(caret: span.contentRange.lowerBound + 1)))
+        #expect(document.shouldRevealInlineSpan(span, for: .init(caret: span.contentRange.lowerBound)))
         #expect(span.markerRanges.count == 2)
         #expect(document.text(in: span.markerRanges[0]) == "***")
         #expect(document.text(in: span.markerRanges[1]) == "***")

@@ -111,43 +111,37 @@ struct GroveApp: App {
 
         Settings {
             TabView {
-                ProSettingsView()
+                GeneralSettingsView()
                     .tabItem {
-                        Label("Pro", systemImage: "crown")
+                        Label("General", systemImage: "gearshape")
+                    }
+
+                AccountSettingsView()
+                    .tabItem {
+                        Label("Account", systemImage: "person.crop.circle")
+                    }
+
+                AISettingsView()
+                    .tabItem {
+                        Label("AI", systemImage: "sparkles")
                     }
 
                 NudgeSettingsView()
                     .tabItem {
                         Label("Nudges", systemImage: "bell")
                     }
+
                 SubscriptionsSettingsView()
                     .tabItem {
-                        Label("Newsletters", systemImage: "newspaper")
-                    }
-                AISettingsView()
-                    .tabItem {
-                        Label("AI", systemImage: "sparkles")
+                        Label("Following", systemImage: "newspaper")
                     }
 
-                AppearanceSettingsView()
-                    .tabItem {
-                        Label("Appearance", systemImage: "paintbrush")
-                    }
-
-                SyncSettingsView()
-                    .tabItem {
-                        Label("Sync", systemImage: "icloud")
-                    }
                 ShortcutsSettingsView()
                     .tabItem {
                         Label("Shortcuts", systemImage: "keyboard")
                     }
-                FeedbackSettingsView()
-                    .tabItem {
-                        Label("Feedback", systemImage: "envelope")
-                    }
             }
-            .frame(width: 500, height: 500)
+            .frame(width: 640, height: 500)
             .environment(entitlementService)
             .environment(onboardingService)
             .environment(paywallCoordinator)

@@ -191,7 +191,7 @@ struct ContentView: View {
 
     private var chatToolbarButton: some View {
         Button {
-            withAnimation { viewModel.showChatPanel.toggle() }
+            withAnimation(RightRailMetrics.widthChange) { viewModel.showChatPanel.toggle() }
         } label: {
             Image(systemName: viewModel.showChatPanel ? "bubble.left.and.bubble.right.fill" : "bubble.left.and.bubble.right")
         }
@@ -200,10 +200,15 @@ struct ContentView: View {
 
     private var inspectorToolbarButton: some View {
         Button {
-            withAnimation { viewModel.inspectorUserOverride = !viewModel.isInspectorVisible }
+            withAnimation(RightRailMetrics.widthChange) {
+                viewModel.inspectorUserOverride = !viewModel.isInspectorVisible
+            }
         } label: {
             Image(systemName: "sidebar.trailing")
         }
+        // Nothing to inspect means no rail at all, so the toggle has nothing
+        // to show — don't offer it.
+        .disabled(inspectorItem == nil)
         .help(viewModel.isInspectorVisible ? "Hide Inspector" : "Show Inspector")
     }
 
@@ -334,52 +339,51 @@ struct ContentView: View {
         }
     }
 
-    @ViewBuilder
+    /// The item the inspector would describe. Nil means there is nothing to
+    /// inspect, which resolves to `.hidden` — no rail, no placeholder column.
+    private var inspectorItem: Item? {
+        viewModel.selectedItem ?? viewModel.openedItem
+    }
+
+    /// Single source of truth for the right rail. Dialectics still wins over
+    /// the item panels, exactly as the old `if/else if` chain did.
+    private var railMode: RightRailMode {
+        if viewModel.showChatPanel { return .dialectics }
+        if viewModel.isInspectorVisible, inspectorItem != nil { return .inspector }
+        return .hidden
+    }
+
     private var sidePanel: some View {
-        if viewModel.showChatPanel {
-            @Bindable var vm = viewModel
-            let widthBinding = clampedWidthBinding($vm.chatPanelWidth, min: 300, max: .greatestFiniteMagnitude)
-            ResizableTrailingDivider(
-                width: widthBinding,
-                minWidth: 300,
-                maxWidth: .greatestFiniteMagnitude,
-                onCollapse: { viewModel.showChatPanel = false }
-            ) { width in
-                LayoutSettings.setWidth(width, for: .contentChat)
-            }
-            DialecticalChatPanel(
-                selectedConversation: $vm.selectedConversation,
-                isVisible: $vm.showChatPanel,
-                currentBoard: searchScopeBoard,
-                onNavigateToItem: { item in
-                    viewModel.selectedItem = item
-                    viewModel.openedItem = item
+        @Bindable var vm = viewModel
+        return RightRailContainer(
+            mode: railMode,
+            onCollapse: {
+                switch railMode {
+                case .dialectics: viewModel.showChatPanel = false
+                default: viewModel.inspectorUserOverride = false
                 }
-            )
-            .frame(width: widthBinding.wrappedValue)
-            .transition(.move(edge: .trailing))
-        } else if viewModel.isInspectorVisible {
-            @Bindable var vm = viewModel
-            let widthBinding = clampedWidthBinding($vm.inspectorWidth, min: 300, max: 520)
-            ResizableTrailingDivider(
-                width: widthBinding,
-                minWidth: 300,
-                maxWidth: 520,
-                onCollapse: { viewModel.inspectorUserOverride = false }
-            ) { width in
-                LayoutSettings.setWidth(width, for: .contentInspector)
             }
-            if let inspectorItem = viewModel.selectedItem ?? viewModel.openedItem {
-                InspectorPanelView(item: inspectorItem, onNavigateToItem: { target in
-                    vm.selectedItem = target
-                    vm.openedItem = target
-                })
-                    .frame(width: widthBinding.wrappedValue)
-                    .transition(.move(edge: .trailing))
-            } else {
-                InspectorEmptyView()
-                    .frame(width: widthBinding.wrappedValue)
-                    .transition(.move(edge: .trailing))
+        ) { mode in
+            switch mode {
+            case .dialectics:
+                DialecticalChatPanel(
+                    selectedConversation: $vm.selectedConversation,
+                    isVisible: $vm.showChatPanel,
+                    currentBoard: searchScopeBoard,
+                    onNavigateToItem: { item in
+                        viewModel.selectedItem = item
+                        viewModel.openedItem = item
+                    }
+                )
+            case .inspector:
+                if let inspectorItem {
+                    InspectorPanelView(item: inspectorItem, onNavigateToItem: { target in
+                        viewModel.selectedItem = target
+                        viewModel.openedItem = target
+                    })
+                }
+            default:
+                EmptyView()
             }
         }
     }

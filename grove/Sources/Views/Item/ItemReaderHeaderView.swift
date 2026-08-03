@@ -3,7 +3,8 @@ import SwiftData
 
 struct ItemReaderHeaderView: View {
     @Bindable var vm: ItemReaderViewModel
-    @Binding var showItemExportSheet: Bool
+    /// Runs the export directly — there is no interstitial sheet.
+    var onExport: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -15,29 +16,23 @@ struct ItemReaderHeaderView: View {
                     .foregroundStyle(Color.textSecondary)
 
                 if vm.item.metadata["isAIGenerated"] == "true" {
-                    HStack(spacing: 3) {
-                        Image(systemName: "sparkles")
-                            .font(.caption2)
-                        Text("AI-Generated Synthesis")
-                            .font(.groveBadge)
-                    }
-                    .foregroundStyle(Color.textSecondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Color.accentBadge)
-                    .clipShape(Capsule())
+                    AIMetaLabel(text: "AI-Generated Synthesis")
                 }
 
                 Spacer()
 
+                #if os(macOS)
+                // Export runs through NSSavePanel; on iPad the panel does not
+                // exist, so rather than a dead button the control is absent.
                 Button {
-                    showItemExportSheet = true
+                    onExport()
                 } label: {
                     Label("Export", systemImage: "square.and.arrow.up")
                         .font(.groveMeta)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+                #endif
 
                 if vm.item.type == .note || (vm.item.type == .article && vm.item.metadata["hasLLMOverview"] == "true") {
                     Button {
@@ -58,39 +53,15 @@ struct ItemReaderHeaderView: View {
                 .textSelection(.enabled)
 
             if vm.item.metadata["isAIGenerated"] == "true" {
-                HStack(spacing: 4) {
-                    Image(systemName: vm.item.metadata["isAIEdited"] == "true" ? "pencil" : "sparkles")
-                        .font(.system(size: 9))
-                    Text(vm.item.metadata["isAIEdited"] == "true" ? "Edited" : "AI Draft")
-                        .font(.groveBadge)
-                }
-                .foregroundStyle(Color.textSecondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(Color.accentBadge)
-                .clipShape(Capsule())
+                let isEdited = vm.item.metadata["isAIEdited"] == "true"
+                AIMetaLabel(
+                    text: isEdited ? "Edited" : "AI Draft",
+                    systemImage: isEdited ? "pencil" : "sparkles"
+                )
             } else if vm.item.metadata["hasLLMOverview"] == "true"
                         || vm.item.metadata["summaryGeneratedByAI"] == "true" {
-                HStack(spacing: 6) {
-                    Label("AI-assisted", systemImage: "sparkles")
-                        .font(.groveBadge)
-
-                    if vm.item.metadata["hasLLMOverview"] == "true",
-                       let original = vm.item.metadata["originalDescription"],
-                       !original.isEmpty {
-                        Button("Revert") {
-                            vm.item.metadata["overviewFeedback"] = "reverted"
-                            vm.revertOverview()
-                        }
-                        .font(.groveBadge)
-                        .buttonStyle(.plain)
-                    }
-                }
-                .foregroundStyle(Color.textSecondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(Color.accentBadge)
-                .clipShape(Capsule())
+                // Revert lives on the overview paragraph it actually reverts.
+                AIMetaLabel(text: "AI-assisted")
             }
 
             // One-line summary display/edit
@@ -166,6 +137,85 @@ struct ItemReaderHeaderView: View {
                 .foregroundStyle(Color.textSecondary)
             }
         }
+    }
+}
+
+// MARK: - AI Meta Label
+
+/// Bare mono-caps status line — no capsule, no fill. Hierarchy comes from the
+/// mono face and tracking, like the header's other meta rows.
+struct AIMetaLabel: View {
+    let text: String
+    var systemImage: String? = "sparkles"
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.system(size: 9))
+            }
+            Text(text.uppercased())
+                .font(.groveBadge)
+                .tracking(0.6)
+        }
+        .foregroundStyle(Color.textSecondary)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(text)
+    }
+}
+
+// MARK: - Overview Header
+
+/// Kicker above the AI overview paragraph, plus the ghost "Revert to original"
+/// link for the text it actually reverts. The link fades in on row hover.
+struct AIOverviewHeaderRow: View {
+    @Bindable var vm: ItemReaderViewModel
+
+    @State private var isHovered = false
+    @State private var isLinkHovered = false
+
+    private var canRevert: Bool {
+        vm.item.metadata["hasLLMOverview"] == "true"
+            && !(vm.item.metadata["originalDescription"] ?? "").isEmpty
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            AIMetaLabel(text: "AI Overview")
+
+            if canRevert {
+                Button {
+                    vm.item.metadata["overviewFeedback"] = "reverted"
+                    vm.revertOverview()
+                } label: {
+                    Text("Revert to original")
+                        .font(.groveMeta)
+                        .foregroundStyle(isLinkHovered ? Color.textPrimary : Color.textTertiary)
+                        .underline(isLinkHovered)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Replace the AI overview with the original text")
+                .opacity(isHovered || isLinkHovered ? 1 : restingOpacity)
+                .onHover { isLinkHovered = $0 }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .animation(.easeInOut(duration: 0.15), value: isHovered || isLinkHovered)
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+    }
+
+    /// Pointer platforms reveal the link on hover; touch keeps it visible.
+    private var restingOpacity: Double {
+        #if os(macOS)
+        // Faint but present: a fully invisible control is undiscoverable to
+        // mouse users who never happen to hover the paragraph.
+        return 0.35
+        #else
+        return 1
+        #endif
     }
 }
 

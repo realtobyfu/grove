@@ -20,10 +20,21 @@ struct ItemReaderWebViewPanel: View {
     @State private var currentWebURL: URL? = nil
     @State private var goBackToken = 0
     @State private var goForwardToken = 0
-    @State private var justSaved = false
-    /// Set when a Reader-mode link click dropped us into Original mode;
-    /// navigating back to the article's own page restores Reader mode.
-    @State private var returnToReaderOnArticle = false
+    /// Library item backing the page currently on screen, if it has one.
+    /// Drives the capture FAB's state; nil means the page is unsaved.
+    @State private var capturedItem: Item? = nil
+    @State private var showCapturePicker = false
+    /// Keeps the FAB on screen briefly after filing so the checkmark can
+    /// confirm the action before the button retires from the page.
+    @State private var showFiledConfirmation = false
+    /// Held so a rapid second filing cancels the first timer instead of
+    /// having it truncate the new confirmation.
+    @State private var filedConfirmationTask: Task<Void, Never>? = nil
+    /// True once the live page has been shown for this item. It then stays
+    /// mounted (hidden) behind Reader mode so web history survives toggling.
+    /// Starts false so an item that opens straight into a cached Reader
+    /// article never fetches the live page.
+    @State private var hasMountedWebView = false
 
     // Reader typography (persisted app-wide)
     @AppStorage(ReaderTypographySettings.sizeStepKey) private var readerSizeStep = 1
@@ -38,70 +49,70 @@ struct ItemReaderWebViewPanel: View {
         vm.isReaderMode && vm.activeReaderArticle != nil
     }
 
+    /// The Reader|Original control belongs on screen whenever this page has a
+    /// reader view — or might still turn out to have one. It retires only for
+    /// pages that have proved unreadable, which is the silent failure the
+    /// reader promises rather than an error message.
+    private var showsReaderModeControl: Bool {
+        vm.activeReaderArticle != nil || vm.isResolvingNavigatedArticle
+    }
+
     /// Back can walk web history, or fall through to the article's own
-    /// page when the pane mounted directly on a link target.
+    /// page when the pane mounted directly on a link target. Works in Reader
+    /// mode too: the live page stays mounted underneath, so its history is
+    /// still the pane's history and Reader content follows wherever it lands.
     private var webBackEnabled: Bool {
-        guard !showsReaderContent else { return false }
         if canGoBack { return true }
         if let current = currentWebURL, current.absoluteString != url.absoluteString { return true }
         return false
     }
 
     private var webForwardEnabled: Bool {
-        !showsReaderContent && canGoForward
+        canGoForward
     }
+
+    /// The page-history chevrons earn their place only once this session has
+    /// somewhere to go. Back at the item's own page with no history they
+    /// leave again, so "Overview" is the only back-shaped control on screen.
+    private var showsWebHistory: Bool {
+        webBackEnabled || webForwardEnabled
+    }
+
+    /// Width of the collapsing history slot: divider + two chevron targets +
+    /// the 10pt gaps around them. Fixed so the slot can animate between 0 and
+    /// its full size without the domain text reflowing. iOS uses 44pt touch
+    /// targets, so its slot is wider.
+    #if os(iOS)
+    private static let historySlotWidth: CGFloat = 119
+    #else
+    private static let historySlotWidth: CGFloat = 55
+    #endif
 
     /// Non-empty trimmed selection from either web mode, or nil.
     var body: some View {
         VStack(spacing: 0) {
             // Slim navigation bar
             HStack(spacing: 10) {
-                Button {
-                    vm.pendingNavigationURL = nil
-                    vm.navigatedWebURL = nil
-                    returnToReaderOnArticle = false
-                    withAnimation(.easeOut(duration: 0.2)) { vm.showArticleWebView = false }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 11, weight: .medium))
-                        Text("Overview")
-                            .font(.groveMeta)
-                    }
-                    .foregroundStyle(Color.textSecondary)
+                // Where-am-I cluster: the single root affordance, the page
+                // history when there is any, then the current host.
+                HStack(spacing: 0) {
+                    overviewButton
+                        .padding(.trailing, 10)
+
+                    // The history chevrons exist only once this reading
+                    // session has actually navigated somewhere. The slot
+                    // animates its width, so the domain glides rather than
+                    // jumping when they arrive or leave.
+                    webHistoryControls
+                        .frame(width: showsWebHistory ? Self.historySlotWidth : 0, alignment: .leading)
+                        .opacity(showsWebHistory ? 1 : 0)
+                        .clipped()
+                        .allowsHitTesting(showsWebHistory)
+                        .accessibilityHidden(!showsWebHistory)
+
+                    domainLabel
                 }
-                .buttonStyle(.plain)
-
-                Divider().frame(height: 12)
-
-                // Browser back/forward — always present so the bar reads
-                // the same in both modes; inert while Reader mode is
-                // showing (no web history to walk).
-                Button { goBackToken += 1 } label: {
-                    Image(systemName: "chevron.backward")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(webBackEnabled ? Color.textSecondary : Color.textMuted)
-                }
-                .buttonStyle(.plain)
-                .disabled(!webBackEnabled)
-                .help("Back")
-
-                Button { goForwardToken += 1 } label: {
-                    Image(systemName: "chevron.forward")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(webForwardEnabled ? Color.textSecondary : Color.textMuted)
-                }
-                .buttonStyle(.plain)
-                .disabled(!webForwardEnabled)
-                .help("Forward")
-
-                Divider().frame(height: 12)
-
-                Text((currentWebURL ?? url).host ?? (currentWebURL ?? url).absoluteString)
-                    .font(.groveMeta)
-                    .foregroundStyle(Color.textTertiary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                .animation(.easeOut(duration: 0.18), value: showsWebHistory)
 
                 Spacer()
 
@@ -111,24 +122,10 @@ struct ItemReaderWebViewPanel: View {
                     zoomControls
                 }
 
-                Divider().frame(height: 12)
-
-                boardsMenu
-
-                if vm.activeReaderArticle != nil {
+                if showsReaderModeControl {
                     Divider().frame(height: 12)
 
-                    Button {
-                        returnToReaderOnArticle = false
-                        withAnimation(.easeOut(duration: 0.2)) { vm.isReaderMode.toggle() }
-                    } label: {
-                        Image(systemName: vm.isReaderMode ? "globe" : "doc.plaintext")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(Color.textSecondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help(vm.isReaderMode ? "Show original page" : "Show reader view")
-                    .accessibilityLabel(vm.isReaderMode ? "Show original page" : "Show reader view")
+                    readerModeControl
                 }
 
                 Divider().frame(height: 12)
@@ -143,38 +140,12 @@ struct ItemReaderWebViewPanel: View {
                 .buttonStyle(.plain)
                 .help("Open reflection panel")
 
-                if vm.showAutoCaptureIndicator || justSaved {
-                    // Inline confirmation for saves (explicit or capture-on-write).
+                if vm.showAutoCaptureIndicator {
+                    // Inline confirmation for capture-on-write.
                     Label("Saved", systemImage: "checkmark.circle")
                         .font(.groveMeta)
                         .foregroundStyle(Color.textSecondary)
                         .transition(.opacity)
-                } else if !showsReaderContent,
-                   let navigatedURL = currentWebURL, navigatedURL.absoluteString != url.absoluteString {
-                    Button {
-                        let service = CaptureService(modelContext: modelContext)
-                        let (item, _) = service.captureItemDetailed(input: navigatedURL.absoluteString)
-                        // Saving while reading is deliberate — straight to
-                        // the library, unfiled, skipping inbox triage.
-                        if item.status == .inbox {
-                            item.status = .active
-                        }
-                        if vm.item.isNewsletterIssue {
-                            vm.item.isFeedIssueRead = true
-                        }
-                        try? modelContext.save()
-                        justSaved = true
-                        Task {
-                            try? await Task.sleep(for: .seconds(1.5))
-                            justSaved = false
-                        }
-                    } label: {
-                        Image(systemName: "plus.circle")
-                            .font(.groveBody)
-                            .foregroundStyle(Color.textMuted)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Save page to library")
                 }
 
                 Button {
@@ -189,7 +160,8 @@ struct ItemReaderWebViewPanel: View {
                         .foregroundStyle(Color.textMuted)
                 }
                 .buttonStyle(.plain)
-                .help("Open in Browser")
+                .help("Open in browser")
+                .accessibilityLabel("Open in browser")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
@@ -201,24 +173,72 @@ struct ItemReaderWebViewPanel: View {
             }
 
             ZStack(alignment: .bottom) {
+                // The live page stays mounted underneath Reader mode once it
+                // has been shown. Tearing it down on every toggle threw away
+                // the web history and the page being viewed, which is what
+                // made Back erratic and sent the Reader toggle back to the
+                // item's root article instead of the page on screen.
+                if !showsReaderContent || hasMountedWebView {
+                    originalContent
+                        .opacity(showsReaderContent ? 0 : 1)
+                        .allowsHitTesting(!showsReaderContent)
+                        .accessibilityHidden(showsReaderContent)
+                }
+
                 if showsReaderContent, let article = vm.activeReaderArticle {
                     readerContent(article: article)
-                } else {
-                    originalContent
                 }
 
                 if let selection = vm.highlightableSelection {
-                    HighlightActionBarOverlay(vm: vm, selection: selection, focusTrigger: focusTrigger)
+                    // The web view fills this ZStack, so the reported viewport
+                    // coordinates land in the overlay's own coordinate space.
+                    HighlightActionBarOverlay(
+                        vm: vm,
+                        selection: selection,
+                        focusTrigger: focusTrigger,
+                        selectionGeometry: vm.webSelectionGeometry,
+                        onWrite: { resolveCaptureState() }
+                    )
                 }
             }
+            .overlay(alignment: .bottomTrailing) {
+                // One capture affordance for both modes, sitting over the
+                // content instead of hiding among the toolbar glyphs.
+                // A filed page carries no button — absence means "taken
+                // care of" — except for a beat right after filing.
+                if captureState != .filed || showFiledConfirmation {
+                    captureFAB
+                        .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
+                }
+            }
+            .animation(.easeOut(duration: 0.25), value: captureState == .filed && !showFiledConfirmation)
             .animation(.easeOut(duration: 0.15), value: vm.highlightableSelection != nil)
+        }
+        .onChange(of: showsReaderContent) { _, isReader in
+            if !isReader { hasMountedWebView = true }
+        }
+        .onChange(of: capturePageURL) { _, _ in
+            resolveCaptureState()
+        }
+        // capturedItem is a cached model reference for whatever page is on
+        // screen; the deletion notification is the only signal that reference
+        // is about to go invalid (the page needn't be the selected item).
+        .onReceive(NotificationCenter.default.publisher(for: .groveItemWillDelete)) { note in
+            guard let id = NotificationCenter.itemWillDeleteID(from: note) else { return }
+            if capturedItem?.id == id {
+                capturedItem = nil
+                showFiledConfirmation = false
+                showCapturePicker = false
+            }
         }
         .task(id: url) {
             // Drop any stale scroll-to-text query from a previous panel
             // session so a freshly mounted web view doesn't auto-scroll.
             vm.scrollToTextQuery = ""
             vm.navigatedWebURL = nil
+            hasMountedWebView = false
             vm.loadCachedReaderArticleIfAvailable()
+            resolveCaptureState()
         }
         #if os(macOS)
         .background {
@@ -248,20 +268,29 @@ struct ItemReaderWebViewPanel: View {
             initialProgress: vm.readingProgress,
             scrollToTextQuery: vm.scrollToTextQuery,
             scrollToTextToken: vm.scrollToTextToken,
+            highlights: pageHighlights,
             onTextSelected: { text in
                 vm.webSelectedText = text
                 onTextSelected?(text)
+            },
+            onSelectionGeometry: { geometry in
+                vm.webSelectionGeometry = geometry
             },
             onScrollProgress: { fraction in
                 vm.updateReadingProgress(fraction)
             },
             onOpenExternalLink: { linkURL in
-                // Links stay inside the reader: drop to the web panel and
-                // navigate there. "Open in Browser" remains the escape hatch.
+                // Links stay inside the reader: navigate the live page
+                // underneath. "Open in Browser" remains the escape hatch.
+                //
+                // `isReaderMode` is deliberately left alone — it is the user's
+                // standing preference, not a per-page state. The pane holds the
+                // current article until the destination commits (as a browser
+                // does), shows the live page while it is parsed, and returns to
+                // Reader by itself if the parse succeeds.
+                hasMountedWebView = true
                 vm.pendingNavigationURL = linkURL
                 vm.pendingNavigationToken += 1
-                returnToReaderOnArticle = true
-                withAnimation(.easeOut(duration: 0.15)) { vm.isReaderMode = false }
             }
         )
         #if os(iOS)
@@ -277,6 +306,9 @@ struct ItemReaderWebViewPanel: View {
             onTextSelected: { text in
                 vm.webSelectedText = text
                 onTextSelected?(text)
+            },
+            onSelectionGeometry: { geometry in
+                vm.webSelectionGeometry = geometry
             },
             findQuery: vm.findQuery,
             findForwardToken: vm.findForwardToken,
@@ -295,17 +327,20 @@ struct ItemReaderWebViewPanel: View {
                 canGoForward = canFwd
                 currentWebURL = currentURL
                 // Mirror into the VM so capture-on-write knows what page
-                // a reflection belongs to.
-                let onArticlePage = currentURL?.absoluteString == url.absoluteString
+                // a reflection belongs to. Normalized comparison so a
+                // canonical redirect on the item's own URL doesn't read as
+                // a link the user followed.
+                let onArticlePage = currentURL.map { !ReadingCapture.isDifferentPage($0, from: vm.item) } ?? true
+                // No withAnimation here: this callback can fire synchronously
+                // from updateNSView, and an implicit transaction would animate
+                // every animatable in the pass. The nav bar owns its own
+                // .animation(_:value:) scoping.
                 vm.navigatedWebURL = onArticlePage ? nil : currentURL
-                // Coming back to the article after a Reader-mode link
-                // click returns to Reader mode — the detour is over.
-                if onArticlePage, returnToReaderOnArticle {
-                    returnToReaderOnArticle = false
+                // Back at the item's own page the detour is over: the pending
+                // link is spent, and Reader mode — never having been switched
+                // off — comes back with the item's own article.
+                if onArticlePage {
                     vm.pendingNavigationURL = nil
-                    if vm.activeReaderArticle != nil {
-                        withAnimation(.easeOut(duration: 0.15)) { vm.isReaderMode = true }
-                    }
                 }
             },
             onPageFinished: { webView in
@@ -321,6 +356,9 @@ struct ItemReaderWebViewPanel: View {
                 vm.webSelectedText = text
                 onTextSelected?(text)
             },
+            onSelectionGeometry: { geometry in
+                vm.webSelectionGeometry = geometry
+            },
             findQuery: vm.findQuery,
             findForwardToken: vm.findForwardToken,
             findBackwardToken: vm.findBackwardToken,
@@ -330,46 +368,290 @@ struct ItemReaderWebViewPanel: View {
             },
             zoomLevel: vm.webViewZoomLevel,
             scrollToTextQuery: vm.scrollToTextQuery,
-            scrollToTextToken: vm.scrollToTextToken
+            scrollToTextToken: vm.scrollToTextToken,
+            goBackToken: goBackToken,
+            goForwardToken: goForwardToken,
+            navigateURL: vm.pendingNavigationURL,
+            navigateToken: vm.pendingNavigationToken,
+            onNavigationChanged: { canBack, canFwd, currentURL in
+                canGoBack = canBack
+                canGoForward = canFwd
+                currentWebURL = currentURL
+                let onArticlePage = currentURL.map { !ReadingCapture.isDifferentPage($0, from: vm.item) } ?? true
+                vm.navigatedWebURL = onArticlePage ? nil : currentURL
+                if onArticlePage {
+                    vm.pendingNavigationURL = nil
+                }
+            }
         )
         .ignoresSafeArea(edges: .bottom)
         #endif
     }
 
+    // MARK: - Capture FAB
+
+    /// The page the FAB acts on: whatever is actually on screen.
+    private var capturePageURL: URL {
+        vm.navigatedWebURL ?? currentWebURL ?? url
+    }
+
+    private var captureState: ReaderCaptureState {
+        guard let capturedItem else { return .unsaved }
+        return capturedItem.boards.isEmpty ? .unfiled : .filed
+    }
+
+    /// Saved highlights belonging to the page on screen, in stable order.
+    /// Resolved through the same item the capture FAB acts on, so a page
+    /// reached by following a link shows its own marks — and an unsaved page
+    /// shows none, because it has none.
+    private var pageHighlights: [String] {
+        guard let capturedItem else { return [] }
+        return capturedItem.reflections
+            .sorted { $0.position < $1.position }
+            .compactMap { block in
+                let quote = (block.highlight ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return quote.isEmpty ? nil : quote
+            }
+    }
+
+    private var captureFAB: some View {
+        ReaderCaptureFAB(
+            state: captureState,
+            pageKey: capturePageURL.absoluteString
+        ) {
+            if capturedItem == nil {
+                captureCurrentPage()
+            }
+            showCapturePicker = true
+        }
+        .padding(20)
+        // Arrow on the top edge — the FAB sits at the bottom of the pane, so
+        // the picker opens upward into the content it files.
+        .popover(isPresented: $showCapturePicker, arrowEdge: .top) {
+            if let capturedItem {
+                let decision = BoardSuggestionMetadata.decision(from: capturedItem)
+                BoardPickerView(
+                    boards: boards,
+                    mode: .add,
+                    chrome: .popover,
+                    suggestedName: decision?.suggestedName ?? "",
+                    recommendedBoardID: decision?.recommendedBoardID,
+                    alternativeBoardIDs: decision?.alternativeBoardIDs ?? [],
+                    onSelect: { board in
+                        BoardSuggestionMetadata.recordSelection(board, on: capturedItem)
+                        ItemViewModel(modelContext: modelContext).assignToBoard(capturedItem, board: board)
+                        finishFiling()
+                    },
+                    onCreate: { title in
+                        createAndAssignBoard(named: title, to: capturedItem)
+                        finishFiling()
+                    }
+                )
+            }
+        }
+    }
+
+    /// After filing: close the picker, hold the checkmark for a beat so the
+    /// action reads, then let the FAB retire from the page.
+    private func finishFiling() {
+        resolveCaptureState()
+        guard captureState == .filed else { return }
+        showCapturePicker = false
+        showFiledConfirmation = true
+        filedConfirmationTask?.cancel()
+        filedConfirmationTask = MainActorTaskScheduler.schedule(after: .milliseconds(1500)) {
+            showFiledConfirmation = false
+        }
+    }
+
+    /// Re-resolve which library item (if any) backs the page on screen.
+    /// Runs on every navigation and after any capture or assignment.
+    private func resolveCaptureState() {
+        // A confirmation belongs to the page it was earned on.
+        showFiledConfirmation = false
+        let pageURL = capturePageURL.absoluteString
+        if !ReadingCapture.isDifferentPage(capturePageURL, from: vm.item) {
+            capturedItem = vm.item
+            return
+        }
+        let existing = CaptureService(modelContext: modelContext).existingItem(forURL: pageURL)
+        capturedItem = existing
+        // Arriving at a page that is already in the library is the same trail
+        // as capturing it here would have been — record it either way, so the
+        // link between the two isn't lost to the accident of having saved the
+        // destination on some earlier day.
+        if let existing {
+            ReadingCapture.recordProvenance(from: vm.item, to: existing, in: modelContext)
+        }
+    }
+
+    /// Saving while reading is deliberate — straight to the library, active,
+    /// skipping inbox triage. Filing happens right after, in the picker.
+    private func captureCurrentPage() {
+        let (item, _) = ReadingCapture.capturePage(capturePageURL, readFrom: vm.item, in: modelContext)
+        capturedItem = item
+    }
+
+    private func createAndAssignBoard(named rawTitle: String, to item: Item) {
+        let title = BoardSuggestionEngine.cleanedBoardName(rawTitle)
+        guard !title.isEmpty else { return }
+
+        let itemViewModel = ItemViewModel(modelContext: modelContext)
+        if let existing = boards.first(where: {
+            $0.title.localizedCaseInsensitiveCompare(title) == .orderedSame
+        }) {
+            BoardSuggestionMetadata.recordSelection(existing, on: item)
+            itemViewModel.assignToBoard(item, board: existing)
+        } else {
+            let board = Board(title: title)
+            modelContext.insert(board)
+            BoardSuggestionMetadata.recordSelection(board, on: item)
+            itemViewModel.assignToBoard(item, board: board)
+        }
+    }
+
     // MARK: - Toolbar Clusters
 
-    /// "+" menu: file this article into boards without leaving the reader.
-    private var boardsMenu: some View {
-        Menu {
-            ForEach(boards.filter { !$0.isSmart }) { board in
-                Toggle(isOn: Binding(
-                    get: { vm.item.boards.contains { $0.id == board.id } },
-                    set: { isOn in
-                        let itemViewModel = ItemViewModel(modelContext: modelContext)
-                        if isOn {
-                            itemViewModel.assignToBoard(vm.item, board: board)
-                        } else {
-                            itemViewModel.removeFromBoard(vm.item, board: board)
-                        }
-                    }
-                )) {
-                    Label(board.title, systemImage: board.icon ?? "folder")
-                }
-            }
-            if boards.allSatisfy(\.isSmart) {
-                Text("No boards yet")
-            }
+    /// The one persistent way out of the web pane and back to the item.
+    private var overviewButton: some View {
+        Button {
+            vm.pendingNavigationURL = nil
+            vm.navigatedWebURL = nil
+            withAnimation(.easeOut(duration: 0.2)) { vm.showArticleWebView = false }
         } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(vm.item.boards.isEmpty ? Color.textMuted : Color.textSecondary)
+            HStack(spacing: 4) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 11, weight: .medium))
+                Text("Overview")
+                    .font(.groveMeta)
+            }
+            .foregroundStyle(Color.textSecondary)
+            #if os(iOS)
+            .frame(minHeight: LayoutDimensions.minTouchTarget)
+            #endif
+            .contentShape(Rectangle())
         }
-        .menuStyle(.button)
         .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("Add to board")
-        .accessibilityLabel("Add to board")
+        .help("Back to overview")
+        .accessibilityLabel("Back to overview")
+    }
+
+    /// Web history for the page on screen. Works in Reader mode too: the live
+    /// page stays mounted underneath, so its history is still the pane's.
+    private var webHistoryControls: some View {
+        HStack(spacing: 10) {
+            Divider().frame(width: 1, height: 12)
+
+            Button { goBackToken += 1 } label: {
+                Image(systemName: "chevron.backward")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(webBackEnabled ? Color.textSecondary : Color.textMuted)
+                    #if os(iOS)
+                    .frame(minWidth: LayoutDimensions.minTouchTarget, minHeight: LayoutDimensions.minTouchTarget)
+                    #else
+                    .frame(width: 12)
+                    #endif
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!webBackEnabled)
+            .help("Page back")
+            .accessibilityLabel("Page back")
+
+            Button { goForwardToken += 1 } label: {
+                Image(systemName: "chevron.forward")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(webForwardEnabled ? Color.textSecondary : Color.textMuted)
+                    #if os(iOS)
+                    .frame(minWidth: LayoutDimensions.minTouchTarget, minHeight: LayoutDimensions.minTouchTarget)
+                    #else
+                    .frame(width: 12)
+                    #endif
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!webForwardEnabled)
+            .help("Page forward")
+            .accessibilityLabel("Page forward")
+        }
+        .padding(.trailing, 10)
+    }
+
+    /// Whether the pane is showing the item's own page rather than something
+    /// reached from it. Normalized comparison, so the item's canonical URL and
+    /// the URL the web view reports count as the same page.
+    private var isOnRootPage: Bool {
+        !ReadingCapture.isDifferentPage(capturePageURL, from: vm.item)
+    }
+
+    /// The item this one was harvested from while reading, when there is one.
+    /// Only meaningful on the item's own page — once the reader has followed a
+    /// link, where *this* page came from is the more useful fact.
+    private var provenanceSource: Item? {
+        guard isOnRootPage else { return nil }
+        return ReadingCapture.provenanceSource(of: vm.item)
+    }
+
+    /// Where the page on screen came from. On a page reached by browsing that
+    /// is its host; on an item that was itself harvested while reading
+    /// something else, the trail back to that something else is the more
+    /// interesting provenance, and takes the slot.
+    @ViewBuilder
+    private var domainLabel: some View {
+        if let source = provenanceSource {
+            ReaderViaChip(title: source.title) { open(source) }
+        } else {
+            let pageURL = currentWebURL ?? url
+            Text(pageURL.host ?? pageURL.absoluteString)
+                .font(.groveMeta)
+                .foregroundStyle(Color.textTertiary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .help(pageURL.absoluteString)
+        }
+    }
+
+    /// Opens another library item. Prefers the reader's own navigation hook so
+    /// the pane swaps in place; falls back to the app-wide open notification
+    /// on surfaces that mount the panel without one.
+    private func open(_ item: Item) {
+        if let navigate = vm.onNavigateToItem {
+            navigate(item)
+        } else {
+            NotificationCenter.default.post(name: .groveOpenItem, object: item.id)
+        }
+    }
+
+    /// Two named states instead of one icon that showed the destination.
+    /// The active segment is marked by the app's left rule, not a filled pill.
+    ///
+    /// What is lit is what is on screen, never what was asked for: while a
+    /// followed link is still being parsed the pane shows the live page, so
+    /// ORIGINAL is the honest state even though Reader mode is still the
+    /// standing preference and will resume the moment the parse lands.
+    private var readerModeControl: some View {
+        HStack(spacing: 10) {
+            ReaderModeSegment(
+                title: "READER",
+                isActive: showsReaderContent,
+                isAvailable: vm.activeReaderArticle != nil,
+                help: vm.activeReaderArticle != nil ? "Reader view" : "Preparing reader view\u{2026}"
+            ) { setReaderMode(true) }
+
+            ReaderModeSegment(
+                title: "ORIGINAL",
+                isActive: !showsReaderContent,
+                help: "Original page"
+            ) { setReaderMode(false) }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Page view")
+    }
+
+    private func setReaderMode(_ isReader: Bool) {
+        guard vm.isReaderMode != isReader else { return }
+        withAnimation(.easeOut(duration: 0.2)) { vm.isReaderMode = isReader }
     }
 
     private var zoomControls: some View {
@@ -453,30 +735,196 @@ struct ItemReaderWebViewPanel: View {
     }
 }
 
+// MARK: - Provenance Chip
+
+/// "← via {source}" in the nav bar's provenance slot: this page is here
+/// because of that one. Quiet by default — the trail is context, not a
+/// headline — and darkens on hover like every other link in the app.
+private struct ReaderViaChip: View {
+    let title: String
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    private var displayTitle: String {
+        title.isEmpty ? "Untitled" : title
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.left")
+                    .font(.system(size: 9, weight: .medium))
+                Text("via \(displayTitle)")
+                    .font(.groveMeta)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .foregroundStyle(isHovered ? Color.textSecondary : Color.textMuted)
+            .frame(maxWidth: 220, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help(displayTitle)
+        .accessibilityLabel("Reached from \(displayTitle)")
+        .accessibilityHint("Opens the item this page was saved from.")
+    }
+}
+
+// MARK: - Reader / Original Segment
+
+/// One segment of the Reader | Original control. Named state, never a
+/// destination: the segment that is lit is the mode you are in. Selection is
+/// the app's 2pt left rule; hover darkens the ink rather than adding a fill.
+private struct ReaderModeSegment: View {
+    let title: String
+    let isActive: Bool
+    /// False while a followed page is still parsing: the segment is visible
+    /// (the control shouldn't blink) but dimmed and inert, so a tap that
+    /// could do nothing visible does nothing at all.
+    var isAvailable: Bool = true
+    let help: String
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Rectangle()
+                    .fill(Color.textPrimary)
+                    .frame(width: 2, height: 11)
+                    .opacity(isActive ? 1 : 0)
+
+                Text(title)
+                    .font(.groveSectionHeader)
+                    .tracking(0.8)
+                    .foregroundStyle(ink)
+            }
+            .padding(.vertical, 3)
+            #if os(iOS)
+            .frame(minWidth: LayoutDimensions.minTouchTarget, minHeight: LayoutDimensions.minTouchTarget)
+            #endif
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isAvailable)
+        .opacity(isAvailable ? 1 : 0.45)
+        .onHover { isHovered = $0 }
+        .help(help)
+        .accessibilityLabel(help)
+        .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : [.isButton])
+    }
+
+    private var ink: Color {
+        if isActive { return .textPrimary }
+        return isHovered ? .textSecondary : .textMuted
+    }
+}
+
 // MARK: - Highlight Action Bar
 
-/// The full bottom overlay (bar + highlight/reflect actions + transition) used
-/// by both macOS reader surfaces so their selection handling can't drift.
+/// The full selection overlay (bar + highlight/reflect actions + transition)
+/// used by both macOS reader surfaces so their selection handling can't drift.
+///
+/// With geometry the bar floats beside the selection it acts on; without it —
+/// native content, which reports no rect — it keeps the old pane-bottom
+/// placement.
 struct HighlightActionBarOverlay: View {
     let vm: ItemReaderViewModel
     let selection: String
     let focusTrigger: () -> Void
+    var selectionGeometry: WebSelectionGeometry? = nil
+    /// Fired after either action writes a block. Writing on a page reached by
+    /// browsing captures that page into the library, so whoever owns the page's
+    /// identity (the capture FAB, the highlight marks) needs to re-resolve.
+    var onWrite: (() -> Void)? = nil
 
     var body: some View {
+        if let selectionGeometry {
+            SelectionAnchorLayout(geometry: selectionGeometry) {
+                bar
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .transition(.opacity)
+        } else {
+            bar
+                .padding(.bottom, 20)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
+    private var bar: some View {
         HighlightActionBar(
-            onHighlight: { vm.addHighlight(selection) },
+            onHighlight: {
+                vm.addHighlight(selection)
+                onWrite?()
+            },
             onHighlightAndReflect: {
                 vm.webSelectedText = nil
+                vm.webSelectionGeometry = nil
                 vm.openReflectionEditor(
                     type: .keyInsight,
                     content: "",
                     highlight: selection,
                     focusTrigger: focusTrigger
                 )
+                onWrite?()
             }
         )
-        .padding(.bottom, 20)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+}
+
+// MARK: - Selection Anchoring
+
+/// Places a single floating control beside a web-view text selection.
+///
+/// A `Layout` rather than a GeometryReader + measured state: it needs both the
+/// pane size and the control's own size to clamp, and the layout pass hands it
+/// both without a second render. Only the control is hit-testable — the rest of
+/// the pane keeps passing clicks through to the page.
+struct SelectionAnchorLayout: Layout {
+    var geometry: WebSelectionGeometry
+
+    /// Keep-out from the pane edges.
+    static let margin: CGFloat = 12
+    /// Breathing room between the selection and the bar.
+    static let gap: CGFloat = 8
+    /// A selection this close to the top has no room above it; flip below.
+    static let flipThreshold: CGFloat = 60
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let subview = subviews.first else { return }
+        let barSize = subview.sizeThatFits(.unspecified)
+        let rect = geometry.rect(inPaneOfWidth: bounds.width)
+        let origin = Self.origin(barSize: barSize, selection: rect, pane: bounds.size)
+        subview.place(
+            at: CGPoint(x: bounds.minX + origin.x, y: bounds.minY + origin.y),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(barSize)
+        )
+    }
+
+    /// Centered on the selection, clamped inside the pane, above it when there
+    /// is room and below it when there isn't.
+    static func origin(barSize: CGSize, selection: CGRect, pane: CGSize) -> CGPoint {
+        var x = selection.midX - barSize.width / 2
+        let maxX = pane.width - margin - barSize.width
+        x = maxX >= margin ? min(max(x, margin), maxX) : (pane.width - barSize.width) / 2
+
+        var y = selection.minY - gap - barSize.height
+        if selection.minY < flipThreshold || y < margin {
+            y = selection.maxY + gap
+        }
+        let maxY = pane.height - margin - barSize.height
+        y = maxY >= margin ? min(max(y, margin), maxY) : (pane.height - barSize.height) / 2
+
+        return CGPoint(x: x, y: y)
     }
 }
 

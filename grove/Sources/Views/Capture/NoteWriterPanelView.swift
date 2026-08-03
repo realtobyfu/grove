@@ -147,8 +147,18 @@ struct NoteWriterPanelView: View {
 
     // MARK: - Actions
 
+    /// True once the item being edited has been deleted out from under the
+    /// panel. Writing to (or wiki-link syncing) a deleted model resurrects
+    /// garbage in the store, so every save path bails on this.
+    private var isEditingDeletedItem: Bool {
+        guard let editingItem else { return false }
+        return editingItem.isDeleted || editingItem.modelContext == nil
+    }
+
     /// Persist content if non-empty. Called automatically on dismiss.
     private func saveContent() {
+        guard !isEditingDeletedItem else { return }
+
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty || !trimmedContent.isEmpty else { return }

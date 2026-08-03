@@ -59,7 +59,9 @@ struct ContentViewNotificationHandlers: ViewModifier {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveToggleInspector)) { _ in
-                withAnimation { viewModel.inspectorUserOverride = !viewModel.isInspectorVisible }
+                withAnimation(RightRailMetrics.widthChange) {
+                    viewModel.inspectorUserOverride = !viewModel.isInspectorVisible
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveCaptureBar)) { _ in
                 withAnimation(.easeOut(duration: 0.2)) {
@@ -77,15 +79,29 @@ struct ContentViewNotificationHandlers: ViewModifier {
             }
         return step1
             .onReceive(NotificationCenter.default.publisher(for: .groveExportItem)) { _ in
-                if viewModel.selectedItem != nil { viewModel.showItemExportSheet = true }
+                guard let item = viewModel.selectedItem else { return }
+                // Deferred a turn: NSSavePanel.runModal() spins a nested run
+                // loop, which must not be entered from inside notification
+                // delivery mid-SwiftUI-update.
+                Task { @MainActor in
+                    ItemExportAction.exportAsMarkdown(item)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .groveItemWillDelete)) { notification in
+                guard let id = NotificationCenter.itemWillDeleteID(from: notification) else { return }
+                clearPresentationState(forDeletedItemID: id)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .groveOpenItem)) { notification in
+                guard let id = notification.object as? UUID else { return }
+                openItem(id: id)
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveToggleChat)) { _ in
-                withAnimation { viewModel.showChatPanel.toggle() }
+                withAnimation(RightRailMetrics.widthChange) { viewModel.showChatPanel.toggle() }
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveOpenConversation)) { notification in
                 if let conversation = notification.object as? Conversation {
                     viewModel.selectedConversation = conversation
-                    withAnimation { viewModel.showChatPanel = true }
+                    withAnimation(RightRailMetrics.widthChange) { viewModel.showChatPanel = true }
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveStartConversationWithPrompt)) { notification in
@@ -114,11 +130,6 @@ struct ContentViewNotificationHandlers: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .groveExitFocusMode)) { _ in
                 viewModel.exitFocusMode()
             }
-            .sheet(isPresented: $viewModel.showItemExportSheet) {
-                if let item = viewModel.selectedItem {
-                    ItemExportSheet(item: item)
-                }
-            }
             .onAppear {
                 NudgeNotificationService.shared.configure()
                 guard viewModel.nudgeEngine == nil else { return }
@@ -130,6 +141,35 @@ struct ContentViewNotificationHandlers: ViewModifier {
                 viewModel.nudgeEngine?.stopSchedule()
                 viewModel.nudgeEngine = nil
             }
+    }
+
+    /// Drop every reference to an item that is about to be deleted.
+    ///
+    /// `writePanelEditItem` is the load-bearing one: opening a note nils
+    /// `openedItem` right after handing the item to the write panel, so an
+    /// id-match against `openedItem` alone never fires and the panel would keep
+    /// rendering — and on dismiss, keep saving into — a deleted model.
+    private func clearPresentationState(forDeletedItemID id: UUID) {
+        if viewModel.writePanelEditItem?.id == id {
+            viewModel.writePanelEditItem = nil
+            viewModel.showWritePanel = false
+        }
+        if viewModel.selectedItem?.id == id {
+            viewModel.selectedItem = nil
+        }
+        if viewModel.openedItem?.id == id {
+            viewModel.openedItem = nil
+        }
+    }
+
+    /// Open an item by id — the app-wide answer to "show me that one".
+    /// Used by the capture bar when a paste turns out to be a duplicate.
+    private func openItem(id: UUID) {
+        let allItems: [Item] = modelContext.fetchAll()
+        guard let item = allItems.first(where: { $0.id == id }) else { return }
+        viewModel.showCaptureOverlay = false
+        viewModel.selectedItem = item
+        viewModel.openedItem = item
     }
 
     private func openNudgeFromNotification(id: UUID) {
@@ -237,12 +277,12 @@ struct ContentViewNotificationHandlers: ViewModifier {
         }
 
         viewModel.selectedConversation = conversation
-        withAnimation { viewModel.showChatPanel = true }
+        withAnimation(RightRailMetrics.widthChange) { viewModel.showChatPanel = true }
     }
 
     private func startDiscussion(item: Item) {
         let service = DialecticsService()
-        withAnimation { viewModel.showChatPanel = true }
+        withAnimation(RightRailMetrics.widthChange) { viewModel.showChatPanel = true }
         Task { @MainActor in
             let conversation = await service.startDiscussion(item: item, context: modelContext)
             viewModel.selectedConversation = conversation

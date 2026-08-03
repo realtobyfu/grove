@@ -5,15 +5,18 @@ struct BoardEditorSheet: View {
 
     @State private var title: String
     @State private var selectedIcon: String
-    @State private var selectedColorHex: String
     @State private var nudgeFrequencyHours: Int
 
     private let isEditing: Bool
     private let wasSmartBoard: Bool
+    /// The board's stored color, passed straight back through on save.
+    /// Boards are monochrome now, but existing colors are data — editing a
+    /// board must not quietly repaint it, and new boards get `nil`, which is
+    /// the neutral every board surface already falls back to.
+    private let preservedColorHex: String?
     private let onSave: (String, String?, String?, Int) -> Void
 
     private static let defaultIcon = "folder"
-    private static let defaultColor = "007AFF"
 
     /// Nudge frequency options: 0 = global default, -1 = disabled, or custom hours
     private static let nudgeFrequencyOptions: [(label: String, value: Int)] = [
@@ -35,14 +38,14 @@ struct BoardEditorSheet: View {
             self.wasSmartBoard = board.isSmart
             _title = State(initialValue: board.title)
             _selectedIcon = State(initialValue: board.icon ?? Self.defaultIcon)
-            _selectedColorHex = State(initialValue: board.color ?? Self.defaultColor)
+            self.preservedColorHex = board.color
             _nudgeFrequencyHours = State(initialValue: board.nudgeFrequencyHours)
         } else {
             self.isEditing = false
             self.wasSmartBoard = false
             _title = State(initialValue: "")
             _selectedIcon = State(initialValue: Self.defaultIcon)
-            _selectedColorHex = State(initialValue: Self.defaultColor)
+            self.preservedColorHex = nil
             _nudgeFrequencyHours = State(initialValue: 0)
         }
         self.onSave = onSave
@@ -61,10 +64,6 @@ struct BoardEditorSheet: View {
 
                 Section("Icon") {
                     iconPicker
-                }
-
-                Section("Color") {
-                    colorPicker
                 }
 
                 Section("Nudges") {
@@ -96,7 +95,7 @@ struct BoardEditorSheet: View {
             Divider()
             footer
         }
-        .frame(width: 420, height: 540)
+        .frame(width: 420, height: 470)
     }
 
     private var header: some View {
@@ -120,8 +119,7 @@ struct BoardEditorSheet: View {
 
             Button(isEditing ? "Save" : "Create") {
                 let icon = selectedIcon.isEmpty ? nil : selectedIcon
-                let color = selectedColorHex.isEmpty ? nil : selectedColorHex
-                onSave(title, icon, color, nudgeFrequencyHours)
+                onSave(title, icon, preservedColorHex, nudgeFrequencyHours)
                 dismiss()
             }
             .keyboardShortcut(.defaultAction)
@@ -143,60 +141,29 @@ struct BoardEditorSheet: View {
         "person.2", "map", "flag", "bookmark"
     ]
 
+    /// Icons read in ink, never in color. The selected one steps up to full
+    /// ink inside a 3pt-radius outline — the same weight-and-rule hierarchy
+    /// the rest of the app uses instead of a tint.
     private var iconPicker: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.fixed(36), spacing: 8), count: 8), spacing: 8) {
             ForEach(Self.iconOptions, id: \.self) { icon in
+                let isSelected = selectedIcon == icon
                 Button {
                     selectedIcon = icon
                 } label: {
                     Image(systemName: icon)
-                        .font(.system(size: 16))
-                        .foregroundStyle(Color(hex: selectedColorHex))
+                        .font(.system(size: 16, weight: isSelected ? .medium : .regular))
+                        .foregroundStyle(isSelected ? Color.textPrimary : Color.textSecondary)
                         .frame(width: 32, height: 32)
-                        .background(
-                            selectedIcon == icon
-                                ? Color.accentBadge
-                                : Color.clear
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                }
-                .buttonStyle(.plain)
-                .contentShape(Rectangle())
-            }
-        }
-    }
-
-    // MARK: - Color Picker
-
-    private static let colorOptions: [String] = [
-        "007AFF", "34C759", "FF3B30", "FF9500",
-        "AF52DE", "FF2D55", "5856D6", "00C7BE",
-        "A2845E", "8E8E93", "FFD60A", "64D2FF"
-    ]
-
-    private var colorPicker: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.fixed(36), spacing: 8), count: 8), spacing: 8) {
-            ForEach(Self.colorOptions, id: \.self) { hex in
-                Button {
-                    selectedColorHex = hex
-                } label: {
-                    Circle()
-                        .fill(Color(hex: hex))
-                        .frame(width: 24, height: 24)
                         .overlay(
-                            Circle()
-                                .stroke(Color.white.opacity(selectedColorHex == hex ? 1 : 0), lineWidth: 2)
+                            RoundedRectangle(cornerRadius: 3)
+                                .stroke(Color.textPrimary, lineWidth: isSelected ? 1 : 0)
                         )
-                        .padding(4)
-                        .background(
-                            selectedColorHex == hex
-                                ? Color.accentBadge
-                                : Color.clear
-                        )
-                        .clipShape(Circle())
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .contentShape(Rectangle())
+                .accessibilityLabel(icon)
+                .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
             }
         }
     }

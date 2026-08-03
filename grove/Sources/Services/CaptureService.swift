@@ -81,6 +81,14 @@ final class CaptureService: CaptureServiceProtocol {
         return components.string ?? urlString
     }
 
+    /// Public lookup for surfaces that need to know whether a page is already
+    /// in the library *before* acting on it — the reader's capture button
+    /// resolves its state from this on every navigation, and must never
+    /// re-capture a page it can already see.
+    func existingItem(forURL urlString: String) -> Item? {
+        existingItem(matchingURL: urlString)
+    }
+
     /// Returns an existing item whose source URL matches the given URL after normalization.
     private func existingItem(matchingURL urlString: String) -> Item? {
         let normalized = Self.normalizedURLString(urlString)

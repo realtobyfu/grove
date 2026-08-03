@@ -1,9 +1,43 @@
 import Foundation
 
+/// Line-level helpers shared by the AppKit and UIKit editors (smart Enter).
+enum MarkdownLineParsing {
+    /// Splits `  3) text` into its indent, number, delimiter, spacer and content.
+    static func orderedLine(
+        _ line: String
+    ) -> (indent: String, number: Int, delimiter: String, spacer: String, content: String)? {
+        var rest = Substring(line)
+        let indent = rest.prefix { $0 == " " || $0 == "\t" }
+        rest = rest.dropFirst(indent.count)
+
+        let digits = rest.prefix { $0.isNumber }
+        guard !digits.isEmpty, digits.count <= 9, let number = Int(digits) else { return nil }
+        rest = rest.dropFirst(digits.count)
+
+        guard let delimiter = rest.first, delimiter == "." || delimiter == ")" else { return nil }
+        rest = rest.dropFirst()
+
+        let spacer = rest.prefix { $0 == " " || $0 == "\t" }
+        guard !spacer.isEmpty else { return nil }
+
+        return (
+            indent: String(indent),
+            number: number,
+            delimiter: String(delimiter),
+            spacer: String(spacer),
+            content: String(rest.dropFirst(spacer.count))
+        )
+    }
+}
+
 struct MarkdownDocument: Sendable {
     let source: String
     let blocks: [Block]
     let inlineSpans: [InlineSpan]
+    /// Delimiter pairs with no content between them (e.g. the `****` the Bold
+    /// toolbar inserts on an empty selection). They match no inline span, so
+    /// editors dim them instead of showing four literal asterisks.
+    let emptyMarkerPairs: [EmptyMarkerPair]
 
     init(_ source: String) {
         self.source = source
@@ -11,6 +45,7 @@ struct MarkdownDocument: Sendable {
         let lines = Self.makeLineRecords(from: source)
         let result = Self.parseBlocks(in: source, lines: lines)
         blocks = result.blocks
+        emptyMarkerPairs = Self.parseEmptyMarkerPairs(in: source)
         inlineSpans = result.inlineSpans.sorted {
             if $0.fullRange.lowerBound == $1.fullRange.lowerBound {
                 return $0.fullRange.upperBound > $1.fullRange.upperBound
@@ -48,6 +83,14 @@ struct MarkdownDocument: Sendable {
             return normalizedRange.overlaps(range)
         }
 
+        /// True when the caret sits inside or on the boundary of `range`, or
+        /// when the selection overlaps/abuts it. Used for delimiter runs so a
+        /// caret parked in the middle of a styled span leaves markers hidden.
+        func touches(_ range: Range<Int>) -> Bool {
+            let selection = normalizedRange
+            return selection.lowerBound <= range.upperBound && range.lowerBound <= selection.upperBound
+        }
+
         func revealsLine(_ range: Range<Int>) -> Bool {
             revealsInline(range)
         }
@@ -70,7 +113,19 @@ struct MarkdownDocument: Sendable {
         case paragraph(Paragraph)
         case blockquote(Blockquote)
         case bulletList(BulletList)
+        case orderedList(OrderedList)
         case codeBlock(CodeBlock)
+    }
+
+    struct EmptyMarkerPair: Sendable {
+        enum Kind: Sendable {
+            case bold
+            case strikethrough
+            case inlineCode
+        }
+
+        let kind: Kind
+        let range: Range<Int>
     }
 
     struct Heading: Sendable {
@@ -104,6 +159,19 @@ struct MarkdownDocument: Sendable {
 
     struct BulletList: Sendable {
         let items: [ListItem]
+    }
+
+    struct OrderedListItem: Sendable {
+        let lineRange: Range<Int>
+        /// Includes the number, the delimiter and the trailing spacing.
+        let prefixRange: Range<Int>
+        let contentRange: Range<Int>
+        let indentation: Int
+        let number: Int
+    }
+
+    struct OrderedList: Sendable {
+        let items: [OrderedListItem]
     }
 
     struct CodeBlock: Sendable {
@@ -160,8 +228,10 @@ struct MarkdownDocument: Sendable {
         inlineSpans.filter { $0.fullRange.overlaps(range) }
     }
 
+    /// Markers reveal only while the caret/selection touches a delimiter run —
+    /// editing in the middle of a bold phrase keeps its asterisks hidden.
     func shouldRevealInlineSpan(_ span: InlineSpan, for selection: SelectionState) -> Bool {
-        selection.revealsInline(span.fullRange)
+        span.markerRanges.contains { selection.touches($0) }
     }
 
     func shouldRevealHeading(_ heading: Heading, for selection: SelectionState) -> Bool {
@@ -366,6 +436,30 @@ struct MarkdownDocument: Sendable {
                 continue
             }
 
+            if let firstOrderedItem = orderedListItem(for: line) {
+                var items = [firstOrderedItem]
+                index += 1
+
+                while index < lines.count, let nextItem = orderedListItem(for: lines[index]) {
+                    items.append(nextItem)
+                    index += 1
+                }
+
+                if let first = items.first, let last = items.last {
+                    blocks.append(
+                        Block(
+                            range: first.lineRange.lowerBound..<last.lineRange.upperBound,
+                            kind: .orderedList(OrderedList(items: items))
+                        )
+                    )
+                    for item in items {
+                        inlineSpans.append(contentsOf: parseInline(in: source, range: item.contentRange))
+                    }
+                }
+
+                continue
+            }
+
             if line.isBlank {
                 index += 1
                 continue
@@ -380,7 +474,8 @@ struct MarkdownDocument: Sendable {
                     || codeFence(for: nextLine) != nil
                     || heading(for: nextLine) != nil
                     || blockquoteLine(for: nextLine) != nil
-                    || listItem(for: nextLine) != nil {
+                    || listItem(for: nextLine) != nil
+                    || orderedListItem(for: nextLine) != nil {
                     break
                 }
 
@@ -506,6 +601,70 @@ struct MarkdownDocument: Sendable {
             contentRange: contentStart..<line.textRange.upperBound,
             indentation: indentation
         )
+    }
+
+    /// `1. item` / `2) item`, optionally indented by 2+ spaces for one nested level.
+    private static func orderedListItem(for line: LineRecord) -> OrderedListItem? {
+        let characters = Array(line.text)
+        var index = 0
+
+        while index < characters.count, characters[index] == " " || characters[index] == "\t" {
+            index += 1
+        }
+
+        let indentation = index
+        var digits = ""
+        while index < characters.count, characters[index].isNumber {
+            digits.append(characters[index])
+            index += 1
+        }
+
+        guard !digits.isEmpty, digits.count <= 9, let number = Int(digits) else { return nil }
+        guard index < characters.count, characters[index] == "." || characters[index] == ")" else {
+            return nil
+        }
+        index += 1
+
+        var spacerCount = 0
+        while index < characters.count, characters[index] == " " || characters[index] == "\t" {
+            spacerCount += 1
+            index += 1
+        }
+
+        guard spacerCount > 0 else { return nil }
+
+        let contentStart = line.textRange.lowerBound + index
+        return OrderedListItem(
+            lineRange: line.textRange,
+            prefixRange: line.textRange.lowerBound..<contentStart,
+            contentRange: contentStart..<line.textRange.upperBound,
+            indentation: indentation,
+            number: number
+        )
+    }
+
+    private static func parseEmptyMarkerPairs(in source: String) -> [EmptyMarkerPair] {
+        guard !source.isEmpty else { return [] }
+
+        var pairs: [EmptyMarkerPair] = []
+        let patterns: [(String, EmptyMarkerPair.Kind)] = [
+            (#"(?<!\*)\*\*\*\*(?!\*)"#, .bold),
+            (#"(?<!~)~~~~(?!~)"#, .strikethrough),
+            (#"(?<!`)``(?!`)"#, .inlineCode),
+        ]
+
+        let nsSource = source as NSString
+        for (pattern, kind) in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            for match in regex.matches(in: source, range: NSRange(location: 0, length: nsSource.length)) {
+                guard let swiftRange = Range(match.range, in: source) else { continue }
+                let lower = source.distance(from: source.startIndex, to: swiftRange.lowerBound)
+                let upper = source.distance(from: source.startIndex, to: swiftRange.upperBound)
+                pairs.append(EmptyMarkerPair(kind: kind, range: lower..<upper))
+            }
+        }
+
+        return pairs.sorted { $0.range.lowerBound < $1.range.lowerBound }
     }
 
     private static func parseInline(in source: String, range: Range<Int>) -> [InlineSpan] {

@@ -83,55 +83,40 @@ struct ReflectionBlockRow: View {
 
             // Highlight (linked source text)
             if let highlight = block.highlight, !highlight.isEmpty {
-                let quote = HStack(spacing: 0) {
-                    Rectangle()
-                        .fill(Color.borderPrimary)
-                        .frame(width: 2)
-                    Text(highlight)
-                        .font(.groveGhostText)
-                        .foregroundStyle(Color.textTertiary)
-                        .padding(.leading, 8)
-                        .padding(.vertical, 4)
-                }
+                HighlightQuoteChip(
+                    quote: highlight,
+                    onJump: onHighlightTap.map { tap in { tap(highlight) } }
+                )
                 .padding(.leading, 4)
-
-                if let onHighlightTap {
-                    Button {
-                        onHighlightTap(highlight)
-                    } label: {
-                        quote
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("Show in source")
-                    .accessibilityLabel("Show highlight in source")
-                } else {
-                    quote
-                }
             }
 
-            // Content -- click to edit
+            // Content
             if block.content.isEmpty {
                 Text("Click to add your reflection...")
                     .font(.groveGhostText)
                     .foregroundStyle(Color.textTertiary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                    .onTapGesture { onEdit(block) }
             } else {
-                MarkdownTextView(markdown: block.content, onWikiLinkTap: onNavigateToItemByTitle)
+                MarkdownTextView(markdown: block.content, scale: .prose, onWikiLinkTap: onNavigateToItemByTitle)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                    .onTapGesture { onEdit(block) }
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 4)
-                .fill(isHovered ? Color.bgCardHover : Color.clear)
-        )
+        // The whole row is the edit target — buttons, menus, and links inside
+        // still win their own taps, but padding and header whitespace no
+        // longer swallow the click.
+        .contentShape(Rectangle())
+        .onTapGesture { onEdit(block) }
+        // Hover marks the row the way the rest of the app does: a left rule
+        // in ink, not a filled card floating off the page.
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(Color.textPrimary)
+                .frame(width: 2)
+                .opacity(isHovered ? 1 : 0)
+                .animation(.easeInOut(duration: 0.15), value: isHovered)
+        }
         .onHover { hovering in
             isHovered = hovering
             #if os(macOS)

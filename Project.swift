@@ -19,6 +19,9 @@ let project = Project(
                 // or every release ships as 1.0 (1).
                 "CFBundleShortVersionString": "$(MARKETING_VERSION)",
                 "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
+                // Grove only uses HTTPS, which is exempt. Without this key every
+                // upload stalls in App Store Connect waiting on a manual answer.
+                "ITSAppUsesNonExemptEncryption": false,
                 "CFBundleURLTypes": [
                     [
                         "CFBundleTypeRole": "Editor",
@@ -114,6 +117,9 @@ let project = Project(
                 "CFBundleIconName": "AppIcon",
                 "CFBundleShortVersionString": "$(MARKETING_VERSION)",
                 "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
+                // See the iOS target: HTTPS-only, exempt, must be declared or the
+                // upload stalls awaiting a manual answer.
+                "ITSAppUsesNonExemptEncryption": false,
                 "ATSApplicationFontsPath": "Fonts",
                 "LSApplicationCategoryType": "public.app-category.productivity",
                 "NSMainStoryboardFile": "",
@@ -131,6 +137,11 @@ let project = Project(
                 "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
                 "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
                 "CODE_SIGN_STYLE": "Automatic",
+                // Required, and required to stay "Apple Development": Tuist defaults
+                // macOS to ad-hoc signing ("-"), which the iCloud and push entitlements
+                // reject. Automatic signing then substitutes the distribution cert at
+                // export time — setting "Apple Distribution" here instead is a
+                // conflicting-provisioning error, not an upgrade.
                 "CODE_SIGN_IDENTITY[sdk=macosx*]": "Apple Development",
                 "DEVELOPMENT_TEAM": "679K683SQ5",
                 "MARKETING_VERSION": "2.0.0",

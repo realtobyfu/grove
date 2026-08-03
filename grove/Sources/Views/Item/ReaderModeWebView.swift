@@ -1,6 +1,65 @@
 import SwiftUI
 import WebKit
 
+// MARK: - Web Selection Geometry
+
+/// Where a web-view text selection sits on screen, as reported by the shared
+/// selection-reporter script. `rect` is in CSS viewport coordinates and
+/// `viewport` is the size those coordinates are relative to — the two travel
+/// together so the app can map them onto its own pane even when the web view
+/// is zoomed (macOS `pageZoom`) or laid out at a different scale.
+struct WebSelectionGeometry: Equatable, Sendable {
+    var rect: CGRect
+    var viewport: CGSize
+
+    /// The selection rect expressed in the coordinate space of a pane of the
+    /// given width. The web view fills the pane, so a single width ratio maps
+    /// both axes.
+    func rect(inPaneOfWidth paneWidth: CGFloat) -> CGRect {
+        guard viewport.width > 0, paneWidth > 0 else { return rect }
+        let scale = paneWidth / viewport.width
+        return CGRect(
+            x: rect.origin.x * scale,
+            y: rect.origin.y * scale,
+            width: rect.width * scale,
+            height: rect.height * scale
+        )
+    }
+
+    /// Decodes a `selectionChanged` message body posted by
+    /// `ReaderTemplate.selectionReporterJS`. Tolerates the older plain-string
+    /// payload so a stale injected script can never crash the handler.
+    static func decode(_ body: Any) -> (text: String?, geometry: WebSelectionGeometry?) {
+        if let text = body as? String {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (trimmed.isEmpty ? nil : trimmed, nil)
+        }
+        guard let dict = body as? [String: Any] else { return (nil, nil) }
+        let rawText = (dict["text"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !rawText.isEmpty else { return (nil, nil) }
+        guard let rect = dict["rect"] as? [String: Any],
+              let viewport = dict["viewport"] as? [String: Any],
+              let x = number(rect["x"]), let y = number(rect["y"]),
+              let width = number(rect["width"]), let height = number(rect["height"]),
+              let vw = number(viewport["width"]), let vh = number(viewport["height"]),
+              vw > 0
+        else { return (rawText, nil) }
+        return (
+            rawText,
+            WebSelectionGeometry(
+                rect: CGRect(x: x, y: y, width: width, height: height),
+                viewport: CGSize(width: vw, height: vh)
+            )
+        )
+    }
+
+    private static func number(_ value: Any?) -> CGFloat? {
+        guard let number = value as? NSNumber else { return nil }
+        return CGFloat(number.doubleValue)
+    }
+}
+
 // MARK: - Reader Typography Settings
 
 /// User-adjustable typography for Reader mode. Persisted via @AppStorage keys
@@ -129,25 +188,204 @@ enum ReaderTemplate {
     };
     """
 
-    /// Debounced selection reporter — same message contract as the live-page
-    /// web views: posts the selected string (or "") to `selectionChanged`.
-    static let selectionReporterJS = """
+    /// Debounced selection reporter, shared verbatim by every web surface so
+    /// the message contract can't drift between Reader mode and live pages.
+    /// Posts `{ text, rect, viewport }` to `handler`: `text` is the trimmed
+    /// selection ("" when there is none), `rect` the selection's bounding box
+    /// in CSS viewport coordinates (null for a collapsed or zero-area
+    /// selection), and `viewport` the size those coordinates are relative to.
+    ///
+    /// Scrolling moves the selection out from under the anchored action bar,
+    /// so a short scroll debounce re-reports the (now moved) rect rather than
+    /// leaving a bar floating over nothing.
+    static func selectionReporterJS(handler: String) -> String {
+        """
+        (function() {
+            var HANDLER = '\(handler)';
+            var selectionTimer = null;
+            var scrollTimer = null;
+            var lastPayload = '';
+            function currentPayload() {
+                var empty = { text: '', rect: null, viewport: null };
+                try {
+                    var sel = window.getSelection();
+                    if (!sel || sel.rangeCount === 0) { return empty; }
+                    var text = sel.toString().trim();
+                    if (!text) { return empty; }
+                    var r = sel.getRangeAt(0).getBoundingClientRect();
+                    // A collapsed selection (caret) reports a zero-area rect;
+                    // send the text without geometry rather than anchoring the
+                    // bar to a point that means nothing.
+                    var rect = (r && (r.width > 0 || r.height > 0))
+                        ? { x: r.left, y: r.top, width: r.width, height: r.height }
+                        : null;
+                    return {
+                        text: text,
+                        rect: rect,
+                        viewport: { width: window.innerWidth, height: window.innerHeight }
+                    };
+                } catch (e) {
+                    return empty;
+                }
+            }
+            function report() {
+                try {
+                    var payload = currentPayload();
+                    var key = JSON.stringify(payload);
+                    // Selection events fire far more often than the selection
+                    // actually changes; don't wake the app for a repeat.
+                    if (key === lastPayload) { return; }
+                    lastPayload = key;
+                    window.webkit.messageHandlers[HANDLER].postMessage(payload);
+                } catch (e) { /* fail silent */ }
+            }
+            function debouncedReport() {
+                clearTimeout(selectionTimer);
+                selectionTimer = setTimeout(report, 150);
+            }
+            document.addEventListener('mouseup', debouncedReport);
+            document.addEventListener('keyup', debouncedReport);
+            document.addEventListener('selectionchange', debouncedReport);
+            window.addEventListener('scroll', function() {
+                clearTimeout(scrollTimer);
+                scrollTimer = setTimeout(report, 80);
+            }, { passive: true });
+        })();
+        """
+    }
+
+    /// Persistent highlight marks for Reader mode.
+    /// `window.__groveApplyHighlights(list, animated)` clears every existing
+    /// `mark.grove-highlight` and re-wraps the first match of each string in
+    /// `list`; strings in `animated` additionally get the one-shot ink-in
+    /// class. Strings that no longer match (content drift) are skipped
+    /// silently. Returns the number of strings that were marked.
+    ///
+    /// Matching ignores whitespace entirely: a quote selected across a
+    /// paragraph break carries newlines the concatenated DOM text does not,
+    /// so an exact compare would miss most multi-block highlights.
+    static let highlightMarksJS = """
     (function() {
-        var debounceTimer = null;
-        function reportSelection() {
-            var sel = window.getSelection();
-            var text = sel ? sel.toString().trim() : "";
-            window.webkit.messageHandlers.selectionChanged.postMessage(text);
+        function collect() {
+            var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+            var nodes = [];
+            var full = '';
+            while (walker.nextNode()) {
+                var node = walker.currentNode;
+                var p = node.parentElement;
+                if (!p) { continue; }
+                var tag = p.tagName;
+                if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') { continue; }
+                if (!node.textContent.length) { continue; }
+                nodes.push({ node: node, start: full.length });
+                full += node.textContent;
+            }
+            return { nodes: nodes, full: full };
         }
-        function debouncedReport() {
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(reportSelection, 150);
+
+        function strip(text) {
+            var out = '';
+            var map = [];
+            for (var i = 0; i < text.length; i++) {
+                var ch = text[i];
+                if (/\\s/.test(ch)) { continue; }
+                out += ch.toLowerCase();
+                map.push(i);
+            }
+            return { text: out, map: map };
         }
-        document.addEventListener('mouseup', debouncedReport);
-        document.addEventListener('keyup', debouncedReport);
-        document.addEventListener('selectionchange', debouncedReport);
+
+        function wrapFirstMatch(query, animate) {
+            var collected = collect();
+            if (!collected.nodes.length) { return 0; }
+            var haystack = strip(collected.full);
+            var needle = strip(query).text;
+            if (!needle) { return 0; }
+            var at = haystack.text.indexOf(needle);
+            if (at === -1) { return 0; }
+            var startIdx = haystack.map[at];
+            var endIdx = haystack.map[at + needle.length - 1] + 1;
+            var cls = animate ? 'grove-highlight grove-highlight--new' : 'grove-highlight';
+            var created = 0;
+            var nodes = collected.nodes;
+            for (var i = 0; i < nodes.length; i++) {
+                var entry = nodes[i];
+                var len = entry.node.textContent.length;
+                var nodeStart = entry.start;
+                if (nodeStart + len <= startIdx || nodeStart >= endIdx) { continue; }
+                var s = Math.max(0, startIdx - nodeStart);
+                var e = Math.min(len, endIdx - nodeStart);
+                if (e <= s) { continue; }
+                var target = entry.node;
+                if (s > 0) { target = target.splitText(s); }
+                if (target.textContent.length > e - s) { target.splitText(e - s); }
+                var parent = target.parentNode;
+                if (!parent) { continue; }
+                var mark = document.createElement('mark');
+                mark.className = cls;
+                parent.replaceChild(mark, target);
+                mark.appendChild(target);
+                created++;
+            }
+            return created;
+        }
+
+        window.__groveApplyHighlights = function(list, animated) {
+            try {
+                var old = document.querySelectorAll('mark.grove-highlight');
+                for (var i = 0; i < old.length; i++) {
+                    var mark = old[i];
+                    var parent = mark.parentNode;
+                    if (!parent) { continue; }
+                    while (mark.firstChild) { parent.insertBefore(mark.firstChild, mark); }
+                    parent.removeChild(mark);
+                    parent.normalize();
+                }
+                if (!list || !list.length) { return 0; }
+                var fresh = {};
+                for (var a = 0; a < (animated || []).length; a++) { fresh[animated[a]] = true; }
+                var applied = 0;
+                var didAnimate = false;
+                for (var j = 0; j < list.length; j++) {
+                    var query = list[j];
+                    if (!query) { continue; }
+                    var animate = fresh[query] === true;
+                    if (wrapFirstMatch(query, animate) > 0) {
+                        applied++;
+                        if (animate) { didAnimate = true; }
+                    }
+                }
+                if (didAnimate) {
+                    // The class is one-shot; drop it once the keyframe has run
+                    // so a later re-render doesn't replay the ink-in.
+                    setTimeout(function() {
+                        var marks = document.querySelectorAll('mark.grove-highlight--new');
+                        for (var k = 0; k < marks.length; k++) {
+                            marks[k].classList.remove('grove-highlight--new');
+                        }
+                    }, 450);
+                }
+                return applied;
+            } catch (e) {
+                return 0;
+            }
+        };
     })();
     """
+
+    /// Call into `__groveApplyHighlights` with the item's saved highlights.
+    /// `animated` are the ones that should ink in (a highlight the user just
+    /// created); everything else appears already washed.
+    static func applyHighlightsJS(_ highlights: [String], animated: [String]) -> String {
+        func jsArray(_ values: [String]) -> String {
+            guard let data = try? JSONSerialization.data(withJSONObject: values),
+                  let encoded = String(data: data, encoding: .utf8) else { return "[]" }
+            return encoded
+        }
+        return """
+        window.__groveApplyHighlights && window.__groveApplyHighlights(\(jsArray(highlights)), \(jsArray(animated)));
+        """
+    }
 
     /// Throttled scroll listener posting a 0–1 reading fraction to
     /// `readingProgress`.
@@ -223,6 +461,7 @@ enum ReaderTemplate {
             --fg-secondary: #666666;
             --border: #EBEBEB;
             --code-bg: #F0F0EE;
+            --highlight-wash: rgba(0, 0, 0, 0.08);
         }
         @media (prefers-color-scheme: dark) {
             :root {
@@ -231,6 +470,7 @@ enum ReaderTemplate {
                 --fg-secondary: #9E9E9E;
                 --border: #222222;
                 --code-bg: #1C1C1C;
+                --highlight-wash: rgba(255, 255, 255, 0.14);
             }
         }
         :root[data-grove-theme="light"] {
@@ -239,6 +479,7 @@ enum ReaderTemplate {
             --fg-secondary: #666666;
             --border: #EBEBEB;
             --code-bg: #F0F0EE;
+            --highlight-wash: rgba(0, 0, 0, 0.08);
         }
         :root[data-grove-theme="dark"] {
             --bg: #111111;
@@ -246,6 +487,7 @@ enum ReaderTemplate {
             --fg-secondary: #9E9E9E;
             --border: #222222;
             --code-bg: #1C1C1C;
+            --highlight-wash: rgba(255, 255, 255, 0.14);
         }
         * { box-sizing: border-box; }
         html { -webkit-text-size-adjust: 100%; }
@@ -351,6 +593,37 @@ enum ReaderTemplate {
         .grove-content ul, .grove-content ol { padding-left: 1.4em; }
         .grove-content li { margin: 0.25em 0; }
         ::selection { background: rgba(128, 128, 128, 0.3); }
+        /* Saved highlights: an ink wash, never a color. Text is untouched. */
+        mark.grove-highlight {
+            background-color: var(--highlight-wash);
+            color: inherit;
+            border-radius: 2px;
+            padding: 0 0.05em;
+            -webkit-box-decoration-break: clone;
+            box-decoration-break: clone;
+        }
+        /* One-shot ink-in for a highlight the reader just made: the wash
+           floods left to right, then the class is dropped and the plain
+           background above takes over. */
+        mark.grove-highlight--new {
+            background-color: transparent;
+            background-image: linear-gradient(var(--highlight-wash), var(--highlight-wash));
+            background-repeat: no-repeat;
+            background-position: left center;
+            background-size: 0% 100%;
+            animation: grove-ink-in 350ms ease-out forwards;
+        }
+        @keyframes grove-ink-in {
+            from { background-size: 0% 100%; }
+            to { background-size: 100% 100%; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            mark.grove-highlight--new {
+                animation: none;
+                background-color: var(--highlight-wash);
+                background-image: none;
+            }
+        }
         </style>
         </head>
         <body>
@@ -429,13 +702,18 @@ struct ReaderModeWebView: NSViewRepresentable {
     var initialProgress: Double = 0
     var scrollToTextQuery: String = ""
     var scrollToTextToken: Int = 0
+    /// Saved highlight strings for the item backing this page, rendered as
+    /// persistent `<mark>` washes in the article.
+    var highlights: [String] = []
     var onTextSelected: ((String?) -> Void)?
+    var onSelectionGeometry: ((WebSelectionGeometry?) -> Void)?
     var onScrollProgress: ((Double) -> Void)?
     var onOpenExternalLink: ((URL) -> Void)?
 
     func makeCoordinator() -> ReaderModeCoordinator {
         ReaderModeCoordinator(
             onTextSelected: onTextSelected,
+            onSelectionGeometry: onSelectionGeometry,
             onScrollProgress: onScrollProgress,
             onOpenExternalLink: onOpenExternalLink
         )
@@ -457,7 +735,9 @@ struct ReaderModeWebView: NSViewRepresentable {
             initialProgress: initialProgress,
             scrollToTextQuery: scrollToTextQuery,
             scrollToTextToken: scrollToTextToken,
+            highlights: highlights,
             onTextSelected: onTextSelected,
+            onSelectionGeometry: onSelectionGeometry,
             onScrollProgress: onScrollProgress,
             onOpenExternalLink: onOpenExternalLink
         )
@@ -473,13 +753,18 @@ struct ReaderModeWebView: UIViewRepresentable {
     var initialProgress: Double = 0
     var scrollToTextQuery: String = ""
     var scrollToTextToken: Int = 0
+    /// Saved highlight strings for the item backing this page, rendered as
+    /// persistent `<mark>` washes in the article.
+    var highlights: [String] = []
     var onTextSelected: ((String?) -> Void)?
+    var onSelectionGeometry: ((WebSelectionGeometry?) -> Void)?
     var onScrollProgress: ((Double) -> Void)?
     var onOpenExternalLink: ((URL) -> Void)?
 
     func makeCoordinator() -> ReaderModeCoordinator {
         ReaderModeCoordinator(
             onTextSelected: onTextSelected,
+            onSelectionGeometry: onSelectionGeometry,
             onScrollProgress: onScrollProgress,
             onOpenExternalLink: onOpenExternalLink
         )
@@ -504,7 +789,9 @@ struct ReaderModeWebView: UIViewRepresentable {
             initialProgress: initialProgress,
             scrollToTextQuery: scrollToTextQuery,
             scrollToTextToken: scrollToTextToken,
+            highlights: highlights,
             onTextSelected: onTextSelected,
+            onSelectionGeometry: onSelectionGeometry,
             onScrollProgress: onScrollProgress,
             onOpenExternalLink: onOpenExternalLink
         )
@@ -523,7 +810,12 @@ enum ReaderModeSupport {
         let userContentController = WKUserContentController()
 
         userContentController.addUserScript(WKUserScript(
-            source: ReaderTemplate.selectionReporterJS,
+            source: ReaderTemplate.selectionReporterJS(handler: "selectionChanged"),
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        ))
+        userContentController.addUserScript(WKUserScript(
+            source: ReaderTemplate.highlightMarksJS,
             injectionTime: .atDocumentEnd,
             forMainFrameOnly: true
         ))
@@ -543,6 +835,10 @@ enum ReaderModeSupport {
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = coordinator
+        // Extracted articles keep their footnote/endnote links, and those come
+        // through as target="_blank" often enough that without a UI delegate
+        // WebKit silently drops the click.
+        webView.uiDelegate = coordinator
         webView.allowsLinkPreview = false
         return webView
     }
@@ -558,6 +854,9 @@ enum ReaderModeSupport {
         coordinator.loadedArticleKey = articleKey(article)
         coordinator.lastTypography = typography
         coordinator.lastIsDark = isDark
+        // A fresh document carries no marks yet; the first pass after didFinish
+        // renders the saved highlights without the ink-in animation.
+        coordinator.lastAppliedHighlights = nil
         coordinator.pendingRestoreProgress = (initialProgress > 0.01 && initialProgress < 0.99) ? initialProgress : nil
         let html = ReaderTemplate.page(
             article: article,
@@ -580,13 +879,19 @@ enum ReaderModeSupport {
         initialProgress: Double,
         scrollToTextQuery: String,
         scrollToTextToken: Int,
+        highlights: [String],
         onTextSelected: ((String?) -> Void)?,
+        onSelectionGeometry: ((WebSelectionGeometry?) -> Void)?,
         onScrollProgress: ((Double) -> Void)?,
         onOpenExternalLink: ((URL) -> Void)?
     ) {
         coordinator.onTextSelected = onTextSelected
+        coordinator.onSelectionGeometry = onSelectionGeometry
         coordinator.onScrollProgress = onScrollProgress
         coordinator.onOpenExternalLink = onOpenExternalLink
+        // Held on the coordinator so didFinish can render them even when the
+        // highlights arrived while the document was still loading.
+        coordinator.desiredHighlights = highlights
 
         // Capture a scroll-to-text request before any early return so it can be
         // applied on didFinish if the article is still loading (e.g. a highlight
@@ -616,6 +921,32 @@ enum ReaderModeSupport {
             let escaped = ReaderTemplate.escapeForJSString(query)
             webView.evaluateJavaScript("window.__groveScrollToText('\(escaped)');", completionHandler: nil)
         }
+
+        applyHighlights(webView, coordinator: coordinator)
+    }
+
+    /// Re-marks the article whenever the saved highlight set changes. The whole
+    /// set is re-applied each time — deleting a reflection therefore drops its
+    /// mark on the next pass, with no incremental bookkeeping to keep in sync.
+    /// Strings that are new since the previous pass ink in; on the first pass
+    /// after a load nothing animates.
+    static func applyHighlights(
+        _ webView: WKWebView,
+        coordinator: ReaderModeCoordinator,
+        documentIsReady: Bool = false
+    ) {
+        // Injecting before the document is up would silently no-op and, worse,
+        // record the set as applied. didFinish passes documentIsReady.
+        guard documentIsReady || !webView.isLoading else { return }
+        let desired = coordinator.desiredHighlights
+        let previous = coordinator.lastAppliedHighlights
+        if let previous, previous == desired { return }
+        let animated = previous.map { prior in desired.filter { !prior.contains($0) } } ?? []
+        coordinator.lastAppliedHighlights = desired
+        webView.evaluateJavaScript(
+            ReaderTemplate.applyHighlightsJS(desired, animated: animated),
+            completionHandler: nil
+        )
     }
 
     private static func articleKey(_ article: ReadableArticle) -> String {
@@ -626,8 +957,9 @@ enum ReaderModeSupport {
 // MARK: - Coordinator
 
 @MainActor
-final class ReaderModeCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+final class ReaderModeCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     var onTextSelected: ((String?) -> Void)?
+    var onSelectionGeometry: ((WebSelectionGeometry?) -> Void)?
     var onScrollProgress: ((Double) -> Void)?
     var onOpenExternalLink: ((URL) -> Void)?
 
@@ -637,18 +969,29 @@ final class ReaderModeCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
     var lastScrollToTextToken = 0
     var pendingScrollQuery: String? = nil
     var pendingRestoreProgress: Double? = nil
+    /// Highlight strings the view wants marked in the current document.
+    var desiredHighlights: [String] = []
+    /// What was last actually injected — nil until the first pass on a
+    /// freshly loaded document, which is what keeps old highlights from
+    /// animating in on arrival.
+    var lastAppliedHighlights: [String]? = nil
 
     init(
         onTextSelected: ((String?) -> Void)?,
+        onSelectionGeometry: ((WebSelectionGeometry?) -> Void)?,
         onScrollProgress: ((Double) -> Void)?,
         onOpenExternalLink: ((URL) -> Void)?
     ) {
         self.onTextSelected = onTextSelected
+        self.onSelectionGeometry = onSelectionGeometry
         self.onScrollProgress = onScrollProgress
         self.onOpenExternalLink = onOpenExternalLink
     }
 
-    // Reader content is a static template — link activations open externally.
+    // Reader content is a static template — link activations hand off to the
+    // pane's live web view. In-page anchors are the exception: footnote and
+    // table-of-contents links belong to this document and must scroll here
+    // rather than kick the reader out to the network.
     func webView(
         _ webView: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction,
@@ -656,11 +999,40 @@ final class ReaderModeCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
     ) {
         if navigationAction.navigationType == .linkActivated,
            let url = navigationAction.request.url {
+            if Self.isSameDocumentAnchor(url, in: webView) {
+                decisionHandler(.allow)
+                return
+            }
             onOpenExternalLink?(url)
             decisionHandler(.cancel)
             return
         }
         decisionHandler(.allow)
+    }
+
+    // target="_blank" / window.open: the reader has nowhere to put a new web
+    // view, so route the URL through the same in-pane navigation path.
+    func webView(
+        _ webView: WKWebView,
+        createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        if let url = navigationAction.request.url {
+            onOpenExternalLink?(url)
+        }
+        return nil
+    }
+
+    /// True when `url` is this document with only a fragment appended.
+    private static func isSameDocumentAnchor(_ url: URL, in webView: WKWebView) -> Bool {
+        guard url.fragment != nil, let current = webView.url else { return false }
+        func withoutFragment(_ url: URL) -> String {
+            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            components?.fragment = nil
+            return components?.string ?? url.absoluteString
+        }
+        return withoutFragment(url) == withoutFragment(current)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -673,6 +1045,7 @@ final class ReaderModeCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
             let escaped = ReaderTemplate.escapeForJSString(query)
             webView.evaluateJavaScript("window.__groveScrollToText('\(escaped)');", completionHandler: nil)
         }
+        ReaderModeSupport.applyHighlights(webView, coordinator: self, documentIsReady: true)
     }
 
     func userContentController(
@@ -681,11 +1054,9 @@ final class ReaderModeCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
     ) {
         switch message.name {
         case "selectionChanged":
-            if let text = message.body as? String, !text.isEmpty {
-                onTextSelected?(text)
-            } else {
-                onTextSelected?(nil)
-            }
+            let selection = WebSelectionGeometry.decode(message.body)
+            onTextSelected?(selection.text)
+            onSelectionGeometry?(selection.geometry)
         case "readingProgress":
             if let fraction = message.body as? Double {
                 onScrollProgress?(fraction)

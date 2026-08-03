@@ -10,6 +10,7 @@ struct MobileItemReaderView: View {
     var preferFullScreenReaderExperience: Bool = false
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Query(sort: \Board.sortOrder) private var boards: [Board]
 
     // MARK: - Right panel (iPad 2-panel)
 
@@ -40,6 +41,9 @@ struct MobileItemReaderView: View {
     @State private var findCurrentMatch = 0
     @State private var findTotalMatches = 0
     @State private var selectedText: String?
+    /// Where the selection sits in the web view's viewport, for anchoring the
+    /// highlight bar next to it rather than at the bottom of the screen.
+    @State private var selectionGeometry: WebSelectionGeometry?
     @State private var scrollToTextQuery = ""
     @State private var scrollToTextToken = 0
     @State private var pendingEditBlock: ReflectionBlock?
@@ -61,6 +65,16 @@ struct MobileItemReaderView: View {
     @State private var capturedPageItem: Item?
     @State private var capturedPageURL: String?
     @State private var showSavedIndicator = false
+    /// Library item backing the page on screen, if any. Drives the capture
+    /// FAB — nil means the page has never been saved.
+    @State private var pageLibraryItem: Item?
+    @State private var showCapturePicker = false
+    /// Keeps the FAB on screen briefly after filing so the checkmark can
+    /// confirm the action before the button retires from the page.
+    @State private var showFiledConfirmation = false
+    /// Held so a rapid second filing cancels the first timer instead of
+    /// having it truncate the new confirmation.
+    @State private var filedConfirmationTask: Task<Void, Never>? = nil
 
     /// True when the reader has navigated away from the item's own page.
     private var isBrowsingLinkedPage: Bool {
@@ -95,6 +109,24 @@ struct MobileItemReaderView: View {
                 if usesSidePanel && rightPanel == .none {
                     rightPanel = .reflections
                 }
+                resolveCaptureState()
+            }
+            // Cached model references for the browsed page must drop before
+            // the model they point at is deleted.
+            .onReceive(NotificationCenter.default.publisher(for: .groveItemWillDelete)) { note in
+                guard let id = NotificationCenter.itemWillDeleteID(from: note) else { return }
+                if capturedPageItem?.id == id {
+                    capturedPageItem = nil
+                    capturedPageURL = nil
+                }
+                if pageLibraryItem?.id == id {
+                    pageLibraryItem = nil
+                    showFiledConfirmation = false
+                    showCapturePicker = false
+                }
+            }
+            .sheet(isPresented: $showCapturePicker) {
+                capturePickerSheet
             }
             .navigationTitle(item.title)
             #if os(iOS)
@@ -131,7 +163,6 @@ struct MobileItemReaderView: View {
                                 .transition(.move(edge: .top).combined(with: .opacity))
                         }
                     }
-                    .overlay(alignment: .bottom) { highlightActionOverlay }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                     ResizableTrailingDivider(
@@ -158,7 +189,6 @@ struct MobileItemReaderView: View {
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
-            .overlay(alignment: .bottom) { highlightActionOverlay }
         }
     }
 
@@ -170,15 +200,29 @@ struct MobileItemReaderView: View {
         return text
     }
 
+    /// Floats beside the selection it acts on. The overlay sits directly on the
+    /// web view, so the reported viewport coordinates land in its own
+    /// coordinate space with no browse-bar inset to correct for. A selection
+    /// without geometry (collapsed range) keeps the old bottom placement.
     @ViewBuilder
     private var highlightActionOverlay: some View {
         if item.type != .note, let selection = trimmedSelection {
-            HighlightActionBar(
+            let bar = HighlightActionBar(
                 onHighlight: { addHighlight(selection) },
                 onHighlightAndReflect: { highlightAndReflect(selection) }
             )
-            .padding(.bottom, Spacing.lg)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+            Group {
+                if let selectionGeometry {
+                    SelectionAnchorLayout(geometry: selectionGeometry) { bar }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .transition(.opacity)
+                } else {
+                    bar
+                        .padding(.bottom, Spacing.lg)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
             .animation(.easeOut(duration: 0.15), value: trimmedSelection != nil)
         }
     }
@@ -202,6 +246,7 @@ struct MobileItemReaderView: View {
         host.updatedAt = .now
         try? modelContext.save()
         selectedText = nil
+        selectionGeometry = nil
         return block
     }
 
@@ -288,6 +333,7 @@ struct MobileItemReaderView: View {
                 MobileArticleWebView(
                     url: url,
                     onTextSelected: { text in selectedText = text },
+                    onSelectionGeometry: { geometry in selectionGeometry = geometry },
                     findQuery: findQuery,
                     findForwardToken: findForwardToken,
                     findBackwardToken: findBackwardToken,
@@ -301,6 +347,11 @@ struct MobileItemReaderView: View {
                     goBackToken: goBackToken,
                     goForwardToken: goForwardToken,
                     onNavigationChanged: { back, forward, currentURL in
+                        // This callback can fire synchronously from inside
+                        // updateUIView (WKWebView's .url KVO fires on load).
+                        // Record state only; the model write in
+                        // resolveCaptureState runs from the deferred
+                        // .onChange(of: currentWebURL) below.
                         canGoBack = back
                         canGoForward = forward
                         currentWebURL = currentURL
@@ -312,8 +363,13 @@ struct MobileItemReaderView: View {
                         }
                     }
                 )
+                .onChange(of: currentWebURL) { _, _ in
+                    resolveCaptureState()
+                }
                 .ignoresSafeArea(edges: .bottom)
+                .overlay { highlightActionOverlay }
             }
+            .overlay(alignment: .bottomTrailing) { captureFAB }
             .animation(.easeInOut(duration: 0.2), value: isBrowsingLinkedPage || canGoBack)
             #else
             Text("Article view not available on this platform")
@@ -341,6 +397,123 @@ struct MobileItemReaderView: View {
             } description: {
                 Text("This item has no readable content.")
             }
+        }
+    }
+
+    // MARK: - Capture FAB
+
+    /// The page the capture button acts on: whatever is on screen.
+    private var capturePageURL: URL? {
+        currentWebURL ?? articleURL
+    }
+
+    private var captureState: ReaderCaptureState {
+        guard let pageLibraryItem else { return .unsaved }
+        return pageLibraryItem.boards.isEmpty ? .unfiled : .filed
+    }
+
+    @ViewBuilder
+    private var captureFAB: some View {
+        // A filed page carries no button — absence means "taken care of" —
+        // except for a beat right after filing so the checkmark can confirm.
+        if item.type != .note, let capturePageURL,
+           captureState != .filed || showFiledConfirmation {
+            ReaderCaptureFAB(
+                state: captureState,
+                pageKey: capturePageURL.absoluteString
+            ) {
+                handleCaptureTap()
+            }
+            .padding(20)
+            .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
+        }
+    }
+
+    @ViewBuilder
+    private var capturePickerSheet: some View {
+        if let target = pageLibraryItem {
+            let decision = BoardSuggestionMetadata.decision(from: target)
+            BoardPickerView(
+                boards: boards,
+                mode: .add,
+                suggestedName: decision?.suggestedName ?? "",
+                recommendedBoardID: decision?.recommendedBoardID,
+                alternativeBoardIDs: decision?.alternativeBoardIDs ?? [],
+                onSelect: { board in
+                    BoardSuggestionMetadata.recordSelection(board, on: target)
+                    ItemViewModel(modelContext: modelContext).assignToBoard(target, board: board)
+                    finishFiling()
+                },
+                onCreate: { title in
+                    createAndAssignBoard(named: title, to: target)
+                    finishFiling()
+                }
+            )
+        }
+    }
+
+    /// Capture first if the page is new, then always file. A saved page is
+    /// never captured twice.
+    private func handleCaptureTap() {
+        if pageLibraryItem == nil {
+            saveCurrentPage()
+            pageLibraryItem = capturedPageItem
+        }
+        guard pageLibraryItem != nil else { return }
+        showCapturePicker = true
+    }
+
+    /// After filing: close the picker, hold the checkmark for a beat so the
+    /// action reads, then let the FAB retire from the page.
+    private func finishFiling() {
+        resolveCaptureState()
+        guard captureState == .filed else { return }
+        showCapturePicker = false
+        showFiledConfirmation = true
+        filedConfirmationTask?.cancel()
+        filedConfirmationTask = MainActorTaskScheduler.schedule(after: .milliseconds(1500)) {
+            withAnimation(.easeOut(duration: 0.25)) {
+                showFiledConfirmation = false
+            }
+        }
+    }
+
+    /// Re-resolve which library item backs the page on screen.
+    private func resolveCaptureState() {
+        guard item.type != .note, let capturePageURL else {
+            pageLibraryItem = nil
+            return
+        }
+        showFiledConfirmation = false
+        if !isBrowsingLinkedPage {
+            pageLibraryItem = item
+            return
+        }
+        let resolved = capturedPageItem
+            ?? CaptureService(modelContext: modelContext).existingItem(forURL: capturePageURL.absoluteString)
+        pageLibraryItem = resolved
+        // Arriving at a page that is already in the library is the same trail
+        // as capturing it here would have been — record it either way.
+        if let resolved {
+            ReadingCapture.recordProvenance(from: item, to: resolved, in: modelContext)
+        }
+    }
+
+    private func createAndAssignBoard(named rawTitle: String, to target: Item) {
+        let title = BoardSuggestionEngine.cleanedBoardName(rawTitle)
+        guard !title.isEmpty else { return }
+
+        let itemViewModel = ItemViewModel(modelContext: modelContext)
+        if let existing = boards.first(where: {
+            $0.title.localizedCaseInsensitiveCompare(title) == .orderedSame
+        }) {
+            BoardSuggestionMetadata.recordSelection(existing, on: target)
+            itemViewModel.assignToBoard(target, board: existing)
+        } else {
+            let board = Board(title: title)
+            modelContext.insert(board)
+            BoardSuggestionMetadata.recordSelection(board, on: target)
+            itemViewModel.assignToBoard(target, board: board)
         }
     }
 
@@ -389,18 +562,6 @@ struct MobileItemReaderView: View {
                     .font(.groveMeta)
                     .foregroundStyle(Color.textSecondary)
                     .transition(.opacity)
-            } else if isBrowsingLinkedPage, capturedPageItem == nil {
-                Button {
-                    saveCurrentPage()
-                } label: {
-                    Image(systemName: "plus.circle")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(Color.textSecondary)
-                        .frame(width: LayoutDimensions.minTouchTarget, height: LayoutDimensions.minTouchTarget)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Save page to library")
             }
         }
         .padding(.horizontal, LayoutDimensions.contentPaddingH)

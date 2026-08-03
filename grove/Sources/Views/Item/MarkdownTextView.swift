@@ -4,6 +4,10 @@ import SwiftUI
 
 struct MarkdownTextView: View {
     let markdown: String
+    /// Type metrics shared with the live editor — `.prose` matches
+    /// `RichMarkdownEditor(proseMode: true)` so reflections do not resize
+    /// between reading and editing.
+    var scale: MarkdownTypeSpec.Scale = .compact
     var onWikiLinkTap: ((String) -> Void)?
 
     private var document: MarkdownDocument {
@@ -11,7 +15,7 @@ struct MarkdownTextView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: scale.blockSpacing) {
             ForEach(Array(document.blocks.enumerated()), id: \.offset) { _, block in
                 renderBlock(block)
             }
@@ -27,7 +31,8 @@ struct MarkdownTextView: View {
         case .codeBlock(let codeBlock):
             SyntaxHighlightedCodeView(
                 code: codeBlock.contentRange.map(document.text(in:)) ?? "",
-                language: codeBlock.language
+                language: codeBlock.language,
+                scale: scale
             )
 
         case .blockquote(let blockquote):
@@ -49,11 +54,22 @@ struct MarkdownTextView: View {
         case .bulletList(let list):
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(list.items.enumerated()), id: \.offset) { _, item in
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    listRow(indentation: item.indentation, contentRange: item.contentRange) {
                         Text("\u{2022}")
-                            .font(.custom("IBMPlexSans-Regular", size: 13))
+                            .font(.custom(MarkdownTypeSpec.FontName.body, size: scale.bodySize))
                             .foregroundStyle(Color.textSecondary)
-                        renderInlineText(range: item.contentRange, style: .body)
+                    }
+                }
+            }
+
+        case .orderedList(let list):
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(list.items.enumerated()), id: \.offset) { _, item in
+                    listRow(indentation: item.indentation, contentRange: item.contentRange) {
+                        Text("\(item.number).")
+                            .font(.custom(MarkdownTypeSpec.FontName.mono, size: scale.monoSize))
+                            .monospacedDigit()
+                            .foregroundStyle(Color.textSecondary)
                     }
                 }
             }
@@ -64,8 +80,22 @@ struct MarkdownTextView: View {
     }
 
     @ViewBuilder
+    private func listRow<Marker: View>(
+        indentation: Int,
+        contentRange: Range<Int>,
+        @ViewBuilder marker: () -> Marker
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            marker()
+            renderInlineText(range: contentRange, style: .body)
+        }
+        .padding(.leading, CGFloat(MarkdownTypeSpec.nestingLevel(forIndentation: indentation)) * scale.listNestIndent)
+    }
+
+    @ViewBuilder
     private func renderInlineText(range: Range<Int>, style: InlineStyle) -> some View {
         Text(attributedText(in: range, style: style))
+            .lineSpacing(scale.lineSpacing)
             .tint(Color.textSecondary)
             .environment(\.openURL, OpenURLAction(handler: handleOpenURL))
     }
@@ -86,29 +116,22 @@ struct MarkdownTextView: View {
 
         switch style {
         case .body:
-            regularFont = .custom("IBMPlexSans-Regular", size: 13)
-            boldFont = .custom("IBMPlexSans-Medium", size: 13)
-            italicFont = .custom("IBMPlexSans-Regular", size: 13).italic()
-            boldItalicFont = .custom("IBMPlexSans-Medium", size: 13).italic()
+            let size = scale.bodySize
+            regularFont = .custom(MarkdownTypeSpec.FontName.body, size: size)
+            // IBM Plex Sans ships no SemiBold face; Medium is the heaviest
+            // bundled weight and is what the live editor renders too.
+            boldFont = .custom(MarkdownTypeSpec.FontName.bodyEmphasis, size: size)
+            italicFont = .custom(MarkdownTypeSpec.FontName.body, size: size).italic()
+            boldItalicFont = .custom(MarkdownTypeSpec.FontName.bodyEmphasis, size: size).italic()
         case .heading(let level):
-            let size: CGFloat
-            switch level {
-            case 1:
-                size = 22
-            case 2:
-                size = 18
-            case 3:
-                size = 16
-            default:
-                size = 14
-            }
-            regularFont = .custom("Newsreader-Medium", size: size)
-            boldFont = .custom("Newsreader-SemiBold", size: size)
-            italicFont = .custom("Newsreader-MediumItalic", size: size)
-            boldItalicFont = .custom("Newsreader-SemiBoldItalic", size: size)
+            let size = scale.headingSize(forLevel: level)
+            regularFont = .custom(MarkdownTypeSpec.FontName.heading, size: size)
+            boldFont = .custom(MarkdownTypeSpec.FontName.headingEmphasis, size: size)
+            italicFont = .custom(MarkdownTypeSpec.FontName.headingItalic, size: size)
+            boldItalicFont = .custom(MarkdownTypeSpec.FontName.headingEmphasisItalic, size: size)
         }
 
-        let codeFont = Font.custom("IBMPlexMono-Regular", size: 12)
+        let codeFont = Font.custom(MarkdownTypeSpec.FontName.mono, size: scale.monoSize)
 
         for run in attributed.runs {
             attributed[run.range].font = regularFont
@@ -207,14 +230,16 @@ struct MarkdownTextView: View {
 private struct SyntaxHighlightedCodeView: View {
     let code: String
     let language: String?
+    var scale: MarkdownTypeSpec.Scale = .compact
+
+    private var codeSize: CGFloat { scale.monoSize }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Language label
             if let lang = language, !lang.isEmpty {
                 Text(lang.uppercased())
-                    .font(.custom("IBMPlexMono", size: 9))
-                    .fontWeight(.medium)
+                    .font(.custom(MarkdownTypeSpec.FontName.monoEmphasis, size: 9))
                     .tracking(0.8)
                     .foregroundStyle(Color.textTertiary)
                     .padding(.horizontal, 10)
@@ -224,15 +249,15 @@ private struct SyntaxHighlightedCodeView: View {
 
             // Highlighted code
             highlightedText
-                .font(.custom("IBMPlexMono", size: 12))
+                .font(.custom(MarkdownTypeSpec.FontName.mono, size: codeSize))
                 .padding(.horizontal, 10)
                 .padding(.vertical, language != nil ? 6 : 10)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Color.bgCard)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .clipShape(RoundedRectangle(cornerRadius: 4))
         .overlay(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: 4)
                 .strokeBorder(Color.borderPrimary, lineWidth: 1)
         )
     }
@@ -240,8 +265,11 @@ private struct SyntaxHighlightedCodeView: View {
     private var highlightedText: Text {
         let tokens = tokenize(code: code, language: normalizedLanguage)
         return tokens.reduce(Text("")) { result, token in
-            result + Text(token.text)
-                .foregroundStyle(token.color)
+            var piece = Text(token.text).foregroundStyle(token.color)
+            if token.isEmphasized {
+                piece = piece.font(.custom(MarkdownTypeSpec.FontName.monoEmphasis, size: codeSize))
+            }
+            return result + piece
         }
     }
 
@@ -258,48 +286,40 @@ private struct SyntaxHighlightedCodeView: View {
     private struct Token {
         let text: String
         let color: Color
+        /// Keywords carry weight instead of hue — the palette is monochrome.
+        var isEmphasized: Bool = false
     }
 
     private func tokenize(code: String, language: String?) -> [Token] {
         guard let language else {
-            return [Token(text: code, color: Color(hex: "1A1A1A"))]
+            return [Token(text: code, color: Color.textPrimary)]
         }
 
         let keywords: Set<String>
-        let typeKeywords: Set<String>
-        let builtins: Set<String>
 
         switch language {
         case "swift":
             keywords = ["func", "var", "let", "if", "else", "guard", "return", "import", "struct", "class", "enum", "case", "switch", "for", "while", "in", "protocol", "extension", "private", "public", "internal", "static", "self", "Self", "init", "deinit", "throw", "throws", "try", "catch", "async", "await", "actor", "some", "any", "where", "typealias", "associatedtype", "override", "final", "lazy", "weak", "unowned", "mutating", "nonmutating", "convenience", "required", "defer", "repeat", "break", "continue", "fallthrough", "do", "is", "as", "nil", "true", "false", "super"]
-            typeKeywords = ["String", "Int", "Double", "Float", "Bool", "Array", "Dictionary", "Set", "Optional", "Result", "Error", "Void", "Any", "AnyObject", "Date", "UUID", "Data", "URL", "View", "State", "Binding", "Published", "Observable", "ObservedObject", "StateObject", "EnvironmentObject", "Environment"]
-            builtins = ["print", "debugPrint", "fatalError", "precondition", "assert"]
         case "python":
             keywords = ["def", "class", "if", "elif", "else", "for", "while", "in", "return", "import", "from", "as", "try", "except", "finally", "raise", "with", "yield", "lambda", "pass", "break", "continue", "and", "or", "not", "is", "None", "True", "False", "del", "global", "nonlocal", "assert", "async", "await"]
-            typeKeywords = ["int", "float", "str", "bool", "list", "dict", "set", "tuple", "type", "object", "bytes", "range", "Exception"]
-            builtins = ["print", "len", "range", "enumerate", "zip", "map", "filter", "sorted", "reversed", "isinstance", "hasattr", "getattr", "setattr", "super", "property", "staticmethod", "classmethod", "open", "input"]
         case "javascript":
             keywords = ["function", "var", "let", "const", "if", "else", "for", "while", "do", "switch", "case", "break", "continue", "return", "throw", "try", "catch", "finally", "new", "delete", "typeof", "instanceof", "in", "of", "class", "extends", "super", "import", "export", "default", "from", "as", "async", "await", "yield", "this", "null", "undefined", "true", "false", "void"]
-            typeKeywords = ["Array", "Object", "String", "Number", "Boolean", "Map", "Set", "Promise", "Symbol", "RegExp", "Error", "Date", "JSON", "Math", "console"]
-            builtins = ["console", "setTimeout", "setInterval", "fetch", "require", "module", "process"]
         default:
-            return [Token(text: code, color: Color(hex: "1A1A1A"))]
+            return [Token(text: code, color: Color.textPrimary)]
         }
 
-        return highlightCode(code, keywords: keywords, typeKeywords: typeKeywords, builtins: builtins)
+        return highlightCode(code, keywords: keywords)
     }
 
-    private func highlightCode(_ code: String, keywords: Set<String>, typeKeywords: Set<String>, builtins: Set<String>) -> [Token] {
+    private func highlightCode(_ code: String, keywords: Set<String>) -> [Token] {
         var tokens: [Token] = []
         var i = code.startIndex
 
-        let defaultColor = Color(hex: "1A1A1A")
-        let keywordColor = Color(hex: "6E3A8A")    // purple-ish for keywords
-        let typeColor = Color(hex: "2D6A4F")        // green for types
-        let stringColor = Color(hex: "9A3412")      // warm brown for strings
-        let commentColor = Color(hex: "999999")      // muted for comments
-        let numberColor = Color(hex: "1D4ED8")       // blue for numbers
-        let builtinColor = Color(hex: "0E7490")      // teal for builtins
+        // Monochrome ink scale: hierarchy comes from tone + weight, not hue.
+        let defaultColor = Color.textPrimary
+        let keywordColor = Color.textPrimary        // primary ink + SemiBold
+        let stringColor = Color.textSecondary       // mid gray
+        let commentColor = Color.textTertiary       // light gray
 
         while i < code.endIndex {
             let ch = code[i]
@@ -362,7 +382,7 @@ private struct SyntaxHighlightedCodeView: View {
                 while i < code.endIndex && (code[i].isNumber || code[i] == "." || code[i] == "_") {
                     i = code.index(after: i)
                 }
-                tokens.append(Token(text: String(code[start..<i]), color: numberColor))
+                tokens.append(Token(text: String(code[start..<i]), color: defaultColor))
                 continue
             }
 
@@ -374,14 +394,8 @@ private struct SyntaxHighlightedCodeView: View {
                     i = code.index(after: i)
                 }
                 let word = String(code[start..<i])
-                if keywords.contains(word) {
-                    tokens.append(Token(text: word, color: keywordColor))
-                } else if typeKeywords.contains(word) {
-                    tokens.append(Token(text: word, color: typeColor))
-                } else if builtins.contains(word) {
-                    tokens.append(Token(text: word, color: builtinColor))
-                } else if word.hasPrefix("@") {
-                    tokens.append(Token(text: word, color: keywordColor))
+                if keywords.contains(word) || word.hasPrefix("@") {
+                    tokens.append(Token(text: word, color: keywordColor, isEmphasized: true))
                 } else {
                     tokens.append(Token(text: word, color: defaultColor))
                 }

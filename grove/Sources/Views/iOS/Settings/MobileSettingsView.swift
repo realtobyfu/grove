@@ -58,7 +58,7 @@ struct MobileSettingsView: View {
     // MARK: - Newsletters
 
     private var newslettersSection: some View {
-        Section("Newsletters") {
+        Section("Following") {
             NavigationLink {
                 SubscriptionsSettingsView()
             } label: {

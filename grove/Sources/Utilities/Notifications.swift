@@ -28,6 +28,14 @@ extension Notification.Name {
     static let groveFindInArticle = Notification.Name("groveFindInArticle")
     /// Posted when a free user hits the dialectics monthly limit
     static let groveDialecticsLimitReached = Notification.Name("groveDialecticsLimitReached")
+    /// Posted by `ItemViewModel.deleteItem(_:)` immediately *before* an Item is
+    /// removed from the model context, so presentation layers can drop every
+    /// reference to it while the model is still valid.
+    /// userInfo["itemID"]: UUID — the id of the item about to be deleted.
+    static let groveItemWillDelete = Notification.Name("groveItemWillDelete")
+    /// Object: UUID — open an existing item in the reader. Posted by surfaces
+    /// that hold no navigation state of their own (capture bar duplicates).
+    static let groveOpenItem = Notification.Name("groveOpenItem")
 }
 
 // MARK: - Typed Notification Payloads
@@ -93,5 +101,15 @@ extension NotificationCenter {
     static func discussItemPayload(from notification: Notification) -> DiscussItemPayload? {
         guard let item = notification.object as? Item else { return nil }
         return DiscussItemPayload(item: item)
+    }
+
+    /// Announce an imminent Item deletion. Carries only the id — observers must
+    /// not retain the model itself, since it is about to become invalid.
+    func postItemWillDelete(id: UUID) {
+        post(name: .groveItemWillDelete, object: nil, userInfo: ["itemID": id])
+    }
+
+    static func itemWillDeleteID(from notification: Notification) -> UUID? {
+        notification.userInfo?["itemID"] as? UUID
     }
 }

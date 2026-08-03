@@ -77,7 +77,7 @@ struct HomeView: View {
 
                         if onboarding.shouldShowHomeReminder {
                             onboardingReminderBanner
-                                .padding(.bottom, Spacing.xl)
+                                .padding(.bottom, Spacing.md)
                         }
 
                         // Quiet nudge row — only occupies space when a pending/shown nudge exists.
@@ -149,43 +149,50 @@ struct HomeView: View {
 
     // MARK: - Home Banners
 
+    /// Quiet one-line notice row, same idiom as NudgeBarView so home notices
+    /// stack as one system: icon, secondary text, pill action, muted dismiss.
     private var onboardingReminderBanner: some View {
-        HStack(alignment: .top, spacing: Spacing.md) {
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                Text("ONBOARDING")
-                    .font(.groveBadge)
-                    .tracking(0.8)
-                    .foregroundStyle(Color.textSecondary)
-                Text("Want a quick setup refresher?")
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textPrimary)
-                Text("Replay the guided flow anytime to capture, organize, and start Dialectics in one pass.")
-                    .font(.groveBodySmall)
-                    .foregroundStyle(Color.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: 0)
-
-            VStack(spacing: Spacing.xs) {
-                Button("Replay") {
-                    onboarding.presentReplay()
-                }
-                .buttonStyle(HomePrimaryButtonStyle())
-
-                Button("Dismiss") {
-                    onboarding.dismissHomeReminder()
-                }
-                .buttonStyle(.plain)
-                .font(.groveBodySmall)
+        HStack(spacing: 12) {
+            Image(systemName: "sparkles")
+                .font(.groveBody)
                 .foregroundStyle(Color.textSecondary)
+
+            Text("Replay the guided setup anytime — capture, organize, and start Dialectics in one pass.")
+                .font(.groveBodySecondary)
+                .foregroundStyle(Color.textSecondary)
+                .lineLimit(2)
+
+            Spacer()
+
+            Button {
+                onboarding.presentReplay()
+            } label: {
+                Text("Replay")
+                    .font(.groveBadge)
+                    .foregroundStyle(Color.textPrimary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color.accentBadge)
+                    .clipShape(Capsule())
             }
+            .buttonStyle(.plain)
+
+            Button {
+                onboarding.dismissHomeReminder()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .medium))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.textMuted)
+            .accessibilityLabel("Dismiss setup reminder")
         }
-        .padding(Spacing.md)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
         .background(Color.bgCard)
-        .clipShape(.rect(cornerRadius: 8))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: 6)
                 .stroke(Color.borderPrimary, lineWidth: 1)
         )
     }

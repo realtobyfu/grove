@@ -4,11 +4,23 @@ import SwiftData
 struct InboxCard: View {
     let item: Item
     let isSelected: Bool
+    /// Boards offered as one-click "keep + file" chips, recommended first.
+    var suggestedBoards: [Board] = []
     let onKeep: () -> Void
     let onDrop: () -> Void
     var onQueue: ((ReadLaterPreset) -> Void)?
     var onConfirmTag: ((Tag) -> Void)?
     var onDismissTag: ((Tag) -> Void)?
+    /// Keep the item and file it into this board in a single gesture.
+    var onFileToBoard: ((Board) -> Void)?
+    /// Open the full board picker for this item.
+    var onMoreBoards: (() -> Void)?
+    /// Display domain of a site that publishes a feed the user isn't following
+    /// yet. Set only when following is actually offerable — the chip renders
+    /// whenever this and `onFollowSite` are both present.
+    var followableSite: String? = nil
+    /// Subscribe to `followableSite`'s feed.
+    var onFollowSite: (() -> Void)?
 
     private var isFetchingMetadata: Bool {
         item.metadata["fetchingMetadata"] != nil
@@ -63,6 +75,10 @@ struct InboxCard: View {
                                 .lineLimit(1)
                         }
 
+                        if let followableSite, let onFollowSite {
+                            FollowSiteButton(site: followableSite, action: onFollowSite)
+                        }
+
                         Text(item.createdAt.formatted(.relative(presentation: .named)))
                             .font(.groveMeta)
                             .foregroundStyle(Color.textTertiary)
@@ -103,37 +119,9 @@ struct InboxCard: View {
                 }
             }
 
-            // Suggested board
-            if let boardSuggestion = BoardSuggestionMetadata.decision(from: item) {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.right.circle")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Color.textSecondary)
-                    Text(boardSuggestion.mode == .existing ? "Suggested board:" : "Suggested new board:")
-                        .font(.groveBadge)
-                        .foregroundStyle(Color.textSecondary)
-                    Text(boardSuggestion.suggestedName)
-                        .font(.groveBadge)
-                        .fontWeight(.medium)
-                        .foregroundStyle(Color.textPrimary)
-                    Spacer(minLength: 0)
-                    Text(BoardSuggestionEngine.confidenceLabel(for: boardSuggestion.confidence))
-                        .font(.groveBadge)
-                        .foregroundStyle(Color.textTertiary)
-                }
-            } else if let suggestedBoard = item.metadata["suggestedBoard"], !suggestedBoard.isEmpty {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.right.circle")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Color.textSecondary)
-                    Text("Suggested board:")
-                        .font(.groveBadge)
-                        .foregroundStyle(Color.textSecondary)
-                    Text(suggestedBoard)
-                        .font(.groveBadge)
-                        .fontWeight(.medium)
-                        .foregroundStyle(Color.textPrimary)
-                }
+            // One-gesture filing: keep + assign, no modal.
+            if onFileToBoard != nil || onMoreBoards != nil {
+                boardChipsRow
             }
 
             Divider()
@@ -143,13 +131,13 @@ struct InboxCard: View {
                 Button {
                     onKeep()
                 } label: {
-                    Label("Keep", systemImage: "checkmark.circle")
+                    Label("Keep unfiled", systemImage: "checkmark.circle")
                         .font(.groveBodyMedium)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(Color.textPrimary)
                 .controlSize(.small)
-                .help("Shortcut: 1")
+                .help("Keep without filing to a board. Shortcut: 1")
 
                 Menu {
                     ForEach(ReadLaterPreset.allCases) { preset in
@@ -185,5 +173,135 @@ struct InboxCard: View {
         .selectedItemStyle(isSelected)
     }
 
+    // MARK: - Board Chips
 
+    /// Recommended board first, then up to two alternates, then "More…".
+    /// Tapping a chip keeps and files the item in one action.
+    private var boardChipsRow: some View {
+        HStack(alignment: .center, spacing: Spacing.sm) {
+            Text("File to")
+                .sectionHeaderStyle()
+                .fixedSize()
+
+            chipFlow
+        }
+    }
+
+    private var chipFlow: some View {
+        FlowLayout(spacing: 6) {
+            ForEach(Array(suggestedBoards.prefix(3).enumerated()), id: \.element.id) { index, board in
+                BoardFilingChip(
+                    title: board.title,
+                    isRecommended: index == 0,
+                    action: { onFileToBoard?(board) }
+                )
+                .help("Keep and file to \(board.title)")
+            }
+
+            if let onMoreBoards {
+                BoardFilingChip(
+                    title: suggestedBoards.isEmpty ? "Choose board\u{2026}" : "More\u{2026}",
+                    isRecommended: false,
+                    action: onMoreBoards
+                )
+                .help("Choose a board")
+            }
+
+            if let newBoardName = suggestedNewBoardName {
+                Text("suggests new board \u{201C}\(newBoardName)\u{201D}")
+                    .font(.groveMeta)
+                    .foregroundStyle(Color.textTertiary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    /// Set only when the engine proposed a board that doesn't exist yet —
+    /// there's nothing to file into, so the name is offered as a hint.
+    private var suggestedNewBoardName: String? {
+        guard suggestedBoards.isEmpty,
+              let decision = BoardSuggestionMetadata.decision(from: item),
+              decision.mode == .create,
+              !decision.suggestedName.isEmpty else { return nil }
+        return decision.suggestedName
+    }
+}
+
+// MARK: - Follow Site Button
+
+/// Quiet inline "+ Follow" that sits in the meta row and reads as meta text:
+/// no fill, no border, secondary ink that darkens on hover. Following happens
+/// where the user is already looking at the site's work, not in Settings.
+private struct FollowSiteButton: View {
+    let site: String
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    /// The label is small by design, so iOS pads the hit region out to the
+    /// 44pt minimum without changing how the text looks.
+    #if os(iOS)
+    private static let minTapTarget: CGFloat = 44
+    #else
+    private static let minTapTarget: CGFloat = 0
+    #endif
+
+    var body: some View {
+        Button(action: action) {
+            Text("+ Follow")
+                .font(.groveMeta)
+                .foregroundStyle(isHovering ? Color.textPrimary : Color.textSecondary)
+                .lineLimit(1)
+                .fixedSize()
+                .frame(minWidth: Self.minTapTarget, minHeight: Self.minTapTarget)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .help("Follow \(site) \u{2014} new posts appear in Following")
+        .accessibilityLabel("Follow \(site)")
+    }
+}
+
+// MARK: - Filing Chip
+
+/// Quiet monochrome chip. The recommended board reads in full ink with a
+/// solid hairline; alternates sit back in secondary ink.
+private struct BoardFilingChip: View {
+    let title: String
+    let isRecommended: Bool
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    private static let verticalPadding: CGFloat = 3
+
+    private var ink: Color {
+        if isHovering { return Color.textPrimary }
+        return isRecommended ? Color.textPrimary : Color.textSecondary
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.groveBodySmall)
+                .foregroundStyle(ink)
+                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .padding(.vertical, Self.verticalPadding)
+                #if os(iOS)
+                .frame(minHeight: LayoutDimensions.minTouchTarget)
+                #endif
+                .overlay(
+                    RoundedRectangle(cornerRadius: 3)
+                        .stroke(
+                            isRecommended || isHovering ? Color.borderPrimary : Color.borderTag,
+                            lineWidth: 1
+                        )
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+    }
 }

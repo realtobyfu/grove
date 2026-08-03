@@ -14,8 +14,6 @@ struct ItemReaderView: View {
 
     // Pure UI state (stays in the View)
     @State private var draggingBlock: ReflectionBlock?
-    @State private var reflectionPanelWidth: CGFloat? = LayoutSettings.width(for: .readerReflections)
-    @State private var showItemExportSheet = false
     @State private var showDeleteConfirmation = false
     @FocusState private var isNewReflectionFocused: Bool
 
@@ -29,12 +27,15 @@ struct ItemReaderView: View {
     var body: some View {
         let vm = viewModel
         ZStack(alignment: .topTrailing) {
-            if shouldShowSplitLayout(vm) {
+            // The web pane renders in ONE structural position regardless of
+            // whether the reflections rail is up — the rail collapses to
+            // .hidden instead of the layout switching branches. A branch flip
+            // here would give the panel a fresh identity and wipe its web
+            // navigation state mid-highlight.
+            if vm.showArticleWebView, let url = vm.articleURL {
+                webSplitLayout(vm: vm, url: url)
+            } else if shouldShowSplitLayout(vm) {
                 splitLayout(vm: vm)
-            } else if vm.showArticleWebView, let url = vm.articleURL {
-                ItemReaderWebViewPanel(vm: vm, url: url, focusTrigger: focusReflectionEditor)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.bgPrimary)
             } else {
                 singleColumnLayout(vm: vm)
             }
@@ -68,9 +69,6 @@ struct ItemReaderView: View {
             vm.showFindBar.toggle()
             if !vm.showFindBar { vm.closeFindBar() }
         }
-        .sheet(isPresented: $showItemExportSheet) {
-            ItemExportSheet(item: item)
-        }
         .alert("Delete Reflection Block?", isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) {
                 vm.cancelDeleteBlock()
@@ -91,72 +89,96 @@ struct ItemReaderView: View {
         return panelIsNeeded && !vm.isReflectionPanelCollapsed
     }
 
-    // MARK: - Split Layout (Modes B and C)
+    // MARK: - Web Split Layout (web pane + optional rail, one identity)
 
+    /// Hosts the web pane beside the rail. The pane is ALWAYS at the same
+    /// structural position; when no reflections exist and no editor is open
+    /// the rail mode is .hidden (0pt) rather than a different layout branch,
+    /// so highlighting from the web pane never remounts it.
     @ViewBuilder
-    private func splitLayout(vm: ItemReaderViewModel) -> some View {
+    private func webSplitLayout(vm: ItemReaderViewModel, url: URL) -> some View {
         GeometryReader { geo in
-            let minPanel: CGFloat = 280
-            let maxPanel = max(minPanel, geo.size.width * 0.72)
-            let storedOrDefaultWidth = reflectionPanelWidth ?? geo.size.width * 0.45
-            let clampedWidth = min(max(storedOrDefaultWidth, minPanel), maxPanel)
-            let panelWidthBinding = Binding(
-                get: { clampedWidth },
-                set: { reflectionPanelWidth = $0 }
-            )
+            let railMode: RightRailMode = shouldShowSplitLayout(vm)
+                ? (vm.showReflectionEditor ? .reflectionEditor : .reflections)
+                : .hidden
 
             HStack(spacing: 0) {
-                // Left: article WebView OR scrollable content
-                Group {
-                    if vm.showArticleWebView, let url = vm.articleURL {
-                        ItemReaderWebViewPanel(vm: vm, url: url, focusTrigger: focusReflectionEditor)
-                    } else {
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: 0) {
-                                ItemReaderHeaderView(vm: vm, showItemExportSheet: $showItemExportSheet)
-                                coverImage(vm: vm)
-                                Divider().padding(.horizontal)
-                                sourceContent(vm: vm).padding()
-                            }
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.bgPrimary)
+                ItemReaderWebViewPanel(vm: vm, url: url, focusTrigger: focusReflectionEditor)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.bgPrimary)
 
-                // Draggable divider
-                ResizableTrailingDivider(
-                    width: panelWidthBinding,
-                    minWidth: minPanel,
-                    maxWidth: maxPanel,
+                RightRailContainer(
+                    mode: railMode,
+                    availableWidth: geo.size.width,
                     onCollapse: {
                         if vm.showReflectionEditor {
                             vm.closeReflectionEditor()
                         }
                         vm.isReflectionPanelCollapsed = true
                     }
-                ) { width in
-                    LayoutSettings.setWidth(width, for: .readerReflections)
-                }
-
-                // Right: swap between reflections list (Mode B) and editor (Mode C)
-                Group {
-                    if vm.showReflectionEditor {
+                ) { mode in
+                    switch mode {
+                    case .reflectionEditor:
                         reflectionEditorPanel(vm: vm)
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .trailing).combined(with: .opacity),
-                                removal: .move(edge: .trailing).combined(with: .opacity)
-                            ))
-                    } else {
+                    case .reflections:
                         ReflectionsListPanel(vm: vm, draggingBlock: $draggingBlock, focusTrigger: focusReflectionEditor)
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .trailing).combined(with: .opacity),
-                                removal: .move(edge: .trailing).combined(with: .opacity)
-                            ))
+                    default:
+                        EmptyView()
                     }
                 }
-                .animation(.easeOut(duration: 0.25), value: vm.showReflectionEditor)
-                .frame(width: panelWidthBinding.wrappedValue)
+                .frame(maxHeight: .infinity)
+                .background(Color.bgPrimary)
+            }
+        }
+    }
+
+    // MARK: - Split Layout (Modes B and C)
+
+    @ViewBuilder
+    private func splitLayout(vm: ItemReaderViewModel) -> some View {
+        GeometryReader { geo in
+            // Reflections list and reflection editor are two modes of the one
+            // rail, at one width — the swap is a crossfade, not a resize, so
+            // the article never re-wraps for it and there is no blank frame
+            // between the old panel leaving and the new one arriving.
+            let railMode: RightRailMode = vm.showReflectionEditor ? .reflectionEditor : .reflections
+
+            HStack(spacing: 0) {
+                ScrollView {
+                    // Fixed measure, flexible gutters: a rail width
+                    // change is absorbed either side of the text
+                    // instead of re-flowing it.
+                    ReaderMeasureColumn {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ItemReaderHeaderView(vm: vm, onExport: { ItemExportAction.exportAsMarkdown(item) })
+                            coverImage(vm: vm)
+                            Divider().padding(.horizontal)
+                            sourceContent(vm: vm).padding()
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.bgPrimary)
+
+                RightRailContainer(
+                    mode: railMode,
+                    availableWidth: geo.size.width,
+                    onCollapse: {
+                        if vm.showReflectionEditor {
+                            vm.closeReflectionEditor()
+                        }
+                        vm.isReflectionPanelCollapsed = true
+                    }
+                ) { mode in
+                    switch mode {
+                    case .reflectionEditor:
+                        reflectionEditorPanel(vm: vm)
+                    case .reflections:
+                        ReflectionsListPanel(vm: vm, draggingBlock: $draggingBlock, focusTrigger: focusReflectionEditor)
+                    default:
+                        EmptyView()
+                    }
+                }
                 .frame(maxHeight: .infinity)
                 .background(Color.bgPrimary)
             }
@@ -170,7 +192,7 @@ struct ItemReaderView: View {
         GeometryReader { geo in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    ItemReaderHeaderView(vm: vm, showItemExportSheet: $showItemExportSheet)
+                    ItemReaderHeaderView(vm: vm, onExport: { ItemExportAction.exportAsMarkdown(item) })
                     coverImage(vm: vm)
                     Divider().padding(.horizontal)
                     sourceContent(vm: vm).padding()
@@ -277,14 +299,8 @@ struct ItemReaderView: View {
             )
         } else if let content = vm.item.content, !content.isEmpty {
             if vm.item.metadata["hasLLMOverview"] == "true" {
-                HStack(spacing: 4) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 10))
-                    Text("AI Overview")
-                        .font(.groveBadge)
-                }
-                .foregroundStyle(Color.textSecondary)
-                .padding(.bottom, 4)
+                AIOverviewHeaderRow(vm: vm)
+                    .padding(.bottom, 4)
             }
 
             SelectableMarkdownView(markdown: content, onSelectText: { vm.webSelectedText = $0 })
@@ -341,35 +357,13 @@ struct ItemReaderView: View {
 
                 // Highlight preview (if reflecting on selection)
                 if let highlight = block.highlight, !highlight.isEmpty {
-                    let quote = HStack(spacing: 0) {
-                        Rectangle()
-                            .fill(Color.borderPrimary)
-                            .frame(width: 2)
-                        Text(highlight)
-                            .font(.groveGhostText)
-                            .foregroundStyle(Color.textTertiary)
-                            .lineLimit(3)
-                            .padding(.leading, 10)
-                    }
-
-                    Group {
-                        if vm.articleURL != nil {
-                            Button {
-                                vm.jumpToHighlight(highlight)
-                            } label: {
-                                quote
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .help("Show in source")
-                            .accessibilityLabel("Show highlight in source")
-                        } else {
-                            quote
-                        }
-                    }
+                    HighlightQuoteChip(
+                        quote: highlight,
+                        kicker: vm.articleURL != nil ? "From article" : "From source",
+                        onJump: vm.articleURL != nil ? { vm.jumpToHighlight(highlight) } : nil
+                    )
                     .padding(.horizontal, 40)
-                    .padding(.bottom, 12)
+                    .padding(.bottom, 10)
                 }
 
                 // Editor -- fills remaining space
@@ -386,7 +380,7 @@ struct ItemReaderView: View {
                     proseMode: true
                 )
                 .focused($isNewReflectionFocused)
-                .frame(maxHeight: .infinity)
+                .frame(maxHeight: .infinity, alignment: .top)
             }
         }
     }

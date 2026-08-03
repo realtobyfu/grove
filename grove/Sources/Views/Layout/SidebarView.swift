@@ -53,7 +53,7 @@ struct SidebarView: View {
 
                     SidebarRow(
                         icon: "newspaper",
-                        title: "Newsletters",
+                        title: "Following",
                         count: unreadNewsletterCount,
                         isSelected: selection == .newsletters
                     ) { selection = .newsletters }

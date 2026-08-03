@@ -52,7 +52,57 @@ enum ReadingCapture {
             readerItem.isFeedIssueRead = true
         }
         try? context.save()
+        if let readerItem {
+            recordProvenance(from: readerItem, to: captured, in: context)
+        }
         return (captured, isDuplicate)
+    }
+
+    // MARK: - Provenance
+
+    /// The connection type that records "I got here from there". Kept apart
+    /// from `.related` so a trail followed while reading can be told from a
+    /// link the user wrote by hand.
+    static let provenanceType: ConnectionType = .linkedFrom
+
+    /// Records that `target` was reached by following a link while reading
+    /// `source`.
+    ///
+    /// At most one edge per ordered pair: if the two are already connected in
+    /// this direction — by a wiki-link, the inspector, chat, or an earlier
+    /// visit — nothing is written. A trail is also never recorded back down one
+    /// that already exists, so two items that link to each other (a series, a
+    /// reply) don't end up each claiming to have come from the other.
+    @discardableResult
+    static func recordProvenance(
+        from source: Item,
+        to target: Item,
+        in context: ModelContext
+    ) -> Connection? {
+        guard source.id != target.id else { return nil }
+        guard !source.outgoingConnections.contains(where: { $0.targetItem?.id == target.id })
+        else { return nil }
+        guard !source.incomingConnections.contains(where: {
+            $0.type == provenanceType && $0.sourceItem?.id == target.id
+        }) else { return nil }
+
+        let connection = Connection(sourceItem: source, targetItem: target, type: provenanceType)
+        context.insert(connection)
+        source.outgoingConnections.append(connection)
+        target.incomingConnections.append(connection)
+        source.updatedAt = .now
+        target.updatedAt = .now
+        try? context.save()
+        return connection
+    }
+
+    /// The item this one was most recently reached from while reading, or nil
+    /// when it was never harvested from another page.
+    static func provenanceSource(of item: Item) -> Item? {
+        item.incomingConnections
+            .filter { $0.type == provenanceType }
+            .max { $0.createdAt < $1.createdAt }?
+            .sourceItem
     }
 
     /// Whether `url` is a different page than the item's own source.

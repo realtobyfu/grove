@@ -3,7 +3,8 @@ import AppKit
 #endif
 import SwiftUI
 
-struct ProSettingsView: View {
+/// Settings view combining plan status and iCloud sync — everything tied to the user's account.
+struct AccountSettingsView: View {
     @Environment(EntitlementService.self) private var entitlement
     @Environment(PaywallCoordinator.self) private var paywallCoordinator
     @Environment(StoreKitService.self) private var storeKit
@@ -71,6 +72,8 @@ struct ProSettingsView: View {
                     .buttonStyle(.borderedProminent)
                 }
             }
+
+            SyncSettingsSections()
 
 #if DEBUG
             Section("Debug") {

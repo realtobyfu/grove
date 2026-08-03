@@ -10,6 +10,8 @@ import WebKit
 struct MobileArticleWebView: UIViewRepresentable {
     let url: URL
     var onTextSelected: ((String?) -> Void)?
+    /// Geometry of the reported selection, for anchoring the highlight bar.
+    var onSelectionGeometry: ((WebSelectionGeometry?) -> Void)?
     var findQuery: String = ""
     var findForwardToken: Int = 0
     var findBackwardToken: Int = 0
@@ -20,25 +22,41 @@ struct MobileArticleWebView: UIViewRepresentable {
     var scrollToTextToken: Int = 0
     var goBackToken: Int = 0
     var goForwardToken: Int = 0
+    /// In-place navigation request (Reader-mode link taps route here):
+    /// bump the token to load `navigateURL` in place.
+    var navigateURL: URL? = nil
+    var navigateToken: Int = 0
     /// Reports (canGoBack, canGoForward, currentURL) as the user browses.
     var onNavigationChanged: ((Bool, Bool, URL?) -> Void)?
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onTextSelected: onTextSelected, onNavigationChanged: onNavigationChanged)
+        Coordinator(
+            onTextSelected: onTextSelected,
+            onSelectionGeometry: onSelectionGeometry,
+            onNavigationChanged: onNavigationChanged
+        )
     }
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
 
-        // Inject text selection tracking script
+        // Selection reporting is the shared script — same debounce and same
+        // {text, rect, viewport} contract as every other Grove web surface.
         let selectionScript = WKUserScript(
-            source: Self.selectionJS,
+            source: ReaderTemplate.selectionReporterJS(handler: "textSelected"),
             injectionTime: .atDocumentEnd,
             forMainFrameOnly: true
         )
         config.userContentController.addUserScript(selectionScript)
         config.userContentController.add(context.coordinator, name: "textSelected")
+
+        // Find-in-page helper
+        config.userContentController.addUserScript(WKUserScript(
+            source: Self.findJS,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        ))
 
         // Inject scroll-to-text helper (shared with Reader mode)
         let scrollToTextScript = WKUserScript(
@@ -66,6 +84,7 @@ struct MobileArticleWebView: UIViewRepresentable {
     func updateUIView(_ webView: WKWebView, context: Context) {
         let coordinator = context.coordinator
         coordinator.onTextSelected = onTextSelected
+        coordinator.onSelectionGeometry = onSelectionGeometry
         coordinator.onNavigationChanged = onNavigationChanged
 
         // Handle scroll-to-text requests. Defer to didFinish while the page is
@@ -79,6 +98,15 @@ struct MobileArticleWebView: UIViewRepresentable {
                 coordinator.pendingScrollQuery = nil
                 let escaped = ReaderTemplate.escapeForJSString(query)
                 webView.evaluateJavaScript("window.__groveScrollToText('\(escaped)');", completionHandler: nil)
+            }
+        }
+
+        // Pending in-place navigation (Reader-mode link tap)
+        if navigateToken != coordinator.lastNavigateToken {
+            coordinator.lastNavigateToken = navigateToken
+            if let navigateURL {
+                webView.load(URLRequest(url: navigateURL))
+                return
             }
         }
 
@@ -157,6 +185,7 @@ struct MobileArticleWebView: UIViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
         var onTextSelected: ((String?) -> Void)?
+        var onSelectionGeometry: ((WebSelectionGeometry?) -> Void)?
         var onNavigationChanged: ((Bool, Bool, URL?) -> Void)?
         var lastFindQuery = ""
         var lastForwardToken = 0
@@ -164,13 +193,19 @@ struct MobileArticleWebView: UIViewRepresentable {
         var lastScrollToTextToken = 0
         var lastGoBackToken = 0
         var lastGoForwardToken = 0
+        var lastNavigateToken = 0
         var pendingScrollQuery: String? = nil
         var lastZoomLevel: CGFloat = 1.0
         var lastLoadedURL: URL? = nil
         private var observations: [NSKeyValueObservation] = []
 
-        init(onTextSelected: ((String?) -> Void)?, onNavigationChanged: ((Bool, Bool, URL?) -> Void)?) {
+        init(
+            onTextSelected: ((String?) -> Void)?,
+            onSelectionGeometry: ((WebSelectionGeometry?) -> Void)?,
+            onNavigationChanged: ((Bool, Bool, URL?) -> Void)?
+        ) {
             self.onTextSelected = onTextSelected
+            self.onSelectionGeometry = onSelectionGeometry
             self.onNavigationChanged = onNavigationChanged
         }
 
@@ -224,24 +259,16 @@ struct MobileArticleWebView: UIViewRepresentable {
         // Receive text selection from JavaScript
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             if message.name == "textSelected" {
-                let text = message.body as? String
-                onTextSelected?(text?.isEmpty == true ? nil : text)
+                let selection = WebSelectionGeometry.decode(message.body)
+                onTextSelected?(selection.text)
+                onSelectionGeometry?(selection.geometry)
             }
         }
     }
 
     // MARK: - JavaScript
 
-    private static let selectionJS = """
-    (function() {
-        function reportSelection() {
-            var sel = window.getSelection();
-            var text = sel ? sel.toString() : '';
-            window.webkit.messageHandlers.textSelected.postMessage(text);
-        }
-        document.addEventListener('selectionchange', reportSelection);
-    })();
-
+    private static let findJS = """
     // Find-in-page support
     window.__groveMatches = [];
     window.__groveMatchIndex = -1;

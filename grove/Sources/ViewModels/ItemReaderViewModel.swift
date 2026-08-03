@@ -52,6 +52,11 @@ final class ItemReaderViewModel {
     var readerExtractionAttempted = false
     /// Latest text selection reported from either web mode (future highlight plumbing).
     var webSelectedText: String? = nil
+    /// Where that selection sits, in the web view's viewport coordinates.
+    /// nil when the selection has no usable geometry (collapsed range, or a
+    /// surface that reports text only) — the action bar then falls back to
+    /// its pane-bottom placement.
+    var webSelectionGeometry: WebSelectionGeometry? = nil
     /// Scroll-to-text request routed to whichever web mode is active.
     var scrollToTextQuery = ""
     var scrollToTextToken = 0
@@ -66,6 +71,9 @@ final class ItemReaderViewModel {
     /// URL `navigatedReaderArticle` was extracted from, so a stale extraction
     /// is never shown for a page the user has since navigated away from.
     var navigatedReaderArticleURL: URL? = nil
+    /// URL whose extraction has already been attempted, successfully or not.
+    /// Marks the point where a page's readability stops being an open question.
+    var navigatedExtractionAttemptedURL: URL? = nil
     /// Pending in-pane navigation request (a link tapped in Reader mode).
     var pendingNavigationURL: URL? = nil
     var pendingNavigationToken = 0
@@ -174,7 +182,7 @@ final class ItemReaderViewModel {
         // out of the item's disk cache — only the item's own article belongs
         // there — but without this, toggling Reader on a link target fell back
         // to the root article and showed the wrong page entirely.
-        if let finished = webView.url, !articleURLMatches(finished) {
+        if let finished = webView.url, hasNavigatedAwayFromOwnPage(finished) {
             extractNavigatedArticle(from: webView, url: finished)
             return
         }
@@ -213,6 +221,16 @@ final class ItemReaderViewModel {
         return readerArticle
     }
 
+    /// True while the pane sits on a followed link whose readability is still
+    /// an open question — the page is loading, or its extraction is in flight.
+    /// The Reader control stays mounted across this window instead of blinking
+    /// out between pages, and retires only if the destination proves unreadable.
+    var isResolvingNavigatedArticle: Bool {
+        guard let navigated = navigatedWebURL else { return false }
+        if navigatedReaderArticleURL?.absoluteString == navigated.absoluteString { return false }
+        return navigatedExtractionAttemptedURL?.absoluteString != navigated.absoluteString
+    }
+
     /// Extracts a readable article for a page navigated to inside the pane.
     /// Memory-only: nothing here is written to the item's cache.
     private func extractNavigatedArticle(from webView: WKWebView, url: URL) {
@@ -221,15 +239,35 @@ final class ItemReaderViewModel {
         navigatedReaderArticle = nil
         navigatedReaderArticleURL = nil
         Task { @MainActor in
-            guard let article = await ArticleReaderService.shared.extractArticle(
+            let article = await ArticleReaderService.shared.extractArticle(
                 from: webView,
                 sourceURL: url
-            ) else { return }
+            )
             // The pane may have navigated on while extraction was in flight.
             guard webView.url?.absoluteString == url.absoluteString else { return }
-            navigatedReaderArticle = article
-            navigatedReaderArticleURL = url
+            navigatedExtractionAttemptedURL = url
+            // A page that won't parse — a login wall, an app shell, a feed —
+            // simply stays on the live page. No error, no empty reader.
+            guard let article else { return }
+            // Reader mode is a preference, not a per-page choice: with
+            // `isReaderMode` still set, publishing the extraction is what
+            // carries the reader across the link — no second toggle click.
+            withAnimation(.easeOut(duration: 0.2)) {
+                navigatedReaderArticle = article
+                navigatedReaderArticleURL = url
+            }
         }
+    }
+
+    /// True when `url` is a page reached inside the pane rather than the item's
+    /// own source. Compared on the app's normalized URL form so a canonical
+    /// redirect (trailing slash, utm strip) isn't mistaken for a link click —
+    /// with a host-level fallback for the very first load, where a consent or
+    /// redirect shell still counts as the item's own page.
+    private func hasNavigatedAwayFromOwnPage(_ url: URL) -> Bool {
+        if !ReadingCapture.isDifferentPage(url, from: item) { return false }
+        if readerArticle == nil, !readerExtractionAttempted, articleURLMatches(url) { return false }
+        return true
     }
 
     /// Whether a finished web navigation is the item's own article, tolerating
@@ -332,7 +370,11 @@ final class ItemReaderViewModel {
         promoteAfterWriting(host)
         host.updatedAt = .now
         try? modelContext.save()
+        // Dismisses the bar. In Reader mode the new block's highlight string
+        // is picked up by the mark injection on the next render pass, which is
+        // what makes the click visible on the page.
         webSelectedText = nil
+        webSelectionGeometry = nil
     }
 
     // MARK: - Find Bar
@@ -544,9 +586,13 @@ final class ItemReaderViewModel {
         readerArticle = nil
         navigatedReaderArticle = nil
         navigatedReaderArticleURL = nil
+        navigatedExtractionAttemptedURL = nil
+        navigatedWebURL = nil
+        pendingNavigationURL = nil
         isReaderMode = false
         readerExtractionAttempted = false
         webSelectedText = nil
+        webSelectionGeometry = nil
         scrollToTextQuery = ""
         lastSavedReadingProgress = -1
     }

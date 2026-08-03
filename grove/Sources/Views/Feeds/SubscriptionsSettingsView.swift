@@ -57,7 +57,7 @@ struct SubscriptionsSettingsView: View {
             }
         }
         .background(Color.bgPrimary)
-        .navigationTitle("Newsletters")
+        .navigationTitle("Following")
         #if os(macOS)
         .frame(minWidth: 440, minHeight: 420)
         #endif
@@ -76,7 +76,7 @@ struct SubscriptionsSettingsView: View {
             Image(systemName: "newspaper")
                 .font(.groveBody)
                 .foregroundStyle(Color.textSecondary)
-            Text("Newsletters")
+            Text("Following")
                 .font(.groveTitleLarge)
                 .foregroundStyle(Color.textPrimary)
 
@@ -94,7 +94,7 @@ struct SubscriptionsSettingsView: View {
             .frame(minWidth: LayoutDimensions.minTouchTarget, minHeight: LayoutDimensions.minTouchTarget)
             #endif
             .keyboardShortcut(.escape, modifiers: [])
-            .accessibilityLabel("Close newsletters")
+            .accessibilityLabel("Close following")
         }
         .padding(.horizontal, Spacing.xl)
         .padding(.vertical, Spacing.md)
@@ -123,7 +123,7 @@ struct SubscriptionsSettingsView: View {
             Text("No subscriptions yet")
                 .font(.groveBodyMedium)
                 .foregroundStyle(Color.textPrimary)
-            Text("Add a feed below, or browse the directory for something worth reading.")
+            Text("Paste a blog or feed URL below, or browse the directory for something worth reading.")
                 .font(.groveBodySmall)
                 .foregroundStyle(Color.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -186,14 +186,17 @@ struct SubscriptionsSettingsView: View {
     // MARK: - Add Feed
 
     private var addFeedSection: some View {
-        section(title: "Add a feed") {
+        section(
+            title: "Follow a site or feed",
+            footnote: "Paste any blog or site URL — Grove finds its feed. New posts arrive alongside your newsletters."
+        ) {
             VStack(alignment: .leading, spacing: Spacing.sm) {
                 HStack(spacing: Spacing.sm) {
                     Image(systemName: "link")
                         .font(.groveMeta)
                         .foregroundStyle(Color.textTertiary)
 
-                    TextField("https://example.com/feed", text: $newFeedURL)
+                    TextField("https://example.com", text: $newFeedURL)
                         .textFieldStyle(.plain)
                         .font(.groveBody)
                         .foregroundStyle(Color.textPrimary)

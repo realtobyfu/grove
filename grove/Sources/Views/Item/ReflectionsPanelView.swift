@@ -92,18 +92,10 @@ struct ReflectionsListPanel: View {
     @ViewBuilder
     private var reflectionBlocksList: some View {
         ForEach(Array(vm.sortedReflections.enumerated()), id: \.element.id) { index, block in
-            HStack(alignment: .top, spacing: 4) {
-                // Drag handle
-                Image(systemName: "line.3.horizontal")
-                    .font(.caption2)
-                    .foregroundStyle(Color.textTertiary)
-                    .frame(width: 12, height: 20)
-                    .padding(.top, 12)
-                    .onDrag {
-                        draggingBlock = block
-                        return NSItemProvider(object: block.id.uuidString as NSString)
-                    }
-
+            DraggableReflectionRow(onDragStart: {
+                draggingBlock = block
+                return NSItemProvider(object: block.id.uuidString as NSString)
+            }) {
                 ReflectionBlockRow(
                     block: block,
                     isVideoItem: vm.isVideoItem,
@@ -205,18 +197,10 @@ struct InlineReflectionsSection: View {
 
             // Existing reflection blocks
             ForEach(Array(vm.sortedReflections.enumerated()), id: \.element.id) { index, block in
-                HStack(alignment: .top, spacing: 4) {
-                    // Drag handle
-                    Image(systemName: "line.3.horizontal")
-                        .font(.caption2)
-                        .foregroundStyle(Color.textTertiary)
-                        .frame(width: 12, height: 20)
-                        .padding(.top, 12)
-                        .onDrag {
-                            draggingBlock = block
-                            return NSItemProvider(object: block.id.uuidString as NSString)
-                        }
-
+                DraggableReflectionRow(onDragStart: {
+                    draggingBlock = block
+                    return NSItemProvider(object: block.id.uuidString as NSString)
+                }) {
                     ReflectionBlockRow(
                         block: block,
                         isVideoItem: vm.isVideoItem,
@@ -299,5 +283,45 @@ struct GhostPrompts: View {
             )
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Draggable Row Wrapper
+
+/// Hosts a reflection row beside its reorder handle. The handle only
+/// materializes on hover (always visible on touch platforms, which have no
+/// hover) so the list reads as prose, not chrome.
+private struct DraggableReflectionRow<Row: View>: View {
+    var onDragStart: () -> NSItemProvider
+    @ViewBuilder var row: () -> Row
+
+    @State private var isHovered = false
+
+    private var handleOpacity: Double {
+        #if os(iOS)
+        1
+        #else
+        isHovered ? 1 : 0
+        #endif
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 4) {
+            Image(systemName: "line.3.horizontal")
+                .font(.caption2)
+                .foregroundStyle(Color.textTertiary)
+                .frame(width: 12, height: 20)
+                .padding(.top, 12)
+                .opacity(handleOpacity)
+                .animation(.easeInOut(duration: 0.15), value: isHovered)
+                .onDrag(onDragStart)
+                .accessibilityLabel("Reorder reflection")
+                #if os(iOS)
+                .frame(minHeight: LayoutDimensions.minTouchTarget)
+                #endif
+
+            row()
+        }
+        .onHover { isHovered = $0 }
     }
 }

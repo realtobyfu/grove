@@ -19,14 +19,13 @@ final class ContentViewModel {
     var writePanelEditItem: Item?
     var writePanelWidth: CGFloat = LayoutSettings.width(for: .contentWrite) ?? 480
     var showChatPanel = false
-    var chatPanelWidth: CGFloat = LayoutSettings.width(for: .contentChat) ?? 380
-    var inspectorWidth: CGFloat = LayoutSettings.width(for: .contentInspector) ?? 360
+    // The chat and inspector widths live in `RightRailContainer` now — the rail
+    // owns one width per mode so a panel can't animate a width of its own.
 
     // MARK: - UI Toggles
     var showSearch = false
     var showCaptureOverlay = false
     var inspectorUserOverride: Bool?
-    var showItemExportSheet = false
     var isArticleWebViewActive = false
 
     // MARK: - Internal State
@@ -46,13 +45,16 @@ final class ContentViewModel {
 
     // MARK: - Focus Mode
 
+    /// Sidebar collapse and rail change are driven from a single
+    /// `withAnimation` on `RightRailMetrics.widthChange` — the same curve and
+    /// duration the rail uses for its own width — so the two reflows are one.
     func enterFocusMode() {
         if savedColumnVisibility == nil {
             savedColumnVisibility = columnVisibility
             savedInspectorOverride = inspectorUserOverride
             savedChatPanel = showChatPanel
         }
-        withAnimation(.easeOut(duration: 0.25)) {
+        withAnimation(RightRailMetrics.widthChange) {
             columnVisibility = .detailOnly
             inspectorUserOverride = false
             showChatPanel = false
@@ -60,7 +62,7 @@ final class ContentViewModel {
     }
 
     func exitFocusMode() {
-        withAnimation(.easeOut(duration: 0.25)) {
+        withAnimation(RightRailMetrics.widthChange) {
             columnVisibility = savedColumnVisibility ?? .automatic
             inspectorUserOverride = savedInspectorOverride
             showChatPanel = savedChatPanel ?? false

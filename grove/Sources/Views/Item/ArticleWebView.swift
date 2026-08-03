@@ -12,6 +12,8 @@ import AppKit
 struct ArticleWebView: NSViewRepresentable {
     let url: URL
     var onTextSelected: ((String?) -> Void)?
+    /// Geometry of the reported selection, for anchoring the highlight bar.
+    var onSelectionGeometry: ((WebSelectionGeometry?) -> Void)?
     var findQuery: String = ""
     var findForwardToken: Int = 0
     var findBackwardToken: Int = 0
@@ -31,31 +33,26 @@ struct ArticleWebView: NSViewRepresentable {
     var scrollToTextToken: Int = 0
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onTextSelected: onTextSelected, onFindResult: onFindResult, onNavigationChanged: onNavigationChanged)
+        Coordinator(
+            onTextSelected: onTextSelected,
+            onSelectionGeometry: onSelectionGeometry,
+            onFindResult: onFindResult,
+            onNavigationChanged: onNavigationChanged
+        )
     }
 
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         let userContentController = WKUserContentController()
 
-        // Inject selection-change listener
-        let script = WKUserScript(source: """
-            (function() {
-                var debounceTimer = null;
-                function reportSelection() {
-                    var sel = window.getSelection();
-                    var text = sel ? sel.toString().trim() : "";
-                    window.webkit.messageHandlers.selectionChanged.postMessage(text);
-                }
-                function debouncedReport() {
-                    clearTimeout(debounceTimer);
-                    debounceTimer = setTimeout(reportSelection, 150);
-                }
-                document.addEventListener('mouseup', debouncedReport);
-                document.addEventListener('keyup', debouncedReport);
-                document.addEventListener('selectionchange', debouncedReport);
-            })();
-            """, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+        // Selection reporting is the shared script — same debounce, same
+        // {text, rect, viewport} contract as Reader mode, so the anchored
+        // action bar behaves identically in both.
+        let script = WKUserScript(
+            source: ReaderTemplate.selectionReporterJS(handler: "selectionChanged"),
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        )
         userContentController.addUserScript(script)
         userContentController.add(context.coordinator, name: "selectionChanged")
 
@@ -89,6 +86,7 @@ struct ArticleWebView: NSViewRepresentable {
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.onTextSelected = onTextSelected
+        context.coordinator.onSelectionGeometry = onSelectionGeometry
         context.coordinator.onFindResult = onFindResult
         context.coordinator.onNavigationChanged = onNavigationChanged
         context.coordinator.onPageFinished = onPageFinished
@@ -278,6 +276,7 @@ struct ArticleWebView: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
         var onTextSelected: ((String?) -> Void)?
+        var onSelectionGeometry: ((WebSelectionGeometry?) -> Void)?
         var onFindResult: ((Int, Int) -> Void)?
         var onNavigationChanged: ((Bool, Bool, URL?) -> Void)?
         var onPageFinished: ((WKWebView) -> Void)?
@@ -292,8 +291,14 @@ struct ArticleWebView: NSViewRepresentable {
         var lastLoadedURL: URL? = nil
         private var observations: [NSKeyValueObservation] = []
 
-        init(onTextSelected: ((String?) -> Void)?, onFindResult: ((Int, Int) -> Void)?, onNavigationChanged: ((Bool, Bool, URL?) -> Void)?) {
+        init(
+            onTextSelected: ((String?) -> Void)?,
+            onSelectionGeometry: ((WebSelectionGeometry?) -> Void)?,
+            onFindResult: ((Int, Int) -> Void)?,
+            onNavigationChanged: ((Bool, Bool, URL?) -> Void)?
+        ) {
             self.onTextSelected = onTextSelected
+            self.onSelectionGeometry = onSelectionGeometry
             self.onFindResult = onFindResult
             self.onNavigationChanged = onNavigationChanged
         }
@@ -357,11 +362,9 @@ struct ArticleWebView: NSViewRepresentable {
             didReceive message: WKScriptMessage
         ) {
             if message.name == "selectionChanged" {
-                if let text = message.body as? String, !text.isEmpty {
-                    onTextSelected?(text)
-                } else {
-                    onTextSelected?(nil)
-                }
+                let selection = WebSelectionGeometry.decode(message.body)
+                onTextSelected?(selection.text)
+                onSelectionGeometry?(selection.geometry)
             } else if message.name == "findResult" {
                 if let dict = message.body as? [String: Any],
                    let current = dict["current"] as? Int,

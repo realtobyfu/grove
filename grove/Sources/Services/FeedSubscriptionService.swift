@@ -14,9 +14,9 @@ enum FeedSubscriptionService {
 
         var errorDescription: String? {
             switch self {
-            case .invalidURL: "Enter a valid http(s) feed URL."
+            case .invalidURL: "Enter a valid http(s) URL."
             case .unreachable: "Couldn't reach that URL."
-            case .notAFeed: "That URL doesn't look like an RSS or Atom feed."
+            case .notAFeed: "Couldn't find a feed at that site. Try pasting its RSS or Atom URL directly."
             }
         }
     }
@@ -85,7 +85,10 @@ enum FeedSubscriptionService {
         }
 
         guard !FeedParserService.parse(data: data).isEmpty else {
-            return .failure(.notAFeed)
+            // Not a feed — likely a blog or site homepage. Following someone's
+            // blog by pasting its plain URL is the common case, so discover the
+            // site's feed instead of rejecting.
+            return await addByDiscoveringFeed(fromPage: data, pageURL: url, in: context)
         }
 
         let source = subscribe(
@@ -95,5 +98,79 @@ enum FeedSubscriptionService {
             in: context
         )
         return .success(source)
+    }
+
+    // MARK: - Feed Discovery From a Site URL
+
+    /// Tries the page's advertised `<link rel="alternate">` feeds first, then
+    /// well-known feed paths on the site root. Subscribes to the first URL that
+    /// actually parses as a feed.
+    private static func addByDiscoveringFeed(
+        fromPage data: Data,
+        pageURL: URL,
+        in context: ModelContext
+    ) async -> Result<FeedSource, AddFeedError> {
+        var candidates: [String] = []
+
+        if let html = String(data: data, encoding: .utf8) {
+            candidates += advertisedFeedURLs(in: html, baseURL: pageURL)
+        }
+
+        if let scheme = pageURL.scheme, let host = pageURL.host {
+            let root = "\(scheme)://\(host)"
+            for path in ["/feed", "/feed.xml", "/rss", "/rss.xml", "/atom.xml", "/index.xml"] {
+                candidates.append(root + path)
+            }
+        }
+
+        var seen = Set<String>()
+        for candidate in candidates where seen.insert(candidate).inserted {
+            guard let url = URL(string: candidate) else { continue }
+
+            var request = URLRequest(url: url)
+            request.setValue("Grove/1.0", forHTTPHeaderField: "User-Agent")
+            request.timeoutInterval = 10
+
+            guard let (feedData, response) = try? await URLSession.shared.data(for: request),
+                  let httpResponse = response as? HTTPURLResponse,
+                  (200..<300).contains(httpResponse.statusCode),
+                  !FeedParserService.parse(data: feedData).isEmpty else {
+                continue
+            }
+
+            let source = subscribe(
+                feedURL: url.absoluteString,
+                domain: domainFrom(pageURL.absoluteString),
+                title: FeedFetchService.extractFeedTitle(from: feedData),
+                in: context
+            )
+            return .success(source)
+        }
+
+        return .failure(.notAFeed)
+    }
+
+    /// RSS/Atom `<link>` hrefs advertised in a page's HTML, resolved against
+    /// the page URL, in document order.
+    private static func advertisedFeedURLs(in html: String, baseURL: URL) -> [String] {
+        let pattern = #"<link[^>]*type\s*=\s*["'](?:application/rss\+xml|application/atom\+xml)["'][^>]*>"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else {
+            return []
+        }
+
+        let range = NSRange(html.startIndex..., in: html)
+        return regex.matches(in: html, range: range).compactMap { match in
+            guard let matchRange = Range(match.range, in: html) else { return nil }
+            let tag = String(html[matchRange])
+
+            let hrefPattern = #"href\s*=\s*["']([^"']+)["']"#
+            guard let hrefRegex = try? NSRegularExpression(pattern: hrefPattern, options: .caseInsensitive),
+                  let hrefMatch = hrefRegex.firstMatch(in: tag, range: NSRange(tag.startIndex..., in: tag)),
+                  let hrefRange = Range(hrefMatch.range(at: 1), in: tag) else {
+                return nil
+            }
+
+            return URL(string: String(tag[hrefRange]), relativeTo: baseURL)?.absoluteString
+        }
     }
 }

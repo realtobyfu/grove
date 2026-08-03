@@ -1,7 +1,19 @@
 import SwiftUI
 
 /// Settings view for CloudKit sync configuration.
+/// On macOS these sections live inside AccountSettingsView; iOS presents this view directly.
 struct SyncSettingsView: View {
+    var body: some View {
+        Form {
+            SyncSettingsSections()
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+    }
+}
+
+/// Form sections for CloudKit sync, embeddable in any Form.
+struct SyncSettingsSections: View {
     @Environment(EntitlementService.self) private var entitlement
     @Environment(PaywallCoordinator.self) private var paywallCoordinator
     @State private var syncEnabled = SyncSettings.syncEnabled
@@ -9,7 +21,7 @@ struct SyncSettingsView: View {
     @State private var paywallPresentation: PaywallPresentation?
 
     var body: some View {
-        Form {
+        Group {
             Section("iCloud Sync") {
                 Toggle("Enable CloudKit Sync", isOn: $syncEnabled)
                     .disabled(!entitlement.hasAccess(to: .sync))
@@ -83,8 +95,6 @@ struct SyncSettingsView: View {
                 }
             }
         }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
         .alert("Restart Required", isPresented: $showRestartAlert) {
             Button("OK") { }
         } message: {

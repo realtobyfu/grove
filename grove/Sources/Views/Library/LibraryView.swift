@@ -235,10 +235,9 @@ struct LibraryView: View {
         }
         Button("Delete", role: .destructive) {
             if let item = itemToDelete {
-                if selectedItem?.id == item.id { selectedItem = nil }
-                if openedItem?.id == item.id { openedItem = nil }
-                modelContext.delete(item)
-                try? modelContext.save()
+                // Presentation state (selection, reader, write panel) is
+                // cleared by the .groveItemWillDelete observer.
+                ItemViewModel(modelContext: modelContext).deleteItem(item)
             }
             itemToDelete = nil
         }
@@ -291,12 +290,9 @@ struct LibraryView: View {
     }
 
     private func performBulkDelete() {
-        for item in selectedItems {
-            if selectedItem?.id == item.id { selectedItem = nil }
-            if openedItem?.id == item.id { openedItem = nil }
-            modelContext.delete(item)
-        }
-        try? modelContext.save()
+        // Presentation state is cleared per item by the
+        // .groveItemWillDelete observer in ContentViewHandlers.
+        ItemViewModel(modelContext: modelContext).deleteItems(selectedItems)
         exitMultiSelect()
     }
 
@@ -360,80 +356,21 @@ struct LibraryView: View {
 
     // MARK: - Board Picker Sheet
 
+    /// Multi-select move. `.move` mode replaces board membership (matching
+    /// `moveItemsToBoard`) and offers Unfiled as an explicit target.
     private var boardPickerSheet: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Move to Board")
-                    .font(.groveItemTitle)
-                    .foregroundStyle(Color.textPrimary)
-                Spacer()
-                Button {
-                    showBoardPicker = false
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.groveBody)
-                        .foregroundStyle(Color.textSecondary)
-                }
-                .buttonStyle(.plain)
+        BoardPickerView(
+            boards: moveTargetBoards,
+            mode: .move,
+            onSelect: { board in
+                showBoardPicker = false
+                performMove(to: board)
+            },
+            onSelectUnfiled: {
+                showBoardPicker = false
+                performMove(to: nil)
             }
-            .padding()
-
-            Divider()
-
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    // Unfiled option
-                    Button {
-                        showBoardPicker = false
-                        performMove(to: nil)
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "tray")
-                                .font(.groveBody)
-                                .foregroundStyle(Color.textMuted)
-                                .frame(width: 20)
-                            Text("Unfiled")
-                                .font(.groveBody)
-                                .foregroundStyle(Color.textPrimary)
-                            Spacer()
-                        }
-                        .padding(.horizontal, Spacing.md)
-                        .padding(.vertical, 10)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-
-                    Divider().padding(.leading, 42)
-
-                    ForEach(moveTargetBoards) { board in
-                        Button {
-                            showBoardPicker = false
-                            performMove(to: board)
-                        } label: {
-                            HStack(spacing: 10) {
-                                Image(systemName: board.icon ?? "folder")
-                                    .font(.groveBody)
-                                    .foregroundStyle(Color.textMuted)
-                                    .frame(width: 20)
-                                Text(board.title)
-                                    .font(.groveBody)
-                                    .foregroundStyle(Color.textPrimary)
-                                Spacer()
-                            }
-                            .padding(.horizontal, Spacing.md)
-                            .padding(.vertical, 10)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-
-                        if board.id != moveTargetBoards.last?.id {
-                            Divider().padding(.leading, 42)
-                        }
-                    }
-                }
-            }
-        }
-        .frame(width: 320, height: min(CGFloat(moveTargetBoards.count + 1) * 48 + 60, 400))
+        )
     }
 
     // MARK: - Debounced Search

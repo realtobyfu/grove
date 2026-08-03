@@ -209,10 +209,9 @@ struct BoardDetailView: View {
             }
             Button("Delete", role: .destructive) {
                 if let item = itemToDelete {
-                    if selectedItem?.id == item.id { selectedItem = nil }
-                    if openedItem?.id == item.id { openedItem = nil }
-                    modelContext.delete(item)
-                    try? modelContext.save()
+                    // Presentation state (selection, reader, write panel) is
+                    // cleared by the .groveItemWillDelete observer.
+                    ItemViewModel(modelContext: modelContext).deleteItem(item)
                 }
                 itemToDelete = nil
             }

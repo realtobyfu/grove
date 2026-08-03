@@ -13,6 +13,13 @@ final class FeedDiscoveryService {
 
     private(set) var isRunning = false
 
+    /// Domains already tried by the on-demand path this session. Inbox cards
+    /// re-render constantly, so without this a single site would be fetched
+    /// once per render pass. Deliberately in-memory: a relaunch is a cheap,
+    /// user-invisible way to retry a site that was down.
+    @ObservationIgnored
+    private var attemptedDomains: Set<String> = []
+
     func discoverFeeds(in context: ModelContext) async {
         guard !isRunning else { return }
         guard !isInCooldown() else { return }
@@ -54,6 +61,53 @@ final class FeedDiscoveryService {
         }
 
         try? context.save()
+    }
+
+    // MARK: - On-Demand Single-Domain Discovery
+
+    /// Looks up one site's advertised feed so the inbox can offer "+ Follow"
+    /// while the user is still looking at the article.
+    ///
+    /// Unlike `discoverFeeds(in:)` this ignores the 24h library-wide cooldown —
+    /// it is scoped to a single domain the user just captured from — but each
+    /// domain is only fetched once per app session. Inserts at most one
+    /// suggestion, left disabled and unsubscribed like every auto-discovery.
+    func discoverFeed(forDomain domain: String, in context: ModelContext) async {
+        let host = normalizedDomain(domain)
+        guard !host.isEmpty else { return }
+        guard attemptedDomains.insert(host).inserted else { return }
+        guard !hasFeedSource(forDomain: host, in: context) else { return }
+
+        guard let feeds = await fetchFeedLinks(for: host) else { return }
+
+        // The network hop is a suspension point: the library sweep or another
+        // card may have inserted a source for this domain in the meantime.
+        guard !hasFeedSource(forDomain: host, in: context) else { return }
+
+        let existingFeedURLs = existingFeedURLSet(from: context)
+        guard let best = feeds.first(where: { feed in
+            !existingFeedURLs.contains(feed.url)
+                && !FeedPreferencesStore.isDiscoveryDismissed(feed.url)
+                // Comment feeds are advertised alongside the real one on most
+                // blog engines and are never what someone means by "follow".
+                && !feed.url.localizedCaseInsensitiveContains("comment")
+        }) else { return }
+
+        let source = FeedSource(
+            feedURL: best.url,
+            domain: host,
+            title: best.title,
+            isAutoDiscovered: true,
+            isEnabled: false,
+            isUserSubscribed: false
+        )
+        context.insert(source)
+        try? context.save()
+    }
+
+    private func hasFeedSource(forDomain host: String, in context: ModelContext) -> Bool {
+        guard let sources = try? context.fetch(FetchDescriptor<FeedSource>()) else { return false }
+        return sources.contains { normalizedDomain($0.domain) == host }
     }
 
     // MARK: - Domain Extraction

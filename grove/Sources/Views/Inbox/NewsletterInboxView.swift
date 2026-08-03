@@ -87,7 +87,7 @@ struct NewsletterInboxView: View {
             }
         }
         .background(Color.bgPrimary)
-        .navigationTitle("Newsletters")
+        .navigationTitle("Following")
         .sheet(isPresented: $showSubscriptions) {
             SubscriptionsSettingsView(showsHeader: true)
                 #if os(macOS)
@@ -100,9 +100,9 @@ struct NewsletterInboxView: View {
 
     private var emptyState: some View {
         ContentUnavailableView {
-            Label("No newsletter issues yet", systemImage: "newspaper")
+            Label("Nothing to read yet", systemImage: "newspaper")
         } description: {
-            Text("Subscribe to a newsletter and new issues will appear here.")
+            Text("Follow a newsletter or blog and new posts will appear here.")
         } actions: {
             Button("Manage subscriptions") {
                 showSubscriptions = true
@@ -192,32 +192,34 @@ struct NewsletterInboxView: View {
         let isExpanded = !isCollapsible || expandedSourceIDs.contains(group.id)
         let visibleRows = isExpanded ? group.issues : Array(group.issues.prefix(Self.collapsedIssueLimit))
 
-        VStack(alignment: .leading, spacing: Spacing.sm) {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
             if showsHeader {
                 HStack(spacing: Spacing.sm) {
                     Text(group.source.title ?? group.source.domain)
                         .sectionHeaderStyle()
                     if group.unread > 0 {
                         Text("\(group.unread)")
-                            .font(.groveBadge)
+                            .font(.groveMeta)
                             .foregroundStyle(Color.textTertiary)
                             .monospacedDigit()
                     }
                 }
+                .padding(.bottom, Spacing.xs)
             }
 
+            // Flat rows with hairline dividers, matching the library list.
             VStack(spacing: 0) {
                 ForEach(Array(visibleRows.enumerated()), id: \.element.id) { index, issue in
                     if index > 0 {
                         Divider()
-                            .padding(.leading, Spacing.lg)
+                            .padding(.leading, 30)
                     }
                     issueRow(issue)
                 }
 
                 if isCollapsible {
                     Divider()
-                        .padding(.leading, Spacing.lg)
+                        .padding(.leading, 30)
                     Button {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             if isExpanded {
@@ -227,26 +229,27 @@ struct NewsletterInboxView: View {
                             }
                         }
                     } label: {
+                        // Mono page-number idiom: "50 +" expands, "50 −" collapses.
                         HStack(spacing: Spacing.xs) {
-                            Text(isExpanded ? "Show less" : "Show all \(group.issues.count)")
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 9, weight: .medium))
-                                .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                            Text("\(group.issues.count)")
+                                .monospacedDigit()
+                            Text(isExpanded ? "\u{2212}" : "+")
                         }
                         .font(.groveMeta)
                         .foregroundStyle(Color.textTertiary)
-                        .padding(.horizontal, Spacing.md)
+                        .padding(.leading, 30)
                         .padding(.vertical, Spacing.sm)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .help(isExpanded ? "Show fewer issues" : "Show all \(group.issues.count) issues")
+                    .accessibilityLabel(isExpanded ? "Show fewer issues" : "Show all \(group.issues.count) issues")
                     #if os(iOS)
                     .frame(minHeight: LayoutDimensions.minTouchTarget)
                     #endif
                 }
             }
-            .cardStyle()
         }
     }
 
@@ -369,32 +372,17 @@ private struct NewsletterIssueRow: View {
     private var isKept: Bool { !item.isFeedSuggestion }
 
     var body: some View {
-        HStack(spacing: Spacing.md) {
+        HStack(spacing: 10) {
+            // Leading gutter mirrors the library's 20pt icon column.
             Circle()
                 .fill(isUnread ? Color.textPrimary : Color.clear)
                 .frame(width: 6, height: 6)
+                .frame(width: 20)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.title)
-                    .font(isUnread ? .groveBodyMedium : .groveBody)
-                    .foregroundStyle(isUnread ? Color.textPrimary : Color.textSecondary)
-                    .lineLimit(2)
-
-                HStack(spacing: Spacing.xs) {
-                    Text(publishedAt.formatted(date: .abbreviated, time: .omitted))
-                        .font(.groveMeta)
-                        .foregroundStyle(Color.textTertiary)
-
-                    if isKept {
-                        Text("·")
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textMuted)
-                        Label("In library", systemImage: "bookmark.fill")
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                    }
-                }
-            }
+            Text(item.title)
+                .font(isUnread ? .groveBodyMedium : .groveBody)
+                .foregroundStyle(isUnread ? Color.textPrimary : Color.textSecondary)
+                .lineLimit(1)
 
             Spacer(minLength: Spacing.sm)
 
@@ -405,7 +393,7 @@ private struct NewsletterIssueRow: View {
                         Button("Keep") {
                             onKeep()
                         }
-                        .font(.groveBodySmall)
+                        .font(.groveBadge)
                         .buttonStyle(.plain)
                         .foregroundStyle(Color.textSecondary)
                         .help("Save to library")
@@ -426,9 +414,19 @@ private struct NewsletterIssueRow: View {
                 .transition(.opacity)
             }
             #endif
+
+            if isKept {
+                Image(systemName: "bookmark.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Color.textMuted)
+                    .accessibilityLabel("In library")
+            }
+
+            Text(publishedAt.relativeShort)
+                .font(.groveMeta)
+                .foregroundStyle(Color.textTertiary)
         }
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.sm + 2)
+        .padding(.vertical, 8)
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         .contextMenu {

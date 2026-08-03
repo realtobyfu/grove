@@ -121,6 +121,20 @@ struct iPadRootView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
+        // The iOS roots own the reader bindings, so they — not the macOS-only
+        // ContentViewHandlers — must drop a deleted item before the next
+        // body pass reads its properties.
+        .onReceive(NotificationCenter.default.publisher(for: .groveItemWillDelete)) { note in
+            guard let id = NotificationCenter.itemWillDeleteID(from: note) else { return }
+            if readerCoordinator.openedItem?.id == id { readerCoordinator.openedItem = nil }
+            if readerCoordinator.selectedItem?.id == id { readerCoordinator.selectedItem = nil }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .groveOpenItem)) { note in
+            guard let id = note.object as? UUID,
+                  let item = allItems.first(where: { $0.id == id }) else { return }
+            readerCoordinator.openedItem = item
+            readerCoordinator.selectedItem = item
+        }
         .overlay(alignment: .top) {
             if showBoardSuggestion, let decision = pendingSuggestion {
                 MobileBoardSuggestionBanner(
@@ -201,16 +215,17 @@ struct iPadRootView: View {
         }
         .sheet(isPresented: $showBoardPicker) {
             if let suggestion = pendingSuggestion {
-                SmartBoardPickerSheet(
+                BoardPickerView(
                     boards: boards,
+                    mode: .add,
                     suggestedName: suggestion.suggestedName,
                     recommendedBoardID: suggestion.recommendedBoardID,
-                    prioritizedBoardIDs: suggestion.alternativeBoardIDs,
-                    onSelectBoard: { board in
+                    alternativeBoardIDs: suggestion.alternativeBoardIDs,
+                    onSelect: { board in
                         assignPendingItem(to: board)
                         dismissBoardSuggestion()
                     },
-                    onCreateBoard: { boardName in
+                    onCreate: { boardName in
                         createBoardFromPicker(named: boardName)
                         dismissBoardSuggestion()
                     }
@@ -267,7 +282,7 @@ struct iPadRootView: View {
                 Label("Library", systemImage: "books.vertical")
                     .tag(SidebarSelection.library)
 
-                Label("Newsletters", systemImage: "newspaper")
+                Label("Following", systemImage: "newspaper")
                     .tag(SidebarSelection.newsletters)
             }
 

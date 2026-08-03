@@ -7,6 +7,9 @@ enum ConnectionType: String, Codable, CaseIterable {
     case buildsOn
     case inspiredBy
     case sameTopic
+    /// Provenance: the target page was reached by following a link while
+    /// reading the source item. Recorded automatically, never picked by hand.
+    case linkedFrom
 
     var displayLabel: String {
         switch self {
@@ -15,7 +18,15 @@ enum ConnectionType: String, Codable, CaseIterable {
         case .buildsOn: "Builds On"
         case .inspiredBy: "Inspired By"
         case .sameTopic: "Same Topic"
+        case .linkedFrom: "Linked From"
         }
+    }
+
+    /// Types a person can choose when creating a connection by hand.
+    /// `.linkedFrom` is earned by browsing, so offering it in a picker would
+    /// let the user assert a provenance that never happened.
+    static var userSelectableCases: [ConnectionType] {
+        allCases.filter { $0 != .linkedFrom }
     }
 }
 

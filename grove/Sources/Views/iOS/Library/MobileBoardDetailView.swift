@@ -166,14 +166,16 @@ struct MobileBoardDetailView: View {
             }
             Button("Delete", role: .destructive) {
                 if let item = itemToDelete {
+                    // The iOS roots don't mount ContentViewHandlers, so the
+                    // local bindings are cleared here before the shared
+                    // deletion path runs.
                     if selectedItemBinding.wrappedValue?.id == item.id {
                         selectedItemBinding.wrappedValue = nil
                     }
                     if openedItemBinding.wrappedValue?.id == item.id {
                         openedItemBinding.wrappedValue = nil
                     }
-                    modelContext.delete(item)
-                    try? modelContext.save()
+                    ItemViewModel(modelContext: modelContext).deleteItem(item)
                 }
                 itemToDelete = nil
             }

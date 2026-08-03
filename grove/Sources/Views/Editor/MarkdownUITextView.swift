@@ -29,7 +29,7 @@ struct MarkdownUITextView: UIViewRepresentable {
         textView.smartQuotesType = .no
         textView.smartDashesType = .no
 
-        let defaultFont = UIFont(name: "IBMPlexSans-Regular", size: fontSize)
+        let defaultFont = UIFont(name: MarkdownTypeSpec.FontName.body, size: fontSize)
             ?? UIFont.systemFont(ofSize: fontSize)
         textView.font = defaultFont
         textView.textColor = .label
@@ -149,6 +149,23 @@ struct MarkdownUITextView: UIViewRepresentable {
                     isUpdating = false
                     return false
                 }
+            }
+
+            if let orderedLine = MarkdownLineParsing.orderedLine(line) {
+                let isEmptyItem = orderedLine.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                if isEmptyItem {
+                    return true
+                }
+                let insertion = "\n\(orderedLine.indent)\(orderedLine.number + 1)\(orderedLine.delimiter)\(orderedLine.spacer)"
+                let storage = textView.textStorage
+                isUpdating = true
+                storage.replaceCharacters(in: range, with: insertion)
+                textView.selectedRange = NSRange(location: range.location + (insertion as NSString).length, length: 0)
+                parent.text = textView.text
+                applyHighlighting(textView)
+                detectWikiLink(in: textView)
+                isUpdating = false
+                return false
             }
 
             if let quoteLine = parseQuoteLine(line) {
@@ -370,6 +387,20 @@ struct MarkdownUITextView: UIViewRepresentable {
                         applyAttributes([.paragraphStyle: listParagraphStyle()], to: item.lineRange, in: text, storage: storage)
                     }
 
+                case .orderedList(let list):
+                    // Numbers are the marker, so they stay visible — only the
+                    // indent rhythm is shared with bullet lines.
+                    for item in list.items {
+                        applyAttributes(
+                            [.font: monoFont(), .foregroundColor: secondaryColor],
+                            to: item.prefixRange,
+                            in: text,
+                            storage: storage
+                        )
+                        applyAttributes([.foregroundColor: primaryColor], to: item.contentRange, in: text, storage: storage)
+                        applyAttributes([.paragraphStyle: listParagraphStyle()], to: item.lineRange, in: text, storage: storage)
+                    }
+
                 case .codeBlock(let codeBlock):
                     let openingAttrs = document.shouldRevealCodeFence(codeBlock.openingFenceRange, for: selectionState)
                         ? [.foregroundColor: tertiaryColor, .font: monoFont()]
@@ -455,6 +486,15 @@ struct MarkdownUITextView: UIViewRepresentable {
                     )
                 }
             }
+
+            // Empty delimiter pairs (e.g. the `****` Bold inserts on an empty
+            // selection) match no span — dim them into a placeholder.
+            for pair in document.emptyMarkerPairs {
+                let attrs: [NSAttributedString.Key: Any] = pair.kind == .inlineCode
+                    ? [.font: monoFont(), .foregroundColor: tertiaryColor]
+                    : [.font: bodyFont(), .foregroundColor: tertiaryColor]
+                applyAttributes(attrs, to: pair.range, in: text, storage: storage)
+            }
         }
 
         private func delimiterAttributes(
@@ -522,7 +562,16 @@ struct MarkdownUITextView: UIViewRepresentable {
             in storage: NSTextStorage
         ) {
             storage.enumerateAttribute(.font, in: nsRange, options: []) { value, range, _ in
-                let baseFont = (value as? UIFont) ?? self.bodyFont()
+                var baseFont = (value as? UIFont) ?? self.bodyFont()
+
+                // IBM Plex Sans ships no Bold member — swap in the bundled
+                // emphasis face so bold reads the same as the rendered view.
+                if traits.contains(.traitBold),
+                   baseFont.fontName.hasPrefix("IBMPlexSans"),
+                   let emphasis = UIFont(name: MarkdownTypeSpec.FontName.bodyEmphasis, size: baseFont.pointSize) {
+                    baseFont = emphasis
+                }
+
                 let descriptor = baseFont.fontDescriptor.withSymbolicTraits(
                     baseFont.fontDescriptor.symbolicTraits.union(traits)
                 ) ?? baseFont.fontDescriptor
@@ -532,35 +581,27 @@ struct MarkdownUITextView: UIViewRepresentable {
         }
 
         private func bodyFont() -> UIFont {
-            UIFont(name: "IBMPlexSans-Regular", size: parent.fontSize)
+            UIFont(name: MarkdownTypeSpec.FontName.body, size: parent.fontSize)
                 ?? UIFont.systemFont(ofSize: parent.fontSize)
         }
 
         private func monoFont() -> UIFont {
-            UIFont(name: "IBMPlexMono-Regular", size: parent.fontSize - 2)
-                ?? UIFont.monospacedSystemFont(ofSize: parent.fontSize - 2, weight: .regular)
+            let size = MarkdownTypeSpec.monoSize(forBodySize: parent.fontSize)
+            return UIFont(name: MarkdownTypeSpec.FontName.mono, size: size)
+                ?? UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
         }
 
         private func headingFont(for level: Int) -> UIFont {
-            let size: CGFloat
-            switch level {
-            case 1:
-                size = round(parent.fontSize * 1.55)
-            case 2:
-                size = round(parent.fontSize * 1.22)
-            default:
-                size = round(parent.fontSize * 1.08)
-            }
-
-            return UIFont(name: "Newsreader-Medium", size: size)
+            let size = MarkdownTypeSpec.headingSize(forLevel: level, bodySize: parent.fontSize)
+            return UIFont(name: MarkdownTypeSpec.FontName.heading, size: size)
                 ?? UIFont.systemFont(ofSize: size, weight: .medium)
         }
 
         private func proseParagraphStyle() -> NSMutableParagraphStyle? {
             guard parent.fontSize >= 17 else { return nil }
             let style = NSMutableParagraphStyle()
-            style.lineSpacing = 2
-            style.paragraphSpacing = 6
+            style.lineSpacing = MarkdownTypeSpec.proseLineSpacing
+            style.paragraphSpacing = MarkdownTypeSpec.proseParagraphSpacing
             return style
         }
 

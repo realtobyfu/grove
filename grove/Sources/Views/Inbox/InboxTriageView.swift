@@ -14,6 +14,9 @@ struct InboxTriageView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Item.createdAt, order: .reverse) private var allItems: [Item]
     @Query(sort: \Board.sortOrder) private var boards: [Board]
+    /// Queried (not fetched on demand) so subscribing re-evaluates the cards
+    /// and the "+ Follow" affordance disappears on its own.
+    @Query private var feedSources: [FeedSource]
     @State private var focusedIndex: Int = 0
     @State private var showQueuedSection = false
     @State private var showBoardPicker = false
@@ -21,6 +24,21 @@ struct InboxTriageView: View {
     @State private var boardPickerSuggestedName: String = ""
     @State private var boardPickerRecommendedBoardID: UUID? = nil
     @State private var boardPickerAlternativeBoardIDs: [UUID] = []
+    /// True when the picker was opened from "Change" on a filed confirmation:
+    /// the pick replaces the item's board membership instead of appending.
+    @State private var boardPickerReplacesMembership = false
+    /// Transient "Filed to <board>" confirmation shown after a high-confidence
+    /// auto-assign, so silent filing is always visible and reversible.
+    @State private var filedConfirmation: FiledConfirmation? = nil
+    @State private var filedConfirmationTask: Task<Void, Never>? = nil
+
+    /// A board assignment made without asking, plus the item it applies to so
+    /// "Change" can reopen the picker scoped to that item.
+    private struct FiledConfirmation: Identifiable, Equatable {
+        let id = UUID()
+        let itemID: UUID
+        let boardTitle: String
+    }
 
     private var readLaterService: ReadLaterService {
         ReadLaterService(modelContext: modelContext)
@@ -39,35 +57,47 @@ struct InboxTriageView: View {
     }
 
     var body: some View {
-        Group {
-            if inboxItems.isEmpty {
-                if isEmbedded {
-                    embeddedEmptyState
+        VStack(spacing: 0) {
+            if let filedConfirmation {
+                filedConfirmationRow(filedConfirmation)
+            }
+
+            Group {
+                if inboxItems.isEmpty {
+                    if isEmbedded {
+                        embeddedEmptyState
+                    } else {
+                        emptyState
+                    }
                 } else {
-                    emptyState
-                }
-            } else {
-                if isEmbedded {
-                    embeddedInboxList
-                } else {
-                    inboxList
+                    if isEmbedded {
+                        embeddedInboxList
+                    } else {
+                        inboxList
+                    }
                 }
             }
         }
+        .animation(.easeInOut(duration: 0.2), value: filedConfirmation)
         .sheet(isPresented: $showBoardPicker) {
             if let item = itemToAssign {
-                SmartBoardPickerSheet(
+                BoardPickerView(
                     boards: boards,
+                    mode: .add,
                     suggestedName: boardPickerSuggestedName,
                     recommendedBoardID: boardPickerRecommendedBoardID,
-                    prioritizedBoardIDs: boardPickerAlternativeBoardIDs,
-                    onSelectBoard: { board in
+                    alternativeBoardIDs: boardPickerAlternativeBoardIDs,
+                    onSelect: { board in
                         BoardSuggestionMetadata.recordSelection(board, on: item)
                         let viewModel = ItemViewModel(modelContext: modelContext)
-                        viewModel.assignToBoard(item, board: board)
+                        if boardPickerReplacesMembership {
+                            viewModel.moveItemsToBoard([item], board: board)
+                        } else {
+                            viewModel.assignToBoard(item, board: board)
+                        }
                         resetBoardPickerState()
                     },
-                    onCreateBoard: { title in
+                    onCreate: { title in
                         createAndAssignBoard(named: title, to: item)
                         resetBoardPickerState()
                     }
@@ -99,6 +129,10 @@ struct InboxTriageView: View {
                 restoreDueQueuedItems()
             }
         }
+        .task(id: pendingDiscoveryDomain) {
+            guard let domain = pendingDiscoveryDomain else { return }
+            await FeedDiscoveryService.shared.discoverFeed(forDomain: domain, in: modelContext)
+        }
     }
 
     // MARK: - Inbox List
@@ -116,11 +150,16 @@ struct InboxTriageView: View {
                             InboxCard(
                                 item: item,
                                 isSelected: index == focusedIndex,
+                                suggestedBoards: suggestedBoards(for: item),
                                 onKeep: { keepItem(item) },
                                 onDrop: { dropItem(item) },
                                 onQueue: { preset in queueItem(item, preset: preset) },
                                 onConfirmTag: { tag in confirmTag(tag) },
-                                onDismissTag: { tag in dismissTag(tag, from: item) }
+                                onDismissTag: { tag in dismissTag(tag, from: item) },
+                                onFileToBoard: { board in keepItem(item, filingTo: board) },
+                                onMoreBoards: { presentBoardPicker(for: item) },
+                                followableSite: followableSite(for: item),
+                                onFollowSite: { followSite(for: item) }
                             )
                             .id(item.id)
                             .transition(.asymmetric(
@@ -172,11 +211,16 @@ struct InboxTriageView: View {
                     InboxCard(
                         item: item,
                         isSelected: index == focusedIndex,
+                        suggestedBoards: suggestedBoards(for: item),
                         onKeep: { keepItem(item) },
                         onDrop: { dropItem(item) },
                         onQueue: { preset in queueItem(item, preset: preset) },
                         onConfirmTag: { tag in confirmTag(tag) },
-                        onDismissTag: { tag in dismissTag(tag, from: item) }
+                        onDismissTag: { tag in dismissTag(tag, from: item) },
+                        onFileToBoard: { board in keepItem(item, filingTo: board) },
+                        onMoreBoards: { presentBoardPicker(for: item) },
+                        followableSite: followableSite(for: item),
+                        onFollowSite: { followSite(for: item) }
                     )
                     .id(item.id)
                     .transition(.asymmetric(
@@ -308,7 +352,11 @@ struct InboxTriageView: View {
         }
     }
 
-    private func keepItem(_ item: Item) {
+    /// Keep an item. With no board, this is "keep unfiled" — it never raises a
+    /// modal. Passing a board files it in the same gesture (the card's board
+    /// chips). High-confidence auto-assign still fires for unfiled keeps, but
+    /// now announces itself through the inline confirmation row.
+    private func keepItem(_ item: Item, filingTo board: Board? = nil) {
         if item.isFeedSuggestion {
             recordSuggestionSignal(for: item, kept: true)
             // Kept suggestions become regular items; clear the flag so they
@@ -321,32 +369,153 @@ struct InboxTriageView: View {
         item.updatedAt = .now
         item.tags.removeAll { $0.isAutoGenerated }
 
-        // Auto-assign only when classification confidence is high
-        if item.boards.isEmpty,
-           let decision = BoardSuggestionMetadata.decision(from: item),
-           let matchedBoard = autoAssignBoard(from: decision) {
-            item.boards.append(matchedBoard)
-            BoardSuggestionMetadata.recordSelection(matchedBoard, on: item)
-        } else if item.boards.isEmpty,
-                  let suggestedName = item.metadata["suggestedBoard"],
-                  let matchedBoard = boards.first(where: { $0.title.localizedCaseInsensitiveCompare(suggestedName) == .orderedSame }) {
-            item.boards.append(matchedBoard)
-            BoardSuggestionMetadata.recordSelection(matchedBoard, on: item)
+        if let board {
+            // Explicit one-gesture filing — no auto-assign, no confirmation.
+            BoardSuggestionMetadata.recordSelection(board, on: item)
+            ItemViewModel(modelContext: modelContext).assignToBoard(item, board: board)
+            clearFiledConfirmation()
+        } else if item.boards.isEmpty {
+            // Auto-assign only when classification confidence is high.
+            var autoAssigned: Board? = nil
+            if let decision = BoardSuggestionMetadata.decision(from: item),
+               let matchedBoard = autoAssignBoard(from: decision) {
+                autoAssigned = matchedBoard
+            } else if let suggestedName = item.metadata["suggestedBoard"],
+                      let matchedBoard = boards.first(where: {
+                          $0.title.localizedCaseInsensitiveCompare(suggestedName) == .orderedSame
+                      }) {
+                autoAssigned = matchedBoard
+            }
+
+            if let autoAssigned {
+                item.boards.append(autoAssigned)
+                BoardSuggestionMetadata.recordSelection(autoAssigned, on: item)
+                showFiledConfirmation(item: item, board: autoAssigned)
+            }
         }
 
         try? modelContext.save()
 
-        // Only show board picker if the item still has no board assigned
-        if item.boards.isEmpty {
-            let decision = BoardSuggestionMetadata.decision(from: item)
-            boardPickerSuggestedName = decision?.suggestedName ?? (item.metadata["suggestedBoard"] ?? "")
-            boardPickerRecommendedBoardID = decision?.recommendedBoardID
-            boardPickerAlternativeBoardIDs = decision?.alternativeBoardIDs ?? []
-            itemToAssign = item
-            showBoardPicker = true
-        }
-
         adjustFocusAfterRemoval()
+    }
+
+    /// Open the picker scoped to one item, seeded with its suggestion data.
+    /// `replacingMembership` is the "Change" entry point: the pick corrects an
+    /// assignment that already happened, so it must replace, not append.
+    private func presentBoardPicker(for item: Item, replacingMembership: Bool = false) {
+        let decision = BoardSuggestionMetadata.decision(from: item)
+        boardPickerSuggestedName = decision?.suggestedName ?? (item.metadata["suggestedBoard"] ?? "")
+        boardPickerRecommendedBoardID = decision?.recommendedBoardID
+        boardPickerAlternativeBoardIDs = decision?.alternativeBoardIDs ?? []
+        boardPickerReplacesMembership = replacingMembership
+        itemToAssign = item
+        showBoardPicker = true
+    }
+
+    /// One-click board chips for a card: recommended first, then alternates.
+    private func suggestedBoards(for item: Item) -> [Board] {
+        BoardRanking.suggestedBoards(for: item, from: boards)
+    }
+
+    // MARK: - Follow the Site
+
+    /// Host of an item's source, normalized to match `FeedSource.domain`.
+    /// Nil for anything that isn't a plain http(s) page — local files, notes,
+    /// and custom schemes have no site to follow.
+    private func followHost(for item: Item) -> String? {
+        guard let urlString = item.sourceURL, !urlString.isEmpty,
+              let url = resolvedSourceURL(from: urlString),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = url.host, !host.isEmpty else { return nil }
+        let normalized = normalizedDomain(host)
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private func feedSource(for item: Item) -> FeedSource? {
+        guard let host = followHost(for: item) else { return nil }
+        return feedSources.first { normalizedDomain($0.domain) == host }
+    }
+
+    /// Display domain for the card's "+ Follow" chip, or nil to show nothing.
+    /// Only sites Grove already knows a feed for are offerable; a site with no
+    /// FeedSource yet stays silent until on-demand discovery lands one.
+    private func followableSite(for item: Item) -> String? {
+        guard let host = followHost(for: item),
+              let source = feedSource(for: item),
+              !source.isUserSubscribed else { return nil }
+        return host
+    }
+
+    private func followSite(for item: Item) {
+        guard let source = feedSource(for: item), !source.isUserSubscribed else { return }
+        FeedSubscriptionService.subscribe(source, in: modelContext)
+    }
+
+    /// Domain of the focused card when Grove has no FeedSource for it yet.
+    /// Drives a single `.task(id:)` rather than per-card work, so scrolling a
+    /// long inbox doesn't fan out into a burst of homepage fetches.
+    private var pendingDiscoveryDomain: String? {
+        let items = inboxItems
+        guard focusedIndex >= 0, focusedIndex < items.count else { return nil }
+        let item = items[focusedIndex]
+        // Newsletter issues already arrive from a subscription — there is
+        // nothing left to follow.
+        guard !item.isNewsletterIssue else { return nil }
+        guard let host = followHost(for: item), feedSource(for: item) == nil else { return nil }
+        return host
+    }
+
+    // MARK: - Auto-assign Confirmation
+
+    private func showFiledConfirmation(item: Item, board: Board) {
+        filedConfirmationTask?.cancel()
+        filedConfirmation = FiledConfirmation(itemID: item.id, boardTitle: board.title)
+        filedConfirmationTask = MainActorTaskScheduler.schedule(after: .seconds(6)) {
+            withAnimation(.easeOut(duration: 0.2)) {
+                filedConfirmation = nil
+            }
+        }
+    }
+
+    private func clearFiledConfirmation() {
+        filedConfirmationTask?.cancel()
+        filedConfirmationTask = nil
+        filedConfirmation = nil
+    }
+
+    private func filedConfirmationRow(_ confirmation: FiledConfirmation) -> some View {
+        HStack(spacing: Spacing.sm) {
+            Text("Filed to \(confirmation.boardTitle)")
+                .font(.groveMeta)
+                .foregroundStyle(Color.textSecondary)
+                .lineLimit(1)
+
+            Text("\u{2014}")
+                .font(.groveMeta)
+                .foregroundStyle(Color.textMuted)
+
+            Button("Change") {
+                guard let item = allItems.first(where: { $0.id == confirmation.itemID }) else { return }
+                clearFiledConfirmation()
+                presentBoardPicker(for: item, replacingMembership: true)
+            }
+            .buttonStyle(.plain)
+            .font(.groveMeta)
+            .foregroundStyle(Color.textPrimary)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, Spacing.sm)
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(Color.textPrimary)
+                .frame(width: 2)
+        }
+        .padding(.horizontal, Spacing.lg)
+        .padding(.top, Spacing.sm)
+        .transition(.opacity)
     }
 
     private func dropItem(_ item: Item) {
@@ -372,12 +541,16 @@ struct InboxTriageView: View {
         guard decision.mode == .existing else { return nil }
         guard decision.confidence >= 0.78 else { return nil }
 
+        // Smart boards are rule-driven; membership must never be written into
+        // them, so they are not auto-assign targets.
         if let recommendedBoardID = decision.recommendedBoardID,
-           let recommended = boards.first(where: { $0.id == recommendedBoardID }) {
+           let recommended = boards.first(where: { $0.id == recommendedBoardID && !$0.isSmart }) {
             return recommended
         }
 
-        return boards.first(where: { $0.title.localizedCaseInsensitiveCompare(decision.suggestedName) == .orderedSame })
+        return boards.first(where: {
+            !$0.isSmart && $0.title.localizedCaseInsensitiveCompare(decision.suggestedName) == .orderedSame
+        })
     }
 
     private func createAndAssignBoard(named rawTitle: String, to item: Item) {
@@ -405,6 +578,7 @@ struct InboxTriageView: View {
         boardPickerSuggestedName = ""
         boardPickerRecommendedBoardID = nil
         boardPickerAlternativeBoardIDs = []
+        boardPickerReplacesMembership = false
     }
 
     // MARK: - Tag Actions

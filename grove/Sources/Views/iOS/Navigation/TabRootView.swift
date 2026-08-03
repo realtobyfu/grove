@@ -71,7 +71,7 @@ struct TabRootView: View {
                 }
             }
 
-            SwiftUI.Tab("Newsletters", systemImage: "newspaper", value: Tab.newsletters) {
+            SwiftUI.Tab("Following", systemImage: "newspaper", value: Tab.newsletters) {
                 NavigationStack {
                     NewsletterInboxView()
                 }
@@ -182,16 +182,17 @@ struct TabRootView: View {
         }
         .sheet(isPresented: $showBoardPicker) {
             if let suggestion = pendingSuggestion {
-                SmartBoardPickerSheet(
+                BoardPickerView(
                     boards: boards,
+                    mode: .add,
                     suggestedName: suggestion.suggestedName,
                     recommendedBoardID: suggestion.recommendedBoardID,
-                    prioritizedBoardIDs: suggestion.alternativeBoardIDs,
-                    onSelectBoard: { board in
+                    alternativeBoardIDs: suggestion.alternativeBoardIDs,
+                    onSelect: { board in
                         assignPendingItem(to: board)
                         dismissBoardSuggestion()
                     },
-                    onCreateBoard: { boardName in
+                    onCreate: { boardName in
                         createBoardFromPicker(named: boardName)
                         dismissBoardSuggestion()
                     }
