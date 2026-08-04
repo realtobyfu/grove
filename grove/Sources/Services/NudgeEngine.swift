@@ -64,6 +64,13 @@ final class NudgeEngine: NudgeEngineProtocol {
     /// Streak, continue-course, connection-prompt, smart, and check-in nudges are removed —
     /// their role is now served by ConversationStarterService prompt bubbles on the home screen.
     func generateNudges() {
+        // Before anything reads the nudge table: retire the ones that can no
+        // longer reach anybody. Every generation path comes through here, and
+        // the dedupe guards below count these ghosts, so the sweep has to
+        // happen first or a single invisible nudge blocks its whole category
+        // forever.
+        sweepUnreachableNudges()
+
         processReadLaterQueue()
 
         // Reset stale resurfacing intervals (60+ days no engagement → back to 7 days)
@@ -85,6 +92,43 @@ final class NudgeEngine: NudgeEngineProtocol {
 
     private func processReadLaterQueue() {
         _ = readLaterService.restoreDueItems()
+    }
+
+    // MARK: - Unreachable Nudge Sweep
+
+    /// Marks pending/shown nudges that have no surface left as dismissed.
+    ///
+    /// Two kinds go permanently invisible while still counting against the
+    /// "don't create a second one" guards, which deadlocks their generator:
+    ///
+    /// - a `staleInbox` nudge while system notifications are off — the Today
+    ///   list on Home only renders `resurface` nudges, so a notification is
+    ///   its only surface and there isn't one;
+    /// - a `resurface` nudge whose `targetItem` has since been deleted — Home
+    ///   filters it out (nothing to open), but the pending check still sees it.
+    ///
+    /// Idempotent: a swept nudge is `.dismissed` and never matches again.
+    func sweepUnreachableNudges() {
+        let notificationsEnabled = NudgeSettings.notificationsEnabled
+        let allNudges: [Nudge] = modelContext.fetchAll()
+        var didSweep = false
+
+        for nudge in allNudges where nudge.status == .pending || nudge.status == .shown {
+            let isUnreachable: Bool
+            switch nudge.type {
+            case .staleInbox:
+                isUnreachable = !notificationsEnabled
+            case .resurface:
+                isUnreachable = nudge.targetItem == nil
+            default:
+                isUnreachable = false
+            }
+            guard isUnreachable else { continue }
+            nudge.status = .dismissed
+            didSweep = true
+        }
+
+        if didSweep { try? modelContext.save() }
     }
 
     // MARK: - Daily Limit Helpers

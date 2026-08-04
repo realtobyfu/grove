@@ -146,6 +146,32 @@ final class Item {
         computedScoreBreakdown.reduce(0) { $0 + $1.points }
     }
 
+    // MARK: - Video
+
+    /// Runtime of a video item as `m:ss` (or `h:mm:ss`), when its length is
+    /// known. Written in seconds — fractional for local files, whole numbers
+    /// from a host's oEmbed data — so both forms are parsed as a Double.
+    var videoDurationLabel: String? {
+        guard type == .video,
+              let raw = metadata["videoDuration"],
+              let seconds = Double(raw),
+              seconds.isFinite, seconds >= 1 else { return nil }
+        return seconds.formattedTimestamp
+    }
+
+    // MARK: - Documents
+
+    /// True when what this item points at is a PDF rather than a web page.
+    ///
+    /// The capture path and the metadata enricher both record the format
+    /// explicitly; the URL check is the fallback for items saved before they
+    /// did, so a legacy `.pdf` link still opens in the document reader.
+    var isPDFDocument: Bool {
+        if metadata["format"] == "pdf" { return true }
+        guard let url = resolvedSourceURL(from: sourceURL) else { return false }
+        return url.pathExtension.lowercased() == "pdf"
+    }
+
     // MARK: - Feed / Newsletter
 
     /// True for any item that originated from a subscribed feed, regardless

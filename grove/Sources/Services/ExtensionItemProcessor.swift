@@ -26,6 +26,11 @@ enum ExtensionItemProcessor {
         let pending = items.filter { $0.metadata["pendingFromExtension"] == "true" }
         guard !pending.isEmpty else { return }
 
+        let enricher = ItemMetadataEnricher(
+            metadataFetcher: metadataFetcher,
+            imageDownloader: imageDownloader
+        )
+
         for item in pending {
             // Clear the extension flag immediately to avoid reprocessing
             item.metadata["pendingFromExtension"] = nil
@@ -39,19 +44,25 @@ enum ExtensionItemProcessor {
                 continue
             }
 
+            // The extension saves every URL as a plain `.article` with no routing
+            // metadata. Classify it here, before enrichment, so the drain produces
+            // exactly what in-app capture would have.
+            if let urlString = item.sourceURL, isWebURL(urlString) {
+                CaptureService.applyURLClassification(item: item, urlString: urlString)
+            }
+
             let itemID = item.id
             let sourceURL = item.sourceURL
             let needsMetadata = item.metadata["fetchingMetadata"] == "true"
 
             Task {
-                // Step 1: Fetch metadata for URL items (title, description, thumbnail)
+                // Step 1: Enrich URL items through the same router in-app capture
+                // uses — arXiv, video oEmbed, PDF, or the generic scrape.
                 if needsMetadata, let urlString = sourceURL {
-                    await fetchMetadata(
+                    _ = await enricher.enrichURLItem(
                         itemID: itemID,
                         urlString: urlString,
-                        context: context,
-                        metadataFetcher: metadataFetcher,
-                        imageDownloader: imageDownloader
+                        context: context
                     )
                 }
 
@@ -77,51 +88,11 @@ enum ExtensionItemProcessor {
         }
     }
 
-    // MARK: - Metadata Fetch
-
-    /// Fetches URL metadata (title, description, thumbnail) and updates the item.
-    /// Same pipeline as CaptureService but for pre-existing items.
-    private static func fetchMetadata(
-        itemID: UUID,
-        urlString: String,
-        context: ModelContext,
-        metadataFetcher: URLMetadataFetcherProtocol,
-        imageDownloader: ImageDownloadServiceProtocol
-    ) async {
-        guard let metadata = await metadataFetcher.fetch(urlString: urlString) else {
-            // Clear loading flag even on failure
-            let desc = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-            if let item = try? context.fetch(desc).first {
-                item.metadata["fetchingMetadata"] = nil
-                try? context.save()
-            }
-            return
-        }
-
-        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-        guard let item = try? context.fetch(descriptor).first else { return }
-
-        if let title = metadata.title {
-            item.title = title
-        }
-        if let description = metadata.description {
-            item.content = description
-        }
-
-        // Prefer LinkPresentation image data, fall back to URL download
-        if let rawImageData = metadata.imageData,
-           let compressed = imageDownloader.compressImageData(rawImageData) {
-            item.thumbnail = compressed
-        } else if let imageURLString = metadata.imageURL {
-            item.metadata["thumbnailURL"] = imageURLString
-            if let imageData = await imageDownloader.downloadAndCompress(urlString: imageURLString) {
-                item.thumbnail = imageData
-            }
-        }
-
-        item.metadata["fetchingMetadata"] = nil
-        item.updatedAt = .now
-        try? context.save()
+    /// Only http(s) URLs get classified — a local-file or custom-scheme source
+    /// isn't a web page and has no type to derive.
+    private static func isWebURL(_ urlString: String) -> Bool {
+        guard let scheme = URL(string: urlString)?.scheme?.lowercased() else { return false }
+        return scheme == "http" || scheme == "https"
     }
 
     // MARK: - Auto-Tagging

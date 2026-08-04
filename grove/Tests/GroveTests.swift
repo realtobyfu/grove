@@ -200,6 +200,7 @@ struct GroveTests {
         recent.status = .active
         recent.createdAt = .now
         recent.updatedAt = .now
+        recent.metadata["summary"] = "A recent thought with enough substance to ground a starter."
 
         await service.refresh(items: [recent])
 
@@ -207,7 +208,7 @@ struct GroveTests {
     }
 
     @MainActor
-    @Test func conversationStarterServiceProvidesFallbackWhenNoContext() async {
+    @Test func conversationStarterServiceShowsNothingWhenLLMUnavailable() async {
         UserDefaults.standard.removeObject(forKey: "grove.conversationStarters")
 
         let provider = MockLLMProvider()
@@ -216,8 +217,37 @@ struct GroveTests {
         let service = ConversationStarterService(provider: provider)
         await service.refresh(items: [])
 
-        #expect(service.bubbles.count == 1)
-        #expect(service.bubbles.first?.label == "REFLECT")
+        #expect(service.bubbles.isEmpty)
+    }
+
+    @MainActor
+    @Test func conversationStarterServiceDismissRemovesBubble() async {
+        UserDefaults.standard.removeObject(forKey: "grove.conversationStarters")
+
+        let provider = MockLLMProvider()
+        provider.responseContent = """
+        [
+          {"prompt":"P1","label":"REVISIT"},
+          {"prompt":"P2","label":"EXPLORE"},
+          {"prompt":"P3","label":"RESOLVE"}
+        ]
+        """
+
+        let service = ConversationStarterService(provider: provider)
+        let recent = Item(title: "Recent", type: .note)
+        recent.status = .active
+        recent.createdAt = .now
+        recent.updatedAt = .now
+        recent.metadata["summary"] = "A recent thought with enough substance to ground a starter."
+
+        await service.refresh(items: [recent])
+        let originalCount = service.bubbles.count
+        #expect(originalCount > 1)
+
+        service.dismiss(service.bubbles[0])
+
+        #expect(service.bubbles.count == originalCount - 1)
+        #expect(service.bubbles.first?.prompt == "P2")
     }
 
     @MainActor
@@ -238,6 +268,7 @@ struct GroveTests {
         item.status = .active
         item.createdAt = .now
         item.updatedAt = .now
+        item.metadata["summary"] = "A recent thought with enough substance to ground a starter."
         item.boards.append(board)
 
         await service.refresh(items: [item])
@@ -576,6 +607,51 @@ struct GroveTests {
 
         UserDefaults.standard.removeObject(forKey: key)
         #expect(!NudgeSettings.notificationsEnabled)
+    }
+
+    @MainActor
+    @Test func nudgeGenerationSweepsNudgesThatCanNoLongerReachTheUser() throws {
+        let key = "nudge.notifications.enabled"
+        let previousValue = UserDefaults.standard.object(forKey: key)
+        defer {
+            if let previousValue {
+                UserDefaults.standard.set(previousValue, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+        NudgeSettings.notificationsEnabled = false
+
+        let context = try makeInMemoryModelContext()
+
+        // No notification surface, and Home only lists resurface nudges.
+        let staleInbox = Nudge(type: .staleInbox, message: "8 items waiting")
+        context.insert(staleInbox)
+
+        // Home filters targetless resurface nudges out, but the pending guard
+        // in the generator still counted them.
+        let orphanResurface = Nudge(type: .resurface, message: "Revisit?")
+        context.insert(orphanResurface)
+
+        // Control: reachable, must survive untouched.
+        let target = Item(title: "Still here", type: .note)
+        context.insert(target)
+        let liveResurface = Nudge(type: .resurface, message: "Revisit?", targetItem: target)
+        context.insert(liveResurface)
+        try context.save()
+
+        let engine = NudgeEngine(modelContext: context)
+        engine.generateNudges()
+
+        #expect(staleInbox.status == .dismissed)
+        #expect(orphanResurface.status == .dismissed)
+        #expect(liveResurface.status == .pending)
+
+        // Idempotent: a second run leaves the swept nudges exactly as they are.
+        engine.generateNudges()
+        #expect(staleInbox.status == .dismissed)
+        #expect(orphanResurface.status == .dismissed)
+        #expect(liveResurface.status == .pending)
     }
 
     private func makeDate(

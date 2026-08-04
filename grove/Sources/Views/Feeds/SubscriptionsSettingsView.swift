@@ -479,26 +479,3 @@ private struct FeedMonogram: View {
             .accessibilityHidden(true)
     }
 }
-
-// MARK: - Button Style
-
-/// Small monochrome button used for the inline Add/Subscribe actions.
-/// Same 4pt-radius language as other inline buttons (e.g. library Discuss).
-private struct GroveCompactButtonStyle: ButtonStyle {
-    var prominent: Bool = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.groveBodySmall)
-            .foregroundStyle(prominent ? Color.textInverse : Color.textPrimary)
-            .padding(.horizontal, Spacing.md)
-            .padding(.vertical, Spacing.xs + 1)
-            .background(prominent ? Color.textPrimary : Color.bgCard)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-            .overlay(
-                RoundedRectangle(cornerRadius: 4)
-                    .stroke(prominent ? Color.clear : Color.borderPrimary, lineWidth: 1)
-            )
-            .opacity(configuration.isPressed ? 0.7 : 1)
-    }
-}

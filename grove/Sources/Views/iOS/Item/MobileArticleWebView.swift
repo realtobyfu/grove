@@ -113,7 +113,13 @@ struct MobileArticleWebView: UIViewRepresentable {
         // Browser history controls
         if goBackToken != coordinator.lastGoBackToken {
             coordinator.lastGoBackToken = goBackToken
-            webView.goBack()
+            if webView.canGoBack {
+                webView.goBack()
+            } else {
+                // No engine history (pane mounted directly on a link target):
+                // Back means the item's own page.
+                webView.load(URLRequest(url: url))
+            }
             return
         }
         if goForwardToken != coordinator.lastGoForwardToken {

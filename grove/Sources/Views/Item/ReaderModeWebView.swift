@@ -73,6 +73,8 @@ struct ReaderTypographySettings: Equatable {
     var useSerif: Bool = true
 
     static let sizeStepRange = 0...3
+    /// What "Reset" returns to — the same value a fresh install starts at.
+    static let defaultSizeStep = 1
     static let sizeStepKey = "reader.typography.sizeStep"
     static let isWideKey = "reader.typography.isWide"
     static let useSerifKey = "reader.typography.useSerif"

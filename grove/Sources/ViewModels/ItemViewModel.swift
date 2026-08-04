@@ -65,7 +65,7 @@ final class ItemViewModel {
     /// The notification is posted *before* the delete so observers can read
     /// `item.id` and tear down while the model is still valid.
     func deleteItem(_ item: Item) {
-        NotificationCenter.default.postItemWillDelete(id: item.id)
+        retireItem(item)
         modelContext.delete(item)
         try? modelContext.save()
     }
@@ -75,10 +75,21 @@ final class ItemViewModel {
     func deleteItems(_ items: [Item]) {
         guard !items.isEmpty else { return }
         for item in items {
-            NotificationCenter.default.postItemWillDelete(id: item.id)
+            retireItem(item)
             modelContext.delete(item)
         }
         try? modelContext.save()
+    }
+
+    /// Everything a deletion owes the rest of the app, in the moment the model
+    /// is still valid: announce it, then drop the on-disk caches keyed by its
+    /// id. Those caches (the Reader-mode extraction, the downloaded PDF) are
+    /// outside SwiftData, so nothing else will ever collect them.
+    private func retireItem(_ item: Item) {
+        let id = item.id
+        NotificationCenter.default.postItemWillDelete(id: id)
+        ArticleReaderService.shared.removeCachedArticle(for: id)
+        PDFMetadataService.removeCachedFile(itemID: id)
     }
 
     // MARK: - Connections

@@ -7,6 +7,13 @@ struct URLMetadata: Sendable {
     var imageURL: String?
     var imageData: Data?
     var bodyText: String?
+    /// Comma-separated author names harvested from Highwire `citation_author` tags.
+    var authors: String?
+    /// Runtime in seconds, from the schema.org `duration` meta tag YouTube
+    /// watch pages carry. Nil for pages that publish no duration.
+    var durationSeconds: Int?
+    /// The URL served a PDF, not HTML — nothing was parsed as markup.
+    var isPDF: Bool = false
 }
 
 /// Protocol for URL metadata fetching.
@@ -38,6 +45,16 @@ final class URLMetadataFetcher: URLMetadataFetcherProtocol, Sendable {
             return nil
         }
 
+        // A PDF has no markup to scrape; report it so the caller can hand off to
+        // the PDF pipeline rather than storing a garbage title.
+        if let session, session.isPDF {
+            var pdfResult = URLMetadata()
+            pdfResult.isPDF = true
+            pdfResult.title = lp.title
+            pdfResult.imageData = lp.imageData
+            return pdfResult
+        }
+
         // Merge: LP title preferred (works on protected sites), URLSession for description/body
         var merged = URLMetadata()
         merged.title = lp.title ?? session?.title
@@ -45,10 +62,22 @@ final class URLMetadataFetcher: URLMetadataFetcherProtocol, Sendable {
         merged.imageData = lp.imageData
         merged.imageURL = session?.imageURL
         merged.bodyText = session?.bodyText
+        merged.authors = session?.authors
+        merged.durationSeconds = session?.durationSeconds
         return merged
     }
 
+    /// Largest response body this scraper will hold in memory. Real HTML pages
+    /// are orders of magnitude smaller; anything past the cap is a download the
+    /// scraper has no business buffering, so it is truncated mid-stream.
+    private static let maxBodyBytes = 10 * 1024 * 1024
+
     /// Original URLSession-based fetch (HTML scraping for OG tags and body text).
+    ///
+    /// Streams the response rather than buffering it: a PDF is recognized from
+    /// its Content-Type (or its first bytes) and the transfer is cancelled
+    /// without downloading the document, and any body is capped so a
+    /// mislabelled multi-gigabyte file cannot be pulled into memory.
     private func fetchViaURLSession(url: URL) async -> URLMetadata? {
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
@@ -57,14 +86,43 @@ final class URLMetadataFetcher: URLMetadataFetcherProtocol, Sendable {
             forHTTPHeaderField: "User-Agent"
         )
 
+        var pdfResult = URLMetadata()
+        pdfResult.isPDF = true
+
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (bytes, response) = try await URLSession.shared.bytes(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse,
                   (200...299).contains(httpResponse.statusCode) else {
+                bytes.task.cancel()
                 return nil
             }
 
+            // The headers already say it's a PDF — never read the body.
+            if httpResponse.mimeType == "application/pdf" {
+                bytes.task.cancel()
+                return pdfResult
+            }
+
+            var buffer: [UInt8] = []
+            buffer.reserveCapacity(64 * 1024)
+            var isPDF = false
+            for try await byte in bytes {
+                buffer.append(byte)
+                // Servers mislabel PDFs routinely; the magic bytes don't lie.
+                if buffer.count == Self.pdfSniffLength {
+                    if Self.looksLikePDF(buffer) {
+                        isPDF = true
+                        break
+                    }
+                }
+                if buffer.count >= Self.maxBodyBytes { break }
+            }
+            bytes.task.cancel()
+
+            if isPDF { return pdfResult }
+
+            let data = Data(buffer)
             guard let html = String(data: data, encoding: .utf8)
                     ?? String(data: data, encoding: .isoLatin1) else {
                 return nil
@@ -76,6 +134,17 @@ final class URLMetadataFetcher: URLMetadataFetcherProtocol, Sendable {
         } catch {
             return nil
         }
+    }
+
+    /// Bytes to accumulate before sniffing for the PDF signature.
+    private static let pdfSniffLength = 5
+
+    /// PDFs always start with the `%PDF` magic bytes, even when the server
+    /// mislabels the Content-Type.
+    private static func looksLikePDF(_ bytes: [UInt8]) -> Bool {
+        let magic: [UInt8] = [0x25, 0x50, 0x44, 0x46] // "%PDF"
+        guard bytes.count >= magic.count else { return false }
+        return Array(bytes.prefix(magic.count)) == magic
     }
 
     // MARK: - HTML Parsing
@@ -108,6 +177,27 @@ final class URLMetadataFetcher: URLMetadataFetcherProtocol, Sendable {
         }
         if metadata.imageURL == nil {
             metadata.imageURL = extractMetaContent(html: html, name: "twitter:image")
+        }
+
+        // Fallback: Highwire citation_* tags, which academic publishers and
+        // preprint servers emit even when they skip OpenGraph entirely.
+        if metadata.title == nil {
+            metadata.title = extractMetaContent(html: html, name: "citation_title")
+        }
+        if metadata.description == nil {
+            metadata.description = extractMetaContent(html: html, name: "citation_abstract")
+                ?? extractMetaContent(html: html, name: "description")
+        }
+        let citationAuthors = extractAllMetaContent(html: html, name: "citation_author")
+        if !citationAuthors.isEmpty {
+            metadata.authors = citationAuthors.joined(separator: ", ")
+        }
+
+        // Schema.org runtime: `<meta itemprop="duration" content="PT4M13S">`.
+        // YouTube watch pages carry it even though its oEmbed response omits
+        // duration entirely.
+        if let rawDuration = extractMetaContent(html: html, itemprop: "duration") {
+            metadata.durationSeconds = Self.parseISO8601Duration(rawDuration)
         }
 
         // Resolve relative or protocol-relative image URLs against the page URL
@@ -162,6 +252,71 @@ final class URLMetadataFetcher: URLMetadataFetcherProtocol, Sendable {
             }
         }
         return nil
+    }
+
+    /// Extract content from `<meta itemprop="..." content="...">` (schema.org style)
+    private func extractMetaContent(html: String, itemprop: String) -> String? {
+        let patterns = [
+            "<meta[^>]+itemprop\\s*=\\s*\"?\(NSRegularExpression.escapedPattern(for: itemprop))\"?[^>]+content\\s*=\\s*\"([^\"]*)\"",
+            "<meta[^>]+content\\s*=\\s*\"([^\"]*)\"[^>]+itemprop\\s*=\\s*\"?\(NSRegularExpression.escapedPattern(for: itemprop))\"?"
+        ]
+        for pattern in patterns {
+            if let value = firstMatch(html: html, pattern: pattern) {
+                let cleaned = value.decodingHTMLEntities().trimmingCharacters(in: .whitespacesAndNewlines)
+                if !cleaned.isEmpty { return cleaned }
+            }
+        }
+        return nil
+    }
+
+    /// Parses an ISO-8601 duration of the `PT#H#M#S` shape into whole seconds.
+    /// Every component is optional; anything that isn't that shape returns nil
+    /// rather than a partial count.
+    static func parseISO8601Duration(_ value: String) -> Int? {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard normalized.hasPrefix("PT") else { return nil }
+        let body = normalized.dropFirst(2)
+        guard !body.isEmpty else { return nil }
+
+        let multipliers: [Character: Int] = ["H": 3600, "M": 60, "S": 1]
+        var total = 0
+        var digits = ""
+        var matchedAnyComponent = false
+
+        for character in body {
+            if character.isASCII, character.isNumber {
+                digits.append(character)
+                continue
+            }
+            guard let multiplier = multipliers[character],
+                  let amount = Int(digits) else { return nil }
+            total += amount * multiplier
+            digits = ""
+            matchedAnyComponent = true
+        }
+
+        // A trailing number with no unit ("PT90") is not a duration.
+        guard digits.isEmpty, matchedAnyComponent else { return nil }
+        return total
+    }
+
+    /// Extract every `<meta name="..." content="...">` occurrence, in document
+    /// order, de-duplicated. Highwire repeats `citation_author` once per author.
+    private func extractAllMetaContent(html: String, name: String) -> [String] {
+        let patterns = [
+            "<meta[^>]+name\\s*=\\s*\"?\(NSRegularExpression.escapedPattern(for: name))\"?[^>]+content\\s*=\\s*\"([^\"]*)\"",
+            "<meta[^>]+content\\s*=\\s*\"([^\"]*)\"[^>]+name\\s*=\\s*\"?\(NSRegularExpression.escapedPattern(for: name))\"?"
+        ]
+        var results: [String] = []
+        for pattern in patterns {
+            for value in allMatches(html: html, pattern: pattern) {
+                let cleaned = value.decodingHTMLEntities().trimmingCharacters(in: .whitespacesAndNewlines)
+                if !cleaned.isEmpty, !results.contains(cleaned) {
+                    results.append(cleaned)
+                }
+            }
+        }
+        return results
     }
 
     /// Extract the content of the `<title>` tag
@@ -237,6 +392,19 @@ final class URLMetadataFetcher: URLMetadataFetcherProtocol, Sendable {
             return nil
         }
         return String(html[captureRange])
+    }
+
+    /// Return every first-capture-group match for the given regex pattern.
+    private func allMatches(html: String, pattern: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else {
+            return []
+        }
+        let range = NSRange(html.startIndex..., in: html)
+        return regex.matches(in: html, range: range).compactMap { match in
+            guard match.numberOfRanges > 1,
+                  let captureRange = Range(match.range(at: 1), in: html) else { return nil }
+            return String(html[captureRange])
+        }
     }
 }
 

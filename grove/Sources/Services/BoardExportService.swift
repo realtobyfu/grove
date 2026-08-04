@@ -84,7 +84,7 @@ final class BoardExportService {
                         let isOutgoing = conn.sourceItem?.id == item.id
                         let linkedItem = isOutgoing ? conn.targetItem : conn.sourceItem
                         let direction = isOutgoing ? "\u{2192}" : "\u{2190}"
-                        md += "- \(direction) **\(conn.type.displayLabel)**: \(linkedItem?.title ?? "Unknown")\n"
+                        md += "- \(direction) **\(conn.type.displayLabel(isOutgoing: isOutgoing))**: \(linkedItem?.title ?? "Unknown")\n"
                     }
                     md += "\n"
                 }

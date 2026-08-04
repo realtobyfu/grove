@@ -7,7 +7,6 @@ struct ShortcutsSettingsView: View {
             Section("Capture") {
                 shortcutRow("Capture", shortcut: "⌘N")
                 shortcutRow("New Note", shortcut: "⌘⇧N")
-                shortcutRow("Quick Capture", shortcut: "⌘⇧K")
             }
 
             Section("Navigation") {

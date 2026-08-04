@@ -240,9 +240,9 @@ struct LLMServiceConfig: Sendable {
         totalInputTokens + totalOutputTokens
     }
 
-    /// Estimated cost at $1.50 per million tokens (blended rate).
+    /// Estimated cost: $1.00/M input + $3.00/M output (Groq kimi-k2 pricing).
     static var estimatedCost: Double {
-        Double(totalTokens) / 1_000_000.0 * 1.50
+        Double(totalInputTokens) / 1_000_000.0 * 1.00 + Double(totalOutputTokens) / 1_000_000.0 * 3.00
     }
 
     /// Record token usage from a completion result.

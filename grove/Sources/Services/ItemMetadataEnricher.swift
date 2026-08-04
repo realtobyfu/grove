@@ -19,7 +19,224 @@ final class ItemMetadataEnricher {
 
     /// Fetches URL metadata and updates the item in the given context.
     /// Returns the fetched metadata title and description for downstream use.
+    ///
+    /// Sources that publish structured metadata get a dedicated path — arXiv's
+    /// Atom API, oEmbed for video, the PDF document itself — because scraping
+    /// their HTML yields either nothing or the wrong thing. Every specialized
+    /// path falls back to the generic scrape if it comes up empty.
     func enrichURLItem(
+        itemID: UUID,
+        urlString: String,
+        context: ModelContext
+    ) async -> (title: String?, description: String?, bodyText: String?) {
+        let routing = routingInfo(itemID: itemID, context: context)
+
+        if let arxivID = routing.arxivID,
+           let result = await enrichArxivItem(itemID: itemID, arxivID: arxivID, context: context) {
+            return result
+        } else if routing.isVideo,
+                  let source = routing.videoSource,
+                  let videoID = routing.videoID,
+                  let result = await enrichVideoItem(
+                      itemID: itemID,
+                      source: source,
+                      videoID: videoID,
+                      urlString: urlString,
+                      context: context
+                  ) {
+            return result
+        } else if routing.isPDF,
+                  let result = await enrichPDFItem(itemID: itemID, urlString: urlString, context: context) {
+            return result
+        }
+
+        return await enrichGenericURLItem(itemID: itemID, urlString: urlString, context: context)
+    }
+
+    private struct EnrichmentRouting {
+        var arxivID: String?
+        var videoSource: String?
+        var videoID: String?
+        var isVideo = false
+        var isPDF = false
+    }
+
+    private func routingInfo(itemID: UUID, context: ModelContext) -> EnrichmentRouting {
+        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
+        guard let item = try? context.fetch(descriptor).first else { return EnrichmentRouting() }
+        return EnrichmentRouting(
+            arxivID: item.metadata["arxivID"],
+            videoSource: item.metadata["videoSource"],
+            videoID: item.metadata["videoID"],
+            isVideo: item.type == .video,
+            isPDF: item.metadata["format"] == "pdf"
+        )
+    }
+
+    /// Clears the loading flag so a failed fetch doesn't leave a permanent spinner.
+    private func finishFetching(itemID: UUID, context: ModelContext) {
+        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
+        guard let item = try? context.fetch(descriptor).first else { return }
+        item.metadata["fetchingMetadata"] = nil
+        item.updatedAt = .now
+        try? context.save()
+    }
+
+    // MARK: - arXiv
+
+    private func enrichArxivItem(
+        itemID: UUID,
+        arxivID: String,
+        context: ModelContext
+    ) async -> (title: String?, description: String?, bodyText: String?)? {
+        guard let paper = await ArxivMetadataService.fetch(arxivID: arxivID) else { return nil }
+
+        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
+        guard let item = try? context.fetch(descriptor).first else {
+            return (paper.title, paper.summary, paper.summary)
+        }
+
+        item.title = paper.title
+        if !paper.summary.isEmpty {
+            item.content = paper.summary
+        }
+        if !paper.authors.isEmpty {
+            item.metadata["authors"] = paper.authors.joined(separator: ", ")
+        }
+        item.metadata["fetchingMetadata"] = nil
+        item.updatedAt = .now
+        try? context.save()
+
+        return (paper.title, paper.summary.isEmpty ? nil : paper.summary, paper.summary.isEmpty ? nil : paper.summary)
+    }
+
+    // MARK: - Video (oEmbed)
+
+    /// oEmbed gives the authoritative title, channel, and thumbnail; it gives
+    /// nothing else. The page scrape runs alongside it for the description,
+    /// body text, and — on YouTube, whose oEmbed omits it — the runtime. Both
+    /// requests go out at once so the video path is no slower than the generic
+    /// one it replaces.
+    private func enrichVideoItem(
+        itemID: UUID,
+        source: String,
+        videoID: String,
+        urlString: String,
+        context: ModelContext
+    ) async -> (title: String?, description: String?, bodyText: String?)? {
+        // Bound to a local so the child task captures the Sendable fetcher
+        // rather than this @MainActor-isolated object.
+        let fetcher = metadataFetcher
+        async let oembedFetch = OEmbedService.fetch(
+            source: source,
+            videoID: videoID,
+            originalURL: urlString
+        )
+        async let scrapeFetch = fetcher.fetch(urlString: urlString)
+
+        let oembed = await oembedFetch
+        let scraped = await scrapeFetch
+
+        let oembedTitle = oembed?.title.flatMap { $0.isEmpty ? nil : $0 }
+        let title = oembedTitle ?? scraped?.title
+        let thumbnailURL = oembed?.thumbnailURL ?? scraped?.imageURL
+        let description = scraped?.description
+
+        // Nothing usable from either source is no better than a failure — let
+        // the generic scrape have a turn.
+        guard title?.isEmpty == false || thumbnailURL != nil || description?.isEmpty == false else {
+            return nil
+        }
+
+        var thumbnailData: Data?
+        if let thumbnailURL {
+            thumbnailData = await imageDownloader.downloadAndCompress(urlString: thumbnailURL)
+        }
+        if thumbnailData == nil, let rawImageData = scraped?.imageData {
+            thumbnailData = imageDownloader.compressImageData(rawImageData)
+        }
+
+        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
+        guard let item = try? context.fetch(descriptor).first else {
+            return (title, description, scraped?.bodyText)
+        }
+
+        if let title, !title.isEmpty {
+            item.title = title
+        }
+        if let description, !description.isEmpty {
+            item.content = description
+        }
+        if let author = oembed?.authorName, !author.isEmpty {
+            item.metadata["authors"] = author
+        }
+        if let thumbnailURL {
+            item.metadata["thumbnailURL"] = thumbnailURL
+        }
+        if let thumbnailData {
+            item.thumbnail = thumbnailData
+        }
+        if let duration = oembed?.duration ?? scraped?.durationSeconds {
+            // Same format the local-video importer writes.
+            item.metadata["videoDuration"] = String(format: "%.1f", Double(duration))
+        }
+        item.metadata["fetchingMetadata"] = nil
+        item.updatedAt = .now
+        try? context.save()
+
+        return (title, description, scraped?.bodyText)
+    }
+
+    // MARK: - PDF
+
+    private func enrichPDFItem(
+        itemID: UUID,
+        urlString: String,
+        context: ModelContext
+    ) async -> (title: String?, description: String?, bodyText: String?)? {
+        guard let url = URL(string: urlString) else { return nil }
+
+        // Record the format even if the download later fails: the URL is a PDF
+        // either way, and the reader routes on this key.
+        markPDFFormat(itemID: itemID, context: context)
+
+        guard let extracted = await PDFMetadataService.downloadAndExtract(
+            url: url,
+            itemID: itemID
+        ) else { return nil }
+
+        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
+        guard let item = try? context.fetch(descriptor).first else {
+            return (extracted.title, nil, nil)
+        }
+
+        if let title = extracted.title, !title.isEmpty {
+            item.title = title
+        }
+        if let author = extracted.author, !author.isEmpty {
+            item.metadata["authors"] = author
+        }
+        if let thumbnailData = extracted.thumbnailData {
+            item.thumbnail = thumbnailData
+        }
+        item.metadata["pdfCached"] = "true"
+        item.metadata["fetchingMetadata"] = nil
+        item.updatedAt = .now
+        try? context.save()
+
+        return (extracted.title, nil, nil)
+    }
+
+    private func markPDFFormat(itemID: UUID, context: ModelContext) {
+        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
+        guard let item = try? context.fetch(descriptor).first else { return }
+        item.metadata["format"] = "pdf"
+        try? context.save()
+    }
+
+    // MARK: - Generic
+
+    private func enrichGenericURLItem(
         itemID: UUID,
         urlString: String,
         context: ModelContext
@@ -34,11 +251,28 @@ final class ItemMetadataEnricher {
             return (nil, nil, nil)
         }
 
+        // The URL had no `.pdf` extension but served a PDF anyway — a very
+        // common shape for publisher and university links.
+        if metadata.isPDF {
+            if let result = await enrichPDFItem(itemID: itemID, urlString: urlString, context: context) {
+                return result
+            }
+            let desc = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
+            if let item = try? context.fetch(desc).first, let title = metadata.title, !title.isEmpty {
+                item.title = title
+            }
+            finishFetching(itemID: itemID, context: context)
+            return (metadata.title, nil, nil)
+        }
+
         let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
         guard let fetchedItem = try? context.fetch(descriptor).first else {
             return (metadata.title, metadata.description, metadata.bodyText)
         }
 
+        if let authors = metadata.authors, !authors.isEmpty {
+            fetchedItem.metadata["authors"] = authors
+        }
         if let title = metadata.title {
             fetchedItem.title = title
         }

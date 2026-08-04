@@ -76,9 +76,13 @@ struct MobileItemReaderView: View {
     /// having it truncate the new confirmation.
     @State private var filedConfirmationTask: Task<Void, Never>? = nil
 
-    /// True when the reader has navigated away from the item's own page.
+    /// True when the reader has navigated away from the item's own page. A
+    /// remote video's embed stands in for its watch page, so landing on it is
+    /// not browsing — nothing should offer to capture the player as a page of
+    /// its own.
     private var isBrowsingLinkedPage: Bool {
         guard let currentWebURL else { return false }
+        if isSameWebPage(currentWebURL, remoteVideoEmbedURL) { return false }
         return ReadingCapture.isDifferentPage(currentWebURL, from: item)
     }
 
@@ -86,6 +90,12 @@ struct MobileItemReaderView: View {
     /// it has been captured, otherwise the item being read.
     private var readingItem: Item {
         capturedPageItem ?? item
+    }
+
+    /// Zoom and find drive the web view. A note has none, and a PDF reads in
+    /// PDFKit — neither should carry controls that do nothing.
+    private var showsWebPageControls: Bool {
+        item.type != .note && !item.isPDFDocument
     }
 
     private var usesSidePanel: Bool {
@@ -99,7 +109,16 @@ struct MobileItemReaderView: View {
     }
     private var articleURL: URL? {
         guard item.type != .note, item.metadata["videoLocalFile"] != "true" else { return nil }
+        // A video hosted elsewhere loads its player, not its watch page: the
+        // page is a full site, the embed is the video.
+        if let embed = remoteVideoEmbedURL { return embed }
         return resolvedSourceURL(from: item.sourceURL)
+    }
+
+    /// The privacy-enhanced player for a video that isn't a local capture.
+    private var remoteVideoEmbedURL: URL? {
+        guard item.type == .video, item.metadata["videoLocalFile"] != "true" else { return nil }
+        return VideoEmbed.remoteURL(sourceURL: item.sourceURL, metadata: item.metadata)
     }
 
     var body: some View {
@@ -208,8 +227,7 @@ struct MobileItemReaderView: View {
     private var highlightActionOverlay: some View {
         if item.type != .note, let selection = trimmedSelection {
             let bar = HighlightActionBar(
-                onHighlight: { addHighlight(selection) },
-                onHighlightAndReflect: { highlightAndReflect(selection) }
+                onHighlight: { addHighlight(selection) }
             )
             Group {
                 if let selectionGeometry {
@@ -287,19 +305,6 @@ struct MobileItemReaderView: View {
         }
     }
 
-    private func highlightAndReflect(_ text: String) {
-        let block = addHighlight(text)
-        pendingEditBlock = block
-        if usesSidePanel {
-            withAnimation { rightPanel = .reflections }
-        } else {
-            if horizontalSizeClass == .regular {
-                reflectionDetent = .large
-            }
-            showReflections = true
-        }
-    }
-
     private func jumpToHighlight(_ text: String) {
         scrollToTextQuery = text
         scrollToTextToken += 1
@@ -316,7 +321,15 @@ struct MobileItemReaderView: View {
         case .note:
             MobileNoteEditorView(item: item)
         default:
-            articleContent
+            // A document reads in PDFKit rather than the web view, where
+            // selection, find and reading progress are all silently inert.
+            // The screen already carries its own navigation, so the panel is
+            // mounted without a back-to-overview affordance of its own.
+            if item.isPDFDocument {
+                PDFReaderPanel(item: item)
+            } else {
+                articleContent
+            }
         }
     }
 
@@ -585,7 +598,7 @@ struct MobileItemReaderView: View {
 
         ToolbarItemGroup(placement: .primaryAction) {
             // Zoom controls (articles only)
-            if item.type != .note {
+            if showsWebPageControls {
                 Menu {
                     Button { zoomLevel = min(zoomLevel + 0.1, 2.0) } label: {
                         Label("Zoom In", systemImage: "plus.magnifyingglass")
@@ -610,7 +623,7 @@ struct MobileItemReaderView: View {
             }
 
             // Find in page (articles only)
-            if item.type != .note {
+            if showsWebPageControls {
                 Button {
                     withAnimation { showFindBar.toggle() }
                     if showFindBar { findBarFocused = true }

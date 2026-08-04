@@ -12,7 +12,6 @@
 - Shared code: grove/Sources/{Models,Services,ViewModels,Utilities,Extensions}/
 - Views: grove/Sources/Views/{iOS,Board,Chat,Home,Inbox,Library,...} (feature-grouped; iOS-specific in iOS/)
 - Share Extension: grove/ShareExtension/
-- UX spec: /DESIGN.md
 
 ## Architecture
 - SwiftUI + MVVM. @Observable ViewModels (NOT ObservableObject)

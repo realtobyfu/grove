@@ -158,6 +158,16 @@ struct ItemCardView: View {
                         .foregroundStyle(Color.textSecondary)
                 }
 
+                // How long the video runs — the one fact that decides whether
+                // there is time for it right now.
+                if let duration = item.videoDurationLabel {
+                    Text(duration)
+                        .font(.groveMeta)
+                        .monospacedDigit()
+                        .foregroundStyle(Color.textTertiary)
+                        .accessibilityLabel("Duration \(duration)")
+                }
+
                 Spacer(minLength: 0)
 
                 if item.metadata["videoLocalFile"] == "true" {

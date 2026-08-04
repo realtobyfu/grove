@@ -193,7 +193,7 @@ final class KnowledgeBaseTools {
             for conn in connections {
                 let isOutgoing = conn.sourceItem?.id == item.id
                 let other = isOutgoing ? conn.targetItem : conn.sourceItem
-                result += "\n- \(conn.type.displayLabel) → \(other?.title ?? "Unknown")"
+                result += "\n- \(conn.type.displayLabel(isOutgoing: isOutgoing)) → \(other?.title ?? "Unknown")"
             }
         }
 
@@ -228,7 +228,7 @@ final class KnowledgeBaseTools {
             let isOutgoing = conn.sourceItem?.id == item.id
             let other = isOutgoing ? conn.targetItem : conn.sourceItem
             let direction = isOutgoing ? "→" : "←"
-            var line = "\(conn.type.displayLabel) \(direction) \(other?.title ?? "Unknown")"
+            var line = "\(conn.type.displayLabel(isOutgoing: isOutgoing)) \(direction) \(other?.title ?? "Unknown")"
             if let note = conn.note, !note.isEmpty {
                 line += " (\(note))"
             }

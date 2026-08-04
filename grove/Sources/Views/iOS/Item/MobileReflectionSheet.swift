@@ -7,8 +7,8 @@ import SwiftData
 struct MobileReflectionSheet: View {
     let item: Item
     var onDismiss: (() -> Void)? = nil
-    /// Set by the caller to open a specific block for editing (e.g. right
-    /// after "Highlight & Reflect"). Consumed (reset to nil) once handled.
+    /// Set by the caller to open a specific block for editing. Consumed
+    /// (reset to nil) once handled.
     var requestedEditBlock: Binding<ReflectionBlock?>? = nil
     /// Jump to the highlighted passage in the source article; nil when the
     /// item has no web-readable source.

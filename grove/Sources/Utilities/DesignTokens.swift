@@ -176,6 +176,14 @@ extension Font {
     @MainActor static let groveSerif = Font.custom("Newsreader-Regular", size: Platform.isIPad ? 15 : 16, relativeTo: .body)
     #endif
 
+    /// Newsreader Medium 16pt (macOS/iPad), 17pt (iPhone) — Row/entry titles in
+    /// dense lists, where groveItemTitle (20pt) would dominate the row
+    #if os(macOS)
+    static let groveListTitle = Font.custom("Newsreader-Medium", size: 16)
+    #else
+    @MainActor static let groveListTitle = Font.custom("Newsreader-Medium", size: Platform.isIPad ? 16 : 17, relativeTo: .headline)
+    #endif
+
     /// Newsreader SemiBold 20pt (macOS/iPad), 18pt (iPhone) — Emphasized item title
     #if os(macOS)
     static let groveItemTitleBold = Font.custom("Newsreader-SemiBold", size: 20)

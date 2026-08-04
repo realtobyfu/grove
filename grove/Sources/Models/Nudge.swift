@@ -50,3 +50,19 @@ final class Nudge {
         self.createdAt = .now
     }
 }
+
+extension Nudge {
+    /// The user-facing message. For dialectical check-ins, extracts the portion before `|||`.
+    var displayMessage: String {
+        var text = message
+        if type == .dialecticalCheckIn, let range = text.range(of: "|||") {
+            text = String(text[text.startIndex..<range.lowerBound])
+        }
+        // Older resurface nudges persisted a "Connected to: <title>" suffix,
+        // which could be a raw URL or markdown. Hide it on display.
+        if let range = text.range(of: "Connected to:") {
+            text = String(text[text.startIndex..<range.lowerBound])
+        }
+        return text.trimmingCharacters(in: .whitespaces)
+    }
+}

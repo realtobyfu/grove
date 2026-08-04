@@ -124,7 +124,12 @@ struct ArticleWebView: NSViewRepresentable {
             context.coordinator.lastGoBackToken = goBackToken
             if webView.canGoBack {
                 webView.goBack()
-            } else if webView.url?.absoluteString != url.absoluteString {
+            } else {
+                // No engine history: the pane mounted directly on a link
+                // target, or the destination (an image document, notably)
+                // recorded no entry. Back means the item's own page —
+                // unconditionally, so a stale URL report can't strand the
+                // user with a button that does nothing.
                 webView.load(URLRequest(url: url))
             }
             return

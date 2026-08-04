@@ -13,19 +13,24 @@ struct PromptBubble: Identifiable {
     let clusterItemIDs: [UUID]
     /// Boards associated with the prompt's source items.
     let boardIDs: [UUID]
+    /// The generator's internal candidate id ("contradiction", "stale_0", …) —
+    /// records which context signal produced this bubble.
+    let contextID: String?
 
     init(
         prompt: String,
         label: String,
         clusterTag: String? = nil,
         clusterItemIDs: [UUID] = [],
-        boardIDs: [UUID] = []
+        boardIDs: [UUID] = [],
+        contextID: String? = nil
     ) {
         self.prompt = prompt
         self.label = label
         self.clusterTag = clusterTag
         self.clusterItemIDs = clusterItemIDs
         self.boardIDs = boardIDs
+        self.contextID = contextID
     }
 }
 

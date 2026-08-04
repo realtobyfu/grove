@@ -2,88 +2,13 @@ import Foundation
 
 // MARK: - StarterHeuristicGenerator
 
-/// Generates heuristic (non-LLM) conversation starter bubbles as a fallback
-/// when the LLM is unavailable or for free-tier users.
+/// Generates heuristic (non-LLM) conversation starter bubbles for board
+/// surfaces, where a starter is always worth showing. Home no longer has a
+/// heuristic path — its starters are LLM-or-nothing.
 enum StarterHeuristicGenerator {
 
     /// Maximum bubble count for Pro users (used to cap output).
     private static let maxBubbleCountPro = 3
-
-    // MARK: - Global Heuristics
-
-    /// Builds heuristic conversation starters from the given context.
-    /// Always returns at least one bubble (a generic fallback).
-    @MainActor
-    static func buildHeuristics(
-        context: StarterContext,
-        didShowClusterBubble: Bool
-    ) -> [PromptBubble] {
-        var bubbles: [PromptBubble] = []
-
-        // Stale high-value item
-        if let stale = context.staleItems.first {
-            let staleFraming = stale.type == .note
-                ? "You haven't revisited your note \"\(stale.title)\" in over a month. What do you remember, and has your view changed?"
-                : "You haven't revisited \"\(stale.title)\" in over a month. What do you remember, and has your view changed?"
-            bubbles.append(PromptBubble(
-                prompt: staleFraming,
-                label: "REVISIT",
-                clusterItemIDs: [stale.id],
-                boardIDs: StarterContextBuilder.boardIDs(for: [stale])
-            ))
-        }
-
-        // Recent tag cluster
-        if let tag = context.topRecentTag, context.topRecentTagCount >= 2 {
-            let relatedRecentItems = context.recentItems
-                .filter { item in item.tags.contains(where: { $0.name == tag }) }
-                .prefix(6)
-            let relatedRecentArray = Array(relatedRecentItems)
-            bubbles.append(PromptBubble(
-                prompt: "You've saved \(context.topRecentTagCount) things about \"\(tag)\" recently. What's the central tension or open question?",
-                label: "EXPLORE",
-                clusterItemIDs: relatedRecentArray.map(\.id),
-                boardIDs: StarterContextBuilder.boardIDs(for: relatedRecentArray)
-            ))
-        }
-
-        // Contradiction — prefer a concrete pair with its specific tension reason
-        if let pair = context.contradictionPairs.first {
-            let pairItems = [pair.source, pair.target]
-            let prompt: String
-            if let reason = pair.reason {
-                prompt = "\"\(pair.source.title)\" and \"\(pair.target.title)\" are in tension: \(reason) Want to work through it toward a synthesis?"
-            } else {
-                prompt = "\"\(pair.source.title)\" and \"\(pair.target.title)\" seem to contradict each other. Want to work through the tension and find a synthesis?"
-            }
-            bubbles.append(PromptBubble(
-                prompt: prompt,
-                label: "RESOLVE",
-                clusterItemIDs: pairItems.map(\.id),
-                boardIDs: StarterContextBuilder.boardIDs(for: pairItems)
-            ))
-        }
-
-        // Unboarded cluster — show at most once per launch
-        if let cluster = context.unboardedCluster, !didShowClusterBubble, bubbles.count < maxBubbleCountPro {
-            bubbles.append(PromptBubble(
-                prompt: "You have \(cluster.count) items about \"\(cluster.sharedTag)\" floating around without a board. Want to organize them?",
-                label: "ORGANIZE",
-                clusterTag: cluster.sharedTag,
-                clusterItemIDs: cluster.items.map(\.id)
-            ))
-        }
-
-        // Keep Home decision-light but never empty: always provide one meaningful fallback.
-        if bubbles.isEmpty {
-            bubbles.append(PromptBubble(
-                prompt: "What question feels most worth thinking through right now?",
-                label: "REFLECT"
-            ))
-        }
-
-        return Array(bubbles.prefix(maxBubbleCountPro))
-    }
 
     // MARK: - Board-Scoped Heuristics
 
@@ -94,9 +19,10 @@ enum StarterHeuristicGenerator {
 
         // Stale high-value item in this board
         if let stale = context.staleItems.first {
+            let title = StarterLLMGenerator.trimmedTitle(stale.title)
             let framing = stale.type == .note
-                ? "You haven't revisited your note \"\(stale.title)\" in a while. Has your thinking changed?"
-                : "You haven't revisited \"\(stale.title)\" in a while. What do you remember?"
+                ? "You haven't revisited your note \"\(title)\" in a while. Has your thinking changed?"
+                : "You haven't revisited \"\(title)\" in a while. What do you remember?"
             bubbles.append(PromptBubble(
                 prompt: framing,
                 label: "REVISIT",
@@ -121,11 +47,13 @@ enum StarterHeuristicGenerator {
         // Contradiction — prefer a concrete pair with its specific tension reason
         if let pair = context.contradictionPairs.first {
             let pairItems = [pair.source, pair.target]
+            let source = StarterLLMGenerator.trimmedTitle(pair.source.title)
+            let target = StarterLLMGenerator.trimmedTitle(pair.target.title)
             let prompt: String
             if let reason = pair.reason {
-                prompt = "\"\(pair.source.title)\" and \"\(pair.target.title)\" are in tension: \(reason) Want to work through it?"
+                prompt = "\"\(source)\" and \"\(target)\" are in tension: \(reason) Want to work through it?"
             } else {
-                prompt = "\"\(pair.source.title)\" and \"\(pair.target.title)\" seem to disagree. Want to work through the tension?"
+                prompt = "\"\(source)\" and \"\(target)\" seem to disagree. Want to work through the tension?"
             }
             bubbles.append(PromptBubble(
                 prompt: prompt,
@@ -138,7 +66,7 @@ enum StarterHeuristicGenerator {
         // Board-level fallback
         if bubbles.isEmpty, let first = context.recentItems.first {
             bubbles.append(PromptBubble(
-                prompt: "What stands out most to you about \"\(first.title)\"?",
+                prompt: "What stands out most to you about \"\(StarterLLMGenerator.trimmedTitle(first.title))\"?",
                 label: "REFLECT",
                 clusterItemIDs: [first.id],
                 boardIDs: [boardID]

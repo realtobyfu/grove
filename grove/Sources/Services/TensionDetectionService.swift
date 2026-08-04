@@ -17,6 +17,7 @@ final class TensionDetectionService {
     private static let maxPairsPerRun = 8
     private static let minSimilarity = 0.7
     private static let minConfidence = 0.6
+    private static let minContradictsConfidence = 0.8
 
     init(modelContext: ModelContext, provider: LLMProvider = LLMServiceConfig.makeProvider()) {
         self.modelContext = modelContext
@@ -68,16 +69,22 @@ final class TensionDetectionService {
         }.joined(separator: "\n\n---\n\n")
 
         let system = """
-        You analyze pairs of items from a personal knowledge base and classify the intellectual \
-        relationship between each pair. For each pair, decide:
-        - "contradicts": the items take opposing positions or their claims are in genuine tension
+        You classify pairs of items from a personal knowledge base by intellectual relationship.
+
+        For each pair, decide:
+        - "contradicts": the two items make specific claims that cannot both be true. Before \
+        choosing this, name Claim A and Claim B to yourself — if you cannot state two incompatible \
+        claims, it is not a contradiction. Items that merely discuss different topics, share \
+        vocabulary, or differ in tone or emphasis are NOT in contradiction.
         - "builds_on": one item extends, deepens, or depends on the other's ideas
         - "related": substantively about the same ideas, but neither of the above
-        - "none": superficial similarity only
+        - "none": superficial similarity only (shared jargon, same broad field)
 
-        Favor "contradicts" only for real intellectual tension, not mere difference in topic or tone. \
-        Output ONLY a JSON array, one object per pair:
-        [{"pair": 1, "relation": "contradicts", "confidence": 0.8, "reason": "one sentence naming the specific tension"}]
+        When unsure, choose the weaker relation. Most pairs are "related" or "none".
+
+        Output ONLY a JSON array, one object per pair. For "contradicts", the reason must state \
+        both incompatible claims:
+        [{"pair": 1, "relation": "contradicts", "confidence": 0.8, "reason": "A claims X; B claims Y; both cannot hold"}]
         """
 
         guard let result = await provider.complete(system: system, user: pairList, service: "tensionDetection"),
@@ -95,7 +102,7 @@ final class TensionDetectionService {
             guard let relation = entry["relation"] as? String,
                   let type = Self.connectionType(for: relation),
                   let confidence = entry["confidence"] as? Double,
-                  confidence >= Self.minConfidence,
+                  confidence >= Self.minConfidence(for: relation),
                   let source = itemsByID[pair.a],
                   let target = itemsByID[pair.b] else { continue }
 
@@ -126,6 +133,12 @@ final class TensionDetectionService {
         }
     }
 
+    /// "contradicts" is the loudest claim the app makes about a pair, so it has
+    /// to clear a higher bar than the softer relations.
+    private static func minConfidence(for relation: String) -> Double {
+        relation == "contradicts" ? minContradictsConfidence : minConfidence
+    }
+
     private static func connectionType(for relation: String) -> ConnectionType? {
         switch relation {
         case "contradicts": .contradicts
@@ -137,6 +150,14 @@ final class TensionDetectionService {
 
     nonisolated static func pairKey(_ a: UUID, _ b: UUID) -> String {
         [a.uuidString, b.uuidString].sorted().joined(separator: "|")
+    }
+
+    /// Permanently prevents this pair from being re-classified — called when the
+    /// user rejects a detected tension.
+    static func blacklistPair(_ a: UUID, _ b: UUID) {
+        var pairs = loadClassifiedPairs()
+        pairs.insert(pairKey(a, b))
+        saveClassifiedPairs(pairs)
     }
 
     private static func loadClassifiedPairs() -> Set<String> {

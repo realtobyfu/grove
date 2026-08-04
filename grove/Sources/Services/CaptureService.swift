@@ -67,6 +67,13 @@ final class CaptureService: CaptureServiceProtocol {
     /// Normalizes a URL for duplicate detection: lowercases scheme/host,
     /// strips the fragment, tracking (`utm_*`) query params, and any trailing slash.
     nonisolated static func normalizedURLString(_ urlString: String) -> String {
+        // arXiv serves the same paper under /abs/, /pdf/, /html/, several hosts,
+        // and any number of version suffixes. Collapse all of them onto the
+        // canonical abstract page so re-capturing from a different surface is
+        // recognized as the duplicate it is.
+        if let url = URL(string: urlString), let id = arxivID(from: url) {
+            return canonicalArxivURLString(id)
+        }
         guard var components = URLComponents(string: urlString) else { return urlString }
         components.scheme = components.scheme?.lowercased()
         components.host = components.host?.lowercased()
@@ -107,22 +114,57 @@ final class CaptureService: CaptureServiceProtocol {
         }
     }
 
-    // MARK: - URL Capture
+    // MARK: - URL Classification
 
-    private func captureURLItem(_ trimmed: String, board: Board?) -> Item {
+    /// Applies everything Grove derives from the URL shape alone: the canonical
+    /// source URL, the item type, and the metadata keys the enricher routes on.
+    ///
+    /// In-app capture and the Share Extension drain both run this, so an item
+    /// saved from the share sheet is indistinguishable from one captured in the
+    /// app — same type, same arXiv/PDF/video routing.
+    static func applyURLClassification(item: Item, urlString: String) {
+        let url = URL(string: urlString)
+        let arxivID = url.flatMap { Self.arxivID(from: $0) }
+        // Store the canonical abstract URL so the reader, the enricher, and any
+        // later dedupe all agree on which page this item actually is.
+        let storedURL = arxivID.map { Self.canonicalArxivURLString($0) } ?? urlString
+        item.sourceURL = storedURL
+
+        if let arxivID {
+            item.metadata["arxivID"] = arxivID
+        } else if let url, url.pathExtension.lowercased() == "pdf" {
+            item.metadata["format"] = "pdf"
+        }
+
         let itemType: ItemType
-        if Self.isGitHubURL(trimmed) {
+        if Self.isGitHubURL(urlString) {
             itemType = .codebase
-        } else if Self.isVideoURL(trimmed) {
+        } else if Self.isVideoURL(urlString) {
             itemType = .video
         } else {
             itemType = .article
         }
+        item.type = itemType
 
-        let item = Item(title: trimmed, type: itemType)
+        if itemType == .video, let url, let video = Self.videoSourceAndID(from: url) {
+            item.metadata["videoSource"] = video.source
+            item.metadata["videoID"] = video.id
+        }
+    }
+
+    // MARK: - URL Capture
+
+    private func captureURLItem(_ trimmed: String, board: Board?) -> Item {
+        let item = Item(title: trimmed, type: .article)
         prepare(item, for: board)
-        item.sourceURL = trimmed
+        Self.applyURLClassification(item: item, urlString: trimmed)
+
+        // The classification may have rewritten the URL (arXiv canonicalization);
+        // the placeholder title and the enrichment both follow it.
+        let storedURL = item.sourceURL ?? trimmed
+        item.title = storedURL
         item.metadata["fetchingMetadata"] = "true"
+
         modelContext.insert(item)
         try? modelContext.save()
 
@@ -134,7 +176,7 @@ final class CaptureService: CaptureServiceProtocol {
         Task {
             _ = await enricher.enrichURLItem(
                 itemID: itemID,
-                urlString: trimmed,
+                urlString: storedURL,
                 context: context
             )
 
@@ -240,7 +282,17 @@ final class CaptureService: CaptureServiceProtocol {
 
     // MARK: - URL Detection Helpers
 
-    private static func isVideoURL(_ urlString: String) -> Bool {
+    /// Whether the URL should be captured as a video.
+    ///
+    /// Anything `videoSourceAndID` recognizes is a video by definition — that
+    /// covers watch/shorts/live/embed/v, youtu.be, the nocookie/music/m hosts,
+    /// and both Vimeo shapes. The substring checks stay as a wider net for the
+    /// forms Grove has no oEmbed provider for (Twitch channels, Vimeo channel
+    /// and showcase pages), which were classified `.video` before and still are.
+    nonisolated static func isVideoURL(_ urlString: String) -> Bool {
+        if let url = URL(string: urlString), videoSourceAndID(from: url) != nil {
+            return true
+        }
         let lower = urlString.lowercased()
         return lower.contains("youtube.com/watch")
             || lower.contains("youtu.be/")
@@ -254,5 +306,104 @@ final class CaptureService: CaptureServiceProtocol {
             return false
         }
         return host == "github.com" || host == "www.github.com"
+    }
+
+    // MARK: - arXiv
+
+    private nonisolated static let arxivHosts: Set<String> = [
+        "arxiv.org",
+        "www.arxiv.org",
+        "export.arxiv.org",
+        "ar5iv.labs.arxiv.org",
+        "ar5iv.org",
+    ]
+
+    /// Canonical abstract page for an arXiv identifier.
+    nonisolated static func canonicalArxivURLString(_ id: String) -> String {
+        "https://arxiv.org/abs/\(id)"
+    }
+
+    /// Extracts a version-less arXiv identifier from any of the recognized
+    /// arXiv/ar5iv URL shapes (`/abs/`, `/pdf/`, `/pdf/….pdf`, `/html/`).
+    /// Returns nil for anything that isn't an arXiv paper URL.
+    nonisolated static func arxivID(from url: URL) -> String? {
+        guard let host = url.host?.lowercased(), arxivHosts.contains(host) else { return nil }
+
+        var segments = url.path.split(separator: "/").map(String.init)
+        guard let prefix = segments.first?.lowercased(),
+              ["abs", "pdf", "html"].contains(prefix) else { return nil }
+        segments.removeFirst()
+        guard !segments.isEmpty else { return nil }
+
+        var raw = segments.joined(separator: "/")
+        if raw.lowercased().hasSuffix(".pdf") {
+            raw = String(raw.dropLast(4))
+        }
+        // Strip the version suffix (v1, v2, …) so every version of a paper
+        // resolves to the same identifier.
+        if let versionRange = raw.range(of: "v[0-9]+$", options: .regularExpression) {
+            raw = String(raw[raw.startIndex..<versionRange.lowerBound])
+        }
+        guard isValidArxivID(raw) else { return nil }
+        return raw
+    }
+
+    private nonisolated static func isValidArxivID(_ id: String) -> Bool {
+        // New style: 2401.12345 — old style: cs/0112017, math.GT/0309136
+        let patterns = [
+            "^[0-9]{4}\\.[0-9]{4,5}$",
+            "^[a-zA-Z-]+(\\.[a-zA-Z-]+)?/[0-9]{7}$",
+        ]
+        return patterns.contains { id.range(of: $0, options: .regularExpression) != nil }
+    }
+
+    // MARK: - Video Source Detection
+
+    /// Extracts the hosting provider and its video identifier from a URL.
+    /// Returns nil for video URLs Grove has no oEmbed provider for (e.g. Twitch).
+    nonisolated static func videoSourceAndID(from url: URL) -> (source: String, id: String)? {
+        guard var host = url.host?.lowercased() else { return nil }
+        if host.hasPrefix("www.") { host = String(host.dropFirst(4)) }
+
+        let segments = url.path.split(separator: "/").map(String.init)
+
+        switch host {
+        case "youtube.com", "m.youtube.com", "music.youtube.com", "youtube-nocookie.com":
+            if segments.first?.lowercased() == "watch" {
+                guard let value = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first(where: { $0.name == "v" })?.value,
+                      isValidYouTubeID(value) else { return nil }
+                return ("youtube", value)
+            }
+            guard segments.count >= 2,
+                  ["shorts", "live", "embed", "v"].contains(segments[0].lowercased()),
+                  isValidYouTubeID(segments[1]) else { return nil }
+            return ("youtube", segments[1])
+
+        case "youtu.be":
+            guard let id = segments.first, isValidYouTubeID(id) else { return nil }
+            return ("youtube", id)
+
+        case "vimeo.com":
+            guard let id = segments.first, isNumericID(id) else { return nil }
+            return ("vimeo", id)
+
+        case "player.vimeo.com":
+            guard segments.count >= 2,
+                  segments[0].lowercased() == "video",
+                  isNumericID(segments[1]) else { return nil }
+            return ("vimeo", segments[1])
+
+        default:
+            return nil
+        }
+    }
+
+    private nonisolated static func isValidYouTubeID(_ id: String) -> Bool {
+        !id.isEmpty && id.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil
+    }
+
+    private nonisolated static func isNumericID(_ id: String) -> Bool {
+        !id.isEmpty && id.allSatisfy(\.isNumber)
     }
 }

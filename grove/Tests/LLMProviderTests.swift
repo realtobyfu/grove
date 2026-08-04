@@ -18,6 +18,11 @@ private actor StubLLMProvider: LLMProvider {
         return result
     }
 
+    func complete(system: String, user: String, service: String) async -> LLMCompletionResult? {
+        completionCalls += 1
+        return result
+    }
+
     func completeChat(messages: [ChatTurn], service: String) async -> LLMCompletionResult? {
         chatCalls += 1
         return result
@@ -58,6 +63,77 @@ struct LLMProviderTests {
         #expect(await primary.chatCalls == 1)
         #expect(await secondary.chatCalls == 0)
         #expect(await provider.lastError == .cancelled)
+    }
+
+    private static let onDeviceSuccess = LLMCompletionResult(
+        content: "on-device response",
+        inputTokens: 3,
+        outputTokens: 2
+    )
+
+    @Test func conversationStarterPrefersCloudAndSkipsOnDeviceWhenItAnswers() async {
+        let onDevice = StubLLMProvider(result: Self.onDeviceSuccess)
+        let cloud = StubLLMProvider(result: Self.success)
+        let provider = FallbackLLMProvider(primary: onDevice, fallback: cloud)
+
+        let result = await provider.complete(
+            system: "system",
+            user: "prompt",
+            service: "conversationStarter"
+        )
+
+        #expect(result?.content == "fallback response")
+        #expect(await cloud.completionCalls == 1)
+        #expect(await onDevice.completionCalls == 0)
+    }
+
+    @Test func conversationStarterFallsBackToOnDeviceWhenCloudFails() async {
+        let onDevice = StubLLMProvider(result: Self.onDeviceSuccess)
+        let cloud = StubLLMProvider(result: nil, error: .networkError)
+        let provider = FallbackLLMProvider(primary: onDevice, fallback: cloud)
+
+        let result = await provider.complete(
+            system: "system",
+            user: "prompt",
+            service: "conversationStarter"
+        )
+
+        #expect(result?.content == "on-device response")
+        #expect(await cloud.completionCalls == 1)
+        #expect(await onDevice.completionCalls == 1)
+        #expect(await provider.lastError == nil)
+    }
+
+    @Test func conversationStarterReportsCloudErrorWhenBothFail() async {
+        let onDevice = StubLLMProvider(result: nil, error: .unavailable)
+        let cloud = StubLLMProvider(result: nil, error: .networkError)
+        let provider = FallbackLLMProvider(primary: onDevice, fallback: cloud)
+
+        let result = await provider.complete(
+            system: "system",
+            user: "prompt",
+            service: "conversationStarter"
+        )
+
+        #expect(result == nil)
+        #expect(await provider.lastError == .networkError)
+    }
+
+    @Test func tensionDetectionStaysCloudOnly() async {
+        let onDevice = StubLLMProvider(result: Self.onDeviceSuccess)
+        let cloud = StubLLMProvider(result: nil, error: .networkError)
+        let provider = FallbackLLMProvider(primary: onDevice, fallback: cloud)
+
+        let result = await provider.complete(
+            system: "system",
+            user: "prompt",
+            service: "tensionDetection"
+        )
+
+        #expect(result == nil)
+        #expect(await cloud.completionCalls == 1)
+        #expect(await onDevice.completionCalls == 0)
+        #expect(await provider.lastError == .networkError)
     }
 
     @available(macOS 26, iOS 26, *)

@@ -31,6 +31,15 @@ final class FeedFetchService {
         lastRefreshAt = .now
     }
 
+    /// Fetches a single source immediately, bypassing the refresh-interval
+    /// throttle. Used right after the user subscribes so the feed's first
+    /// posts appear without waiting for the next background cycle.
+    func fetchNow(_ source: FeedSource, in context: ModelContext) async {
+        var existingURLs = existingSuggestedURLs(in: context)
+        _ = await fetchFeed(source, existingURLs: &existingURLs, in: context)
+        try? context.save()
+    }
+
     // MARK: - Fetch All Feeds
 
     private func fetchAllFeeds(in context: ModelContext) async {

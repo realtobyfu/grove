@@ -1,5 +1,34 @@
 import SwiftUI
 import SwiftData
+#if os(macOS)
+import AppKit
+
+/// Hands back the AppKit window a SwiftUI view is hosted in. Window-level
+/// notifications are broadcast for every window, so anything that reacts to
+/// one needs to know which window is its own.
+struct HostWindowReader: NSViewRepresentable {
+    var onResolve: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = WindowTrackingView()
+        view.onResolve = onResolve
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        (nsView as? WindowTrackingView)?.onResolve = onResolve
+    }
+}
+
+private final class WindowTrackingView: NSView {
+    var onResolve: ((NSWindow?) -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onResolve?(window)
+    }
+}
+#endif
 
 enum SidebarItem: Hashable, Codable {
     case home
@@ -45,8 +74,23 @@ struct ContentView: View {
     @Query private var allItemsForOnboarding: [Item]
     @Query private var allConversationsForOnboarding: [Conversation]
     @State private var viewModel = ContentViewModel()
+    #if os(macOS)
+    @State private var window: NSWindow? = nil
+    @State private var isFullScreen = false
+    #endif
 
     var syncService: SyncService
+
+    /// Full screen over a reading surface means the page and nothing else: the
+    /// window toolbar retires, and the panel's own strip carries the way out.
+    private var hidesWindowToolbar: Bool {
+        #if os(macOS)
+        isFullScreen && viewModel.openedItem != nil
+            && (viewModel.isArticleWebViewActive || viewModel.isPDFReaderActive)
+        #else
+        false
+        #endif
+    }
 
     private var currentBoardID: UUID? {
         if case .board(let boardID) = viewModel.selection {
@@ -86,6 +130,33 @@ struct ContentView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 900, minHeight: 600)
+        #if os(macOS)
+        // Applied to the whole split view, not the detail column: a toolbar
+        // hidden from inside one column still leaves the window's empty
+        // toolbar band behind, which in full screen reads as a dead strip of
+        // desktop above the page.
+        .toolbar(hidesWindowToolbar ? .hidden : .automatic, for: .windowToolbar)
+        .background {
+            HostWindowReader { resolved in
+                guard resolved !== window else { return }
+                window = resolved
+                isFullScreen = resolved?.styleMask.contains(.fullScreen) ?? false
+                applyFullSizeContent(hidesWindowToolbar)
+            }
+            .frame(width: 0, height: 0)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { note in
+            guard let transitioned = note.object as? NSWindow, transitioned === window else { return }
+            isFullScreen = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { note in
+            guard let transitioned = note.object as? NSWindow, transitioned === window else { return }
+            isFullScreen = false
+        }
+        .onChange(of: hidesWindowToolbar) { _, hidden in
+            applyFullSizeContent(hidden)
+        }
+        #endif
         .modifier(ContentViewEventHandlers(
             viewModel: viewModel,
             searchScopeBoard: searchScopeBoard,
@@ -105,6 +176,7 @@ struct ContentView: View {
                 viewModel.enterFocusMode()
             } else if viewModel.openedItem == nil {
                 viewModel.isArticleWebViewActive = false
+                viewModel.isPDFReaderActive = false
                 if viewModel.savedColumnVisibility != nil {
                     // Restore saved panel state when leaving reader
                     viewModel.exitFocusMode()
@@ -394,7 +466,7 @@ struct ContentView: View {
     private var detailContent: some View {
         @Bindable var vm = viewModel
         if let openedItemValue = viewModel.openedItem {
-            ItemReaderView(item: openedItemValue, isWebViewActive: $vm.isArticleWebViewActive, onNavigateToItem: { item in
+            ItemReaderView(item: openedItemValue, isWebViewActive: $vm.isArticleWebViewActive, isPDFSurfaceActive: $vm.isPDFReaderActive, onNavigateToItem: { item in
                 viewModel.selectedItem = item
                 viewModel.openedItem = item
             })
@@ -423,6 +495,24 @@ struct ContentView: View {
             }
         }
     }
+
+    #if os(macOS)
+    /// Hiding the toolbar takes away its controls but not the titlebar's
+    /// reserved height — in full screen that left a dead band of desktop above
+    /// the page. Letting the content run full-size for as long as the toolbar
+    /// is gone hands the space back, and restores the inset when it returns.
+    private func applyFullSizeContent(_ fullSize: Bool) {
+        guard let window else { return }
+        guard window.styleMask.contains(.fullSizeContentView) != fullSize else { return }
+        if fullSize {
+            window.styleMask.insert(.fullSizeContentView)
+            window.titlebarAppearsTransparent = true
+        } else {
+            window.styleMask.remove(.fullSizeContentView)
+            window.titlebarAppearsTransparent = false
+        }
+    }
+    #endif
 
     private func refreshOnboardingState() {
         onboarding.updateProgress(

@@ -5,6 +5,8 @@ import AVKit
 struct ItemReaderView: View {
     @Bindable var item: Item
     @Binding var isWebViewActive: Bool
+    // Optional so hosts that don't manage window chrome (iPad) can omit it.
+    var isPDFSurfaceActive: Binding<Bool>? = nil
     var alwaysShowReflectionPanel: Bool = false
     var onNavigateToItem: ((Item) -> Void)?
     @Environment(\.modelContext) private var modelContext
@@ -32,8 +34,18 @@ struct ItemReaderView: View {
             // .hidden instead of the layout switching branches. A branch flip
             // here would give the panel a fresh identity and wipe its web
             // navigation state mid-highlight.
-            if vm.showArticleWebView, let url = vm.articleURL {
-                webSplitLayout(vm: vm, url: url)
+            if vm.showPDFReader, vm.isPDFItem {
+                // A document reads in PDFKit, in the pane the web view would
+                // have occupied — the rail beside it does not move for it.
+                readerPaneLayout(vm: vm) {
+                    PDFReaderPanel(item: vm.item) {
+                        withAnimation(.easeOut(duration: 0.2)) { vm.showPDFReader = false }
+                    }
+                }
+            } else if vm.showArticleWebView, let url = vm.readerWebURL {
+                readerPaneLayout(vm: vm) {
+                    ItemReaderWebViewPanel(vm: vm, url: url, focusTrigger: focusReflectionEditor)
+                }
             } else if shouldShowSplitLayout(vm) {
                 splitLayout(vm: vm)
             } else {
@@ -43,27 +55,48 @@ struct ItemReaderView: View {
         .overlay(alignment: .bottom) {
             // Native-content highlight actions. The web panel shows its own
             // bar internally, so this only covers non-web selections.
-            if !vm.showArticleWebView, let selection = vm.highlightableSelection {
-                HighlightActionBarOverlay(vm: vm, selection: selection, focusTrigger: focusReflectionEditor)
+            // The web panel shows its own bar internally, and the PDF pane has
+            // no highlight wiring yet — neither takes this one.
+            if !vm.showArticleWebView, !vm.showPDFReader, let selection = vm.highlightableSelection {
+                HighlightActionBarOverlay(vm: vm, selection: selection)
             }
         }
-        .animation(.easeOut(duration: 0.15), value: !vm.showArticleWebView && vm.highlightableSelection != nil)
+        .animation(
+            .easeOut(duration: 0.15),
+            value: !vm.showArticleWebView && !vm.showPDFReader && vm.highlightableSelection != nil
+        )
         .onAppear {
             vm.backfillThumbnailIfNeeded()
-            openWebViewForNewsletterIssueIfNeeded(vm)
-        }
-        .onChange(of: item.id) {
-            openWebViewForNewsletterIssueIfNeeded(vm)
+            openWebViewIfPageIsTheContent(vm)
         }
         .onReceive(NotificationCenter.default.publisher(for: .groveOpenReflectMode)) { _ in
             vm.toggleReflectionEditor(focusTrigger: focusReflectionEditor)
         }
         .onChange(of: item.id) {
+            // Reset first, then decide: the reset closes the web pane, so an
+            // auto-open registered ahead of it would be undone by it.
             vm.resetOnItemChange()
+            openWebViewIfPageIsTheContent(vm)
         }
         .onChange(of: vm.showArticleWebView) {
             isWebViewActive = vm.showArticleWebView
             if !vm.showArticleWebView { vm.closeFindBar() }
+        }
+        .onChange(of: vm.showPDFReader) {
+            isPDFSurfaceActive?.wrappedValue = vm.showPDFReader
+        }
+        .onChange(of: vm.isPDFItem) { _, isPDF in
+            // The metadata enricher can discover a PDF after the reader has
+            // already opened the web pane (an extension-less URL reads as an
+            // article until the response's content type comes back). When it
+            // lands, `readerWebURL` goes nil and the web branch would fall
+            // through to the overview, yanking the reader out of the document
+            // mid-read. Hand the read to the PDF pane instead.
+            guard isPDF, vm.showArticleWebView else { return }
+            withAnimation(.easeOut(duration: 0.2)) {
+                vm.showArticleWebView = false
+                vm.showPDFReader = true
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .groveFindInArticle)) { _ in
             vm.showFindBar.toggle()
@@ -89,21 +122,25 @@ struct ItemReaderView: View {
         return panelIsNeeded && !vm.isReflectionPanelCollapsed
     }
 
-    // MARK: - Web Split Layout (web pane + optional rail, one identity)
+    // MARK: - Reader Pane Layout (source pane + optional rail, one identity)
 
-    /// Hosts the web pane beside the rail. The pane is ALWAYS at the same
-    /// structural position; when no reflections exist and no editor is open
-    /// the rail mode is .hidden (0pt) rather than a different layout branch,
-    /// so highlighting from the web pane never remounts it.
-    @ViewBuilder
-    private func webSplitLayout(vm: ItemReaderViewModel, url: URL) -> some View {
-        GeometryReader { geo in
+    /// Hosts a full-bleed source pane — the web view, or PDFKit for a document
+    /// — beside the rail. The pane is ALWAYS at the same structural position;
+    /// when no reflections exist and no editor is open the rail mode is
+    /// .hidden (0pt) rather than a different layout branch, so highlighting
+    /// from the pane never remounts it.
+    private func readerPaneLayout<Pane: View>(
+        vm: ItemReaderViewModel,
+        @ViewBuilder pane: () -> Pane
+    ) -> some View {
+        let paneContent = pane()
+        return GeometryReader { geo in
             let railMode: RightRailMode = shouldShowSplitLayout(vm)
                 ? (vm.showReflectionEditor ? .reflectionEditor : .reflections)
                 : .hidden
 
             HStack(spacing: 0) {
-                ItemReaderWebViewPanel(vm: vm, url: url, focusTrigger: focusReflectionEditor)
+                paneContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.bgPrimary)
 
@@ -235,7 +272,11 @@ struct ItemReaderView: View {
             )
             .padding(.horizontal)
             .onTapGesture {
-                if vm.articleURL != nil {
+                if vm.isPDFItem {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        vm.showPDFReader = true
+                    }
+                } else if vm.readerWebURL != nil {
                     withAnimation(.easeOut(duration: 0.2)) {
                         vm.showArticleWebView = true
                     }
@@ -285,6 +326,19 @@ struct ItemReaderView: View {
                     SelectableMarkdownView(markdown: content, onSelectText: { vm.webSelectedText = $0 })
                 }
             }
+        } else if vm.item.type == .video, vm.remoteVideoEmbedURL != nil {
+            // A video that lives on someone else's site plays in the web pane,
+            // not here. The overview keeps whatever description was captured,
+            // with one way back to the player above it — without this the
+            // description branch below swallowed the item and the video was
+            // unreachable from the overview.
+            VStack(alignment: .leading, spacing: Spacing.md) {
+                watchButton(vm: vm)
+
+                if let content = vm.item.content, !content.isEmpty {
+                    SelectableMarkdownView(markdown: content, onSelectText: { vm.webSelectedText = $0 })
+                }
+            }
         } else if vm.isEditingContent && (vm.item.type == .note || (vm.item.type == .article && vm.item.metadata["hasLLMOverview"] == "true")) {
             RichMarkdownEditor(
                 text: Binding(
@@ -310,6 +364,33 @@ struct ItemReaderView: View {
                 .foregroundStyle(Color.textTertiary)
                 .italic()
         }
+    }
+
+    /// The way back to a remote video's player from the item overview. Named
+    /// with the host and, when it is known, the runtime — the same mono meta
+    /// line the rest of the header speaks in.
+    @ViewBuilder
+    private func watchButton(vm: ItemReaderViewModel) -> some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.2)) { vm.showArticleWebView = true }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "play.rectangle")
+                    .font(.groveMeta)
+                Text(vm.item.sourceURL.map { "Watch on \(domainFrom($0))" } ?? "Watch")
+                    .font(.groveMeta)
+                if let duration = vm.item.videoDurationLabel {
+                    Text(duration)
+                        .font(.groveMeta)
+                        .monospacedDigit()
+                        .foregroundStyle(Color.textTertiary)
+                }
+            }
+            .foregroundStyle(Color.textSecondary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Play in the reader")
     }
 
     // MARK: - Reflection Editor Panel (Mode C)
@@ -387,13 +468,26 @@ struct ItemReaderView: View {
 
     // MARK: - Focus Helper
 
-    /// Newsletter issues carry no local body (the feed description is just
-    /// an excerpt), so the reader goes straight to the real page.
-    private func openWebViewForNewsletterIssueIfNeeded(_ vm: ItemReaderViewModel) {
+    /// Opens straight into the web pane for items whose page *is* the content.
+    ///
+    /// Newsletter issues carry no local body (the feed description is just an
+    /// excerpt). A remote video has no body at all — its OG description is not
+    /// the thing the user saved — so it opens on the player.
+    private func openWebViewIfPageIsTheContent(_ vm: ItemReaderViewModel) {
+        // A PDF item's document *is* the item — there is no page of prose to
+        // land on first — so it opens straight into the document pane.
+        if vm.isPDFItem {
+            if !vm.showPDFReader { vm.showPDFReader = true }
+            return
+        }
+        guard !vm.showArticleWebView else { return }
+        if vm.remoteVideoEmbedURL != nil {
+            vm.showArticleWebView = true
+            return
+        }
         guard item.isNewsletterIssue,
               (item.content ?? "").isEmpty,
-              vm.articleURL != nil,
-              !vm.showArticleWebView else { return }
+              vm.articleURL != nil else { return }
         vm.showArticleWebView = true
     }
 

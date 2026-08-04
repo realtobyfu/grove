@@ -27,6 +27,7 @@ final class ContentViewModel {
     var showCaptureOverlay = false
     var inspectorUserOverride: Bool?
     var isArticleWebViewActive = false
+    var isPDFReaderActive = false
 
     // MARK: - Internal State
     var nudgeEngine: NudgeEngine?

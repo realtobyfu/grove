@@ -40,7 +40,6 @@ final class OnboardingService {
     private var skippedInCurrentSession = false
 
     private(set) var isPresented = false
-    private(set) var isHomeReminderDismissed = false
     private(set) var isHomeTeaserDismissed: Bool
     private(set) var progress: OnboardingProgress
 
@@ -63,10 +62,6 @@ final class OnboardingService {
 
     var hasCompletedCurrentVersion: Bool {
         progress.completedVersion >= Self.currentVersion
-    }
-
-    var shouldShowHomeReminder: Bool {
-        !isPresented && !isHomeReminderDismissed && (progress.skippedAt != nil || hasCompletedCurrentVersion)
     }
 
     var shouldShowHomeTeaser: Bool {
@@ -99,7 +94,6 @@ final class OnboardingService {
     }
 
     func presentReplay() {
-        isHomeReminderDismissed = false
         progress.currentStep = .capture
         isPresented = true
     }
@@ -109,7 +103,6 @@ final class OnboardingService {
         defaults.set(progress.skippedAt, forKey: Self.skippedAtKey)
         skippedInCurrentSession = true
         isPresented = false
-        isHomeReminderDismissed = false
     }
 
     func complete() {
@@ -118,7 +111,6 @@ final class OnboardingService {
         progress.skippedAt = nil
         defaults.removeObject(forKey: Self.skippedAtKey)
         isPresented = false
-        isHomeReminderDismissed = false
     }
 
     func goBackStep() {
@@ -131,10 +123,6 @@ final class OnboardingService {
         guard let currentIndex = OnboardingStep.allCases.firstIndex(of: progress.currentStep),
               currentIndex < OnboardingStep.allCases.count - 1 else { return }
         progress.currentStep = OnboardingStep.allCases[currentIndex + 1]
-    }
-
-    func dismissHomeReminder() {
-        isHomeReminderDismissed = true
     }
 
     func dismissHomeTeaser() {

@@ -336,7 +336,7 @@ struct AISettingsView: View {
                                 .font(.groveMeta)
                                 .foregroundStyle(Color.textPrimary)
                             if effectiveProviderType == .groq {
-                                Text(formatCost(Double(service.totalTokens) / 1_000_000.0 * 1.50))
+                                Text(formatCost(service.estimatedCost))
                                     .font(.groveBadge)
                                     .foregroundStyle(Color.textSecondary)
                             }

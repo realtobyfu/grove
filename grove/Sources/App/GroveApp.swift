@@ -74,41 +74,6 @@ struct GroveApp: App {
             GroveMenuCommands()
         }
 
-        MenuBarExtra {
-            MenuBarView()
-                .environment(entitlementService)
-                .environment(onboardingService)
-                .environment(paywallCoordinator)
-                .environment(storeKitService)
-                .environment(conversationStarterService)
-                .environment(coachMarkService)
-                .environment(feedDiscoveryService)
-                .environment(feedFetchService)
-        } label: {
-            Label("Grove", systemImage: "leaf")
-                .labelStyle(.iconOnly)
-                .scaleEffect(x: -1, y: 1)
-        }
-        .menuBarExtraStyle(.window)
-        .modelContainer(modelContainer)
-
-        Window("Quick Capture", id: "quick-capture") {
-            QuickCapturePanel()
-                .environment(entitlementService)
-                .environment(onboardingService)
-                .environment(paywallCoordinator)
-                .environment(storeKitService)
-                .environment(conversationStarterService)
-                .environment(coachMarkService)
-                .environment(feedDiscoveryService)
-                .environment(feedFetchService)
-        }
-        .modelContainer(modelContainer)
-        .windowStyle(.hiddenTitleBar)
-        .windowResizability(.contentSize)
-        .defaultPosition(.center)
-        .keyboardShortcut("k", modifiers: [.command, .shift])
-
         Settings {
             TabView {
                 GeneralSettingsView()
@@ -196,8 +161,6 @@ struct GroveApp: App {
 
 #if os(macOS)
 struct GroveMenuCommands: Commands {
-    @Environment(\.openWindow) private var openWindow
-
     var body: some Commands {
         CommandGroup(after: .newItem) {
             Button("Capture") {
@@ -214,13 +177,6 @@ struct GroveMenuCommands: Commands {
                 NotificationCenter.default.post(name: .groveNewBoard, object: nil)
             }
             .keyboardShortcut("b", modifiers: [.command, .shift])
-
-            Divider()
-
-            Button("Quick Capture") {
-                openWindow(id: "quick-capture")
-            }
-            .keyboardShortcut("k", modifiers: [.command, .shift])
         }
 
         CommandGroup(replacing: .importExport) {
@@ -262,133 +218,28 @@ struct GroveMenuCommands: Commands {
                 NotificationCenter.default.post(name: .groveToggleChat, object: nil)
             }
             .keyboardShortcut("d", modifiers: [.command, .shift])
+
+            Divider()
+
+            // Reader text size, on the shortcuts every browser uses. The reader
+            // decides what they mean for the page on screen — type scale in
+            // Reader mode, page zoom on the live page.
+            Button("Bigger Text") {
+                NotificationCenter.default.post(name: .groveReaderTextLarger, object: nil)
+            }
+            .keyboardShortcut("+", modifiers: .command)
+
+            Button("Smaller Text") {
+                NotificationCenter.default.post(name: .groveReaderTextSmaller, object: nil)
+            }
+            .keyboardShortcut("-", modifiers: .command)
+
+            Button("Actual Size") {
+                NotificationCenter.default.post(name: .groveReaderTextReset, object: nil)
+            }
+            .keyboardShortcut("0", modifiers: [.command, .shift])
         }
     }
 }
 
-struct MenuBarView: View {
-    @Environment(\.modelContext) private var modelContext
-    @State private var linkText = ""
-    @State private var showSaved = false
-    @State private var savedMessage = ""
-    @FocusState private var isFocused: Bool
-
-    private var trimmedInput: String {
-        linkText.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var validLink: String? {
-        normalizedLink(from: linkText)
-    }
-
-    private var helperText: String {
-        if showSaved {
-            return savedMessage
-        }
-        return "Paste a link or jot a note, then press Return."
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            Text("Quick Capture")
-                .font(.groveBodyMedium)
-                .foregroundStyle(Color.textPrimary)
-
-            HStack(spacing: Spacing.sm) {
-                Image(systemName: "square.and.pencil")
-                    .font(.groveMeta)
-                    .foregroundStyle(Color.textSecondary)
-
-                TextField("Paste a link or jot a note", text: $linkText)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.groveBody)
-                    .focused($isFocused)
-                    .onSubmit {
-                        capture()
-                    }
-                    .onChange(of: linkText) { _, _ in
-                        showSaved = false
-                    }
-
-                Button {
-                    capture()
-                } label: {
-                    Image(systemName: "arrow.right.circle.fill")
-                        .font(.groveBody)
-                        .foregroundStyle(trimmedInput.isEmpty ? Color.textTertiary : Color.textSecondary)
-                }
-                .buttonStyle(.plain)
-                .disabled(trimmedInput.isEmpty)
-                .accessibilityLabel("Capture")
-            }
-
-            Text(helperText)
-                .font(.groveMeta)
-                .foregroundStyle(showSaved ? Color.textSecondary : Color.textTertiary)
-
-            Button("Quit Grove") {
-                NSApplication.shared.terminate(nil)
-            }
-            .keyboardShortcut("q")
-        }
-        .padding(Spacing.sm)
-        .frame(width: 320)
-        .onAppear {
-            isFocused = true
-        }
-    }
-
-    private func capture() {
-        guard !trimmedInput.isEmpty else { return }
-
-        // URL fast path: normalized http(s) links capture exactly as before;
-        // anything else is saved as a note.
-        let input = validLink ?? trimmedInput
-        let captureService = CaptureService(modelContext: modelContext)
-        let result = captureService.captureItemDetailed(input: input)
-
-        if result.isDuplicate {
-            savedMessage = "Already in your library."
-        } else {
-            savedMessage = result.item.type == .note ? "Note saved." : "Link saved."
-        }
-
-        linkText = ""
-        withAnimation(.easeInOut(duration: 0.15)) {
-            showSaved = true
-        }
-
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(1.2))
-            withAnimation(.easeOut(duration: 0.2)) {
-                showSaved = false
-            }
-        }
-    }
-
-    private func normalizedLink(from text: String) -> String? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        if let direct = validHTTPURL(trimmed) {
-            return direct.absoluteString
-        }
-        if !trimmed.contains("://"), let prefixed = validHTTPURL("https://\(trimmed)") {
-            return prefixed.absoluteString
-        }
-        return nil
-    }
-
-    private func validHTTPURL(_ raw: String) -> URL? {
-        guard let components = URLComponents(string: raw),
-              let scheme = components.scheme?.lowercased(),
-              ["http", "https"].contains(scheme),
-              let host = components.host,
-              !host.isEmpty,
-              let url = components.url else {
-            return nil
-        }
-        return url
-    }
-}
 #endif

@@ -17,8 +17,9 @@ import Observation
 // MARK: - ConversationStarterService
 
 /// Generates up to 3 contextual conversation starters for the HomeView prompt bubbles.
-/// Delegates to `StarterContextBuilder`, `StarterLLMGenerator`, and
-/// `StarterHeuristicGenerator` for the heavy lifting.
+/// Delegates to `StarterContextBuilder` and `StarterLLMGenerator` for the heavy
+/// lifting; board-scoped starters additionally fall back to
+/// `StarterHeuristicGenerator`.
 /// Results are persisted to UserDefaults (TTL: 8 hours) so they appear instantly on relaunch.
 @MainActor @Observable final class ConversationStarterService: ConversationStarterServiceProtocol {
     static let shared = ConversationStarterService()
@@ -66,52 +67,24 @@ import Observation
         defer { isLoading = false }
 
         let context = StarterContextBuilder.buildContext(from: items)
-        let isPro = EntitlementService.shared.isPro
-        let cap = isPro ? Self.maxBubbleCountPro : Self.maxBubbleCountFree
+        let cap = EntitlementService.shared.isPro ? Self.maxBubbleCountPro : Self.maxBubbleCountFree
 
-        if isPro {
-            // Pro: attempt full LLM generation, fall back to heuristics
-            if let llmBubbles = await generateViaLLM(context: context) {
-                bubbles = Array(llmBubbles.prefix(cap))
-                Self.saveCachedBubbles(bubbles)
-            } else {
-                let heuristics = StarterHeuristicGenerator.buildHeuristics(
-                    context: context,
-                    didShowClusterBubble: didShowClusterBubble
-                )
-                if !heuristics.isEmpty {
-                    bubbles = Array(heuristics.prefix(cap))
-                    Self.saveCachedBubbles(bubbles)
-                }
-                // Update cluster flag if heuristics included an ORGANIZE bubble
-                if heuristics.contains(where: { $0.clusterTag != nil }) {
-                    didShowClusterBubble = true
-                }
-            }
-        } else {
-            // Free: attempt 1 LLM bubble, always include 1 heuristic fallback
-            let heuristics = StarterHeuristicGenerator.buildHeuristics(
-                context: context,
-                didShowClusterBubble: didShowClusterBubble
-            )
-            if heuristics.contains(where: { $0.clusterTag != nil }) {
-                didShowClusterBubble = true
-            }
-            if let llmBubbles = await generateViaLLM(context: context), let first = llmBubbles.first {
-                var result = [first]
-                if let heuristic = heuristics.first(where: { $0.prompt != first.prompt }) {
-                    result.append(heuristic)
-                } else if heuristics.count > 1 {
-                    result.append(heuristics[1])
-                } else if let fallback = heuristics.first {
-                    result.append(fallback)
-                }
-                bubbles = Array(result.prefix(cap))
-            } else {
-                bubbles = Array(heuristics.prefix(cap))
-            }
+        // LLM-or-nothing: a heuristic starter reads as filler, so Home shows
+        // nothing rather than something generic.
+        if let llmBubbles = await generateViaLLM(context: context) {
+            bubbles = Array(llmBubbles.prefix(cap))
             Self.saveCachedBubbles(bubbles)
+        } else {
+            // Leave the disk cache alone — a later launch may get a real answer.
+            bubbles = []
         }
+    }
+
+    /// Removes a bubble the user dismissed and persists the remainder so it
+    /// stays gone for the rest of the cache TTL.
+    func dismiss(_ bubble: PromptBubble) {
+        bubbles.removeAll { $0.id == bubble.id }
+        Self.saveCachedBubbles(bubbles)
     }
 
     func forceRefresh(items: [Item]) async {
@@ -194,6 +167,8 @@ import Observation
         let clusterTag: String?
         let clusterItemIDs: [UUID]
         let boardIDs: [UUID]?
+        /// Optional so JSON written before dismissal shipped still decodes.
+        let contextID: String?
     }
 
     private static let cacheKey = "grove.conversationStarters"
@@ -206,7 +181,8 @@ import Observation
                 label: $0.label,
                 clusterTag: $0.clusterTag,
                 clusterItemIDs: $0.clusterItemIDs,
-                boardIDs: $0.boardIDs
+                boardIDs: $0.boardIDs,
+                contextID: $0.contextID
             )
         }
         guard let data = try? JSONEncoder().encode(encoded) else { return }
@@ -232,7 +208,8 @@ import Observation
                         label: $0.label,
                         clusterTag: $0.clusterTag,
                         clusterItemIDs: $0.clusterItemIDs,
-                        boardIDs: $0.boardIDs ?? []
+                        boardIDs: $0.boardIDs ?? [],
+                        contextID: $0.contextID
                     )
                 }
                 .prefix(cap)
@@ -252,7 +229,8 @@ import Observation
                 label: $0.label,
                 clusterTag: $0.clusterTag,
                 clusterItemIDs: $0.clusterItemIDs,
-                boardIDs: $0.boardIDs
+                boardIDs: $0.boardIDs,
+                contextID: $0.contextID
             )
         }
         guard let data = try? JSONEncoder().encode(encoded) else { return }
@@ -276,7 +254,8 @@ import Observation
                 label: $0.label,
                 clusterTag: $0.clusterTag,
                 clusterItemIDs: $0.clusterItemIDs,
-                boardIDs: $0.boardIDs ?? []
+                boardIDs: $0.boardIDs ?? [],
+                contextID: $0.contextID
             )
         }
     }

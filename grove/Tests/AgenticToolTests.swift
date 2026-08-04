@@ -186,9 +186,9 @@ struct AgenticToolTests {
         let pair = try #require(starterContext.contradictionPairs.first)
         #expect(pair.reason == "One denies free will, the other makes it absolute.")
 
-        let bubbles = StarterHeuristicGenerator.buildHeuristics(
+        let bubbles = StarterHeuristicGenerator.buildBoardHeuristics(
             context: starterContext,
-            didShowClusterBubble: false
+            boardID: UUID()
         )
         let resolve = try #require(bubbles.first(where: { $0.label == "RESOLVE" }))
         // The specific reason is surfaced in the prompt...

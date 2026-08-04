@@ -4,6 +4,10 @@ import SwiftData
 /// Browsable catalog of hand-curated newsletters, ranked on-device by
 /// relevance to the user's library (tag/keyword overlap, refined with
 /// sentence-embedding similarity when available).
+///
+/// Laid out as a printed index rather than a deck of cards: one bordered
+/// container, hairline rules between entries, serif names over a mono
+/// domain/topic line. Actions stay quiet until the row is hovered.
 struct NewsletterDirectoryView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -21,6 +25,11 @@ struct NewsletterDirectoryView: View {
         Array(Set(ranked.flatMap { $0.entry.topics })).sorted()
     }
 
+    private func count(for topic: String?) -> Int {
+        guard let topic else { return ranked.count }
+        return ranked.filter { $0.entry.topics.contains(topic) }.count
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -29,24 +38,16 @@ struct NewsletterDirectoryView: View {
             Divider()
 
             ScrollView {
-                LazyVStack(spacing: Spacing.sm) {
+                VStack(alignment: .leading, spacing: Spacing.md) {
                     if visibleEntries.isEmpty {
-                        Text("Nothing here — every newsletter in this topic was dismissed.")
-                            .font(.groveBodySmall)
-                            .foregroundStyle(Color.textTertiary)
-                            .padding(.vertical, Spacing.lg)
-                    }
-
-                    ForEach(visibleEntries) { rankedEntry in
-                        NewsletterDirectoryCard(
-                            rankedEntry: rankedEntry,
-                            isSubscribed: isSubscribed(rankedEntry.entry),
-                            onSubscribe: { subscribe(rankedEntry.entry) },
-                            onDismiss: { dismissEntry(rankedEntry.entry) }
-                        )
+                        emptyState
+                    } else {
+                        entryList
                     }
                 }
-                .padding(Spacing.md)
+                .padding(.horizontal, Spacing.xl)
+                .padding(.vertical, Spacing.lg)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .background(Color.bgPrimary)
@@ -62,10 +63,18 @@ struct NewsletterDirectoryView: View {
             Image(systemName: "newspaper")
                 .font(.groveBody)
                 .foregroundStyle(Color.textSecondary)
-            Text("Newsletter Directory")
+            Text("Directory")
                 .font(.groveTitleLarge)
                 .foregroundStyle(Color.textPrimary)
+            if !ranked.isEmpty {
+                Text("\(visibleEntries.count)")
+                    .font(.groveBadge)
+                    .monospacedDigit()
+                    .foregroundStyle(Color.textTertiary)
+            }
+
             Spacer()
+
             Button {
                 dismiss()
             } label: {
@@ -75,13 +84,13 @@ struct NewsletterDirectoryView: View {
             }
             .buttonStyle(.plain)
             #if os(iOS)
-            .frame(minWidth: 44, minHeight: 44)
+            .frame(minWidth: LayoutDimensions.minTouchTarget, minHeight: LayoutDimensions.minTouchTarget)
             #endif
             .keyboardShortcut(.escape, modifiers: [])
             .accessibilityLabel("Close directory")
         }
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.sm)
+        .padding(.horizontal, Spacing.xl)
+        .padding(.vertical, Spacing.md)
     }
 
     // MARK: - Topic Filter
@@ -94,17 +103,55 @@ struct NewsletterDirectoryView: View {
                     topicChip(label: topic, topic: topic)
                 }
             }
-            .padding(.horizontal, Spacing.md)
+            .padding(.horizontal, Spacing.xl)
             .padding(.vertical, Spacing.sm)
         }
     }
 
     private func topicChip(label: String, topic: String?) -> some View {
-        FilterChip(label: label, isActive: selectedTopic == topic) {
+        FilterChip(label: label, count: count(for: topic), isActive: selectedTopic == topic) {
             withAnimation(.easeInOut(duration: 0.15)) {
                 selectedTopic = topic
             }
         }
+    }
+
+    // MARK: - Entries
+
+    /// One card, hairline rules between rows — the settings sheet's row idiom.
+    private var entryList: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(visibleEntries.enumerated()), id: \.element.id) { index, rankedEntry in
+                if index > 0 {
+                    Divider()
+                        .padding(.leading, Spacing.md)
+                }
+                NewsletterDirectoryRow(
+                    rankedEntry: rankedEntry,
+                    isSubscribed: isSubscribed(rankedEntry.entry),
+                    onSubscribe: { subscribe(rankedEntry.entry) },
+                    onDismiss: { dismissEntry(rankedEntry.entry) }
+                )
+            }
+        }
+        .cardStyle()
+    }
+
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            Text(ranked.isEmpty ? "Nothing to browse" : "Nothing left in this topic")
+                .font(.groveBodyMedium)
+                .foregroundStyle(Color.textPrimary)
+            Text(ranked.isEmpty
+                 ? "The directory is still ranking against your library."
+                 : "Every newsletter filed here was dismissed. Pick another topic above.")
+                .font(.groveBodySmall)
+                .foregroundStyle(Color.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Spacing.lg)
+        .cardStyle()
     }
 
     // MARK: - Subscription State
@@ -166,91 +213,89 @@ struct NewsletterDirectoryView: View {
     }
 }
 
-// MARK: - Directory Card
+// MARK: - Directory Row
 
-private struct NewsletterDirectoryCard: View {
+private struct NewsletterDirectoryRow: View {
     let rankedEntry: RankedNewsletterEntry
     let isSubscribed: Bool
     let onSubscribe: () -> Void
     let onDismiss: () -> Void
 
+    @State private var isHovering = false
+
     private var entry: NewsletterCatalogEntry { rankedEntry.entry }
 
+    /// Domain and topics on one mono line — the topics already have their own
+    /// filter chips above, so they read as locators here, not as tags.
+    private var locatorLine: String {
+        ([entry.domain] + entry.topics).joined(separator: " · ")
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            HStack(alignment: .top, spacing: Spacing.sm) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(entry.title)
-                        .font(.groveItemTitle)
-                        .foregroundStyle(Color.textPrimary)
-                    Text(entry.domain)
+        HStack(alignment: .top, spacing: Spacing.md) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(entry.title)
+                    .font(.groveListTitle)
+                    .foregroundStyle(Color.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(locatorLine)
+                    .font(.groveMeta)
+                    .foregroundStyle(Color.textTertiary)
+                    .lineLimit(1)
+
+                Text(entry.blurb)
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 2)
+
+                if let reason = rankedEntry.reason {
+                    Text(reason)
+                        .font(.groveMeta)
+                        .foregroundStyle(Color.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Spacer(minLength: Spacing.sm)
+
+            HStack(spacing: Spacing.xs) {
+                if isSubscribed {
+                    Label("Subscribed", systemImage: "checkmark")
                         .font(.groveMeta)
                         .foregroundStyle(Color.textTertiary)
+                } else {
+                    Button("Subscribe") {
+                        onSubscribe()
+                    }
+                    .buttonStyle(GroveCompactButtonStyle(prominent: true))
+                    #if os(iOS)
+                    .frame(minHeight: LayoutDimensions.minTouchTarget)
+                    #endif
                 }
-
-                Spacer()
 
                 Button {
                     onDismiss()
                 } label: {
                     Image(systemName: "xmark")
                         .font(.groveMeta)
-                        .foregroundStyle(Color.textTertiary)
+                        .foregroundStyle(isHovering ? Color.textPrimary : Color.textTertiary)
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                #if os(iOS)
-                .frame(minWidth: 44, minHeight: 44)
+                #if os(macOS)
+                .opacity(isHovering ? 1 : 0)
+                #else
+                .frame(minWidth: LayoutDimensions.minTouchTarget, minHeight: LayoutDimensions.minTouchTarget)
                 #endif
                 .accessibilityLabel("Hide \(entry.title)")
             }
-
-            Text(entry.blurb)
-                .font(.groveBodySecondary)
-                .foregroundStyle(Color.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if let reason = rankedEntry.reason {
-                Text(reason)
-                    .font(.groveGhostText)
-                    .foregroundStyle(Color.textTertiary)
-            }
-
-            HStack(spacing: Spacing.xs) {
-                ForEach(entry.topics, id: \.self) { topic in
-                    Text(topic)
-                        .font(.groveTag)
-                        .foregroundStyle(Color.textSecondary)
-                        .padding(.horizontal, Spacing.sm)
-                        .padding(.vertical, 2)
-                        .overlay(
-                            Capsule().stroke(Color.borderTag, lineWidth: 1)
-                        )
-                }
-
-                Spacer()
-
-                if isSubscribed {
-                    Label("Subscribed", systemImage: "checkmark")
-                        .font(.groveBodySmall)
-                        .foregroundStyle(Color.textSecondary)
-                } else {
-                    Button("Subscribe") {
-                        onSubscribe()
-                    }
-                    .font(.groveBodySmall)
-                    .buttonStyle(.bordered)
-                    #if os(iOS)
-                    .frame(minHeight: 44)
-                    #endif
-                }
-            }
         }
-        .padding(Spacing.md)
-        .background(Color.bgCard)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.borderPrimary, lineWidth: 1)
-        )
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.md)
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
     }
 }

@@ -236,7 +236,7 @@ private struct SidebarSearchField: View {
 
                 Spacer(minLength: Spacing.sm)
 
-                Text("⌘K")
+                Text("⌘F")
                     .font(.groveMeta)
                     .foregroundStyle(Color.textMuted)
             }
@@ -255,7 +255,7 @@ private struct SidebarSearchField: View {
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .animation(.easeInOut(duration: 0.12), value: isHovering)
-        .help("Search (⌘K)")
+        .help("Search (⌘F)")
         .accessibilityLabel("Search")
     }
 }

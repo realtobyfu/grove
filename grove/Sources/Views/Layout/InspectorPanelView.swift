@@ -296,7 +296,7 @@ struct InspectorPanelView: View {
     private func connectionRow(_ connection: Connection) -> some View {
         let isOutgoing = connection.sourceItem?.id == item.id
         let linkedItem = isOutgoing ? connection.targetItem : connection.sourceItem
-        let typeLabel = connection.type.displayLabel
+        let typeLabel = connection.type.displayLabel(isOutgoing: isOutgoing)
 
         return HStack(spacing: 6) {
             Image(systemName: isOutgoing ? "arrow.right.circle" : "arrow.left.circle")

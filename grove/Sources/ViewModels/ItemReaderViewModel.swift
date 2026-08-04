@@ -16,6 +16,11 @@ final class ItemReaderViewModel {
 
     var isEditingContent = false
     var showArticleWebView = false
+    /// Whether the native PDF pane is up. A separate flag from
+    /// `showArticleWebView` on purpose: the two panes are mutually exclusive
+    /// surfaces, and everything keyed off the web flag (⌘F routing to
+    /// find-in-page, Reader mode, capture-on-write) means nothing here.
+    var showPDFReader = false
     var isEditingSummary = false
     var editableSummary = ""
     var isReflectionPanelCollapsed = false
@@ -110,12 +115,64 @@ final class ItemReaderViewModel {
         item.type == .video && localVideoURL != nil
     }
 
-    /// URL that can be loaded in the in-app WebView (article/codebase items, not local video).
+    /// True when this item's source is a PDF document. Such an item reads in
+    /// the native PDF pane, never the web pane: WKWebView's PDF plugin renders
+    /// the file but leaves selection, find, Reader mode and reading progress
+    /// silently inert.
+    var isPDFItem: Bool {
+        item.isPDFDocument
+    }
+
+    /// The document a PDF item stands for.
+    var pdfSourceURL: URL? {
+        guard isPDFItem else { return nil }
+        return resolvedSourceURL(from: item.sourceURL)
+    }
+
+    /// URL that can be loaded in the in-app WebView (article/codebase items,
+    /// not local video, not PDFs).
     var articleURL: URL? {
         guard (item.type == .article || item.type == .codebase),
+              !isPDFItem,
               item.metadata["videoLocalFile"] != "true" else { return nil }
 
         return resolvedSourceURL(from: item.sourceURL)
+    }
+
+    /// The player for a video that was never downloaded: a privacy-enhanced
+    /// embed for hosts we know, the watch page itself for the rest. Nil for
+    /// every item that has a local file to play or no web source at all.
+    var remoteVideoEmbedURL: URL? {
+        guard item.type == .video, localVideoURL == nil else { return nil }
+        return VideoEmbed.remoteURL(sourceURL: item.sourceURL, metadata: item.metadata)
+    }
+
+    /// True for every video item — whether the pane is showing an embed or a
+    /// local file, there is no prose here for Readability to extract — and for
+    /// every PDF, which never reaches a web view at all. The reader must not
+    /// try either way, and the READER | ORIGINAL control stays off screen.
+    var suppressesReaderMode: Bool {
+        item.type == .video || isPDFItem
+    }
+
+    /// What the reader's web panel loads. An article or codebase page loads
+    /// itself; a remote video loads its embed, so a YouTube or Vimeo item opens
+    /// into a player instead of dead-ending on its own OG description. Nil for
+    /// a PDF: `articleURL` excludes them, so the web branch never selects one.
+    var readerWebURL: URL? {
+        articleURL ?? remoteVideoEmbedURL
+    }
+
+    /// Whether `url` is a page other than the one this item stands for.
+    ///
+    /// The same question as `ReadingCapture.isDifferentPage`, except that a
+    /// remote video's embed *is* the item's own page: the panel deliberately
+    /// loads the player rather than the watch page, and nothing downstream —
+    /// capture-on-write, provenance, the history chevrons — should read that
+    /// substitution as the reader having followed a link.
+    func isDifferentPageFromItem(_ url: URL) -> Bool {
+        if isSameWebPage(url, remoteVideoEmbedURL) { return false }
+        return ReadingCapture.isDifferentPage(url, from: item)
     }
 
     /// Resolve the local video file URL for this item
@@ -163,7 +220,7 @@ final class ItemReaderViewModel {
     /// Loads a cached extraction if present, and opens straight into Reader
     /// mode (offline-capable) when one exists.
     func loadCachedReaderArticleIfAvailable() {
-        guard readerArticle == nil else { return }
+        guard readerArticle == nil, !suppressesReaderMode else { return }
         guard let cached = ArticleReaderService.shared.cachedArticle(for: item.id) else { return }
         readerArticle = cached
         isReaderMode = true
@@ -177,6 +234,12 @@ final class ItemReaderViewModel {
     /// on failure (null parse, error, paywall shell) stays on the live page
     /// silently.
     func handleArticlePageDidFinish(_ webView: WKWebView) {
+        // A video has no article to extract. Readability on a player page
+        // yields an empty shell at best, so the reader never offers a Reader
+        // mode for one — the absence of any extraction is what keeps the
+        // READER | ORIGINAL control off screen.
+        guard !suppressesReaderMode else { return }
+
         // A page the user navigated to inside the pane gets its own extraction
         // so Reader mode reflects what is on screen. It is deliberately kept
         // out of the item's disk cache — only the item's own article belongs
@@ -226,6 +289,7 @@ final class ItemReaderViewModel {
     /// The Reader control stays mounted across this window instead of blinking
     /// out between pages, and retires only if the destination proves unreadable.
     var isResolvingNavigatedArticle: Bool {
+        guard !suppressesReaderMode else { return false }
         guard let navigated = navigatedWebURL else { return false }
         if navigatedReaderArticleURL?.absoluteString == navigated.absoluteString { return false }
         return navigatedExtractionAttemptedURL?.absoluteString != navigated.absoluteString
@@ -265,7 +329,7 @@ final class ItemReaderViewModel {
     /// with a host-level fallback for the very first load, where a consent or
     /// redirect shell still counts as the item's own page.
     private func hasNavigatedAwayFromOwnPage(_ url: URL) -> Bool {
-        if !ReadingCapture.isDifferentPage(url, from: item) { return false }
+        if !isDifferentPageFromItem(url) { return false }
         if readerArticle == nil, !readerExtractionAttempted, articleURLMatches(url) { return false }
         return true
     }
@@ -578,6 +642,7 @@ final class ItemReaderViewModel {
         isEditingContent = false
         if showReflectionEditor { closeReflectionEditor() }
         showArticleWebView = false
+        showPDFReader = false
         isEditingSummary = false
         editableSummary = ""
         isReflectionPanelCollapsed = false

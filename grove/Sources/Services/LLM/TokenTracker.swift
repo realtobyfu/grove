@@ -28,6 +28,19 @@ final class TokenTracker {
         let outputTokens: Int
         var totalTokens: Int { inputTokens + outputTokens }
         var id: String { service }
+
+        var estimatedCost: Double {
+            TokenTracker.cost(inputTokens: inputTokens, outputTokens: outputTokens)
+        }
+    }
+
+    /// Groq kimi-k2 pricing per million tokens.
+    nonisolated static let inputCostPerMillion = 1.00
+    nonisolated static let outputCostPerMillion = 3.00
+
+    nonisolated static func cost(inputTokens: Int, outputTokens: Int) -> Double {
+        Double(inputTokens) / 1_000_000.0 * inputCostPerMillion
+            + Double(outputTokens) / 1_000_000.0 * outputCostPerMillion
     }
 
     private(set) var entries: [Entry] = []
@@ -82,9 +95,9 @@ final class TokenTracker {
         totalInputTokens + totalOutputTokens
     }
 
-    /// Estimated cost at $1.50 per million tokens (blended rate).
+    /// Estimated cost from per-direction pricing.
     var estimatedCost: Double {
-        Double(totalTokens) / 1_000_000.0 * 1.50
+        Self.cost(inputTokens: totalInputTokens, outputTokens: totalOutputTokens)
     }
 
     /// Tokens used in the current calendar month.

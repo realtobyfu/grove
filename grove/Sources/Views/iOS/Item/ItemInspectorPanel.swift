@@ -373,7 +373,7 @@ struct ItemInspectorPanel: View {
                     .foregroundStyle(Color.textPrimary)
                     .lineLimit(2)
 
-                Text(connection.type.displayLabel)
+                Text(connection.type.displayLabel(isOutgoing: isOutgoing))
                     .font(.groveBadge)
                     .foregroundStyle(Color.textTertiary)
                     .padding(.horizontal, 6)

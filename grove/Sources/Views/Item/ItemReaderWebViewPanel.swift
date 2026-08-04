@@ -1,6 +1,9 @@
 import SwiftUI
 import SwiftData
 import WebKit
+#if os(macOS)
+import AppKit
+#endif
 
 struct ItemReaderWebViewPanel: View {
     @Bindable var vm: ItemReaderViewModel
@@ -35,6 +38,15 @@ struct ItemReaderWebViewPanel: View {
     /// Starts false so an item that opens straight into a cached Reader
     /// article never fetches the live page.
     @State private var hasMountedWebView = false
+    #if os(macOS)
+    /// Mirrors the window's full-screen state so the reader's own menu item can
+    /// name what the next activation will do.
+    @State private var isFullScreen = false
+    /// The window this panel actually lives in. Window-level notifications are
+    /// broadcast for every window, so without this the panel would follow a
+    /// different window's full-screen transitions.
+    @State private var hostWindow: NSWindow? = nil
+    #endif
 
     // Reader typography (persisted app-wide)
     @AppStorage(ReaderTypographySettings.sizeStepKey) private var readerSizeStep = 1
@@ -64,6 +76,10 @@ struct ItemReaderWebViewPanel: View {
     private var webBackEnabled: Bool {
         if canGoBack { return true }
         if let current = currentWebURL, current.absoluteString != url.absoluteString { return true }
+        // The VM can know the pane left the item's page even when the web
+        // view's own reporting doesn't — a pane mounted directly on a link
+        // target (image documents especially) records no history entry.
+        if vm.navigatedWebURL != nil { return true }
         return false
     }
 
@@ -116,11 +132,23 @@ struct ItemReaderWebViewPanel: View {
 
                 Spacer()
 
-                if showsReaderContent {
-                    typographyControls
-                } else {
-                    zoomControls
+                #if os(macOS)
+                // Full screen is a standing choice about the window, not a
+                // reading setting, so it keeps its own target rather than
+                // hiding a level down in the menu.
+                Button { toggleFullScreen() } label: {
+                    Image(systemName: isFullScreen
+                        ? "arrow.down.right.and.arrow.up.left"
+                        : "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Color.textMuted)
                 }
+                .buttonStyle(.plain)
+                .help(isFullScreen ? "Exit Full Screen" : "Enter Full Screen")
+                .accessibilityLabel(isFullScreen ? "Exit Full Screen" : "Enter Full Screen")
+                #endif
+
+                readerSettingsMenu
 
                 if showsReaderModeControl {
                     Divider().frame(height: 12)
@@ -195,7 +223,6 @@ struct ItemReaderWebViewPanel: View {
                     HighlightActionBarOverlay(
                         vm: vm,
                         selection: selection,
-                        focusTrigger: focusTrigger,
                         selectionGeometry: vm.webSelectionGeometry,
                         onWrite: { resolveCaptureState() }
                     )
@@ -240,19 +267,42 @@ struct ItemReaderWebViewPanel: View {
             vm.loadCachedReaderArticleIfAvailable()
             resolveCaptureState()
         }
+        // ⌘+ / ⌘− / ⌘⇧0 live in the View menu, so the shortcuts are discoverable
+        // and work the same whether the reader is showing parsed text or the
+        // live page. The panel is the only thing that knows which that is.
+        .onReceive(NotificationCenter.default.publisher(for: .groveReaderTextLarger)) { _ in
+            stepTextSize(1)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .groveReaderTextSmaller)) { _ in
+            stepTextSize(-1)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .groveReaderTextReset)) { _ in
+            resetTextSize()
+        }
         #if os(macOS)
         .background {
-            // Hidden buttons for keyboard shortcuts
-            Group {
-                Button("") { vm.zoomIn() }
-                    .keyboardShortcut("+", modifiers: .command)
-                Button("") { vm.zoomOut() }
-                    .keyboardShortcut("-", modifiers: .command)
-                Button("") { vm.resetZoom() }
-                    .keyboardShortcut("0", modifiers: .command)
+            // ⌘= as an alias for ⌘+, the way browsers accept both. The menu can
+            // only advertise one, so the second lives here.
+            Button("") { stepTextSize(1) }
+                .keyboardShortcut("=", modifiers: .command)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+        }
+        .background {
+            HostWindowReader { window in
+                guard window !== hostWindow else { return }
+                hostWindow = window
+                isFullScreen = Self.windowIsFullScreen(window)
             }
             .frame(width: 0, height: 0)
-            .opacity(0)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { note in
+            guard isHostWindow(note.object) else { return }
+            isFullScreen = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { note in
+            guard isHostWindow(note.object) else { return }
+            isFullScreen = false
         }
         #endif
     }
@@ -323,6 +373,14 @@ struct ItemReaderWebViewPanel: View {
             navigateURL: vm.pendingNavigationURL,
             navigateToken: vm.pendingNavigationToken,
             onNavigationChanged: { canBack, canFwd, currentURL in
+                // A selection belongs to the page it was made on. When the
+                // live page moves on while it is what's on screen, retire the
+                // selection with it (Reader-mode selections live in the other
+                // web view and are left alone).
+                if !showsReaderContent, currentURL?.absoluteString != currentWebURL?.absoluteString {
+                    vm.webSelectedText = nil
+                    vm.webSelectionGeometry = nil
+                }
                 canGoBack = canBack
                 canGoForward = canFwd
                 currentWebURL = currentURL
@@ -330,7 +388,7 @@ struct ItemReaderWebViewPanel: View {
                 // a reflection belongs to. Normalized comparison so a
                 // canonical redirect on the item's own URL doesn't read as
                 // a link the user followed.
-                let onArticlePage = currentURL.map { !ReadingCapture.isDifferentPage($0, from: vm.item) } ?? true
+                let onArticlePage = currentURL.map { !vm.isDifferentPageFromItem($0) } ?? true
                 // No withAnimation here: this callback can fire synchronously
                 // from updateNSView, and an implicit transaction would animate
                 // every animatable in the pass. The nav bar owns its own
@@ -374,10 +432,14 @@ struct ItemReaderWebViewPanel: View {
             navigateURL: vm.pendingNavigationURL,
             navigateToken: vm.pendingNavigationToken,
             onNavigationChanged: { canBack, canFwd, currentURL in
+                if !showsReaderContent, currentURL?.absoluteString != currentWebURL?.absoluteString {
+                    vm.webSelectedText = nil
+                    vm.webSelectionGeometry = nil
+                }
                 canGoBack = canBack
                 canGoForward = canFwd
                 currentWebURL = currentURL
-                let onArticlePage = currentURL.map { !ReadingCapture.isDifferentPage($0, from: vm.item) } ?? true
+                let onArticlePage = currentURL.map { !vm.isDifferentPageFromItem($0) } ?? true
                 vm.navigatedWebURL = onArticlePage ? nil : currentURL
                 if onArticlePage {
                     vm.pendingNavigationURL = nil
@@ -471,7 +533,7 @@ struct ItemReaderWebViewPanel: View {
         // A confirmation belongs to the page it was earned on.
         showFiledConfirmation = false
         let pageURL = capturePageURL.absoluteString
-        if !ReadingCapture.isDifferentPage(capturePageURL, from: vm.item) {
+        if !vm.isDifferentPageFromItem(capturePageURL) {
             capturedItem = vm.item
             return
         }
@@ -518,6 +580,10 @@ struct ItemReaderWebViewPanel: View {
         Button {
             vm.pendingNavigationURL = nil
             vm.navigatedWebURL = nil
+            // A selection made in the web pane must not follow the user out:
+            // the overview would show the highlight bar over nothing.
+            vm.webSelectedText = nil
+            vm.webSelectionGeometry = nil
             withAnimation(.easeOut(duration: 0.2)) { vm.showArticleWebView = false }
         } label: {
             HStack(spacing: 4) {
@@ -582,7 +648,7 @@ struct ItemReaderWebViewPanel: View {
     /// reached from it. Normalized comparison, so the item's canonical URL and
     /// the URL the web view reports count as the same page.
     private var isOnRootPage: Bool {
-        !ReadingCapture.isDifferentPage(capturePageURL, from: vm.item)
+        !vm.isDifferentPageFromItem(capturePageURL)
     }
 
     /// The item this one was harvested from while reading, when there is one.
@@ -654,85 +720,99 @@ struct ItemReaderWebViewPanel: View {
         withAnimation(.easeOut(duration: 0.2)) { vm.isReaderMode = isReader }
     }
 
-    private var zoomControls: some View {
-        HStack(spacing: 4) {
-            Button { vm.zoomOut() } label: {
-                Image(systemName: "minus.magnifyingglass")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.textMuted)
-            }
-            .buttonStyle(.plain)
-            .help("Zoom out (⌘−)")
-            .disabled(vm.webViewZoomLevel <= 0.5)
+    // MARK: - Reader Settings
 
-            Text("\(vm.zoomPercentage)%")
-                .font(.groveMeta)
-                .foregroundStyle(Color.textTertiary)
-                .monospacedDigit()
-                .frame(minWidth: 36, alignment: .center)
-                .onTapGesture { vm.resetZoom() }
-                .help("Reset zoom")
+    /// Every way the page can be resized or re-set, named. Glyph pairs on the
+    /// strip were compact but unreadable — a menu can afford words, and the
+    /// strip gets its width back for the things that are about *this* page.
+    /// Which half shows follows what is on screen: the type scale for parsed
+    /// text, page zoom for the live page.
+    private var readerSettingsMenu: some View {
+        Menu {
+            if showsReaderContent {
+                Section("Text Size") {
+                    Button("Larger", systemImage: "textformat.size.larger") { stepTextSize(1) }
+                        .disabled(readerSizeStep >= ReaderTypographySettings.sizeStepRange.upperBound)
+                    Button("Smaller", systemImage: "textformat.size.smaller") { stepTextSize(-1) }
+                        .disabled(readerSizeStep <= ReaderTypographySettings.sizeStepRange.lowerBound)
+                    Button("Reset", systemImage: "arrow.counterclockwise") { resetTextSize() }
+                        .disabled(readerSizeStep == ReaderTypographySettings.defaultSizeStep)
+                }
 
-            Button { vm.zoomIn() } label: {
-                Image(systemName: "plus.magnifyingglass")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.textMuted)
+                Picker("Typeface", selection: $readerUseSerif) {
+                    Text("Serif").tag(true)
+                    Text("Sans-Serif").tag(false)
+                }
+                .pickerStyle(.inline)
+
+                Picker("Column", selection: $readerIsWide) {
+                    Text("Narrow").tag(false)
+                    Text("Wide").tag(true)
+                }
+                .pickerStyle(.inline)
+            } else {
+                Section("Zoom \u{2014} \(vm.zoomPercentage)%") {
+                    Button("Zoom In", systemImage: "plus.magnifyingglass") { vm.zoomIn() }
+                        .disabled(vm.webViewZoomLevel >= 2.0)
+                    Button("Zoom Out", systemImage: "minus.magnifyingglass") { vm.zoomOut() }
+                        .disabled(vm.webViewZoomLevel <= 0.5)
+                    Button("Actual Size", systemImage: "arrow.counterclockwise") { resetTextSize() }
+                        .disabled(vm.webViewZoomLevel == 1.0)
+                }
             }
-            .buttonStyle(.plain)
-            .help("Zoom in (⌘+)")
-            .disabled(vm.webViewZoomLevel >= 2.0)
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.textMuted)
+                #if os(iOS)
+                .frame(minWidth: LayoutDimensions.minTouchTarget, minHeight: LayoutDimensions.minTouchTarget)
+                #endif
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Reading settings")
+        .accessibilityLabel("Reading settings")
+    }
+
+    /// One text-size control for two mechanisms: Reader mode steps the type
+    /// scale, the live page steps page zoom. What the keyboard shortcut does is
+    /// therefore always what the reader can see.
+    private func stepTextSize(_ direction: Int) {
+        guard showsReaderContent else {
+            if direction > 0 { vm.zoomIn() } else { vm.zoomOut() }
+            return
+        }
+        let range = ReaderTypographySettings.sizeStepRange
+        readerSizeStep = min(max(readerSizeStep + direction, range.lowerBound), range.upperBound)
+    }
+
+    private func resetTextSize() {
+        if showsReaderContent {
+            readerSizeStep = ReaderTypographySettings.defaultSizeStep
+        } else {
+            vm.resetZoom()
         }
     }
 
-    private var typographyControls: some View {
-        HStack(spacing: 6) {
-            Button {
-                readerSizeStep = max(readerSizeStep - 1, ReaderTypographySettings.sizeStepRange.lowerBound)
-            } label: {
-                Image(systemName: "textformat.size.smaller")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.textMuted)
-            }
-            .buttonStyle(.plain)
-            .disabled(readerSizeStep <= ReaderTypographySettings.sizeStepRange.lowerBound)
-            .help("Smaller text")
-            .accessibilityLabel("Smaller text")
-
-            Button {
-                readerSizeStep = min(readerSizeStep + 1, ReaderTypographySettings.sizeStepRange.upperBound)
-            } label: {
-                Image(systemName: "textformat.size.larger")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.textMuted)
-            }
-            .buttonStyle(.plain)
-            .disabled(readerSizeStep >= ReaderTypographySettings.sizeStepRange.upperBound)
-            .help("Larger text")
-            .accessibilityLabel("Larger text")
-
-            Button {
-                readerUseSerif.toggle()
-            } label: {
-                Image(systemName: "textformat")
-                    .font(.system(size: 11, weight: readerUseSerif ? .semibold : .regular))
-                    .foregroundStyle(readerUseSerif ? Color.textSecondary : Color.textMuted)
-            }
-            .buttonStyle(.plain)
-            .help(readerUseSerif ? "Switch to sans-serif" : "Switch to serif")
-            .accessibilityLabel(readerUseSerif ? "Switch to sans-serif font" : "Switch to serif font")
-
-            Button {
-                readerIsWide.toggle()
-            } label: {
-                Image(systemName: readerIsWide ? "arrow.right.and.line.vertical.and.arrow.left" : "arrow.left.and.right")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.textMuted)
-            }
-            .buttonStyle(.plain)
-            .help(readerIsWide ? "Narrow column" : "Wide column")
-            .accessibilityLabel(readerIsWide ? "Narrow column" : "Wide column")
-        }
+    #if os(macOS)
+    /// True only for the window this panel is hosted in. Full-screen
+    /// notifications are posted for every window, and the panel must not
+    /// follow a transition that happened somewhere else.
+    private func isHostWindow(_ object: Any?) -> Bool {
+        guard let window = object as? NSWindow else { return false }
+        return window === hostWindow
     }
+
+    private func toggleFullScreen() {
+        (hostWindow ?? NSApp.keyWindow ?? NSApp.mainWindow)?.toggleFullScreen(nil)
+    }
+
+    private static func windowIsFullScreen(_ window: NSWindow?) -> Bool {
+        window?.styleMask.contains(.fullScreen) ?? false
+    }
+    #endif
 }
 
 // MARK: - Provenance Chip
@@ -825,8 +905,8 @@ private struct ReaderModeSegment: View {
 
 // MARK: - Highlight Action Bar
 
-/// The full selection overlay (bar + highlight/reflect actions + transition)
-/// used by both macOS reader surfaces so their selection handling can't drift.
+/// The full selection overlay (bar + highlight action + transition) used by
+/// both macOS reader surfaces so their selection handling can't drift.
 ///
 /// With geometry the bar floats beside the selection it acts on; without it —
 /// native content, which reports no rect — it keeps the old pane-bottom
@@ -834,9 +914,8 @@ private struct ReaderModeSegment: View {
 struct HighlightActionBarOverlay: View {
     let vm: ItemReaderViewModel
     let selection: String
-    let focusTrigger: () -> Void
     var selectionGeometry: WebSelectionGeometry? = nil
-    /// Fired after either action writes a block. Writing on a page reached by
+    /// Fired after the highlight is written. Writing on a page reached by
     /// browsing captures that page into the library, so whoever owns the page's
     /// identity (the capture FAB, the highlight marks) needs to re-resolve.
     var onWrite: (() -> Void)? = nil
@@ -856,23 +935,10 @@ struct HighlightActionBarOverlay: View {
     }
 
     private var bar: some View {
-        HighlightActionBar(
-            onHighlight: {
-                vm.addHighlight(selection)
-                onWrite?()
-            },
-            onHighlightAndReflect: {
-                vm.webSelectedText = nil
-                vm.webSelectionGeometry = nil
-                vm.openReflectionEditor(
-                    type: .keyInsight,
-                    content: "",
-                    highlight: selection,
-                    focusTrigger: focusTrigger
-                )
-                onWrite?()
-            }
-        )
+        HighlightActionBar {
+            vm.addHighlight(selection)
+            onWrite?()
+        }
     }
 }
 
@@ -928,12 +994,12 @@ struct SelectionAnchorLayout: Layout {
     }
 }
 
-/// Quiet floating bar shown while a text selection is active in the reader.
-/// Offers saving the selection as a highlight, optionally with a reflection.
+/// Quiet floating pill shown while a text selection is active in the reader.
+/// One action: save the selection as a highlight. Prose comes later, by
+/// opening the saved block in the reflections panel.
 /// Shared by the desktop web panel and the iOS mobile reader.
 struct HighlightActionBar: View {
     var onHighlight: () -> Void
-    var onHighlightAndReflect: () -> Void
 
     #if os(iOS)
     private static let minTargetSize: CGFloat = 44
@@ -942,24 +1008,12 @@ struct HighlightActionBar: View {
     #endif
 
     var body: some View {
-        HStack(spacing: 0) {
-            barButton(
-                title: "Highlight",
-                systemImage: "highlighter",
-                action: onHighlight
-            )
-            .help("Save selection as a highlight")
-
-            Divider()
-                .frame(height: 16)
-
-            barButton(
-                title: "Highlight & Reflect",
-                systemImage: "square.and.pencil",
-                action: onHighlightAndReflect
-            )
-            .help("Save selection and write a reflection")
-        }
+        barButton(
+            title: "Highlight",
+            systemImage: "highlighter",
+            action: onHighlight
+        )
+        .help("Save selection as a highlight")
         .background(Color.bgCard)
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay(

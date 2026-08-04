@@ -26,6 +26,11 @@ extension Notification.Name {
     static let groveCoachMarkPrefill = Notification.Name("groveCoachMarkPrefill")
     /// Posted to trigger find-in-page when an article WebView is active
     static let groveFindInArticle = Notification.Name("groveFindInArticle")
+    /// Reader text size, from the View menu. The reader routes these to whatever
+    /// is on screen: the Reader-mode type scale, or page zoom on the live page.
+    static let groveReaderTextLarger = Notification.Name("groveReaderTextLarger")
+    static let groveReaderTextSmaller = Notification.Name("groveReaderTextSmaller")
+    static let groveReaderTextReset = Notification.Name("groveReaderTextReset")
     /// Posted when a free user hits the dialectics monthly limit
     static let groveDialecticsLimitReached = Notification.Name("groveDialecticsLimitReached")
     /// Posted by `ItemViewModel.deleteItem(_:)` immediately *before* an Item is

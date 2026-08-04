@@ -40,8 +40,8 @@ struct HomeView: View {
     @Binding var selectedItem: Item?
     @Binding var openedItem: Item?
     @Environment(\.modelContext) private var modelContext
-    @Environment(OnboardingService.self) private var onboarding
     @Query(sort: \Item.updatedAt, order: .reverse) private var allItems: [Item]
+    @Query(sort: \Nudge.createdAt, order: .reverse) private var allNudges: [Nudge]
 
     @State private var starterService = ConversationStarterService.shared
     @State private var isInboxCollapsed = false
@@ -59,6 +59,15 @@ struct HomeView: View {
         Array(starterService.bubbles.prefix(Self.maxDiscussionCards))
     }
 
+    /// The one active resurface nudge, surfaced as a Think Next card instead of
+    /// a standalone notice bar. Stale-inbox nudges are not shown on Home — the
+    /// Inbox section with its live count is already on screen.
+    private var resurfaceNudge: Nudge? {
+        allNudges.first {
+            $0.type == .resurface && ($0.status == .pending || $0.status == .shown) && $0.targetItem != nil
+        }
+    }
+
     var body: some View {
         GeometryReader { geo in
             let minPanelWidth: CGFloat = 280
@@ -73,27 +82,7 @@ struct HomeView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         CaptureBarView()
-                            .padding(.bottom, Spacing.sm)
-
-                        if onboarding.shouldShowHomeReminder {
-                            onboardingReminderBanner
-                                .padding(.bottom, Spacing.md)
-                        }
-
-                        // Quiet nudge row — only occupies space when a pending/shown nudge exists.
-                        NudgeBarView(
-                            onOpenItem: { item in
-                                selectedItem = item
-                                openedItem = item
-                            },
-                            onTriageInbox: {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    isInboxCollapsed = false
-                                }
-                            },
-                            resurfacingService: ResurfacingService(modelContext: modelContext)
-                        )
-                        .padding(.bottom, Spacing.md)
+                            .padding(.bottom, Spacing.lg)
 
                         HomeInboxSection(
                             selectedItem: $selectedItem,
@@ -104,13 +93,13 @@ struct HomeView: View {
                         .padding(.bottom, Spacing.xl)
 
                         HomeDiscussionSection(
+                            resurfaceNudge: resurfaceNudge,
                             discussionBubbles: discussionBubbles,
                             isCollapsed: $isDiscussionCollapsed,
-                            onNewConversation: {
-                                promptModeSelection = nil
-                                openConversation(with: "")
-                            },
-                            onBubbleTap: { presentModePanel(for: $0) }
+                            onBubbleTap: { presentModePanel(for: $0) },
+                            onOpenNudge: { openNudgeItem($0) },
+                            onDismissNudge: { dismissNudge($0) },
+                            onDismissBubble: { dismissBubble($0) }
                         )
                         .padding(.bottom, Spacing.xl)
 
@@ -144,57 +133,71 @@ struct HomeView: View {
         .task {
             await starterService.refresh(items: allItems)
         }
+        .onChange(of: resurfaceNudge?.id, initial: true) {
+            guard let nudge = resurfaceNudge else { return }
+            if nudge.status == .pending {
+                nudge.status = .shown
+                try? modelContext.save()
+            }
+            NudgeNotificationService.shared.cancel(for: nudge.id)
+        }
         .animation(.easeInOut(duration: 0.2), value: promptModeSelection != nil)
     }
 
-    // MARK: - Home Banners
+    // MARK: - Resurface Nudge Actions
 
-    /// Quiet one-line notice row, same idiom as NudgeBarView so home notices
-    /// stack as one system: icon, secondary text, pill action, muted dismiss.
-    private var onboardingReminderBanner: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "sparkles")
-                .font(.groveBody)
-                .foregroundStyle(Color.textSecondary)
-
-            Text("Replay the guided setup anytime — capture, organize, and start Dialectics in one pass.")
-                .font(.groveBodySecondary)
-                .foregroundStyle(Color.textSecondary)
-                .lineLimit(2)
-
-            Spacer()
-
-            Button {
-                onboarding.presentReplay()
-            } label: {
-                Text("Replay")
-                    .font(.groveBadge)
-                    .foregroundStyle(Color.textPrimary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(Color.accentBadge)
-                    .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                onboarding.dismissHomeReminder()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .medium))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.textMuted)
-            .accessibilityLabel("Dismiss setup reminder")
+    private func openNudgeItem(_ nudge: Nudge) {
+        guard let item = nudge.targetItem else { return }
+        ResurfacingService(modelContext: modelContext).recordEngagement(for: item)
+        withAnimation(.easeOut(duration: 0.15)) {
+            nudge.status = .actedOn
+            NudgeSettings.recordAction(type: nudge.type, actedOn: true)
+            try? modelContext.save()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(Color.bgCard)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(Color.borderPrimary, lineWidth: 1)
-        )
+        NudgeNotificationService.shared.cancel(for: nudge.id)
+        selectedItem = item
+        openedItem = item
+    }
+
+    private func dismissNudge(_ nudge: Nudge) {
+        withAnimation(.easeOut(duration: 0.15)) {
+            nudge.status = .dismissed
+            NudgeSettings.recordAction(type: nudge.type, actedOn: false)
+            try? modelContext.save()
+        }
+        NudgeNotificationService.shared.cancel(for: nudge.id)
+    }
+
+    // MARK: - Starter Dismissal
+
+    private func dismissBubble(_ bubble: PromptBubble) {
+        // Rejecting a tension-derived starter also retires the detected tension itself.
+        if bubble.contextID == "contradiction", bubble.clusterItemIDs.count == 2 {
+            removeAutoContradiction(between: bubble.clusterItemIDs[0], and: bubble.clusterItemIDs[1])
+        }
+        starterService.dismiss(bubble)
+    }
+
+    /// Deletes the auto-generated "contradicts" Connection behind a rejected
+    /// starter and blacklists the pair so the next detection run skips it.
+    private func removeAutoContradiction(between a: UUID, and b: UUID) {
+        TensionDetectionService.blacklistPair(a, b)
+
+        let connections: [Connection] = modelContext.fetchAll()
+        let matches = connections.filter { connection in
+            guard connection.type == .contradicts, connection.isAutoGenerated,
+                  let sourceID = connection.sourceItem?.id,
+                  let targetID = connection.targetItem?.id else { return false }
+            return (sourceID == a && targetID == b) || (sourceID == b && targetID == a)
+        }
+        guard !matches.isEmpty else { return }
+
+        for connection in matches {
+            connection.sourceItem?.outgoingConnections.removeAll { $0.id == connection.id }
+            connection.targetItem?.incomingConnections.removeAll { $0.id == connection.id }
+            modelContext.delete(connection)
+        }
+        try? modelContext.save()
     }
 
     // MARK: - Prompt Mode Panel & Actions
@@ -344,6 +347,7 @@ struct SuggestedConversationCard: View {
     let title: String
     var subtitle: String? = nil
     var icon: String? = nil
+    var onDismiss: (() -> Void)? = nil
     let onTap: () -> Void
 
     @State private var isHovered = false
@@ -393,6 +397,18 @@ struct SuggestedConversationCard: View {
                     }
 
                     Spacer(minLength: 0)
+
+                    if let onDismiss {
+                        Button(action: onDismiss) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(Color.textMuted)
+                                .padding(6)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Dismiss suggestion")
+                    }
 
                     Image(systemName: "arrow.right")
                         .font(.system(size: 12, weight: .medium))

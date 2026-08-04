@@ -107,8 +107,27 @@ struct ItemReaderHeaderView: View {
                     .truncationMode(.head)
             }
             .foregroundStyle(Color.textSecondary)
-        } else if vm.articleURL != nil {
-            // Article URL -- clicking opens the in-app WebView reader
+        } else if vm.isPDFItem {
+            // The document opens in the PDF pane, never the browser — this is
+            // the way back in once the reader has stepped out to the overview.
+            Button {
+                withAnimation(.easeOut(duration: 0.2)) { vm.showPDFReader = true }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "doc.richtext")
+                        .font(.groveMeta)
+                    Text(sourceURL)
+                        .font(.groveMeta)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .foregroundStyle(Color.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .help("Read in App")
+        } else if vm.readerWebURL != nil {
+            // Article URL (or a remote video's embed) -- clicking opens the
+            // in-app WebView reader
             Button {
                 withAnimation(.easeOut(duration: 0.2)) { vm.showArticleWebView = true }
             } label: {

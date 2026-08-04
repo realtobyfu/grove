@@ -22,6 +22,17 @@ enum ConnectionType: String, Codable, CaseIterable {
         }
     }
 
+    /// The label as read from one end of the edge. `.linkedFrom` is the only
+    /// asymmetric type: on the page you were reading it points forward ("Links
+    /// To" the article you opened), and only on the destination does "Linked
+    /// From" describe what happened. Every other type reads the same either way.
+    func displayLabel(isOutgoing: Bool) -> String {
+        switch self {
+        case .linkedFrom: isOutgoing ? "Links To" : "Linked From"
+        default: displayLabel
+        }
+    }
+
     /// Types a person can choose when creating a connection by hand.
     /// `.linkedFrom` is earned by browsing, so offering it in a picker would
     /// let the user assert a provenance that never happened.
