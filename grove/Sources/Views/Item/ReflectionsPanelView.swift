@@ -19,17 +19,22 @@ struct ReflectionsListPanel: View {
 
                 Spacer()
 
+                // The app's own trailing-panel glyph, the same one the
+                // inspector toggle uses. A circled chevron pointed at a
+                // direction nothing moves in, and matched `plus.circle` so
+                // closely that the pair read as two ways to add something.
                 Button {
                     withAnimation(.easeOut(duration: 0.25)) {
                         vm.isReflectionPanelCollapsed = true
                     }
                 } label: {
-                    Image(systemName: "chevron.up.circle")
+                    Image(systemName: "sidebar.trailing")
                         .font(.groveBody)
                         .foregroundStyle(Color.textMuted)
                 }
                 .buttonStyle(.plain)
-                .help("Hide reflections panel")
+                .help("Close panel — keep reflections below the article")
+                .accessibilityLabel("Close reflections panel")
 
                 addReflectionMenu
             }
@@ -155,17 +160,21 @@ struct InlineReflectionsSection: View {
                 Spacer()
 
                 if showExpandButton {
+                    // Same glyph as the panel's own close control: one
+                    // recognisable toggle for one piece of layout, rather than
+                    // an up-chevron and a down-chevron that have to be read.
                     Button {
                         withAnimation(.easeOut(duration: 0.25)) {
                             vm.isReflectionPanelCollapsed = false
                         }
                     } label: {
-                        Image(systemName: "chevron.down.circle")
+                        Image(systemName: "sidebar.trailing")
                             .font(.groveBody)
                             .foregroundStyle(Color.textMuted)
                     }
                     .buttonStyle(.plain)
-                    .help("Show reflections panel")
+                    .help("Open reflections as a side panel")
+                    .accessibilityLabel("Open reflections panel")
                 }
 
                 Menu {

@@ -131,17 +131,11 @@ struct ContentView: View {
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 900, minHeight: 600)
         #if os(macOS)
-        // Applied to the whole split view, not the detail column: a toolbar
-        // hidden from inside one column still leaves the window's empty
-        // toolbar band behind, which in full screen reads as a dead strip of
-        // desktop above the page.
-        .toolbar(hidesWindowToolbar ? .hidden : .automatic, for: .windowToolbar)
         .background {
             HostWindowReader { resolved in
                 guard resolved !== window else { return }
                 window = resolved
                 isFullScreen = resolved?.styleMask.contains(.fullScreen) ?? false
-                applyFullSizeContent(hidesWindowToolbar)
             }
             .frame(width: 0, height: 0)
         }
@@ -152,9 +146,6 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { note in
             guard let transitioned = note.object as? NSWindow, transitioned === window else { return }
             isFullScreen = false
-        }
-        .onChange(of: hidesWindowToolbar) { _, hidden in
-            applyFullSizeContent(hidden)
         }
         #endif
         .modifier(ContentViewEventHandlers(
@@ -259,6 +250,9 @@ struct ContentView: View {
                 inspectorToolbarButton
             }
         }
+        #if os(macOS)
+        .toolbar(hidesWindowToolbar ? .hidden : .automatic, for: .windowToolbar)
+        #endif
     }
 
     private var chatToolbarButton: some View {
@@ -495,24 +489,6 @@ struct ContentView: View {
             }
         }
     }
-
-    #if os(macOS)
-    /// Hiding the toolbar takes away its controls but not the titlebar's
-    /// reserved height — in full screen that left a dead band of desktop above
-    /// the page. Letting the content run full-size for as long as the toolbar
-    /// is gone hands the space back, and restores the inset when it returns.
-    private func applyFullSizeContent(_ fullSize: Bool) {
-        guard let window else { return }
-        guard window.styleMask.contains(.fullSizeContentView) != fullSize else { return }
-        if fullSize {
-            window.styleMask.insert(.fullSizeContentView)
-            window.titlebarAppearsTransparent = true
-        } else {
-            window.styleMask.remove(.fullSizeContentView)
-            window.titlebarAppearsTransparent = false
-        }
-    }
-    #endif
 
     private func refreshOnboardingState() {
         onboarding.updateProgress(

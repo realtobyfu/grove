@@ -38,6 +38,9 @@ struct ItemReaderWebViewPanel: View {
     /// Starts false so an item that opens straight into a cached Reader
     /// article never fetches the live page.
     @State private var hasMountedWebView = false
+    /// Live width of the navigation strip, which drives how much of it can
+    /// stay on the strip rather than folding into the `…` menu.
+    @State private var stripWidth: CGFloat = 0
     #if os(macOS)
     /// Mirrors the window's full-screen state so the reader's own menu item can
     /// name what the next activation will do.
@@ -104,6 +107,35 @@ struct ItemReaderWebViewPanel: View {
     private static let historySlotWidth: CGFloat = 55
     #endif
 
+    /// How much of the strip the reading pane can actually seat. Narrow panes
+    /// hand controls to the `…` menu rather than letting the labels crush each
+    /// other into vertical stacks of single letters.
+    private enum StripTier {
+        /// Everything on the strip.
+        case full
+        /// Reflect, Open in Browser and Full Screen move into the menu.
+        case compact
+        /// Text size, zoom and Reader|Original move into the menu too, and
+        /// Overview keeps only its chevron. What is left is the way out,
+        /// where you are, and `…`.
+        case minimal
+    }
+
+    /// Measured before the tier can be known, so the first pass renders `.full`
+    /// and settles within a frame. Thresholds are the widths at which the next
+    /// cluster stops fitting alongside a truncated domain.
+    ///
+    /// Text size and zoom sit near the top of the ladder rather than in the
+    /// middle of it: they are what gets adjusted *while* reading, so Reflect,
+    /// Open in Browser, Full Screen and finally Reader│Original all give way
+    /// before they do.
+    private var stripTier: StripTier {
+        guard stripWidth > 0 else { return .full }
+        if stripWidth < 480 { return .minimal }
+        if stripWidth < 620 { return .compact }
+        return .full
+    }
+
     /// Non-empty trimmed selection from either web mode, or nil.
     var body: some View {
         VStack(spacing: 0) {
@@ -129,71 +161,79 @@ struct ItemReaderWebViewPanel: View {
                     domainLabel
                 }
                 .animation(.easeOut(duration: 0.18), value: showsWebHistory)
+                // The domain is the one thing here that can afford to lose
+                // width, so it yields before any control is squeezed.
+                .layoutPriority(-1)
 
-                Spacer()
+                Spacer(minLength: 8)
+
+                // Text size in Reader, page zoom on the live page. One tap
+                // each — burying these a level down in the menu costs a click
+                // on the thing most likely to be adjusted mid-article, so they
+                // outrank every other trailing control and only fold away when
+                // the strip has nothing left to give.
+                if stripTier != .minimal {
+                    if showsReaderContent {
+                        typographyControls
+                    } else {
+                        zoomControls
+                    }
+
+                    Divider().frame(height: 12)
+                }
 
                 #if os(macOS)
                 // Full screen is a standing choice about the window, not a
                 // reading setting, so it keeps its own target rather than
-                // hiding a level down in the menu.
-                Button { toggleFullScreen() } label: {
-                    Image(systemName: isFullScreen
-                        ? "arrow.down.right.and.arrow.up.left"
-                        : "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Color.textMuted)
+                // hiding a level down in the menu — until the strip can no
+                // longer seat it.
+                if stripTier == .full {
+                    fullScreenButton
                 }
-                .buttonStyle(.plain)
-                .help(isFullScreen ? "Exit Full Screen" : "Enter Full Screen")
-                .accessibilityLabel(isFullScreen ? "Exit Full Screen" : "Enter Full Screen")
                 #endif
 
                 readerSettingsMenu
 
-                if showsReaderModeControl {
+                if stripTier != .minimal, showsReaderModeControl {
                     Divider().frame(height: 12)
 
                     readerModeControl
                 }
 
-                Divider().frame(height: 12)
+                if stripTier == .full {
+                    Divider().frame(height: 12)
 
-                Button {
-                    vm.openReflectionEditor(type: .keyInsight, content: "", highlight: nil, focusTrigger: focusTrigger)
-                } label: {
-                    Label("Reflect", systemImage: "square.and.pencil")
-                        .font(.groveMeta)
-                        .foregroundStyle(Color.textMuted)
+                    reflectButton
                 }
-                .buttonStyle(.plain)
-                .help("Open reflection panel")
 
                 if vm.showAutoCaptureIndicator {
                     // Inline confirmation for capture-on-write.
                     Label("Saved", systemImage: "checkmark.circle")
                         .font(.groveMeta)
                         .foregroundStyle(Color.textSecondary)
+                        .lineLimit(1)
+                        .fixedSize()
                         .transition(.opacity)
                 }
 
-                Button {
-                    #if os(macOS)
-                    NSWorkspace.shared.open(currentWebURL ?? url)
-                    #else
-                    openURL(currentWebURL ?? url)
-                    #endif
-                } label: {
-                    Image(systemName: "arrow.up.right.square")
-                        .font(.groveBody)
-                        .foregroundStyle(Color.textMuted)
+                if stripTier == .full {
+                    openInBrowserButton
                 }
-                .buttonStyle(.plain)
-                .help("Open in browser")
-                .accessibilityLabel("Open in browser")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
             .background(Color.bgCard)
+            .background {
+                // What the strip can seat depends on how wide the reading pane
+                // is, which changes with the sidebar, the inspector and the
+                // window all at once — so it is measured rather than guessed.
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear { stripWidth = proxy.size.width }
+                        .onChange(of: proxy.size.width) { _, width in stripWidth = width }
+                }
+            }
+            .animation(.easeOut(duration: 0.18), value: stripTier)
             Divider()
 
             if vm.showFindBar && !showsReaderContent {
@@ -589,8 +629,14 @@ struct ItemReaderWebViewPanel: View {
             HStack(spacing: 4) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 11, weight: .medium))
-                Text("Overview")
-                    .font(.groveMeta)
+                // At the narrowest the chevron carries the meaning alone; the
+                // word is the first thing worth trading for the domain.
+                if stripTier != .minimal {
+                    Text("Overview")
+                        .font(.groveMeta)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
             }
             .foregroundStyle(Color.textSecondary)
             #if os(iOS)
@@ -602,6 +648,134 @@ struct ItemReaderWebViewPanel: View {
         .help("Back to overview")
         .accessibilityLabel("Back to overview")
     }
+
+    /// Reader-mode typography: size down, size up, serif toggle, column width.
+    private var typographyControls: some View {
+        HStack(spacing: 6) {
+            Button { stepTextSize(-1) } label: {
+                Image(systemName: "textformat.size.smaller")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.textMuted)
+            }
+            .buttonStyle(.plain)
+            .disabled(readerSizeStep <= ReaderTypographySettings.sizeStepRange.lowerBound)
+            .help("Smaller text")
+            .accessibilityLabel("Smaller text")
+
+            Button { stepTextSize(1) } label: {
+                Image(systemName: "textformat.size.larger")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.textMuted)
+            }
+            .buttonStyle(.plain)
+            .disabled(readerSizeStep >= ReaderTypographySettings.sizeStepRange.upperBound)
+            .help("Larger text")
+            .accessibilityLabel("Larger text")
+
+            Button {
+                readerUseSerif.toggle()
+            } label: {
+                Image(systemName: "textformat")
+                    .font(.system(size: 11, weight: readerUseSerif ? .semibold : .regular))
+                    .foregroundStyle(readerUseSerif ? Color.textSecondary : Color.textMuted)
+            }
+            .buttonStyle(.plain)
+            .help(readerUseSerif ? "Switch to sans-serif" : "Switch to serif")
+            .accessibilityLabel(readerUseSerif ? "Switch to sans-serif font" : "Switch to serif font")
+
+            Button {
+                readerIsWide.toggle()
+            } label: {
+                Image(systemName: readerIsWide ? "arrow.right.and.line.vertical.and.arrow.left" : "arrow.left.and.right")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.textMuted)
+            }
+            .buttonStyle(.plain)
+            .help(readerIsWide ? "Narrow column" : "Wide column")
+            .accessibilityLabel(readerIsWide ? "Narrow column" : "Wide column")
+        }
+    }
+
+    /// Live-page zoom. The percentage doubles as the reset target.
+    private var zoomControls: some View {
+        HStack(spacing: 4) {
+            Button { vm.zoomOut() } label: {
+                Image(systemName: "minus.magnifyingglass")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.textMuted)
+            }
+            .buttonStyle(.plain)
+            .help("Zoom out (\u{2318}\u{2212})")
+            .accessibilityLabel("Zoom out")
+            .disabled(vm.webViewZoomLevel <= 0.5)
+
+            Text("\(vm.zoomPercentage)%")
+                .font(.groveMeta)
+                .foregroundStyle(Color.textTertiary)
+                .monospacedDigit()
+                .lineLimit(1)
+                .fixedSize()
+                .frame(minWidth: 36, alignment: .center)
+                .onTapGesture { vm.resetZoom() }
+                .help("Reset zoom")
+
+            Button { vm.zoomIn() } label: {
+                Image(systemName: "plus.magnifyingglass")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.textMuted)
+            }
+            .buttonStyle(.plain)
+            .help("Zoom in (\u{2318}+)")
+            .accessibilityLabel("Zoom in")
+            .disabled(vm.webViewZoomLevel >= 2.0)
+        }
+    }
+
+    private var reflectButton: some View {
+        Button {
+            vm.openReflectionEditor(type: .keyInsight, content: "", highlight: nil, focusTrigger: focusTrigger)
+        } label: {
+            Label("Reflect", systemImage: "square.and.pencil")
+                .font(.groveMeta)
+                .foregroundStyle(Color.textMuted)
+                .lineLimit(1)
+                .fixedSize()
+        }
+        .buttonStyle(.plain)
+        .help("Open reflection panel")
+    }
+
+    private var openInBrowserButton: some View {
+        Button {
+            #if os(macOS)
+            NSWorkspace.shared.open(currentWebURL ?? url)
+            #else
+            openURL(currentWebURL ?? url)
+            #endif
+        } label: {
+            Image(systemName: "arrow.up.right.square")
+                .font(.groveBody)
+                .foregroundStyle(Color.textMuted)
+        }
+        .buttonStyle(.plain)
+        .help("Open in browser")
+        .accessibilityLabel("Open in browser")
+    }
+
+    #if os(macOS)
+    private var fullScreenButton: some View {
+        Button { toggleFullScreen() } label: {
+            Image(systemName: isFullScreen
+                ? "arrow.down.right.and.arrow.up.left"
+                : "arrow.up.left.and.arrow.down.right")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.textMuted)
+        }
+        .buttonStyle(.plain)
+        .help(isFullScreen ? "Exit Full Screen" : "Enter Full Screen")
+        .accessibilityLabel(isFullScreen ? "Exit Full Screen" : "Enter Full Screen")
+    }
+    #endif
 
     /// Web history for the page on screen. Works in Reader mode too: the live
     /// page stays mounted underneath, so its history is still the pane's.
@@ -729,6 +903,46 @@ struct ItemReaderWebViewPanel: View {
     /// text, page zoom for the live page.
     private var readerSettingsMenu: some View {
         Menu {
+            // Whatever the strip could not seat comes back here, above the
+            // reading settings — these are actions, not preferences.
+            if stripTier == .minimal, showsReaderModeControl {
+                Picker("View", selection: Binding(
+                    get: { showsReaderContent },
+                    set: { setReaderMode($0) }
+                )) {
+                    Text("Reader").tag(true)
+                    Text("Original").tag(false)
+                }
+                .pickerStyle(.inline)
+            }
+
+            if stripTier != .full {
+                Section {
+                    Button("Reflect", systemImage: "square.and.pencil") {
+                        vm.openReflectionEditor(type: .keyInsight, content: "", highlight: nil, focusTrigger: focusTrigger)
+                    }
+
+                    Button("Open in Browser", systemImage: "arrow.up.right.square") {
+                        #if os(macOS)
+                        NSWorkspace.shared.open(currentWebURL ?? url)
+                        #else
+                        openURL(currentWebURL ?? url)
+                        #endif
+                    }
+
+                    #if os(macOS)
+                    Button(
+                        isFullScreen ? "Exit Full Screen" : "Enter Full Screen",
+                        systemImage: isFullScreen
+                            ? "arrow.down.right.and.arrow.up.left"
+                            : "arrow.up.left.and.arrow.down.right"
+                    ) {
+                        toggleFullScreen()
+                    }
+                    #endif
+                }
+            }
+
             if showsReaderContent {
                 Section("Text Size") {
                     Button("Larger", systemImage: "textformat.size.larger") { stepTextSize(1) }
@@ -881,6 +1095,10 @@ private struct ReaderModeSegment: View {
                     .font(.groveSectionHeader)
                     .tracking(0.8)
                     .foregroundStyle(ink)
+                    // Without this a squeezed strip breaks the word down the
+                    // column, one letter per line.
+                    .lineLimit(1)
+                    .fixedSize()
             }
             .padding(.vertical, 3)
             #if os(iOS)

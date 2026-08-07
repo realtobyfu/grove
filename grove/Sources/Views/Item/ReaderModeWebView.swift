@@ -412,7 +412,411 @@ enum ReaderTemplate {
     })();
     """
 
+    /// Syntax highlighting for block code in Reader mode.
+    ///
+    /// A small self-contained tokenizer rather than a vendored library: the
+    /// reader page is built with `loadHTMLString` and can't reach a CDN, and
+    /// the alternative — embedding a full highlighter plus language packs as
+    /// another base64 payload — costs far more than the dozen-ish languages
+    /// that actually turn up in saved articles.
+    ///
+    /// Each `<pre>` is re-tokenized from its own `textContent`, so any
+    /// highlighting the source site shipped is replaced rather than layered
+    /// on. Language comes from a `language-*`/`data-lang` hint when the page
+    /// has one and from content heuristics otherwise; an unrecognizable block
+    /// is either tokenized conservatively (comments, strings, numbers and
+    /// keywords only) or left plain, so console output and log dumps don't get
+    /// speckled. Runs at document end, before highlight marks are applied, so
+    /// the mark pass sees the final text nodes.
+    static let syntaxHighlightJS = """
+    (function() {
+        var ALIASES = {
+            js: 'js', javascript: 'js', jsx: 'js', mjs: 'js', cjs: 'js', node: 'js',
+            ts: 'js', typescript: 'js', tsx: 'js', json5: 'js',
+            swift: 'swift',
+            py: 'py', python: 'py', python3: 'py', ipython: 'py',
+            rb: 'rb', ruby: 'rb',
+            rs: 'rust', rust: 'rust',
+            go: 'go', golang: 'go',
+            java: 'java', kotlin: 'java', kt: 'java', scala: 'java', groovy: 'java', dart: 'java',
+            c: 'c', h: 'c', cpp: 'c', cc: 'c', hpp: 'c', cxx: 'c',
+            objc: 'c', objectivec: 'c', cs: 'c', csharp: 'c',
+            php: 'php',
+            sh: 'sh', bash: 'sh', zsh: 'sh', shell: 'sh', console: 'sh', terminal: 'sh', fish: 'sh',
+            sql: 'sql', postgres: 'sql', postgresql: 'sql', mysql: 'sql', sqlite: 'sql',
+            json: 'json', jsonc: 'json',
+            yaml: 'yaml', yml: 'yaml', toml: 'yaml',
+            html: 'markup', xml: 'markup', svg: 'markup', vue: 'markup', erb: 'markup', jsp: 'markup',
+            css: 'css', scss: 'css', sass: 'css', less: 'css',
+            text: 'none', plaintext: 'none', plain: 'none', txt: 'none',
+            none: 'none', nohighlight: 'none', output: 'none', diff: 'none', markdown: 'none', md: 'none'
+        };
+
+        function words(list) {
+            var set = {};
+            var parts = list.split(' ');
+            for (var i = 0; i < parts.length; i++) {
+                if (parts[i]) { set[parts[i]] = true; }
+            }
+            return set;
+        }
+
+        function esc(text) {
+            return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        function span(cls, text) {
+            return '<span class="gtok-' + cls + '">' + esc(text) + '</span>';
+        }
+
+        function reEscape(text) {
+            return text.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');
+        }
+
+        function spec(o) {
+            return {
+                kw: words(o.kw),
+                lit: words(o.lit || 'true false null undefined'),
+                typ: words(o.typ || ''),
+                line: o.line === undefined ? ['//'] : o.line,
+                block: o.block !== false,
+                triple: !!o.triple,
+                single: o.single !== false,
+                backtick: !!o.backtick,
+                at: !!o.at,
+                dollar: !!o.dollar,
+                fold: !!o.fold
+            };
+        }
+
+        var SPECS = {
+            js: spec({
+                kw: 'abstract as async await break case catch class const continue debugger declare default delete do else enum export extends finally for from function get if implements import in instanceof interface let new of package private protected public readonly return satisfies set static super switch throw try type typeof var void while with yield',
+                lit: 'true false null undefined NaN Infinity this globalThis',
+                typ: 'Array Object String Number Boolean Promise Map Set WeakMap Date RegExp JSON Math Symbol BigInt Error console window document',
+                backtick: true, at: true
+            }),
+            swift: spec({
+                kw: 'actor any as associatedtype async await borrowing break case catch class consuming continue convenience default defer deinit didSet distributed do dynamic else enum extension fallthrough fileprivate final for func get guard if import in indirect infix init inout internal is lazy let macro mutating nonisolated nonmutating open operator override package postfix precedencegroup prefix private protocol public repeat required rethrows return set some static struct subscript super switch throw throws try typealias unowned var weak where while willSet',
+                lit: 'true false nil self Self super',
+                typ: 'Int Double Float String Bool Character Array Dictionary Set Optional Result Data Date URL UUID Void Any AnyObject Task Error',
+                at: true
+            }),
+            py: spec({
+                kw: 'and as assert async await break case class continue def del elif else except finally for from global if import in is lambda match nonlocal not or pass raise return try while with yield',
+                lit: 'True False None self cls NotImplemented Ellipsis',
+                typ: 'int float str bool list dict set tuple bytes object range type',
+                line: ['#'], block: false, triple: true, at: true
+            }),
+            rb: spec({
+                kw: 'alias and begin break case class def defined? do else elsif end ensure for if in module next not or redo rescue retry return then undef unless until when while yield require require_relative attr_accessor attr_reader attr_writer include extend',
+                lit: 'true false nil self __FILE__ __dir__',
+                line: ['#'], block: false, at: true
+            }),
+            rust: spec({
+                kw: 'as async await break const continue crate dyn else enum extern fn for if impl in let loop match mod move mut pub ref return static struct super trait type union unsafe use where while',
+                lit: 'true false Some None Ok Err self Self',
+                typ: 'i8 i16 i32 i64 i128 isize u8 u16 u32 u64 u128 usize f32 f64 bool char str String Vec Option Result Box Rc Arc HashMap'
+            }),
+            go: spec({
+                kw: 'break case chan const continue default defer else fallthrough for func go goto if import interface map package range return select struct switch type var append cap len make new panic recover',
+                lit: 'true false nil iota',
+                typ: 'int int8 int16 int32 int64 uint uint8 uint32 uint64 float32 float64 byte rune string bool error any'
+            }),
+            java: spec({
+                kw: 'abstract assert boolean break byte case catch char class companion const continue data default do double else enum extends final finally float for fun goto if implements import in init instanceof int interface internal is lateinit long native new object open operator out override package permits private protected public record ref return sealed short static strictfp super suspend switch synchronized this throw throws transient try val var void volatile when while yield',
+                lit: 'true false null this super it',
+                typ: 'String Integer Long Double Float Boolean List Map Set Object Exception'
+            }),
+            c: spec({
+                kw: 'alignas alignof asm auto base bool break case catch char class const constexpr continue decimal default delegate delete do double dynamic_cast else enum event explicit extern fixed float for foreach friend goto if implicit inline int interface internal lock long mutable namespace new noexcept operator out override params private protected public readonly ref register return sbyte sealed short signed sizeof stackalloc static static_cast string struct switch template this throw try typedef typename uint ulong unchecked union unsafe unsigned ushort using var virtual void volatile while',
+                lit: 'true false NULL nullptr null this nil YES NO',
+                typ: 'size_t uint8_t uint16_t uint32_t uint64_t int8_t int16_t int32_t int64_t FILE',
+                at: true
+            }),
+            php: spec({
+                kw: 'abstract and array as break callable case catch class clone const continue declare default do echo else elseif empty enum extends final finally fn for foreach function global goto if implements include include_once instanceof insteadof interface isset list match namespace new or print private protected public readonly require require_once return static switch throw trait try unset use var while xor yield',
+                lit: 'true false null',
+                line: ['//', '#'], dollar: true
+            }),
+            sh: spec({
+                kw: 'if then else elif fi for while until do done case esac function in select return break continue local export readonly declare source alias set unset shift trap exit eval exec echo cd',
+                lit: 'true false',
+                line: ['#'], block: false, dollar: true, backtick: true
+            }),
+            sql: spec({
+                kw: 'select from where group by order having limit offset insert into values update set delete create table alter drop index view join inner left right outer full cross on using as distinct union all and or not null is in like ilike between case when then else end exists count sum avg min max primary key foreign references default constraint unique cascade begin commit rollback transaction with returning asc desc',
+                lit: 'null true false',
+                line: ['--'], fold: true
+            })
+        };
+
+        function identClass(sp) {
+            return function(word, code, end, loose) {
+                var key = sp.fold ? word.toLowerCase() : word;
+                if (sp.kw[key]) { return 'kw'; }
+                if (sp.lit[key]) { return 'lit'; }
+                if (sp.typ[key]) { return 'typ'; }
+                if (loose) { return null; }
+                if (/^\\s*\\(/.test(code.slice(end, end + 8))) { return 'fn'; }
+                if (/^[A-Z][A-Za-z0-9_]*$/.test(word)) { return 'typ'; }
+                return null;
+            };
+        }
+
+        function rulesFor(sp) {
+            if (sp.rules) { return sp.rules; }
+            var rules = [{ re: /[ \\t\\r\\n]+/y, cls: null }];
+            if (sp.block) { rules.push({ re: /\\/\\*[\\s\\S]*?(?:\\*\\/|$)/y, cls: 'com' }); }
+            if (sp.line && sp.line.length) {
+                var starts = [];
+                for (var i = 0; i < sp.line.length; i++) { starts.push(reEscape(sp.line[i])); }
+                rules.push({ re: new RegExp('(?:' + starts.join('|') + ')[^\\\\n]*', 'y'), cls: 'com' });
+            }
+            if (sp.triple) {
+                rules.push({ re: /[rbfu]{0,2}(?:\"\"\"[\\s\\S]*?(?:\"\"\"|$)|'''[\\s\\S]*?(?:'''|$))/y, cls: 'str' });
+            }
+            var strings = ['\"(?:\\\\\\\\.|[^\"\\\\\\\\\\\\n])*\"?'];
+            if (sp.single) { strings.push(\"'(?:\\\\\\\\.|[^'\\\\\\\\\\\\n])*'?\"); }
+            if (sp.backtick) { strings.push('`(?:\\\\\\\\.|[^`\\\\\\\\])*`?'); }
+            rules.push({ re: new RegExp(strings.join('|'), 'y'), cls: 'str' });
+            rules.push({ re: /0[xXbBoO][0-9a-fA-F_]+n?|\\d[\\d_]*(?:\\.\\d[\\d_]*)?(?:[eE][+-]?\\d+)?/y, cls: 'num' });
+            if (sp.dollar) { rules.push({ re: /\\$\\{[^}]*\\}?|\\$[A-Za-z_]\\w*|\\$[\\d@*#?]/y, cls: 'var' }); }
+            if (sp.at) { rules.push({ re: /@[A-Za-z_][\\w.]*/y, cls: 'meta' }); }
+            rules.push({ re: /[A-Za-z_$][\\w$]*/y, cls: identClass(sp) });
+            rules.push({ re: /[^\\w\\s]/y, cls: null });
+            sp.rules = rules;
+            return rules;
+        }
+
+        // Markup keeps its own rules: '<' is structure here, not an operator,
+        // and a tag's name, attributes and values each read differently.
+        function renderTag(text) {
+            var re = /\"[^\"]*\"|'[^']*'|<\\/?[A-Za-z][\\w:.-]*|[A-Za-z_:][\\w:.-]*(?=\\s*=)/g;
+            var out = '';
+            var last = 0;
+            var m;
+            while ((m = re.exec(text)) !== null) {
+                out += esc(text.slice(last, m.index));
+                var token = m[0];
+                if (token.charAt(0) === '\"' || token.charAt(0) === \"'\") {
+                    out += span('str', token);
+                } else if (token.charAt(0) === '<') {
+                    var lead = token.charAt(1) === '/' ? 2 : 1;
+                    out += esc(token.slice(0, lead)) + span('tag', token.slice(lead));
+                } else {
+                    out += span('attr', token);
+                }
+                last = m.index + token.length;
+            }
+            return out + esc(text.slice(last));
+        }
+
+        SPECS.markup = { rules: [
+            { re: /<!--[\\s\\S]*?(?:-->|$)/y, cls: 'com' },
+            { re: /<!\\[CDATA\\[[\\s\\S]*?(?:\\]\\]>|$)/y, cls: 'com' },
+            { re: /<![A-Za-z][^>]*>?/y, cls: 'com' },
+            { re: /<\\/?[A-Za-z][^>]*>?/y, render: renderTag },
+            { re: /[^<]+/y, cls: null }
+        ] };
+
+        SPECS.css = { rules: [
+            { re: /[ \\t\\r\\n]+/y, cls: null },
+            { re: /\\/\\*[\\s\\S]*?(?:\\*\\/|$)/y, cls: 'com' },
+            { re: /\"(?:\\\\.|[^\"\\\\\\n])*\"?|'(?:\\\\.|[^'\\\\\\n])*'?/y, cls: 'str' },
+            { re: /!important|@[-\\w]+/y, cls: 'kw' },
+            { re: /#[0-9a-fA-F]{3,8}\\b/y, cls: 'num' },
+            { re: /-?\\d[\\d.]*(?:px|em|rem|ex|ch|vh|vw|vmin|vmax|%|s|ms|deg|fr|pt|cm|mm)?/y, cls: 'num' },
+            { re: /[-a-zA-Z_][-\\w]*(?=\\s*:)/y, cls: 'attr' },
+            { re: /[.#][-\\w]+|::?[-a-zA-Z][-\\w]*/y, cls: 'typ' },
+            { re: /[-\\w]+/y, cls: null },
+            { re: /[^\\w\\s]/y, cls: null }
+        ] };
+
+        SPECS.json = { rules: [
+            { re: /[ \\t\\r\\n]+/y, cls: null },
+            { re: /\"(?:\\\\.|[^\"\\\\])*\"(?=\\s*:)/y, cls: 'attr' },
+            { re: /\"(?:\\\\.|[^\"\\\\])*\"?/y, cls: 'str' },
+            { re: /-?\\d[\\d.eE+-]*/y, cls: 'num' },
+            { re: /\\b(?:true|false|null)\\b/y, cls: 'lit' },
+            { re: /\\/\\/[^\\n]*/y, cls: 'com' },
+            { re: /[\\w.+-]+/y, cls: null },
+            { re: /[^\\s]/y, cls: null }
+        ] };
+
+        SPECS.yaml = { rules: [
+            { re: /[ \\t\\r\\n]+/y, cls: null },
+            { re: /#[^\\n]*/y, cls: 'com' },
+            { re: /\"(?:\\\\.|[^\"\\\\\\n])*\"?|'(?:[^'\\n]|'')*'?/y, cls: 'str' },
+            { re: /[-\\w.\\/]+(?=\\s*:(?:\\s|$))/y, cls: 'attr' },
+            { re: /---|\\.\\.\\.|&[\\w-]+|\\*[\\w-]+|<</y, cls: 'meta' },
+            { re: /\\b(?:true|false|null|yes|no|on|off)\\b/y, cls: 'lit' },
+            { re: /-?\\d[\\d._]*(?:[eE][+-]?\\d+)?/y, cls: 'num' },
+            { re: /[\\w.\\/-]+/y, cls: null },
+            { re: /[^\\s]/y, cls: null }
+        ] };
+
+        function render(code, sp, loose) {
+            var rules = rulesFor(sp);
+            var out = '';
+            var i = 0;
+            var n = code.length;
+            while (i < n) {
+                var hit = null;
+                for (var r = 0; r < rules.length; r++) {
+                    var rule = rules[r];
+                    rule.re.lastIndex = i;
+                    var m = rule.re.exec(code);
+                    if (m && m[0].length) { hit = { rule: rule, text: m[0] }; break; }
+                }
+                if (hit === null) {
+                    out += esc(code.charAt(i));
+                    i += 1;
+                    continue;
+                }
+                var end = i + hit.text.length;
+                if (hit.rule.render) {
+                    out += hit.rule.render(hit.text);
+                } else {
+                    var cls = typeof hit.rule.cls === 'function'
+                        ? hit.rule.cls(hit.text, code, end, loose)
+                        : hit.rule.cls;
+                    out += cls ? span(cls, hit.text) : esc(hit.text);
+                }
+                i = end;
+            }
+            return out;
+        }
+
+        // Language hint from the markup: 'language-swift', 'lang-py',
+        // 'data-lang', or a bare 'ruby' class.
+        function fromMarkup(el) {
+            if (!el || !el.getAttribute) { return null; }
+            var raw = (el.getAttribute('class') || '') + ' '
+                + (el.getAttribute('data-lang') || '') + ' '
+                + (el.getAttribute('data-language') || '');
+            var parts = raw.toLowerCase().split(/[\\s:_+-]+/);
+            for (var i = 0; i < parts.length; i++) {
+                var part = parts[i];
+                if (!part || part === 'language' || part === 'lang' || part === 'highlight'
+                    || part === 'sourcecode' || part === 'brush' || part === 'hljs') { continue; }
+                if (ALIASES[part]) { return ALIASES[part]; }
+            }
+            return null;
+        }
+
+        function detect(code) {
+            var head = code.slice(0, 4000);
+            if (/^\\s*[{[]/.test(head) && /\"\\s*:/.test(head) && !/\\bfunction\\b|=>/.test(head)) { return 'json'; }
+            if (/^\\s*<[!a-zA-Z\\/]/.test(head) && /<\\/[a-zA-Z]|\\/>/.test(head)) { return 'markup'; }
+            if (/^#!.*\\b(?:ba|z)?sh\\b/.test(head) || /^\\s*\\$ \\S/m.test(head)) { return 'sh'; }
+            if (/^\\s*(?:@|from |import |def |class )\\w/m.test(head) && /:\\s*$/m.test(head)) { return 'py'; }
+            if (/\\bdef \\w+\\(|\\bself\\b|\\bprint\\(/.test(head) && !/[;{]\\s*$/m.test(head)) { return 'py'; }
+            // Go before Swift: both spell it 'func', but ':=' and
+            // 'package main' belong to Go alone.
+            if (/\\bpackage main\\b|:=/.test(head)) { return 'go'; }
+            if (/\\bfunc \\w+\\(|@State|import (?:SwiftUI|Foundation)|\\bguard\\b.*\\belse\\b/.test(head)) { return 'swift'; }
+            if (/\\bfn \\w+\\(|\\blet mut\\b|\\bimpl\\b|::\\w/.test(head)) { return 'rust'; }
+            if (/#include|std::|\\bprintf\\(/.test(head)) { return 'c'; }
+            if (/\\b(?:public|private)\\s+(?:static\\s+)?(?:class|void|int)\\b|System\\.out/.test(head)) { return 'java'; }
+            if (/<\\?php|\\$\\w+\\s*=\\s*/.test(head) && /\\$/.test(head)) { return 'php'; }
+            if (/^\\s*(?:SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|WITH)\\b/i.test(head)) { return 'sql'; }
+            if (/[.#]?[-\\w]+\\s*\\{[^}]*:[^}]*;/.test(head)) { return 'css'; }
+            // 'Warning: something happened' is a log line, not a mapping, so
+            // YAML needs more than one key before it claims the block.
+            var keyed = head.match(/^[ \\t-]*[\\w.-]+:(?: |$)/gm);
+            if (keyed && keyed.length > 1 && !/[;{}()]/.test(head)) { return 'yaml'; }
+            if (/\\b(?:function|const|let|var|require\\(|console\\.)|=>/.test(head)) { return 'js'; }
+            return null;
+        }
+
+        function run() {
+            var blocks = document.querySelectorAll('.grove-content pre');
+            for (var i = 0; i < blocks.length; i++) {
+                var pre = blocks[i];
+                try {
+                    var el = pre.querySelector('code') || pre;
+                    if (el.getAttribute('data-grove-hl')) { continue; }
+                    var code = el.textContent || '';
+                    // Very long blocks are rare and the scan is linear per
+                    // character; skip rather than stall the first paint.
+                    if (!code.trim() || code.length > 60000) { continue; }
+                    var lang = fromMarkup(el) || fromMarkup(pre);
+                    var loose = false;
+                    if (!lang) {
+                        lang = detect(code);
+                        if (!lang) {
+                            // Nothing identified it. Console output, logs and
+                            // prose-in-a-box all land here; only tokenize when
+                            // the block carries real code punctuation (English
+                            // is full of 'if', 'for' and 'in'), and then
+                            // without the capitalized-identifier guesswork.
+                            var codeish = code.match(/[{};=]|=>/g);
+                            if (!codeish || codeish.length < 3) { continue; }
+                            lang = 'js';
+                            loose = true;
+                        }
+                    }
+                    if (lang === 'none') { continue; }
+                    var sp = SPECS[lang];
+                    if (!sp) { continue; }
+                    el.innerHTML = render(code, sp, loose);
+                    el.setAttribute('data-grove-hl', lang);
+                } catch (e) { /* a block that won't tokenize stays plain */ }
+            }
+        }
+
+        window.__groveHighlightCode = run;
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', run);
+        } else {
+            run();
+        }
+    })();
+    """
+
     // MARK: Page
+
+    /// The full variable set for one color scheme. Emitted into every scheme
+    /// selector below so light/dark stay in step from a single source.
+    ///
+    /// Syntax colors are the one place Grove spends color: code is read as
+    /// structure, not prose, and readers expect keywords, strings, and
+    /// comments to separate. The hues are muted print inks rather than the
+    /// saturated terminal palette, so a block still sits quietly on the page.
+    private static func paletteCSS(dark: Bool) -> String {
+        dark ? """
+            --bg: #111111;
+            --fg: #E8E8E8;
+            --fg-secondary: #9E9E9E;
+            --border: #222222;
+            --code-bg: #1C1C1C;
+            --highlight-wash: rgba(255, 255, 255, 0.14);
+            --tok-com: #7C8078;
+            --tok-str: #A3C98C;
+            --tok-num: #D9A96B;
+            --tok-kw: #D98FB4;
+            --tok-typ: #7FBFC9;
+            --tok-fn: #90AEE0;
+            --tok-attr: #C8B98F;
+            --tok-meta: #B3A6E0;
+        """ : """
+            --bg: #FAFAFA;
+            --fg: #1A1A1A;
+            --fg-secondary: #666666;
+            --border: #EBEBEB;
+            --code-bg: #F0F0EE;
+            --highlight-wash: rgba(0, 0, 0, 0.08);
+            --tok-com: #8C8C84;
+            --tok-str: #4A7A3F;
+            --tok-num: #97591F;
+            --tok-kw: #8A3D62;
+            --tok-typ: #2C6472;
+            --tok-fn: #35548C;
+            --tok-attr: #6E5A24;
+            --tok-meta: #6C5CA6;
+        """
+    }
 
     private static func escapeHTML(_ text: String) -> String {
         text.replacingOccurrences(of: "&", with: "&amp;")
@@ -458,38 +862,18 @@ enum ReaderTemplate {
             --reader-size: \(typography.fontSizePx)px;
             --reader-measure: \(typography.measureCh)ch;
             --reader-font: \(typography.bodyFontStack);
-            --bg: #FAFAFA;
-            --fg: #1A1A1A;
-            --fg-secondary: #666666;
-            --border: #EBEBEB;
-            --code-bg: #F0F0EE;
-            --highlight-wash: rgba(0, 0, 0, 0.08);
+        \(paletteCSS(dark: false))
         }
         @media (prefers-color-scheme: dark) {
             :root {
-                --bg: #111111;
-                --fg: #E8E8E8;
-                --fg-secondary: #9E9E9E;
-                --border: #222222;
-                --code-bg: #1C1C1C;
-                --highlight-wash: rgba(255, 255, 255, 0.14);
+            \(paletteCSS(dark: true))
             }
         }
         :root[data-grove-theme="light"] {
-            --bg: #FAFAFA;
-            --fg: #1A1A1A;
-            --fg-secondary: #666666;
-            --border: #EBEBEB;
-            --code-bg: #F0F0EE;
-            --highlight-wash: rgba(0, 0, 0, 0.08);
+        \(paletteCSS(dark: false))
         }
         :root[data-grove-theme="dark"] {
-            --bg: #111111;
-            --fg: #E8E8E8;
-            --fg-secondary: #9E9E9E;
-            --border: #222222;
-            --code-bg: #1C1C1C;
-            --highlight-wash: rgba(255, 255, 255, 0.14);
+        \(paletteCSS(dark: true))
         }
         * { box-sizing: border-box; }
         html { -webkit-text-size-adjust: 100%; }
@@ -575,6 +959,19 @@ enum ReaderTemplate {
             line-height: 1.5;
         }
         .grove-content pre code { padding: 0; background: transparent; }
+        /* Syntax tokens, written by __groveHighlightCode. Only block code is
+           tokenized; inline <code> in prose stays plain ink. */
+        .grove-content pre .gtok-com { color: var(--tok-com); font-style: italic; }
+        .grove-content pre .gtok-str { color: var(--tok-str); }
+        .grove-content pre .gtok-num,
+        .grove-content pre .gtok-lit { color: var(--tok-num); }
+        .grove-content pre .gtok-kw { color: var(--tok-kw); }
+        .grove-content pre .gtok-typ,
+        .grove-content pre .gtok-tag { color: var(--tok-typ); }
+        .grove-content pre .gtok-fn { color: var(--tok-fn); }
+        .grove-content pre .gtok-attr { color: var(--tok-attr); }
+        .grove-content pre .gtok-meta,
+        .grove-content pre .gtok-var { color: var(--tok-meta); }
         .grove-content hr {
             border: none;
             border-top: 1px solid var(--border);
@@ -813,6 +1210,13 @@ enum ReaderModeSupport {
 
         userContentController.addUserScript(WKUserScript(
             source: ReaderTemplate.selectionReporterJS(handler: "selectionChanged"),
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        ))
+        // Ahead of the highlight-mark script so code blocks are already
+        // tokenized when saved highlights are wrapped into their text nodes.
+        userContentController.addUserScript(WKUserScript(
+            source: ReaderTemplate.syntaxHighlightJS,
             injectionTime: .atDocumentEnd,
             forMainFrameOnly: true
         ))
