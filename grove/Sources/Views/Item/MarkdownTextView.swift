@@ -269,7 +269,7 @@ private struct SyntaxHighlightedCodeView: View {
             if token.isEmphasized {
                 piece = piece.font(.custom(MarkdownTypeSpec.FontName.monoEmphasis, size: codeSize))
             }
-            return result + piece
+            return Text("\(result)\(piece)")
         }
     }
 

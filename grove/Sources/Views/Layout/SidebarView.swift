@@ -190,7 +190,10 @@ struct SidebarView: View {
     }
 
     /// Drag-to-reorder replacement for List's onMove: drop a board row onto
-    /// another to insert it at that position.
+    /// another to insert it at that position. The Bool feeds iOS's
+    /// Bool-returning dropDestination; macOS 26 resolves to the Void
+    /// overload and discards it.
+    @discardableResult
     private func moveBoard(droppedIDs: [String], before target: Board) -> Bool {
         guard let idString = droppedIDs.first,
               let sourceID = UUID(uuidString: idString),

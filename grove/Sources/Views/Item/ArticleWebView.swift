@@ -309,15 +309,23 @@ struct ArticleWebView: NSViewRepresentable {
         }
 
         func startObserving(_ webView: WKWebView) {
+            // WKWebView KVO fires on the main thread, but the observe handler
+            // is @Sendable — assume isolation rather than hopping actors.
             observations = [
                 webView.observe(\.canGoBack) { [weak self] wv, _ in
-                    self?.onNavigationChanged?(wv.canGoBack, wv.canGoForward, wv.url)
+                    MainActor.assumeIsolated {
+                        self?.onNavigationChanged?(wv.canGoBack, wv.canGoForward, wv.url)
+                    }
                 },
                 webView.observe(\.canGoForward) { [weak self] wv, _ in
-                    self?.onNavigationChanged?(wv.canGoBack, wv.canGoForward, wv.url)
+                    MainActor.assumeIsolated {
+                        self?.onNavigationChanged?(wv.canGoBack, wv.canGoForward, wv.url)
+                    }
                 },
                 webView.observe(\.url) { [weak self] wv, _ in
-                    self?.onNavigationChanged?(wv.canGoBack, wv.canGoForward, wv.url)
+                    MainActor.assumeIsolated {
+                        self?.onNavigationChanged?(wv.canGoBack, wv.canGoForward, wv.url)
+                    }
                 }
             ]
         }

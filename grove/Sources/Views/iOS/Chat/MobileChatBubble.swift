@@ -76,11 +76,9 @@ struct MobileChatBubble: View {
         let segments = parseWikiLinks(message.content)
         if segments.contains(where: { $0.isLink }) {
             segments.reduce(Text("")) { result, segment in
-                if segment.isLink {
-                    result + Text(segment.text).underline()
-                } else {
-                    result + Text(segment.text)
-                }
+                segment.isLink
+                    ? Text("\(result)\(Text(segment.text).underline())")
+                    : Text("\(result)\(segment.text)")
             }
         } else {
             Text(message.content)
