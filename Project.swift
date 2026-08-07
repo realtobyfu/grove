@@ -146,7 +146,7 @@ let project = Project(
                 // conflicting-provisioning error, not an upgrade.
                 "CODE_SIGN_IDENTITY[sdk=macosx*]": "Apple Development",
                 "DEVELOPMENT_TEAM": "679K683SQ5",
-                "MARKETING_VERSION": "2.0.0",
+                "MARKETING_VERSION": "2.0",
                 "CURRENT_PROJECT_VERSION": "5",
             ])
         ),
