@@ -17,7 +17,7 @@
 - SwiftUI + MVVM. @Observable ViewModels (NOT ObservableObject)
 - Views own UI state (@State). ViewModels own business state.
 - Services behind protocol interfaces
-- iPhone: TabView (Home/Inbox/Library/Chat/More)
+- iPhone: four native tabs (Today/Library/Following/Chat). Settings opens from the toolbar; boards stay inside Library.
 - iPad: NavigationSplitView (3-column). Falls back to TabView in compact width.
 - Use `@Environment(\.horizontalSizeClass)` over `#if os(iOS)` for layout
 - Use `#if os()` only for: scene types, platform APIs (NS* vs UI*), notification APIs

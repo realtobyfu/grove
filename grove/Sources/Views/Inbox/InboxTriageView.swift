@@ -258,7 +258,7 @@ struct InboxTriageView: View {
             Image(systemName: queuedItems.isEmpty ? "checkmark.circle" : "clock.badge")
                 .font(.groveBody)
                 .foregroundStyle(Color.textTertiary)
-            Text(queuedItems.isEmpty ? "All caught up — inbox is clear." : queuedSummaryText)
+            Text(queuedItems.isEmpty ? "Inbox clear" : queuedSummaryText)
                 .font(.groveBody)
                 .foregroundStyle(Color.textTertiary)
         }
@@ -271,11 +271,11 @@ struct InboxTriageView: View {
             Image(systemName: queuedItems.isEmpty ? "tray" : "clock.badge")
                 .font(.system(size: 48))
                 .foregroundStyle(Color.textSecondary)
-            Text(queuedItems.isEmpty ? "Inbox Clear" : "Inbox Clear For Now")
+            Text("Inbox clear")
                 .font(.groveTitleLarge)
                 .fontWeight(.semibold)
             if queuedItems.isEmpty {
-                Text("Nice work! No items waiting for triage.\nCapture a link or note above to get started.")
+                Text("Capture a link or note above.")
                     .font(.groveBody)
                     .foregroundStyle(Color.textSecondary)
                     .multilineTextAlignment(.center)

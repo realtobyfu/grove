@@ -54,6 +54,12 @@ struct MobileHomeView: View {
             .listRowSeparator(.hidden)
             .listSectionSeparator(.hidden)
 
+            Section {
+                LearningInvitationView()
+            }
+            .listRowSeparator(.hidden)
+            .listSectionSeparator(.hidden)
+
             inboxSection
             discussionSuggestionsSection
             nudgesSection

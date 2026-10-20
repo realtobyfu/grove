@@ -114,6 +114,10 @@ struct BoardDetailView: View {
                         CaptureBarView(currentBoardID: board.id)
                     }
 
+                    LearningInvitationView(boardID: board.id)
+                        .padding(.horizontal, LayoutDimensions.contentPaddingH)
+                        .padding(.vertical, Spacing.md)
+
                     if effectiveItems.isEmpty {
                         headerView.emptyState
                     } else {

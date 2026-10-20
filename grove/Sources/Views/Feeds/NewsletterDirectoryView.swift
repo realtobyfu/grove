@@ -139,15 +139,14 @@ struct NewsletterDirectoryView: View {
 
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
-            Text(ranked.isEmpty ? "Nothing to browse" : "Nothing left in this topic")
+            Text(ranked.isEmpty ? "No newsletters" : "No matches")
                 .font(.groveBodyMedium)
                 .foregroundStyle(Color.textPrimary)
-            Text(ranked.isEmpty
-                 ? "The directory is still ranking against your library."
-                 : "Every newsletter filed here was dismissed. Pick another topic above.")
-                .font(.groveBodySmall)
-                .foregroundStyle(Color.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
+            if !ranked.isEmpty {
+                Text("Try another topic.")
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textTertiary)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Spacing.lg)
@@ -250,12 +249,6 @@ private struct NewsletterDirectoryRow: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 2)
 
-                if let reason = rankedEntry.reason {
-                    Text(reason)
-                        .font(.groveMeta)
-                        .foregroundStyle(Color.textMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
             }
 
             Spacer(minLength: Spacing.sm)

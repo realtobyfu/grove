@@ -1,8 +1,7 @@
 import SwiftUI
 import SwiftData
 
-/// Unified iPhone/iPad navigation using iOS 18 `Tab` API.
-/// iPad landscape: sidebar. iPhone & iPad portrait: tab bar.
+/// Four native tabs for compact-width navigation. Boards live inside Library.
 struct TabRootView: View {
     private struct WriteSheetSession: Identifiable {
         let id = UUID()
@@ -15,13 +14,22 @@ struct TabRootView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var allItems: [Item]
     @Query(sort: \Board.sortOrder) private var boards: [Board]
+    private struct LibraryBoardRoute: Hashable { let id: UUID }
     @State private var selectedTab: Tab = .home
+    @State private var libraryPath = NavigationPath()
+    @State private var libraryBoardID: UUID?
+    @State private var libraryFilterBoardID: UUID?
     @State private var showCaptureSheet = false
     @State private var capturePrefillURL: String?
     @State private var showSearchSheet = false
     @State private var searchInitialQuery: String?
     @State private var deepLinkedConversationID: UUID?
     @State private var deepLinkedItemRoute: MobileItemRoute?
+    private struct ReviewSession: Identifiable {
+        let id = UUID()
+        let boardID: UUID?
+    }
+    @State private var reviewSession: ReviewSession?
     @State private var writeSheetSession: WriteSheetSession?
 
     // Board suggestion state
@@ -39,19 +47,17 @@ struct TabRootView: View {
     private var showFloatingCapture: Bool {
         switch selectedTab {
         case .home, .library: return true
-        case .board(_): return true
         default: return false
         }
     }
 
     private var currentBoardID: UUID? {
-        guard case .board(let boardID) = selectedTab else { return nil }
-        return boardID
+        guard selectedTab == .library else { return nil }
+        return libraryBoardID ?? libraryFilterBoardID
     }
 
     enum Tab: Hashable {
-        case home, library, newsletters, chat, settings
-        case board(UUID)
+        case home, library, newsletters, chat
     }
 
     var body: some View {
@@ -61,56 +67,40 @@ struct TabRootView: View {
             SwiftUI.Tab("Today", systemImage: "sun.max", value: Tab.home) {
                 NavigationStack {
                     MobileHomeView()
+                        .mobileSettingsToolbar()
                 }
             }
             .badge(inboxCount)
 
             SwiftUI.Tab("Library", systemImage: "books.vertical", value: Tab.library) {
-                NavigationStack {
-                    MobileLibraryView()
+                NavigationStack(path: $libraryPath) {
+                    MobileLibraryView(selectedBoard: $libraryFilterBoardID)
+                        .mobileSettingsToolbar()
+                        .navigationDestination(for: LibraryBoardRoute.self) { route in
+                            if let board = boards.first(where: { $0.id == route.id }) {
+                                MobileBoardDetailView(board: board)
+                            } else {
+                                ContentUnavailableView("Board unavailable", systemImage: "folder")
+                            }
+                        }
                 }
             }
 
             SwiftUI.Tab("Following", systemImage: "newspaper", value: Tab.newsletters) {
                 NavigationStack {
                     NewsletterInboxView()
-                }
-            }
-
-            // MARK: - Sidebar-only: Boards
-
-            TabSection("Boards") {
-                ForEach(boards) { board in
-                    SwiftUI.Tab(value: Tab.board(board.id)) {
-                        NavigationStack {
-                            MobileBoardDetailView(board: board)
-                        }
-                    } label: {
-                        Label {
-                            Text("\(board.title) (\(board.items.count))")
-                        } icon: {
-                            Image(systemName: board.icon ?? "folder")
-                                .foregroundStyle(board.color.map { Color(hex: $0) } ?? Color.textSecondary)
-                        }
-                    }
+                        .mobileSettingsToolbar()
                 }
             }
 
             SwiftUI.Tab("Chat", systemImage: "bubble.left.and.bubble.right", value: Tab.chat) {
                 NavigationStack {
                     MobileConversationListView(initialConversationID: deepLinkedConversationID)
+                        .mobileSettingsToolbar()
                 }
             }
 
-            SwiftUI.Tab("Settings", systemImage: "gearshape", value: Tab.settings) {
-                NavigationStack {
-                    MobileSettingsView()
-                }
-            }
         }
-        #if os(iOS)
-        .tabViewStyle(.sidebarAdaptable)
-        #endif
         // Hidden buttons for iPad keyboard shortcuts (Cmd+1–4)
         .background {
             VStack {
@@ -118,9 +108,9 @@ struct TabRootView: View {
                     .keyboardShortcut("1", modifiers: .command)
                 Button("") { selectedTab = .library }
                     .keyboardShortcut("2", modifiers: .command)
-                Button("") { selectedTab = .chat }
+                Button("") { selectedTab = .newsletters }
                     .keyboardShortcut("3", modifiers: .command)
-                Button("") { selectedTab = .settings }
+                Button("") { selectedTab = .chat }
                     .keyboardShortcut("4", modifiers: .command)
             }
             .frame(width: 0, height: 0)
@@ -128,7 +118,7 @@ struct TabRootView: View {
             .allowsHitTesting(false)
         }
         .overlay(alignment: .bottomTrailing) {
-            // Show floating capture button on content tabs (not Chat or Settings)
+            // Show floating capture button on content tabs (Today and Library)
             if showFloatingCapture {
                 FloatingCaptureButton()
                     .padding(.trailing, Spacing.lg)
@@ -204,6 +194,9 @@ struct TabRootView: View {
                 scheduleAutoDismiss()
             }
         }
+        .onChange(of: libraryPath.count) { _, count in
+            if count == 0 { libraryBoardID = nil }
+        }
         .onChange(of: deepLinkRouter.selectedTab) { _, newTab in
             if let newTab {
                 selectedTab = newTab
@@ -220,6 +213,9 @@ struct TabRootView: View {
         }
         .sheet(isPresented: $showSearchSheet) {
             MobileSearchView(initialQuery: searchInitialQuery)
+        }
+        .sheet(item: $reviewSession) { session in
+            NavigationStack { LearningReviewView(boardID: session.boardID) }
         }
         .sheet(item: $writeSheetSession) { session in
             NoteWriterPanelView(
@@ -333,10 +329,13 @@ struct TabRootView: View {
             deepLinkedItemRoute = MobileItemRoute(id: itemID)
 
         case .board(let boardID):
+            selectedTab = .library
+            libraryPath = NavigationPath()
             if boards.contains(where: { $0.id == boardID }) {
-                selectedTab = .board(boardID)
+                libraryBoardID = boardID
+                libraryPath.append(LibraryBoardRoute(id: boardID))
             } else {
-                selectedTab = .library
+                libraryBoardID = nil
             }
 
         case .chat(let conversationID):
@@ -347,6 +346,10 @@ struct TabRootView: View {
             selectedTab = .home
             capturePrefillURL = prefillURL
             showCaptureSheet = true
+
+        case .review(let boardID):
+            selectedTab = .home
+            reviewSession = ReviewSession(boardID: boardID)
 
         case .search(let query):
             selectedTab = .library

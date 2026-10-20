@@ -182,10 +182,35 @@ struct SaveItemToBoardIntent: AppIntent {
     }
 }
 
+struct StartGroveReviewIntent: AppIntent {
+    static let title: LocalizedStringResource = "Review in Grove"
+    static let description = IntentDescription("Start a short review from your saved questions.")
+    static let openAppWhenRun = true
+
+    @Parameter(title: "Board")
+    var board: GroveBoardEntity?
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        LearningLaunchCoordinator.shared.openReview(boardID: board?.id)
+        return .result()
+    }
+}
+
 struct GroveAppShortcuts: AppShortcutsProvider {
     static var shortcutTileColor: ShortcutTileColor { .teal }
 
     static var appShortcuts: [AppShortcut] {
+        AppShortcut(
+            intent: StartGroveReviewIntent(),
+            phrases: [
+                "Review in \(.applicationName)",
+                "Practice with \(.applicationName)",
+            ],
+            shortTitle: "Review",
+            systemImageName: "rectangle.stack"
+        )
+
         AppShortcut(
             intent: CaptureInGroveIntent(),
             phrases: [

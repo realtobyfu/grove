@@ -106,7 +106,7 @@ struct SubscriptionsSettingsView: View {
         section(
             title: "Subscriptions",
             trailing: subscriptions.isEmpty ? nil : "\(subscriptions.count)",
-            footnote: subscriptions.isEmpty ? nil : "New issues from enabled feeds appear quietly in your inbox."
+            footnote: subscriptions.isEmpty ? nil : "New posts appear in Following."
         ) {
             if subscriptions.isEmpty {
                 emptySubscriptions
@@ -123,7 +123,7 @@ struct SubscriptionsSettingsView: View {
             Text("No subscriptions yet")
                 .font(.groveBodyMedium)
                 .foregroundStyle(Color.textPrimary)
-            Text("Paste a blog or feed URL below, or browse the directory for something worth reading.")
+            Text("Add a URL or browse the directory.")
                 .font(.groveBodySmall)
                 .foregroundStyle(Color.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -137,8 +137,8 @@ struct SubscriptionsSettingsView: View {
 
     private var suggestedSection: some View {
         section(
-            title: "Suggested from your library",
-            footnote: "Feeds found on sites you save from. Nothing is fetched unless you subscribe."
+            title: "From your library",
+            footnote: "Posts are fetched only after you subscribe."
         ) {
             rowStack(suggestedSources) { source in
                 HStack(spacing: Spacing.md) {
@@ -187,8 +187,8 @@ struct SubscriptionsSettingsView: View {
 
     private var addFeedSection: some View {
         section(
-            title: "Follow a site or feed",
-            footnote: "Paste any blog or site URL — Grove finds its feed. New posts arrive alongside your newsletters."
+            title: "Add a feed",
+            footnote: "Site URLs work too."
         ) {
             VStack(alignment: .leading, spacing: Spacing.sm) {
                 HStack(spacing: Spacing.sm) {
@@ -256,10 +256,6 @@ struct SubscriptionsSettingsView: View {
                     Text("Browse directory")
                         .font(.groveBodyMedium)
                         .foregroundStyle(Color.textPrimary)
-                    Text("A hand-picked catalog, ranked by what you save.")
-                        .font(.groveBodySmall)
-                        .foregroundStyle(Color.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 Spacer(minLength: Spacing.sm)

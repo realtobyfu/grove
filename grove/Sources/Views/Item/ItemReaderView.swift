@@ -118,7 +118,7 @@ struct ItemReaderView: View {
     }
 
     private func shouldShowSplitLayout(_ vm: ItemReaderViewModel) -> Bool {
-        let panelIsNeeded = alwaysShowReflectionPanel || !vm.sortedReflections.isEmpty || vm.showReflectionEditor
+        let panelIsNeeded = alwaysShowReflectionPanel || !vm.sortedReflections.isEmpty || vm.showReflectionEditor || vm.flashcardSelection != nil
         return panelIsNeeded && !vm.isReflectionPanelCollapsed
     }
 
@@ -136,7 +136,7 @@ struct ItemReaderView: View {
         let paneContent = pane()
         return GeometryReader { geo in
             let railMode: RightRailMode = shouldShowSplitLayout(vm)
-                ? (vm.showReflectionEditor ? .reflectionEditor : .reflections)
+                ? (vm.flashcardSelection != nil ? .flashcardEditor : vm.showReflectionEditor ? .reflectionEditor : .reflections)
                 : .hidden
 
             HStack(spacing: 0) {
@@ -148,6 +148,7 @@ struct ItemReaderView: View {
                     mode: railMode,
                     availableWidth: geo.size.width,
                     onCollapse: {
+                        vm.closeFlashcardEditor()
                         if vm.showReflectionEditor {
                             vm.closeReflectionEditor()
                         }
@@ -155,6 +156,8 @@ struct ItemReaderView: View {
                     }
                 ) { mode in
                     switch mode {
+                    case .flashcardEditor:
+                        flashcardEditorPanel(vm: vm)
                     case .reflectionEditor:
                         reflectionEditorPanel(vm: vm)
                     case .reflections:
@@ -178,7 +181,7 @@ struct ItemReaderView: View {
             // rail, at one width — the swap is a crossfade, not a resize, so
             // the article never re-wraps for it and there is no blank frame
             // between the old panel leaving and the new one arriving.
-            let railMode: RightRailMode = vm.showReflectionEditor ? .reflectionEditor : .reflections
+            let railMode: RightRailMode = vm.flashcardSelection != nil ? .flashcardEditor : vm.showReflectionEditor ? .reflectionEditor : .reflections
 
             HStack(spacing: 0) {
                 ScrollView {
@@ -201,6 +204,7 @@ struct ItemReaderView: View {
                     mode: railMode,
                     availableWidth: geo.size.width,
                     onCollapse: {
+                        vm.closeFlashcardEditor()
                         if vm.showReflectionEditor {
                             vm.closeReflectionEditor()
                         }
@@ -208,6 +212,8 @@ struct ItemReaderView: View {
                     }
                 ) { mode in
                     switch mode {
+                    case .flashcardEditor:
+                        flashcardEditorPanel(vm: vm)
                     case .reflectionEditor:
                         reflectionEditorPanel(vm: vm)
                     case .reflections:
@@ -394,6 +400,39 @@ struct ItemReaderView: View {
     }
 
     // MARK: - Reflection Editor Panel (Mode C)
+
+    @ViewBuilder
+    private func flashcardEditorPanel(vm: ItemReaderViewModel) -> some View {
+        if let selection = vm.flashcardSelection {
+            VStack(spacing: 0) {
+                HStack {
+                    Text("NEW FLASHCARD")
+                        .sectionHeaderStyle()
+                    Spacer()
+                    Button {
+                        withAnimation(RightRailMetrics.widthChange) { vm.closeFlashcardEditor() }
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close flashcard editor")
+                }
+                .padding(Spacing.lg)
+                Divider()
+                FlashcardEditorView(
+                    item: selection.item,
+                    reflection: selection.reflection,
+                    sourceQuote: selection.quote,
+                    onSaved: {
+                        ReadingCapture.promoteAfterWriting(selection.item, in: modelContext)
+                        vm.closeFlashcardEditor()
+                    },
+                    isEmbedded: true
+                )
+                .id(selection.id)
+            }
+        }
+    }
 
     @ViewBuilder
     private func reflectionEditorPanel(vm: ItemReaderViewModel) -> some View {

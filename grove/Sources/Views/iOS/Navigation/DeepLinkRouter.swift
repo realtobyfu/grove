@@ -7,6 +7,7 @@ enum RouteIntent: Equatable {
     case chat(UUID)
     case capture(prefillURL: String?)
     case search(query: String?)
+    case review(boardID: UUID?)
 }
 
 /// Parses grove:// deep links and provides navigation state for iOS views.
@@ -89,6 +90,17 @@ final class DeepLinkRouter {
             pendingCaptureURL = components?.queryItems?.first(where: { $0.name == "url" })?.value
             selectedTab = .home
             routeIntent = .capture(prefillURL: pendingCaptureURL)
+            routeVersion += 1
+            return true
+
+        case "review":
+            guard pathComponents.isEmpty else { return false }
+            let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            let boardParameter = components?.queryItems?.first(where: { $0.name == "board" })
+            let boardID = boardParameter?.value.flatMap(UUID.init(uuidString:))
+            if boardParameter != nil, boardID == nil { return false }
+            selectedTab = .home
+            routeIntent = .review(boardID: boardID)
             routeVersion += 1
             return true
 

@@ -43,7 +43,7 @@ struct AISettingsView: View {
 
                 statusRow
 
-                Text("Disables AI-powered tagging, suggestions, nudges, and synthesis.")
+                Text("AI tagging, suggestions, nudges, and synthesis.")
                     .font(.groveBodySmall)
                     .foregroundStyle(Color.textSecondary)
             }
@@ -133,7 +133,7 @@ struct AISettingsView: View {
                     }
 
                 if entitlement.hasAccess(to: .smartRouting) {
-                    Text("Prefer on-device intelligence first, then use cloud as fallback when needed.")
+                    Text("Uses on-device AI first, then cloud if needed.")
                         .font(.groveBodySmall)
                         .foregroundStyle(Color.textSecondary)
                 } else {
@@ -227,16 +227,16 @@ struct AISettingsView: View {
 
             Section("Synthesis") {
                 if LLMServiceConfig.isConfigured {
-                    Text("Uses AI to generate themes, wiki-links, and reflection highlights.")
+                    Text("AI generates themes, wiki-links, and reflection highlights.")
                         .font(.groveBodySmall)
                         .foregroundStyle(Color.textSecondary)
                 } else {
-                    Text("Uses local keyword extraction until AI is configured.")
+                    Text("Uses local keywords until AI is configured.")
                         .font(.groveBodySmall)
                         .foregroundStyle(Color.textSecondary)
                 }
 
-                Text("Available from the board header toolbar and tag cluster headers.")
+                Text("Available in boards and tag clusters.")
                     .font(.groveBadge)
                     .foregroundStyle(Color.textTertiary)
             }

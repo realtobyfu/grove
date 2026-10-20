@@ -41,6 +41,8 @@ struct MobileItemReaderView: View {
     @State private var findCurrentMatch = 0
     @State private var findTotalMatches = 0
     @State private var selectedText: String?
+    @State private var flashcardSession: LearningEditorSession?
+    @State private var showFlashcards = false
     /// Where the selection sits in the web view's viewport, for anchoring the
     /// highlight bar next to it rather than at the bottom of the screen.
     @State private var selectionGeometry: WebSelectionGeometry?
@@ -155,6 +157,14 @@ struct MobileItemReaderView: View {
             .sheet(isPresented: $showReflections) {
                 reflectionSheetContent
             }
+            .sheet(item: $flashcardSession) { session in
+                NavigationStack {
+                    FlashcardEditorView(item: session.item, sourceQuote: session.sourceQuote)
+                }
+            }
+            .sheet(isPresented: $showFlashcards) {
+                NavigationStack { FlashcardLibraryView(itemID: readingItem.id) }
+            }
             .navigationDestination(item: $navigateToChat) { conversation in
                 MobileChatView(conversation: conversation)
             }
@@ -227,7 +237,8 @@ struct MobileItemReaderView: View {
     private var highlightActionOverlay: some View {
         if item.type != .note, let selection = trimmedSelection {
             let bar = HighlightActionBar(
-                onHighlight: { addHighlight(selection) }
+                onHighlight: { addHighlight(selection) },
+                onRemember: { remember(selection) }
             )
             Group {
                 if let selectionGeometry {
@@ -243,6 +254,14 @@ struct MobileItemReaderView: View {
             }
             .animation(.easeOut(duration: 0.15), value: trimmedSelection != nil)
         }
+    }
+
+    private func remember(_ selection: String) {
+        // Saving a question is a durable annotation, so linked pages must be
+        // captured just as they are when making a highlight.
+        flashcardSession = LearningEditorSession(item: resolveWritingHost(), sourceQuote: selection)
+        selectedText = nil
+        selectionGeometry = nil
     }
 
     @discardableResult
@@ -597,6 +616,15 @@ struct MobileItemReaderView: View {
         }
 
         ToolbarItemGroup(placement: .primaryAction) {
+            Menu {
+                Button("New flashcard", systemImage: "plus.rectangle.on.rectangle") {
+                    flashcardSession = LearningEditorSession(item: resolveWritingHost(), sourceQuote: trimmedSelection)
+                }
+                Button("Manage flashcards", systemImage: "rectangle.on.rectangle") { showFlashcards = true }
+            } label: {
+                Label("Flashcards", systemImage: "rectangle.on.rectangle")
+            }
+            .accessibilityLabel("Flashcards")
             // Zoom controls (articles only)
             if showsWebPageControls {
                 Menu {

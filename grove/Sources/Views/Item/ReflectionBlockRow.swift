@@ -11,6 +11,7 @@ struct ReflectionBlockRow: View {
     /// Jump to the highlighted passage in the source (nil when the item has
     /// no web-readable source to scroll).
     var onHighlightTap: ((String) -> Void)? = nil
+    var onRemember: ((ReflectionBlock) -> Void)? = nil
     var modelContext: ModelContext
 
     @State private var isHovered = false
@@ -47,6 +48,22 @@ struct ReflectionBlockRow: View {
                 Text(block.createdAt.formatted(date: .abbreviated, time: .shortened))
                     .font(.groveMeta)
                     .foregroundStyle(Color.textMuted)
+
+                if let onRemember {
+                    Button {
+                        onRemember(block)
+                    } label: {
+                        Image(systemName: "rectangle.on.rectangle")
+                            .font(.groveMeta)
+                            .foregroundStyle(Color.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Make a flashcard from this reflection")
+                    .help("Make a flashcard")
+                    #if os(iOS)
+                    .frame(minWidth: 44, minHeight: 44)
+                    #endif
+                }
 
                 // Type menu
                 Menu {

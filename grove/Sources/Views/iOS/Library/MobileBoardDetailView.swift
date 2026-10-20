@@ -40,6 +40,7 @@ struct MobileBoardDetailView: View {
     @State private var starterService = ConversationStarterService.shared
     @State private var selectedSuggestion: PromptBubble?
     @State private var paywallPresentation: PaywallPresentation?
+    @State private var showFlashcards = false
 
     private var isRegularSplitMode: Bool {
         horizontalSizeClass == .regular && (selectedItem != nil || openedItem != nil || readerCoordinator != nil)
@@ -124,6 +125,12 @@ struct MobileBoardDetailView: View {
         }
         .toolbar {
             toolbarCluster
+            ToolbarItem(placement: .secondaryAction) {
+                Button("Flashcards", systemImage: "rectangle.on.rectangle") { showFlashcards = true }
+            }
+        }
+        .sheet(isPresented: $showFlashcards) {
+            NavigationStack { FlashcardLibraryView(boardID: board.id) }
         }
         .task(id: board.id) {
             await starterService.refreshBoard(board.id, items: allItems)

@@ -32,7 +32,6 @@ struct iPadRootView: View {
         case newsletters
         case board(UUID)
         case chat
-        case settings
 
         var sceneStorageValue: String {
             switch self {
@@ -41,7 +40,6 @@ struct iPadRootView: View {
             case .newsletters: "newsletters"
             case .board(let id): "board:\(id.uuidString)"
             case .chat: "chat"
-            case .settings: "settings"
             }
         }
 
@@ -51,7 +49,7 @@ struct iPadRootView: View {
             else if sceneStorageValue == "library" { self = .library }
             else if sceneStorageValue == "newsletters" { self = .newsletters }
             else if sceneStorageValue == "chat" { self = .chat }
-            else if sceneStorageValue == "settings" { self = .settings }
+            else if sceneStorageValue == "settings" { self = .home }
             else if sceneStorageValue.hasPrefix("board:"),
                     let uuid = UUID(uuidString: String(sceneStorageValue.dropFirst(6))) {
                 self = .board(uuid)
@@ -71,6 +69,11 @@ struct iPadRootView: View {
     @State private var readerCoordinator = iPadReaderCoordinator()
     @State private var detailPath = NavigationPath()
     @State private var pendingDetailRoute: DetailRoute?
+    private struct ReviewSession: Identifiable {
+        let id = UUID()
+        let boardID: UUID?
+    }
+    @State private var reviewSession: ReviewSession?
     @State private var writeSheetSession: WriteSheetSession?
 
     // Board suggestion state (same behavior as TabRootView).
@@ -179,8 +182,6 @@ struct iPadRootView: View {
             case .library: sidebarSelection = .library
             case .newsletters: sidebarSelection = .newsletters
             case .chat: sidebarSelection = .chat
-            case .settings: sidebarSelection = .settings
-            case .board(let id): sidebarSelection = .board(id)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .groveNewBoardSuggestion)) { notification in
@@ -249,6 +250,9 @@ struct iPadRootView: View {
         }
         .sheet(isPresented: $showSearchSheet) {
             MobileSearchView(initialQuery: searchInitialQuery)
+        }
+        .sheet(item: $reviewSession) { session in
+            NavigationStack { LearningReviewView(boardID: session.boardID) }
         }
         .sheet(item: $writeSheetSession) { session in
             NoteWriterPanelView(
@@ -325,12 +329,9 @@ struct iPadRootView: View {
                     .tag(SidebarSelection.chat)
             }
 
-            Section {
-                Label("Settings", systemImage: "gearshape")
-                    .tag(SidebarSelection.settings)
-            }
         }
         .navigationTitle("Grove")
+        .mobileSettingsToolbar()
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -377,8 +378,6 @@ struct iPadRootView: View {
             }
         case .chat:
             MobileConversationListView(initialConversationID: deepLinkedConversationID)
-        case .settings:
-            MobileSettingsView()
         }
     }
 
@@ -414,6 +413,10 @@ struct iPadRootView: View {
         case .capture(let prefillURL):
             capturePrefillURL = prefillURL
             showCaptureSheet = true
+
+        case .review(let boardID):
+            sidebarSelection = .home
+            reviewSession = ReviewSession(boardID: boardID)
 
         case .search(let query):
             sidebarSelection = .library

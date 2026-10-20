@@ -84,6 +84,9 @@ struct HomeView: View {
                         CaptureBarView()
                             .padding(.bottom, Spacing.lg)
 
+                        LearningInvitationView()
+                            .padding(.bottom, Spacing.xl)
+
                         HomeInboxSection(
                             selectedItem: $selectedItem,
                             openedItem: $openedItem,

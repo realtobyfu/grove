@@ -25,6 +25,9 @@ enum SharedModelContainer {
         Conversation.self,
         ChatMessage.self,
         FeedSource.self,
+        Flashcard.self,
+        FlashcardReview.self,
+        LearningPreferences.self,
     ])
 
     /// App Group identifier shared between main app and Share Extension.

@@ -51,7 +51,7 @@ struct FollowFeedBar: View {
                     #if os(iOS)
                     .frame(minHeight: LayoutDimensions.minTouchTarget)
                     #endif
-                    .help("Browse the hand-picked newsletter directory")
+                    .help("Browse newsletters")
                     .accessibilityLabel("Browse directory")
                 }
             }
@@ -77,7 +77,7 @@ struct FollowFeedBar: View {
                 .frame(width: 16)
 
             TextField("", text: $urlText, prompt:
-                Text("Follow a newspaper, blog, or site — paste its URL")
+                Text("Paste a site or feed URL")
                     .font(.groveGhostText)
                     .foregroundStyle(Color.textMuted)
             )

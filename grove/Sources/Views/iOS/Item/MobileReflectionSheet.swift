@@ -20,6 +20,7 @@ struct MobileReflectionSheet: View {
     @State private var newBlockType: ReflectionBlockType = .keyInsight
     @State private var newBlockContent = ""
     @State private var isAddingNew = false
+    @State private var flashcardSession: LearningEditorSession?
     @FocusState private var isEditorFocused: Bool
 
     private var sortedReflections: [ReflectionBlock] {
@@ -64,6 +65,11 @@ struct MobileReflectionSheet: View {
             .onAppear { consumeRequestedEditBlock() }
             .onChange(of: requestedEditBlock?.wrappedValue?.id) {
                 consumeRequestedEditBlock()
+            }
+            .sheet(item: $flashcardSession) { session in
+                NavigationStack {
+                    FlashcardEditorView(item: session.item, reflection: session.reflection, sourceQuote: session.sourceQuote)
+                }
             }
         }
     }
@@ -161,12 +167,26 @@ struct MobileReflectionSheet: View {
             Text(block.content)
                 .font(.groveBody)
                 .foregroundStyle(Color.textPrimary)
+            Button {
+                flashcardSession = LearningEditorSession(item: item, reflection: block, sourceQuote: block.highlight ?? block.content)
+            } label: {
+                Label("Make a flashcard", systemImage: "rectangle.on.rectangle")
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textSecondary)
+                    .frame(minHeight: LayoutDimensions.minTouchTarget)
+            }
+            .buttonStyle(.plain)
         }
         .frame(minHeight: LayoutDimensions.minTouchTarget)
         .padding(.vertical, Spacing.xs)
         .contentShape(Rectangle())
         .onTapGesture {
             editingBlock = block
+        }
+        .contextMenu {
+            Button("Make a flashcard", systemImage: "rectangle.on.rectangle") {
+                flashcardSession = LearningEditorSession(item: item, reflection: block, sourceQuote: block.highlight ?? block.content)
+            }
         }
     }
 

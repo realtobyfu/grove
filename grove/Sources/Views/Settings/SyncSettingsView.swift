@@ -14,6 +14,7 @@ struct SyncSettingsView: View {
 
 /// Form sections for CloudKit sync, embeddable in any Form.
 struct SyncSettingsSections: View {
+    @Environment(SyncService.self) private var syncService
     @Environment(EntitlementService.self) private var entitlement
     @Environment(PaywallCoordinator.self) private var paywallCoordinator
     @State private var syncEnabled = SyncSettings.syncEnabled
@@ -23,7 +24,7 @@ struct SyncSettingsSections: View {
     var body: some View {
         Group {
             Section("iCloud Sync") {
-                Toggle("Enable CloudKit Sync", isOn: $syncEnabled)
+                Toggle("Keep my library in iCloud", isOn: $syncEnabled)
                     .disabled(!entitlement.hasAccess(to: .sync))
                     .onChange(of: syncEnabled) { _, newValue in
                         guard newValue else {
@@ -37,7 +38,7 @@ struct SyncSettingsSections: View {
                     }
 
                 if entitlement.hasAccess(to: .sync) {
-                    Text("When enabled, all your items, boards, tags, connections, annotations, and nudges sync across devices via iCloud.")
+                    Text("Sync your library, flashcards, reviews, and focus across devices.")
                         .font(.groveBodySmall)
                         .foregroundStyle(Color.textSecondary)
                 } else {
@@ -69,7 +70,7 @@ struct SyncSettingsSections: View {
                     Image(systemName: "exclamationmark.triangle")
                         .foregroundStyle(Color.textPrimary)
                         .font(.groveBodySmall)
-                    Text("Changing sync requires restarting Grove to take effect.")
+                    Text("Restart Grove after changing sync.")
                         .font(.groveBodySmall)
                         .foregroundStyle(Color.textPrimary)
                         .fontWeight(.semibold)
@@ -80,25 +81,32 @@ struct SyncSettingsSections: View {
                 HStack(spacing: 8) {
                     Image(systemName: syncEnabled ? "icloud" : "icloud.slash")
                         .foregroundStyle(syncEnabled ? Color.textPrimary : Color.textSecondary)
-                    Text(syncEnabled ? "Sync enabled — data syncs automatically" : entitlement.hasAccess(to: .sync) ? "Local-only mode" : "Local-only mode (Sync requires Pro)")
+                    Text(syncEnabled != syncService.isSyncConfigured
+                         ? "Saved locally. Restart to apply sync settings."
+                         : syncService.status.label)
                         .font(.groveBodySecondary)
+                }
+                if let completedAt = syncService.lastCompletedAt {
+                    Text("Last iCloud activity: \(completedAt.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.groveBodySmall)
+                        .foregroundStyle(Color.textSecondary)
                 }
             }
 
             Section("How Sync Works") {
                 VStack(alignment: .leading, spacing: 8) {
-                    infoRow(icon: "arrow.triangle.2.circlepath", text: "Data syncs automatically in the background")
-                    infoRow(icon: "wifi.slash", text: "Works offline — changes queue and sync when connected")
-                    infoRow(icon: "arrow.merge", text: "Conflicts resolved: last-write-wins for fields, merge for relationships")
-                    infoRow(icon: "iphone", text: "Future-ready for iOS companion app")
-                    infoRow(icon: "lock.shield", text: "All data stays in your private iCloud container")
+                    infoRow(icon: "arrow.triangle.2.circlepath", text: "Syncs automatically when connected")
+                    infoRow(icon: "wifi.slash", text: "Offline changes sync later")
+                    infoRow(icon: "arrow.merge", text: "Each device’s reviews are preserved")
+                    infoRow(icon: "clock", text: "Updates may reach each device at different times")
+                    infoRow(icon: "lock.shield", text: "Uses your private iCloud storage")
                 }
             }
         }
         .alert("Restart Required", isPresented: $showRestartAlert) {
             Button("OK") { }
         } message: {
-            Text("Please restart Grove for the sync setting to take effect.")
+            Text("Restart Grove to apply sync settings.")
         }
         .sheet(item: $paywallPresentation) { presentation in
             ProPaywallView(presentation: presentation)

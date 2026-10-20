@@ -6,6 +6,13 @@ import WebKit
 @MainActor
 @Observable
 final class ItemReaderViewModel {
+    struct FlashcardSelection: Identifiable {
+        let id = UUID()
+        let item: Item
+        let reflection: ReflectionBlock?
+        let quote: String?
+    }
+
     // MARK: - Dependencies
 
     var item: Item
@@ -27,6 +34,8 @@ final class ItemReaderViewModel {
     var editingBlock: ReflectionBlock?
     var showReflectionEditor = false
     var blockToDelete: ReflectionBlock?
+    var flashcardSelection: FlashcardSelection?
+    private var reflectionPanelWasCollapsedBeforeFlashcard = false
 
     // MARK: - Video State
 
@@ -452,7 +461,33 @@ final class ItemReaderViewModel {
 
     // MARK: - Reflection Editor
 
+    func openFlashcardEditor(quote: String? = nil, reflection: ReflectionBlock? = nil) {
+        if flashcardSelection == nil {
+            reflectionPanelWasCollapsedBeforeFlashcard = isReflectionPanelCollapsed
+        }
+        if showReflectionEditor { closeReflectionEditor() }
+        let host = reflection?.item ?? reflectionHost()
+        let selectedQuote = quote ?? reflection?.highlight
+        flashcardSelection = FlashcardSelection(item: host, reflection: reflection, quote: selectedQuote)
+        isReflectionPanelCollapsed = false
+        webSelectedText = nil
+        webSelectionGeometry = nil
+        NotificationCenter.default.post(name: .groveEnterFocusMode, object: nil)
+    }
+
+    func closeFlashcardEditor() {
+        guard flashcardSelection != nil else { return }
+        flashcardSelection = nil
+        isReflectionPanelCollapsed = reflectionPanelWasCollapsedBeforeFlashcard
+        // A reader with reflections already owns focus. Leave its saved
+        // window chrome intact until that reader is closed.
+        if sortedReflections.isEmpty {
+            NotificationCenter.default.post(name: .groveExitFocusMode, object: nil)
+        }
+    }
+
     func openBlockForEditing(_ block: ReflectionBlock, focusTrigger: @escaping () -> Void) {
+        flashcardSelection = nil
         if isReflectionPanelCollapsed { isReflectionPanelCollapsed = false }
         editingBlock = block
         withAnimation(.easeOut(duration: 0.25)) {
@@ -466,6 +501,7 @@ final class ItemReaderViewModel {
     }
 
     func openReflectionEditor(type: ReflectionBlockType, content: String, highlight: String?, focusTrigger: @escaping () -> Void) {
+        flashcardSelection = nil
         if isReflectionPanelCollapsed { isReflectionPanelCollapsed = false }
         let host = reflectionHost()
         let nextPosition = (host.reflections.map(\.position).max() ?? -1) + 1
@@ -639,6 +675,7 @@ final class ItemReaderViewModel {
     // MARK: - Item Change Reset
 
     func resetOnItemChange() {
+        flashcardSelection = nil
         isEditingContent = false
         if showReflectionEditor { closeReflectionEditor() }
         showArticleWebView = false

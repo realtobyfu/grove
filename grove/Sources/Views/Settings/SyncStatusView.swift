@@ -21,6 +21,9 @@ struct SyncStatusView: View {
         case .disabled:
             Image(systemName: SyncStatus.disabled.iconName)
                 .foregroundStyle(Color.textTertiary)
+        case .waiting:
+            Image(systemName: SyncStatus.waiting.iconName)
+                .foregroundStyle(Color.textSecondary)
         case .synced:
             Image(systemName: SyncStatus.synced.iconName)
                 .foregroundStyle(Color.textPrimary)

@@ -10,12 +10,24 @@ struct MobileLibraryView: View {
     @Query(sort: \Board.sortOrder) private var boards: [Board]
 
     @State private var searchText: String = ""
-    @State private var selectedBoardID: UUID?
+    @State private var localSelectedBoardID: UUID?
     @State private var showNewBoardSheet = false
 
     var onOpenItem: ((Item) -> Void)? = nil
     var selectedItem: Binding<Item?>? = nil
     var openedItem: Binding<Item?>? = nil
+    var selectedBoard: Binding<UUID?>? = nil
+
+    private var selectedBoardID: UUID? {
+        get {
+            if let selectedBoard { return selectedBoard.wrappedValue }
+            return localSelectedBoardID
+        }
+        nonmutating set {
+            if let selectedBoard { selectedBoard.wrappedValue = newValue }
+            else { localSelectedBoardID = newValue }
+        }
+    }
 
     // MARK: - Computed
 

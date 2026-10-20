@@ -30,7 +30,7 @@ struct BoardDetailHeaderView {
                 .font(.groveItemTitle)
                 .foregroundStyle(Color.textPrimary)
             if board.isSmart {
-                Text("No items match the tag rules yet. Tag items to see them appear here automatically.")
+                Text("No items match these tags.")
                     .font(.groveBody)
                     .foregroundStyle(Color.textSecondary)
                     .multilineTextAlignment(.center)
@@ -47,7 +47,7 @@ struct BoardDetailHeaderView {
                     }
                 }
             } else {
-                Text("No items yet. Add items to this board to get started.")
+                Text("Add an item to this board.")
                     .font(.groveBody)
                     .foregroundStyle(Color.textSecondary)
             }

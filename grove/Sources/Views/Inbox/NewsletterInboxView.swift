@@ -122,17 +122,6 @@ struct NewsletterInboxView: View {
     private var emptyState: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.lg) {
-                VStack(alignment: .leading, spacing: Spacing.xs) {
-                    Text("Follow what you read")
-                        .font(.groveTitleLarge)
-                        .foregroundStyle(Color.textPrimary)
-
-                    Text("Newspapers, blogs, and newsletters you follow arrive here as new posts are published.")
-                        .font(.groveBody)
-                        .foregroundStyle(Color.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
                 FollowFeedBar()
 
                 Button {
@@ -145,13 +134,9 @@ struct NewsletterInboxView: View {
                             .frame(width: 28)
 
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Browse the directory")
+                            Text("Browse directory")
                                 .font(.groveBodyMedium)
                                 .foregroundStyle(Color.textPrimary)
-                            Text("A hand-picked catalog of newsletters, ranked by what you save.")
-                                .font(.groveBodySmall)
-                                .foregroundStyle(Color.textTertiary)
-                                .fixedSize(horizontal: false, vertical: true)
                         }
 
                         Spacer(minLength: Spacing.sm)

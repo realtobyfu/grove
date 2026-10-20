@@ -12,26 +12,20 @@ struct GeneralSettingsView: View {
     var body: some View {
         Form {
             Section("Cover Images") {
-                Toggle("Render cover images in black and white", isOn: $monochromeCoverImages)
+                Toggle("Black and white images", isOn: $monochromeCoverImages)
                     .onChange(of: monochromeCoverImages) { _, newValue in
                         AppearanceSettings.monochromeCoverImages = newValue
                     }
 
-                Text("Turn this off to display cover images in full color.")
-                    .font(.groveBodySmall)
-                    .foregroundStyle(Color.textSecondary)
             }
 
             Section("Onboarding") {
-                Button("Replay Onboarding") {
+                Button("Replay setup") {
                     onboarding.presentReplay()
                 }
                 .tint(Color.textPrimary)
                 .buttonStyle(.borderedProminent)
 
-                Text("Reopen the guided setup flow from any state.")
-                    .font(.groveBodySmall)
-                    .foregroundStyle(Color.textSecondary)
             }
 
             Section("Feedback") {
@@ -49,7 +43,7 @@ struct GeneralSettingsView: View {
                 .tint(Color.textPrimary)
                 .buttonStyle(.bordered)
 
-                Text("Opens your default email client with a pre-filled message to the developer.")
+                Text("Opens your email app.")
                     .font(.groveBodySmall)
                     .foregroundStyle(Color.textSecondary)
             }

@@ -16,7 +16,7 @@ struct HomeRecentItemsSection: View {
 
             if !isCollapsed {
                 if recentItems.isEmpty {
-                    Text("No items yet. Capture something to get started.")
+                    Text("No recent items.")
                         .font(.groveBodySmall)
                         .foregroundStyle(Color.textTertiary)
                         .padding(.vertical, Spacing.sm)

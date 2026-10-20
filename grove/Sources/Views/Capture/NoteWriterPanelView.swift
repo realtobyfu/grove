@@ -18,6 +18,9 @@ struct NoteWriterPanelView: View {
 
     @State private var title = ""
     @State private var content = ""
+    @State private var savedDraftItem: Item?
+    @State private var flashcardItem: Item?
+    @State private var saveError: String?
     @FocusState private var isTitleFocused: Bool
 
     var body: some View {
@@ -56,6 +59,14 @@ struct NoteWriterPanelView: View {
                 .frame(width: 0, height: 0)
                 .opacity(0)
         }
+        .sheet(item: $flashcardItem) { note in
+            NavigationStack {
+                FlashcardEditorView(item: note, sourceQuote: note.content)
+            }
+            #if os(macOS)
+            .frame(minWidth: 440, idealWidth: 500, minHeight: 520)
+            #endif
+        }
     }
 
     private var usesEdgeToEdgeLayout: Bool {
@@ -72,6 +83,13 @@ struct NoteWriterPanelView: View {
     private var editorContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             topBar
+            if let saveError {
+                Text(saveError)
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textSecondary)
+                    .padding(.horizontal, 40)
+                    .accessibilityLabel("Note save failed: \(saveError)")
+            }
             if let prompt {
                 promptCallout(prompt)
             }
@@ -106,6 +124,37 @@ struct NoteWriterPanelView: View {
                 .foregroundStyle(Color.textTertiary)
 
             Spacer()
+
+            if !referenceItems.isEmpty {
+                Menu {
+                    ForEach(referenceItems) { source in
+                        Button(source.title) {
+                            let reference = "[[\(source.title)]]"
+                            if !content.contains(reference) {
+                                content += content.isEmpty ? reference : "\n\n\(reference)"
+                            }
+                        }
+                    }
+                } label: {
+                    Image(systemName: "link")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Insert a reference from this board")
+                .accessibilityLabel("Insert a source reference")
+            }
+
+            Button {
+                guard let note = saveContent(notifyCreated: false) else { return }
+                flashcardItem = note
+            } label: {
+                Image(systemName: "rectangle.on.rectangle")
+                    .foregroundStyle(Color.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .help("Save this note and make a flashcard from it")
+            .accessibilityLabel("Make a flashcard from this note")
 
             Button {
                 dismiss()
@@ -151,30 +200,54 @@ struct NoteWriterPanelView: View {
     /// panel. Writing to (or wiki-link syncing) a deleted model resurrects
     /// garbage in the store, so every save path bails on this.
     private var isEditingDeletedItem: Bool {
-        guard let editingItem else { return false }
-        return editingItem.isDeleted || editingItem.modelContext == nil
+        guard let note = editingItem ?? savedDraftItem else { return false }
+        return note.isDeleted || note.modelContext == nil
+    }
+
+    private var referenceItems: [Item] {
+        let note = editingItem ?? savedDraftItem
+        let sourceBoards: [Board]
+        if let currentBoardID, let board = boards.first(where: { $0.id == currentBoardID }) {
+            sourceBoards = [board]
+        } else {
+            sourceBoards = note?.boards ?? []
+        }
+        var seen: Set<UUID> = []
+        return sourceBoards.flatMap(\.items)
+            .filter { source in
+                source.id != note?.id && source.status == .active && seen.insert(source.id).inserted
+            }
+            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
 
     /// Persist content if non-empty. Called automatically on dismiss.
-    private func saveContent() {
-        guard !isEditingDeletedItem else { return }
+    @discardableResult
+    private func saveContent(notifyCreated: Bool = true) -> Item? {
+        guard !isEditingDeletedItem else { return nil }
 
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTitle.isEmpty || !trimmedContent.isEmpty else { return }
+        guard !trimmedTitle.isEmpty || !trimmedContent.isEmpty else { return nil }
 
         let noteTitle = trimmedTitle.isEmpty ? "Untitled Note" : trimmedTitle
         let noteContent = trimmedContent.isEmpty ? nil : trimmedContent
 
-        if let editingItem {
-            editingItem.title = noteTitle
-            editingItem.content = noteContent
-            editingItem.updatedAt = .now
-            try? modelContext.save()
+        if let existingNote = editingItem ?? savedDraftItem {
+            existingNote.title = noteTitle
+            existingNote.content = noteContent
+            existingNote.updatedAt = .now
+            do {
+                try modelContext.save()
+                saveError = nil
+            } catch {
+                saveError = "Your note could not be saved. Please try again."
+                return nil
+            }
             // The editor runs with `sourceItem: nil`, so autocomplete never creates
             // connections here — sync typed [[wiki links]] into connections on save.
-            WikiLinkSync.sync(item: editingItem, modelContext: modelContext)
-            onCreated?(editingItem)
+            WikiLinkSync.sync(item: existingNote, modelContext: modelContext)
+            if notifyCreated { onCreated?(existingNote) }
+            return existingNote
         } else {
             let board: Board? = currentBoardID.flatMap { id in
                 boards.first(where: { $0.id == id })
@@ -185,9 +258,18 @@ struct NoteWriterPanelView: View {
             note.updatedAt = .now
             modelContext.insert(note)
             if let board { note.boards.append(board) }
-            try? modelContext.save()
+            do {
+                try modelContext.save()
+                saveError = nil
+            } catch {
+                modelContext.delete(note)
+                saveError = "Your note could not be saved. Please try again."
+                return nil
+            }
+            savedDraftItem = note
             WikiLinkSync.sync(item: note, modelContext: modelContext)
-            onCreated?(note)
+            if notifyCreated { onCreated?(note) }
+            return note
         }
     }
 
@@ -200,7 +282,9 @@ struct NoteWriterPanelView: View {
     }
 
     private func dismiss() {
-        saveContent()
+        let hasContent = !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if hasContent, !isEditingDeletedItem, saveContent() == nil { return }
         // Resign first responder before animating out so macOS doesn't leave
         // the window in a state where clicks stop reaching underlying views.
         #if os(macOS)
