@@ -4,7 +4,7 @@ import SwiftData
 /// Learning choices belong to the synced library. Notification delivery and
 /// transient window/session layout remain local to each device.
 @Model
-final class LearningPreferences {
+final class UserLearningPreferences {
     var id: UUID = UUID(uuidString: "2776BFF0-9131-4BA7-9F43-9809986417D1")!
     var focusBoardIDs: [UUID] = []
     var sessionMinutes: Int = 3
@@ -23,3 +23,7 @@ final class LearningPreferences {
         }
     }
 }
+
+/// The stored entity is named `UserLearningPreferences` so it sorts after every 2.0 entity.
+/// Read "Migration Limits" in SharedModelContainer.swift before adding a model.
+typealias LearningPreferences = UserLearningPreferences

@@ -44,12 +44,13 @@ final class Board {
     // optional arrays, and each is fronted by a non-optional computed accessor
     // so call sites can keep treating them as plain `[T]`.
     //
-    // `originalName` maps each renamed property back onto the pre-existing store
-    // so local data survives the migration.
+    // Pre-2.0 stores used the plain names (`items`, ...). Don't map them with
+    // `originalName`: a rename in the model blocks every migration of a synced
+    // store. `LegacyStoreMigration` carries pre-2.0 stores across instead.
 
-    @Relationship(originalName: "items") var itemsStorage: [Item]? = []
-    @Relationship(originalName: "smartRuleTags") var smartRuleTagsStorage: [Tag]? = []
-    /// Inverse of `Conversation.board`. New in 2.0, so it has no `originalName`.
+    var itemsStorage: [Item]? = []
+    var smartRuleTagsStorage: [Tag]? = []
+    /// Inverse of `Conversation.board`.
     @Relationship(inverse: \Conversation.board) var conversationsStorage: [Conversation]? = []
 
     var items: [Item] {

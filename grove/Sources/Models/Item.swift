@@ -54,19 +54,19 @@ final class Item {
     // See the note in `Board` — CloudKit requires optional relationships with
     // inverses; the computed accessors keep call sites on plain `[T]`.
 
-    @Relationship(originalName: "boards", inverse: \Board.itemsStorage)
+    @Relationship(inverse: \Board.itemsStorage)
     var boardsStorage: [Board]? = []
-    @Relationship(originalName: "tags", inverse: \Tag.itemsStorage)
+    @Relationship(inverse: \Tag.itemsStorage)
     var tagsStorage: [Tag]? = []
-    @Relationship(deleteRule: .cascade, originalName: "annotations", inverse: \Annotation.item)
+    @Relationship(deleteRule: .cascade, inverse: \Annotation.item)
     var annotationsStorage: [Annotation]? = []
-    @Relationship(deleteRule: .cascade, originalName: "reflections", inverse: \ReflectionBlock.item)
+    @Relationship(deleteRule: .cascade, inverse: \ReflectionBlock.item)
     var reflectionsStorage: [ReflectionBlock]? = []
-    @Relationship(deleteRule: .cascade, originalName: "outgoingConnections", inverse: \Connection.sourceItem)
+    @Relationship(deleteRule: .cascade, inverse: \Connection.sourceItem)
     var outgoingConnectionsStorage: [Connection]? = []
-    @Relationship(deleteRule: .cascade, originalName: "incomingConnections", inverse: \Connection.targetItem)
+    @Relationship(deleteRule: .cascade, inverse: \Connection.targetItem)
     var incomingConnectionsStorage: [Connection]? = []
-    /// Inverse of `Nudge.targetItem`. New in 2.0, so it has no `originalName`.
+    /// Inverse of `Nudge.targetItem`.
     /// Cascading stops orphaned nudges outliving the item.
     @Relationship(deleteRule: .cascade, inverse: \Nudge.targetItem)
     var nudgesStorage: [Nudge]? = []

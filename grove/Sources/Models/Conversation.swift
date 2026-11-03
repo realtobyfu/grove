@@ -21,9 +21,9 @@ final class Conversation {
     // See the note in `Board` — CloudKit requires optional relationships with
     // inverses; the computed accessors keep call sites on plain `[T]`.
 
-    @Relationship(deleteRule: .cascade, originalName: "messages", inverse: \ChatMessage.conversation)
+    @Relationship(deleteRule: .cascade, inverse: \ChatMessage.conversation)
     var messagesStorage: [ChatMessage]? = []
-    @Relationship(originalName: "createdReflections", inverse: \ReflectionBlock.conversation)
+    @Relationship(inverse: \ReflectionBlock.conversation)
     var createdReflectionsStorage: [ReflectionBlock]? = []
 
     var messages: [ChatMessage] {
