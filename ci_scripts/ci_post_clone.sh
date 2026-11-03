@@ -46,4 +46,25 @@ fi
 echo "--- Generating Xcode project (via: $TUIST) ---"
 $TUIST generate --no-open
 
+# SQLiteData's macros and plugins have to be trusted on a runner with nobody to
+# click the prompt.
+defaults write com.apple.dt.Xcode IDESkipPackagePluginFingerprintValidatation -bool YES
+defaults write com.apple.dt.Xcode IDESkipMacroFingerprintValidation -bool YES
+
+# Xcode Cloud builds with automatic package resolution off and fails without a
+# Package.resolved in the workspace. The workspace is generated, so it has none
+# until this runs.
+echo "--- Resolving packages ---"
+for attempt in 1 2 3; do
+    if xcodebuild -resolvePackageDependencies -workspace grove.xcworkspace -scheme grove; then
+        break
+    fi
+    if [ "$attempt" = 3 ]; then
+        echo "Package resolution failed after 3 attempts" >&2
+        exit 1
+    fi
+    echo "Package resolution failed (attempt $attempt), retrying..."
+    sleep $((attempt * 5))
+done
+
 echo "--- Done ---"

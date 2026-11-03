@@ -2,6 +2,14 @@ import ProjectDescription
 
 let project = Project(
     name: "grove",
+    // Resolved by Xcode, not through Tuist/Package.swift. Tuist 4.134 can't turn
+    // this graph into Xcode targets: it drops dependencies gated on SwiftPM traits
+    // (swift-dependencies loses Clocks and CombineSchedulers) and fails to decode
+    // `.strictMemorySafety()` in swift-collections. Xcode also uses the swift-syntax
+    // prebuilts, where Tuist would build it from source for every macro.
+    packages: [
+        .remote(url: "https://github.com/pointfreeco/sqlite-data", requirement: .upToNextMajor(from: "1.12.1")),
+    ],
     targets: [
         // MARK: - grove-ios (iPhone + iPad)
         .target(
@@ -35,6 +43,9 @@ let project = Project(
                 "UIBackgroundModes": [
                     "remote-notification",
                 ],
+                // SQLiteData's sharing needs this. Nothing shares yet, but it has
+                // to be in place before a shared board can be accepted.
+                "CKSharingSupported": true,
                 "UIAppFonts": [
                     "IBMPlexMono-Medium.ttf",
                     "IBMPlexMono-Regular.ttf",
@@ -59,6 +70,7 @@ let project = Project(
             dependencies: [
                 .target(name: "GroveShareExtension"),
                 .target(name: "GroveLearningWidget"),
+                .package(product: "SQLiteData"),
             ],
             settings: .settings(base: [
                 "SWIFT_STRICT_CONCURRENCY": "complete",
@@ -134,7 +146,7 @@ let project = Project(
                 "grove/Resources",
             ],
             entitlements: .file(path: "grove/share-extension.entitlements"),
-            dependencies: [],
+            dependencies: [.package(product: "SQLiteData")],
             settings: .settings(base: [
                 "SWIFT_STRICT_CONCURRENCY": "complete",
                 "SWIFT_VERSION": "6.0",
@@ -169,6 +181,9 @@ let project = Project(
                 "LSApplicationCategoryType": "public.app-category.productivity",
                 "NSMainStoryboardFile": "",
                 "NSPrincipalClass": "NSApplication",
+                // See the iOS target. Pushes need no key here: macOS has no Background
+                // Modes capability, and aps-environment in the entitlements covers them.
+                "CKSharingSupported": true,
             ]),
             buildableFolders: [
                 "grove/Sources",
@@ -176,7 +191,7 @@ let project = Project(
                 "grove/Resources",
             ],
             entitlements: .file(path: "grove/grove.entitlements"),
-            dependencies: [],
+            dependencies: [.package(product: "SQLiteData")],
             settings: .settings(base: [
                 "SWIFT_STRICT_CONCURRENCY": "complete",
                 "SWIFT_VERSION": "6.0",
@@ -216,7 +231,7 @@ let project = Project(
                 "grove/Resources",
             ],
             entitlements: .file(path: "grove/groveDemo.entitlements"),
-            dependencies: [],
+            dependencies: [.package(product: "SQLiteData")],
             settings: .settings(base: [
                 "SWIFT_STRICT_CONCURRENCY": "complete",
                 "SWIFT_VERSION": "6.0",

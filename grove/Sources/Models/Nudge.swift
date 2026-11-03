@@ -28,28 +28,32 @@ enum NudgeStatus: String, Codable {
     case dismissed
 }
 
-@Model
-final class Nudge {
-    var id: UUID = UUID()
-    var type: NudgeType = NudgeType.resurface
-    var targetItem: Item?
-    var relatedItemIDs: [UUID]?
-    var message: String = ""
-    var status: NudgeStatus = NudgeStatus.pending
-    var scheduledFor: Date = Date.now
-    var createdAt: Date = Date.now
+extension Legacy {
+    @Model
+    final class Nudge {
+        var id: UUID = UUID()
+        var type: NudgeType = NudgeType.resurface
+        var targetItem: Item?
+        var relatedItemIDs: [UUID]?
+        var message: String = ""
+        var status: NudgeStatus = NudgeStatus.pending
+        var scheduledFor: Date = Date.now
+        var createdAt: Date = Date.now
 
-    init(type: NudgeType, message: String, scheduledFor: Date = .now, targetItem: Item? = nil) {
-        self.id = UUID()
-        self.type = type
-        self.targetItem = targetItem
-        self.relatedItemIDs = nil
-        self.message = message
-        self.status = .pending
-        self.scheduledFor = scheduledFor
-        self.createdAt = .now
+        init(type: NudgeType, message: String, scheduledFor: Date = .now, targetItem: Item? = nil) {
+            self.id = UUID()
+            self.type = type
+            self.targetItem = targetItem
+            self.relatedItemIDs = nil
+            self.message = message
+            self.status = .pending
+            self.scheduledFor = scheduledFor
+            self.createdAt = .now
+        }
     }
 }
+
+typealias Nudge = Legacy.Nudge
 
 extension Nudge {
     /// The user-facing message. For dialectical check-ins, extracts the portion before `|||`.

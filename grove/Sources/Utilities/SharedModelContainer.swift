@@ -5,6 +5,11 @@ import OSLog
 
 private let syncLog = Logger(subsystem: "dev.tuist.grove", category: "sync")
 
+/// The SwiftData models. Nesting does not change their entity names, which
+/// `SchemaMigrationTests` pins, so stores written before this namespace existed
+/// still open.
+enum Legacy {}
+
 /// Shared ModelContainer factory for both the main app and Share Extension.
 ///
 /// Uses the App Group container (`group.dev.tuist.grove`) on iOS so the main

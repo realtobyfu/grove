@@ -27,248 +27,252 @@ enum ItemStatus: String, Codable {
     case dismissed
 }
 
-@Model
-final class Item {
-    var id: UUID = UUID()
-    var title: String = ""
-    var type: ItemType = ItemType.note
-    var status: ItemStatus = ItemStatus.inbox
-    var sourceURL: String?
-    var content: String?
-    var thumbnail: Data?
-    var engagementScore: Float = 0
-    var metadata: [String: String] = [:]
-    var createdAt: Date = Date.now
-    var updatedAt: Date = Date.now
+extension Legacy {
+    @Model
+    final class Item {
+        var id: UUID = UUID()
+        var title: String = ""
+        var type: ItemType = ItemType.note
+        var status: ItemStatus = ItemStatus.inbox
+        var sourceURL: String?
+        var content: String?
+        var thumbnail: Data?
+        var engagementScore: Float = 0
+        var metadata: [String: String] = [:]
+        var createdAt: Date = Date.now
+        var updatedAt: Date = Date.now
 
-    // Inbox defer queue ("Read Later")
-    var readLaterUntil: Date?
+        // Inbox defer queue ("Read Later")
+        var readLaterUntil: Date?
 
-    // Spaced resurfacing fields
-    var lastResurfacedAt: Date?
-    var resurfaceIntervalDays: Int = 7
-    var resurfaceCount: Int = 0
-    var lastEngagedAt: Date?
-    var isResurfacingPaused: Bool = false
+        // Spaced resurfacing fields
+        var lastResurfacedAt: Date?
+        var resurfaceIntervalDays: Int = 7
+        var resurfaceCount: Int = 0
+        var lastEngagedAt: Date?
+        var isResurfacingPaused: Bool = false
 
-    // See the note in `Board` — CloudKit requires optional relationships with
-    // inverses; the computed accessors keep call sites on plain `[T]`.
+        // See the note in `Board` — CloudKit requires optional relationships with
+        // inverses; the computed accessors keep call sites on plain `[T]`.
 
-    @Relationship(inverse: \Board.itemsStorage)
-    var boardsStorage: [Board]? = []
-    @Relationship(inverse: \Tag.itemsStorage)
-    var tagsStorage: [Tag]? = []
-    @Relationship(deleteRule: .cascade, inverse: \Annotation.item)
-    var annotationsStorage: [Annotation]? = []
-    @Relationship(deleteRule: .cascade, inverse: \ReflectionBlock.item)
-    var reflectionsStorage: [ReflectionBlock]? = []
-    @Relationship(deleteRule: .cascade, inverse: \Connection.sourceItem)
-    var outgoingConnectionsStorage: [Connection]? = []
-    @Relationship(deleteRule: .cascade, inverse: \Connection.targetItem)
-    var incomingConnectionsStorage: [Connection]? = []
-    /// Inverse of `Nudge.targetItem`.
-    /// Cascading stops orphaned nudges outliving the item.
-    @Relationship(deleteRule: .cascade, inverse: \Nudge.targetItem)
-    var nudgesStorage: [Nudge]? = []
+        @Relationship(inverse: \Board.itemsStorage)
+        var boardsStorage: [Board]? = []
+        @Relationship(inverse: \Tag.itemsStorage)
+        var tagsStorage: [Tag]? = []
+        @Relationship(deleteRule: .cascade, inverse: \Annotation.item)
+        var annotationsStorage: [Annotation]? = []
+        @Relationship(deleteRule: .cascade, inverse: \ReflectionBlock.item)
+        var reflectionsStorage: [ReflectionBlock]? = []
+        @Relationship(deleteRule: .cascade, inverse: \Connection.sourceItem)
+        var outgoingConnectionsStorage: [Connection]? = []
+        @Relationship(deleteRule: .cascade, inverse: \Connection.targetItem)
+        var incomingConnectionsStorage: [Connection]? = []
+        /// Inverse of `Nudge.targetItem`.
+        /// Cascading stops orphaned nudges outliving the item.
+        @Relationship(deleteRule: .cascade, inverse: \Nudge.targetItem)
+        var nudgesStorage: [Nudge]? = []
 
-    var boards: [Board] {
-        get { boardsStorage ?? [] }
-        set { boardsStorage = newValue }
-    }
-
-    var tags: [Tag] {
-        get { tagsStorage ?? [] }
-        set { tagsStorage = newValue }
-    }
-
-    var annotations: [Annotation] {
-        get { annotationsStorage ?? [] }
-        set { annotationsStorage = newValue }
-    }
-
-    var reflections: [ReflectionBlock] {
-        get { reflectionsStorage ?? [] }
-        set { reflectionsStorage = newValue }
-    }
-
-    var outgoingConnections: [Connection] {
-        get { outgoingConnectionsStorage ?? [] }
-        set { outgoingConnectionsStorage = newValue }
-    }
-
-    var incomingConnections: [Connection] {
-        get { incomingConnectionsStorage ?? [] }
-        set { incomingConnectionsStorage = newValue }
-    }
-
-    var nudges: [Nudge] {
-        get { nudgesStorage ?? [] }
-        set { nudgesStorage = newValue }
-    }
-
-    // MARK: - Depth Score
-
-    /// Breakdown of engagement-depth components. UI no longer surfaces this;
-    /// it survives as an internal ranking signal (e.g. chat context selection).
-    private var computedScoreBreakdown: [(label: String, points: Int)] {
-        var breakdown: [(label: String, points: Int)] = []
-
-        if status != .inbox && status != .queued {
-            breakdown.append(("Opened", 5))
+        var boards: [Board] {
+            get { boardsStorage ?? [] }
+            set { boardsStorage = newValue }
         }
 
-        let manualTags = tags.filter { !$0.isAutoGenerated }
-        if !manualTags.isEmpty {
-            breakdown.append(("Tagged", 5))
+        var tags: [Tag] {
+            get { tagsStorage ?? [] }
+            set { tagsStorage = newValue }
         }
 
-        if reflections.count > 0 {
-            breakdown.append(("Reflections ×\(reflections.count)", reflections.count * 25))
+        var annotations: [Annotation] {
+            get { annotationsStorage ?? [] }
+            set { annotationsStorage = newValue }
         }
 
-        let connectionCount = outgoingConnections.count + incomingConnections.count
-        if connectionCount > 0 {
-            breakdown.append(("Connections ×\(connectionCount)", connectionCount * 15))
+        var reflections: [ReflectionBlock] {
+            get { reflectionsStorage ?? [] }
+            set { reflectionsStorage = newValue }
         }
 
-        if let lastEngaged = lastEngagedAt {
-            let daysSinceCreation = Calendar.current.dateComponents([.day], from: createdAt, to: lastEngaged).day ?? 0
-            if daysSinceCreation >= 7 {
-                breakdown.append(("Revisited", 10))
+        var outgoingConnections: [Connection] {
+            get { outgoingConnectionsStorage ?? [] }
+            set { outgoingConnectionsStorage = newValue }
+        }
+
+        var incomingConnections: [Connection] {
+            get { incomingConnectionsStorage ?? [] }
+            set { incomingConnectionsStorage = newValue }
+        }
+
+        var nudges: [Nudge] {
+            get { nudgesStorage ?? [] }
+            set { nudgesStorage = newValue }
+        }
+
+        // MARK: - Depth Score
+
+        /// Breakdown of engagement-depth components. UI no longer surfaces this;
+        /// it survives as an internal ranking signal (e.g. chat context selection).
+        private var computedScoreBreakdown: [(label: String, points: Int)] {
+            var breakdown: [(label: String, points: Int)] = []
+
+            if status != .inbox && status != .queued {
+                breakdown.append(("Opened", 5))
+            }
+
+            let manualTags = tags.filter { !$0.isAutoGenerated }
+            if !manualTags.isEmpty {
+                breakdown.append(("Tagged", 5))
+            }
+
+            if reflections.count > 0 {
+                breakdown.append(("Reflections ×\(reflections.count)", reflections.count * 25))
+            }
+
+            let connectionCount = outgoingConnections.count + incomingConnections.count
+            if connectionCount > 0 {
+                breakdown.append(("Connections ×\(connectionCount)", connectionCount * 15))
+            }
+
+            if let lastEngaged = lastEngagedAt {
+                let daysSinceCreation = Calendar.current.dateComponents([.day], from: createdAt, to: lastEngaged).day ?? 0
+                if daysSinceCreation >= 7 {
+                    breakdown.append(("Revisited", 10))
+                }
+            }
+
+            return breakdown
+        }
+
+        /// Computed engagement score based on meaningful activities.
+        var depthScore: Int {
+            computedScoreBreakdown.reduce(0) { $0 + $1.points }
+        }
+
+        // MARK: - Video
+
+        /// Runtime of a video item as `m:ss` (or `h:mm:ss`), when its length is
+        /// known. Written in seconds — fractional for local files, whole numbers
+        /// from a host's oEmbed data — so both forms are parsed as a Double.
+        var videoDurationLabel: String? {
+            guard type == .video,
+                  let raw = metadata["videoDuration"],
+                  let seconds = Double(raw),
+                  seconds.isFinite, seconds >= 1 else { return nil }
+            return seconds.formattedTimestamp
+        }
+
+        // MARK: - Documents
+
+        /// True when what this item points at is a PDF rather than a web page.
+        ///
+        /// The capture path and the metadata enricher both record the format
+        /// explicitly; the URL check is the fallback for items saved before they
+        /// did, so a legacy `.pdf` link still opens in the document reader.
+        var isPDFDocument: Bool {
+            if metadata["format"] == "pdf" { return true }
+            guard let url = resolvedSourceURL(from: sourceURL) else { return false }
+            return url.pathExtension.lowercased() == "pdf"
+        }
+
+        // MARK: - Feed / Newsletter
+
+        /// True for any item that originated from a subscribed feed, regardless
+        /// of whether it was later kept into the library.
+        var isNewsletterIssue: Bool {
+            metadata["feedSourceID"] != nil
+        }
+
+        /// True for feed-pipeline items the user has not explicitly kept.
+        /// These stay out of inbox triage counts and lists.
+        var isFeedSuggestion: Bool {
+            metadata["isSuggested"] == "true"
+        }
+
+        /// Read state for newsletter issues. Opening an issue marks it read;
+        /// expiry also marks it read so history stays browsable.
+        var isFeedIssueRead: Bool {
+            get { metadata["feedRead"] == "true" }
+            set { metadata["feedRead"] = newValue ? "true" : nil }
+        }
+
+        /// Writing is keeping: any durable artifact (reflection, highlight,
+        /// board assignment, connection) promotes a feed suggestion into the
+        /// library proper — same effect as the explicit Keep action.
+        func promoteFromFeedSuggestionIfNeeded() {
+            guard isFeedSuggestion else { return }
+            metadata["isSuggested"] = nil
+            metadata["suggestionDismissed"] = nil
+            isFeedIssueRead = true
+            if status == .inbox {
+                status = .active
+            }
+            updatedAt = .now
+        }
+
+        /// Whether this item is eligible for the resurfacing queue.
+        /// Requires at least one reflection or connection.
+        var isResurfacingEligible: Bool {
+            !reflections.isEmpty || !outgoingConnections.isEmpty || !incomingConnections.isEmpty
+        }
+
+        /// Whether this item is deferred from inbox triage until a future date.
+        var isQueuedForReadLater: Bool {
+            guard status == .queued, let until = readLaterUntil else { return false }
+            return until > .now
+        }
+
+        /// Whether this item should be considered by discussion suggestion generation.
+        /// Only article items can opt out; all other types are always included.
+        var isIncludedInDiscussionSuggestions: Bool {
+            get {
+                guard type == .article else { return true }
+                return metadata["excludeFromDiscussionSuggestions"] != "true"
+            }
+            set {
+                guard type == .article else { return }
+                metadata["excludeFromDiscussionSuggestions"] = newValue ? nil : "true"
             }
         }
 
-        return breakdown
-    }
-
-    /// Computed engagement score based on meaningful activities.
-    var depthScore: Int {
-        computedScoreBreakdown.reduce(0) { $0 + $1.points }
-    }
-
-    // MARK: - Video
-
-    /// Runtime of a video item as `m:ss` (or `h:mm:ss`), when its length is
-    /// known. Written in seconds — fractional for local files, whole numbers
-    /// from a host's oEmbed data — so both forms are parsed as a Double.
-    var videoDurationLabel: String? {
-        guard type == .video,
-              let raw = metadata["videoDuration"],
-              let seconds = Double(raw),
-              seconds.isFinite, seconds >= 1 else { return nil }
-        return seconds.formattedTimestamp
-    }
-
-    // MARK: - Documents
-
-    /// True when what this item points at is a PDF rather than a web page.
-    ///
-    /// The capture path and the metadata enricher both record the format
-    /// explicitly; the URL check is the fallback for items saved before they
-    /// did, so a legacy `.pdf` link still opens in the document reader.
-    var isPDFDocument: Bool {
-        if metadata["format"] == "pdf" { return true }
-        guard let url = resolvedSourceURL(from: sourceURL) else { return false }
-        return url.pathExtension.lowercased() == "pdf"
-    }
-
-    // MARK: - Feed / Newsletter
-
-    /// True for any item that originated from a subscribed feed, regardless
-    /// of whether it was later kept into the library.
-    var isNewsletterIssue: Bool {
-        metadata["feedSourceID"] != nil
-    }
-
-    /// True for feed-pipeline items the user has not explicitly kept.
-    /// These stay out of inbox triage counts and lists.
-    var isFeedSuggestion: Bool {
-        metadata["isSuggested"] == "true"
-    }
-
-    /// Read state for newsletter issues. Opening an issue marks it read;
-    /// expiry also marks it read so history stays browsable.
-    var isFeedIssueRead: Bool {
-        get { metadata["feedRead"] == "true" }
-        set { metadata["feedRead"] = newValue ? "true" : nil }
-    }
-
-    /// Writing is keeping: any durable artifact (reflection, highlight,
-    /// board assignment, connection) promotes a feed suggestion into the
-    /// library proper — same effect as the explicit Keep action.
-    func promoteFromFeedSuggestionIfNeeded() {
-        guard isFeedSuggestion else { return }
-        metadata["isSuggested"] = nil
-        metadata["suggestionDismissed"] = nil
-        isFeedIssueRead = true
-        if status == .inbox {
-            status = .active
+        /// Next resurfacing date based on lastResurfacedAt + interval, or lastEngagedAt + interval.
+        var nextResurfaceDate: Date? {
+            guard isResurfacingEligible, !isResurfacingPaused, status == .active else { return nil }
+            let referenceDate = lastResurfacedAt ?? lastEngagedAt ?? createdAt
+            return Calendar.current.date(byAdding: .day, value: resurfaceIntervalDays, to: referenceDate)
         }
-        updatedAt = .now
-    }
 
-    /// Whether this item is eligible for the resurfacing queue.
-    /// Requires at least one reflection or connection.
-    var isResurfacingEligible: Bool {
-        !reflections.isEmpty || !outgoingConnections.isEmpty || !incomingConnections.isEmpty
-    }
-
-    /// Whether this item is deferred from inbox triage until a future date.
-    var isQueuedForReadLater: Bool {
-        guard status == .queued, let until = readLaterUntil else { return false }
-        return until > .now
-    }
-
-    /// Whether this item should be considered by discussion suggestion generation.
-    /// Only article items can opt out; all other types are always included.
-    var isIncludedInDiscussionSuggestions: Bool {
-        get {
-            guard type == .article else { return true }
-            return metadata["excludeFromDiscussionSuggestions"] != "true"
+        /// Whether this item is overdue for resurfacing.
+        var isResurfacingOverdue: Bool {
+            guard let nextDate = nextResurfaceDate else { return false }
+            return nextDate <= .now
         }
-        set {
-            guard type == .article else { return }
-            metadata["excludeFromDiscussionSuggestions"] = newValue ? nil : "true"
+
+        init(title: String, type: ItemType) {
+            self.id = UUID()
+            self.title = title
+            self.type = type
+            self.status = .inbox
+            self.sourceURL = nil
+            self.content = nil
+            self.thumbnail = nil
+            self.engagementScore = 0
+            self.metadata = [:]
+            self.createdAt = .now
+            self.updatedAt = .now
+            self.readLaterUntil = nil
+            self.lastResurfacedAt = nil
+            self.resurfaceIntervalDays = 7
+            self.resurfaceCount = 0
+            self.lastEngagedAt = nil
+            self.isResurfacingPaused = false
+            self.boardsStorage = []
+            self.tagsStorage = []
+            self.annotationsStorage = []
+            self.reflectionsStorage = []
+            self.outgoingConnectionsStorage = []
+            self.incomingConnectionsStorage = []
+            self.nudgesStorage = []
         }
-    }
-
-    /// Next resurfacing date based on lastResurfacedAt + interval, or lastEngagedAt + interval.
-    var nextResurfaceDate: Date? {
-        guard isResurfacingEligible, !isResurfacingPaused, status == .active else { return nil }
-        let referenceDate = lastResurfacedAt ?? lastEngagedAt ?? createdAt
-        return Calendar.current.date(byAdding: .day, value: resurfaceIntervalDays, to: referenceDate)
-    }
-
-    /// Whether this item is overdue for resurfacing.
-    var isResurfacingOverdue: Bool {
-        guard let nextDate = nextResurfaceDate else { return false }
-        return nextDate <= .now
-    }
-
-    init(title: String, type: ItemType) {
-        self.id = UUID()
-        self.title = title
-        self.type = type
-        self.status = .inbox
-        self.sourceURL = nil
-        self.content = nil
-        self.thumbnail = nil
-        self.engagementScore = 0
-        self.metadata = [:]
-        self.createdAt = .now
-        self.updatedAt = .now
-        self.readLaterUntil = nil
-        self.lastResurfacedAt = nil
-        self.resurfaceIntervalDays = 7
-        self.resurfaceCount = 0
-        self.lastEngagedAt = nil
-        self.isResurfacingPaused = false
-        self.boardsStorage = []
-        self.tagsStorage = []
-        self.annotationsStorage = []
-        self.reflectionsStorage = []
-        self.outgoingConnectionsStorage = []
-        self.incomingConnectionsStorage = []
-        self.nudgesStorage = []
     }
 }
+
+typealias Item = Legacy.Item
