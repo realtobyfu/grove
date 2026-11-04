@@ -1,23 +1,54 @@
 import Foundation
-import SwiftData
+import SQLiteData
 
 /// Handles metadata fetching, thumbnail download, and LLM overview generation for Items.
 /// Extracted from CaptureService to isolate enrichment responsibilities.
+///
+/// Everything here waits on the network, and a transaction can't span that wait.
+/// So it works from an item ID and re-reads the row when it writes: the item may
+/// have been edited or deleted in the meantime.
 @MainActor
 @Observable
 final class ItemMetadataEnricher {
+    private let database: any DatabaseWriter
     private let metadataFetcher: URLMetadataFetcherProtocol
     private let imageDownloader: ImageDownloadServiceProtocol
 
     init(
+        database: any DatabaseWriter = AppDatabase.current,
         metadataFetcher: URLMetadataFetcherProtocol = URLMetadataFetcher.shared,
         imageDownloader: ImageDownloadServiceProtocol = ImageDownloadService.shared
     ) {
+        self.database = database
         self.metadataFetcher = metadataFetcher
         self.imageDownloader = imageDownloader
     }
 
-    /// Fetches URL metadata and updates the item in the given context.
+    private func fetchItem(_ itemID: UUID) -> Item? {
+        database.attemptRead { try Item.find(itemID).fetchOne($0) } ?? nil
+    }
+
+    /// Changes the item and stores `thumbnail` in one transaction. Returns false
+    /// when the item is gone, which is not an error: the user deleted it while
+    /// we were waiting on the network.
+    @discardableResult
+    private func updateItem(
+        _ itemID: UUID,
+        thumbnail: Data? = nil,
+        _ changes: (inout Item) -> Void
+    ) -> Bool {
+        database.attempt { db in
+            guard try Item.modify(itemID, in: db, changes) != nil else { return false }
+            // After the check above: a thumbnail's foreign key would fail the
+            // transaction if the item had gone.
+            if let thumbnail {
+                try Item.setThumbnail(thumbnail, forItem: itemID, in: db)
+            }
+            return true
+        } ?? false
+    }
+
+    /// Fetches URL metadata and updates the item.
     /// Returns the fetched metadata title and description for downstream use.
     ///
     /// Sources that publish structured metadata get a dedicated path — arXiv's
@@ -26,13 +57,12 @@ final class ItemMetadataEnricher {
     /// path falls back to the generic scrape if it comes up empty.
     func enrichURLItem(
         itemID: UUID,
-        urlString: String,
-        context: ModelContext
+        urlString: String
     ) async -> (title: String?, description: String?, bodyText: String?) {
-        let routing = routingInfo(itemID: itemID, context: context)
+        let routing = routingInfo(itemID: itemID)
 
         if let arxivID = routing.arxivID,
-           let result = await enrichArxivItem(itemID: itemID, arxivID: arxivID, context: context) {
+           let result = await enrichArxivItem(itemID: itemID, arxivID: arxivID) {
             return result
         } else if routing.isVideo,
                   let source = routing.videoSource,
@@ -41,16 +71,15 @@ final class ItemMetadataEnricher {
                       itemID: itemID,
                       source: source,
                       videoID: videoID,
-                      urlString: urlString,
-                      context: context
+                      urlString: urlString
                   ) {
             return result
         } else if routing.isPDF,
-                  let result = await enrichPDFItem(itemID: itemID, urlString: urlString, context: context) {
+                  let result = await enrichPDFItem(itemID: itemID, urlString: urlString) {
             return result
         }
 
-        return await enrichGenericURLItem(itemID: itemID, urlString: urlString, context: context)
+        return await enrichGenericURLItem(itemID: itemID, urlString: urlString)
     }
 
     private struct EnrichmentRouting {
@@ -61,9 +90,8 @@ final class ItemMetadataEnricher {
         var isPDF = false
     }
 
-    private func routingInfo(itemID: UUID, context: ModelContext) -> EnrichmentRouting {
-        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-        guard let item = try? context.fetch(descriptor).first else { return EnrichmentRouting() }
+    private func routingInfo(itemID: UUID) -> EnrichmentRouting {
+        guard let item = fetchItem(itemID) else { return EnrichmentRouting() }
         return EnrichmentRouting(
             arxivID: item.metadata["arxivID"],
             videoSource: item.metadata["videoSource"],
@@ -74,38 +102,38 @@ final class ItemMetadataEnricher {
     }
 
     /// Clears the loading flag so a failed fetch doesn't leave a permanent spinner.
-    private func finishFetching(itemID: UUID, context: ModelContext) {
-        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-        guard let item = try? context.fetch(descriptor).first else { return }
-        item.metadata["fetchingMetadata"] = nil
-        item.updatedAt = .now
-        try? context.save()
+    private func finishFetching(itemID: UUID, title: String? = nil) {
+        updateItem(itemID) { item in
+            if let title, !title.isEmpty {
+                item.title = title
+            }
+            item.metadata["fetchingMetadata"] = nil
+            item.updatedAt = .now
+        }
     }
 
     // MARK: - arXiv
 
     private func enrichArxivItem(
         itemID: UUID,
-        arxivID: String,
-        context: ModelContext
+        arxivID: String
     ) async -> (title: String?, description: String?, bodyText: String?)? {
         guard let paper = await ArxivMetadataService.fetch(arxivID: arxivID) else { return nil }
 
-        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-        guard let item = try? context.fetch(descriptor).first else {
+        let saved = updateItem(itemID) { item in
+            item.title = paper.title
+            if !paper.summary.isEmpty {
+                item.content = paper.summary
+            }
+            if !paper.authors.isEmpty {
+                item.metadata["authors"] = paper.authors.joined(separator: ", ")
+            }
+            item.metadata["fetchingMetadata"] = nil
+            item.updatedAt = .now
+        }
+        guard saved else {
             return (paper.title, paper.summary, paper.summary)
         }
-
-        item.title = paper.title
-        if !paper.summary.isEmpty {
-            item.content = paper.summary
-        }
-        if !paper.authors.isEmpty {
-            item.metadata["authors"] = paper.authors.joined(separator: ", ")
-        }
-        item.metadata["fetchingMetadata"] = nil
-        item.updatedAt = .now
-        try? context.save()
 
         return (paper.title, paper.summary.isEmpty ? nil : paper.summary, paper.summary.isEmpty ? nil : paper.summary)
     }
@@ -121,8 +149,7 @@ final class ItemMetadataEnricher {
         itemID: UUID,
         source: String,
         videoID: String,
-        urlString: String,
-        context: ModelContext
+        urlString: String
     ) async -> (title: String?, description: String?, bodyText: String?)? {
         // Bound to a local so the child task captures the Sendable fetcher
         // rather than this @MainActor-isolated object.
@@ -156,33 +183,26 @@ final class ItemMetadataEnricher {
             thumbnailData = imageDownloader.compressImageData(rawImageData)
         }
 
-        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-        guard let item = try? context.fetch(descriptor).first else {
-            return (title, description, scraped?.bodyText)
+        updateItem(itemID, thumbnail: thumbnailData) { item in
+            if let title, !title.isEmpty {
+                item.title = title
+            }
+            if let description, !description.isEmpty {
+                item.content = description
+            }
+            if let author = oembed?.authorName, !author.isEmpty {
+                item.metadata["authors"] = author
+            }
+            if let thumbnailURL {
+                item.metadata["thumbnailURL"] = thumbnailURL
+            }
+            if let duration = oembed?.duration ?? scraped?.durationSeconds {
+                // Same format the local-video importer writes.
+                item.metadata["videoDuration"] = String(format: "%.1f", Double(duration))
+            }
+            item.metadata["fetchingMetadata"] = nil
+            item.updatedAt = .now
         }
-
-        if let title, !title.isEmpty {
-            item.title = title
-        }
-        if let description, !description.isEmpty {
-            item.content = description
-        }
-        if let author = oembed?.authorName, !author.isEmpty {
-            item.metadata["authors"] = author
-        }
-        if let thumbnailURL {
-            item.metadata["thumbnailURL"] = thumbnailURL
-        }
-        if let thumbnailData {
-            item.thumbnail = thumbnailData
-        }
-        if let duration = oembed?.duration ?? scraped?.durationSeconds {
-            // Same format the local-video importer writes.
-            item.metadata["videoDuration"] = String(format: "%.1f", Double(duration))
-        }
-        item.metadata["fetchingMetadata"] = nil
-        item.updatedAt = .now
-        try? context.save()
 
         return (title, description, scraped?.bodyText)
     }
@@ -191,109 +211,93 @@ final class ItemMetadataEnricher {
 
     private func enrichPDFItem(
         itemID: UUID,
-        urlString: String,
-        context: ModelContext
+        urlString: String
     ) async -> (title: String?, description: String?, bodyText: String?)? {
         guard let url = URL(string: urlString) else { return nil }
 
         // Record the format even if the download later fails: the URL is a PDF
         // either way, and the reader routes on this key.
-        markPDFFormat(itemID: itemID, context: context)
+        markPDFFormat(itemID: itemID)
 
         guard let extracted = await PDFMetadataService.downloadAndExtract(
             url: url,
             itemID: itemID
         ) else { return nil }
 
-        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-        guard let item = try? context.fetch(descriptor).first else {
-            return (extracted.title, nil, nil)
+        updateItem(itemID, thumbnail: extracted.thumbnailData) { item in
+            if let title = extracted.title, !title.isEmpty {
+                item.title = title
+            }
+            if let author = extracted.author, !author.isEmpty {
+                item.metadata["authors"] = author
+            }
+            item.metadata["pdfCached"] = "true"
+            item.metadata["fetchingMetadata"] = nil
+            item.updatedAt = .now
         }
-
-        if let title = extracted.title, !title.isEmpty {
-            item.title = title
-        }
-        if let author = extracted.author, !author.isEmpty {
-            item.metadata["authors"] = author
-        }
-        if let thumbnailData = extracted.thumbnailData {
-            item.thumbnail = thumbnailData
-        }
-        item.metadata["pdfCached"] = "true"
-        item.metadata["fetchingMetadata"] = nil
-        item.updatedAt = .now
-        try? context.save()
 
         return (extracted.title, nil, nil)
     }
 
-    private func markPDFFormat(itemID: UUID, context: ModelContext) {
-        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-        guard let item = try? context.fetch(descriptor).first else { return }
-        item.metadata["format"] = "pdf"
-        try? context.save()
+    private func markPDFFormat(itemID: UUID) {
+        updateItem(itemID) { $0.metadata["format"] = "pdf" }
     }
 
     // MARK: - Generic
 
     private func enrichGenericURLItem(
         itemID: UUID,
-        urlString: String,
-        context: ModelContext
+        urlString: String
     ) async -> (title: String?, description: String?, bodyText: String?) {
         guard let metadata = await metadataFetcher.fetch(urlString: urlString) else {
             // Clear loading flag even on failure
-            let desc = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-            if let fetchedItem = try? context.fetch(desc).first {
-                fetchedItem.metadata["fetchingMetadata"] = nil
-                try? context.save()
-            }
+            updateItem(itemID) { $0.metadata["fetchingMetadata"] = nil }
             return (nil, nil, nil)
         }
 
         // The URL had no `.pdf` extension but served a PDF anyway — a very
         // common shape for publisher and university links.
         if metadata.isPDF {
-            if let result = await enrichPDFItem(itemID: itemID, urlString: urlString, context: context) {
+            if let result = await enrichPDFItem(itemID: itemID, urlString: urlString) {
                 return result
             }
-            let desc = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-            if let item = try? context.fetch(desc).first, let title = metadata.title, !title.isEmpty {
-                item.title = title
-            }
-            finishFetching(itemID: itemID, context: context)
+            finishFetching(itemID: itemID, title: metadata.title)
             return (metadata.title, nil, nil)
         }
 
-        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-        guard let fetchedItem = try? context.fetch(descriptor).first else {
+        // Prefer LP image data (works on bot-protected sites), fall back to URL download
+        let compressedImage = metadata.imageData.flatMap { imageDownloader.compressImageData($0) }
+        let imageURLString = compressedImage == nil ? metadata.imageURL : nil
+
+        // The text goes in now so the title doesn't wait on the image download.
+        // An item deleted during the fetch also skips that download here.
+        let saved = updateItem(itemID, thumbnail: compressedImage) { item in
+            if let authors = metadata.authors, !authors.isEmpty {
+                item.metadata["authors"] = authors
+            }
+            if let title = metadata.title {
+                item.title = title
+            }
+            if let description = metadata.description {
+                item.content = description
+            }
+            if let imageURLString {
+                item.metadata["thumbnailURL"] = imageURLString
+            }
+        }
+        guard saved else {
             return (metadata.title, metadata.description, metadata.bodyText)
         }
 
-        if let authors = metadata.authors, !authors.isEmpty {
-            fetchedItem.metadata["authors"] = authors
-        }
-        if let title = metadata.title {
-            fetchedItem.title = title
-        }
-        if let description = metadata.description {
-            fetchedItem.content = description
+        var downloadedImage: Data?
+        if let imageURLString {
+            downloadedImage = await imageDownloader.downloadAndCompress(urlString: imageURLString)
         }
 
-        // Prefer LP image data (works on bot-protected sites), fall back to URL download
-        if let rawImageData = metadata.imageData,
-           let compressed = imageDownloader.compressImageData(rawImageData) {
-            fetchedItem.thumbnail = compressed
-        } else if let imageURLString = metadata.imageURL {
-            fetchedItem.metadata["thumbnailURL"] = imageURLString
-            if let imageData = await imageDownloader.downloadAndCompress(urlString: imageURLString) {
-                fetchedItem.thumbnail = imageData
-            }
+        updateItem(itemID, thumbnail: downloadedImage) { item in
+            item.metadata["fetchingMetadata"] = nil
+            item.updatedAt = .now
         }
-
-        fetchedItem.metadata["fetchingMetadata"] = nil
-        fetchedItem.updatedAt = .now
-        try? context.save()
 
         return (metadata.title, metadata.description, metadata.bodyText)
     }
@@ -302,19 +306,16 @@ final class ItemMetadataEnricher {
     /// library: fetch real page metadata, then generate an overview with
     /// the configured LLM (Apple Intelligence by default). If no LLM is
     /// available, the page's own metadata description remains as content.
-    func enrichPromotedIssue(itemID: UUID, urlString: String, context: ModelContext) async {
+    func enrichPromotedIssue(itemID: UUID, urlString: String) async {
         let (title, description, bodyText) = await enrichURLItem(
             itemID: itemID,
-            urlString: urlString,
-            context: context
+            urlString: urlString
         )
 
-        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-        let itemTitle = (try? context.fetch(descriptor).first)?.title ?? title ?? ""
+        let itemTitle = fetchItem(itemID)?.title ?? title ?? ""
 
         await generateOverview(
             itemID: itemID,
-            context: context,
             title: itemTitle,
             description: description,
             bodyText: bodyText
@@ -325,7 +326,6 @@ final class ItemMetadataEnricher {
     /// Stores the result in item.content, replacing the short OG description.
     func generateOverview(
         itemID: UUID,
-        context: ModelContext,
         title: String,
         description: String?,
         bodyText: String?
@@ -359,50 +359,46 @@ final class ItemMetadataEnricher {
         let overview = result.content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !overview.isEmpty else { return }
 
-        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-        guard let item = try? context.fetch(descriptor).first else { return }
-
-        if let original = item.content, !original.isEmpty {
-            item.metadata["originalDescription"] = original
+        updateItem(itemID) { item in
+            if let original = item.content, !original.isEmpty {
+                item.metadata["originalDescription"] = original
+            }
+            item.content = overview
+            item.metadata["hasLLMOverview"] = "true"
+            item.metadata["overviewGeneratedByAI"] = "true"
+            item.updatedAt = .now
         }
-        item.content = overview
-        item.metadata["hasLLMOverview"] = "true"
-        item.metadata["overviewGeneratedByAI"] = "true"
-        item.updatedAt = .now
-        try? context.save()
     }
 
     /// After metadata enrichment, extract a summary fallback from the overview if needed.
-    func extractSummaryFallback(
-        itemID: UUID,
-        context: ModelContext
-    ) {
-        let desc = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-        guard let item = try? context.fetch(desc).first,
-              item.metadata["summary"] == nil,
-              let overviewContent = item.content, !overviewContent.isEmpty else { return }
+    func extractSummaryFallback(itemID: UUID) {
+        database.attempt { db in
+            guard let item = try Item.find(itemID).fetchOne(db),
+                  item.metadata["summary"] == nil,
+                  let overviewContent = item.content, !overviewContent.isEmpty else { return }
 
-        let firstSentence = overviewContent
-            .components(separatedBy: CharacterSet(charactersIn: ".!?"))
-            .first?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !firstSentence.isEmpty {
-            item.metadata["summary"] = String(firstSentence.prefix(120))
-            try? context.save()
+            let firstSentence = overviewContent
+                .components(separatedBy: CharacterSet(charactersIn: ".!?"))
+                .first?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !firstSentence.isEmpty {
+                try Item.modify(itemID, in: db) {
+                    $0.metadata["summary"] = String(firstSentence.prefix(120))
+                }
+            }
         }
     }
 
     /// Mark generated summaries with provenance without creating another approval queue.
-    func markSummaryReviewIfNeeded(
-        itemID: UUID,
-        context: ModelContext
-    ) {
-        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-        guard let item = try? context.fetch(descriptor).first,
-              item.metadata["summary"] != nil else { return }
-        item.metadata["summaryGeneratedByAI"] = "true"
-        item.metadata["summaryReviewPending"] = nil
-        item.metadata["overviewReviewPending"] = nil
-        try? context.save()
+    func markSummaryReviewIfNeeded(itemID: UUID) {
+        database.attempt { db in
+            guard let item = try Item.find(itemID).fetchOne(db),
+                  item.metadata["summary"] != nil else { return }
+            try Item.modify(itemID, in: db) {
+                $0.metadata["summaryGeneratedByAI"] = "true"
+                $0.metadata["summaryReviewPending"] = nil
+                $0.metadata["overviewReviewPending"] = nil
+            }
+        }
     }
 }

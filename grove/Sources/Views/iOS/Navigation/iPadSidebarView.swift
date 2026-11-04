@@ -1,17 +1,18 @@
+import SQLiteData
 import SwiftUI
-import SwiftData
 
 /// iPad sidebar for NavigationSplitView — mirrors macOS sidebar structure
 /// but adds dedicated Inbox row and Settings row at bottom.
 struct iPadSidebarView: View {
     @Binding var selection: SidebarItem?
-    @Environment(\.modelContext) private var modelContext
-    @Query private var allItems: [Item]
-    @Query(sort: \Board.sortOrder) private var boards: [Board]
+    @Fetch(Library.Request()) private var library = Library()
 
     @State private var showNewBoardSheet = false
-    @State private var boardToEdit: Board?
-    @State private var boardToDelete: Board?
+    @State private var boardToEdit: BoardGraph?
+    @State private var boardToDelete: BoardGraph?
+
+    private var allItems: [ItemGraph] { library.items }
+    private var boards: [BoardGraph] { library.boards }
 
     /// Personal captures only — newsletter issues stay in the Newsletters tab.
     private var inboxCount: Int {
@@ -19,7 +20,7 @@ struct iPadSidebarView: View {
     }
 
     private var viewModel: BoardViewModel {
-        BoardViewModel(modelContext: modelContext)
+        BoardViewModel()
     }
 
     var body: some View {
@@ -75,7 +76,7 @@ struct iPadSidebarView: View {
                     }
                 }
                 .onMove { source, destination in
-                    viewModel.moveBoard(from: source, to: destination, in: boards)
+                    viewModel.moveBoard(from: source, to: destination, in: boards.map(\.id))
                 }
             } header: {
                 HStack(spacing: Spacing.sm) {
@@ -105,6 +106,8 @@ struct iPadSidebarView: View {
         }
         .listStyle(.sidebar)
         .navigationTitle("Grove")
+        .keepingCurrent($boardToEdit, in: library)
+        .keepingCurrent($boardToDelete, in: library)
         .sheet(isPresented: $showNewBoardSheet) {
             BoardEditorSheet(
                 onSave: { title, icon, color, nudgeFreq in
@@ -116,7 +119,7 @@ struct iPadSidebarView: View {
             BoardEditorSheet(
                 board: board,
                 onSave: { title, icon, color, nudgeFreq in
-                    viewModel.updateBoard(board, title: title, icon: icon, color: color, nudgeFrequencyHours: nudgeFreq)
+                    viewModel.updateBoard(board.id, title: title, icon: icon, color: color, nudgeFrequencyHours: nudgeFreq)
                 }
             )
         }
@@ -134,7 +137,7 @@ struct iPadSidebarView: View {
             }
             Button("Delete", role: .destructive) {
                 if let board = boardToDelete {
-                    viewModel.deleteBoard(board)
+                    viewModel.deleteBoard(board.id)
                     if case .board(let id) = selection, id == board.id {
                         selection = nil
                     }
@@ -150,11 +153,11 @@ struct iPadSidebarView: View {
 
     // MARK: - Drop handling
 
-    private func handleItemDrop(urls: [URL], onto board: Board) -> Bool {
-        let itemVM = ItemViewModel(modelContext: modelContext)
+    private func handleItemDrop(urls: [URL], onto board: BoardGraph) -> Bool {
+        let itemVM = ItemViewModel()
         var handled = false
         for url in urls {
-            var item: Item?
+            var item: ItemGraph?
             if url.scheme == "grove", url.host == "item" {
                 if let uuid = UUID(uuidString: url.lastPathComponent) {
                     item = allItems.first { $0.id == uuid }
@@ -164,7 +167,7 @@ struct iPadSidebarView: View {
                 item = allItems.first { $0.sourceURL == urlString }
             }
             if let item {
-                itemVM.assignToBoard(item, board: board)
+                itemVM.assignToBoard(item.id, board: board.board)
                 handled = true
             }
         }

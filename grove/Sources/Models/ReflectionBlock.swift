@@ -1,5 +1,5 @@
 import Foundation
-import SwiftData
+import SQLiteData
 
 enum ReflectionBlockType: String, Codable, CaseIterable {
     case keyInsight
@@ -29,34 +29,47 @@ enum ReflectionBlockType: String, Codable, CaseIterable {
     }
 }
 
-extension Legacy {
-    @Model
-    final class ReflectionBlock {
-        var id: UUID = UUID()
-        var item: Item?
-        var blockTypeRaw: String = ReflectionBlockType.keyInsight.rawValue
-        @Transient var blockType: ReflectionBlockType {
-            get { ReflectionBlockType(rawValue: blockTypeRaw) ?? .keyInsight }
-            set { blockTypeRaw = newValue.rawValue }
-        }
-        var content: String = ""
-        var highlight: String?
-        var position: Int = 0
-        var videoTimestamp: Int?
-        var conversation: Conversation?
-        var createdAt: Date = Date.now
+@Table("reflectionBlocks")
+struct ReflectionBlock: Hashable, Identifiable, Sendable {
+    let id: UUID
+    var itemID: Item.ID?
+    /// Raw on purpose: rows from before the type set shrank hold values
+    /// with no matching case, which `blockType` reads as `.keyInsight`.
+    var blockTypeRaw: String = ReflectionBlockType.keyInsight.rawValue
+    var content: String = ""
+    var highlight: String?
+    var position: Int = 0
+    var videoTimestamp: Int?
+    /// A plain ID so that this table keeps a single foreign key and can
+    /// travel with a shared board. A trigger clears it when the conversation
+    /// is deleted.
+    var conversationID: UUID?
+    var createdAt: Date = .now
+}
 
-        init(item: Item, blockType: ReflectionBlockType, content: String = "", highlight: String? = nil, position: Int = 0, videoTimestamp: Int? = nil) {
-            self.id = UUID()
-            self.item = item
-            self.blockTypeRaw = blockType.rawValue
-            self.content = content
-            self.highlight = highlight
-            self.position = position
-            self.videoTimestamp = videoTimestamp
-            self.createdAt = .now
-        }
+extension ReflectionBlock {
+    init(
+        itemID: Item.ID,
+        blockType: ReflectionBlockType,
+        content: String = "",
+        highlight: String? = nil,
+        position: Int = 0,
+        videoTimestamp: Int? = nil
+    ) {
+        self.init(
+            id: UUID(),
+            itemID: itemID,
+            blockTypeRaw: blockType.rawValue,
+            content: content,
+            highlight: highlight,
+            position: position,
+            videoTimestamp: videoTimestamp
+        )
+    }
+
+    var blockType: ReflectionBlockType {
+        get { ReflectionBlockType(rawValue: blockTypeRaw) ?? .keyInsight }
+        set { blockTypeRaw = newValue.rawValue }
     }
 }
 
-typealias ReflectionBlock = Legacy.ReflectionBlock

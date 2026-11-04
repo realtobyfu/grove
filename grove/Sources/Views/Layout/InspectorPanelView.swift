@@ -1,14 +1,15 @@
+import SQLiteData
 import SwiftUI
-import SwiftData
 
 struct InspectorPanelView: View {
-    @Bindable var item: Item
+    let item: ItemGraph
     /// Invoked when the user clicks a backlink row to open the linking item.
     /// Optional so existing call sites compile unchanged.
-    var onNavigateToItem: ((Item) -> Void)? = nil
-    @Environment(\.modelContext) private var modelContext
-    @Query(sort: \Board.sortOrder) private var allBoards: [Board]
-    @Query private var allItems: [Item]
+    var onNavigateToItem: ((ItemGraph) -> Void)? = nil
+    @Dependency(\.defaultDatabase) private var database
+    @Fetch(Library.Request()) private var library = Library()
+    @State private var titleDraft = ""
+    @FocusState private var isTitleFocused: Bool
     @State private var isAddingConnection = false
     @State private var connectionSearchText = ""
     @State private var selectedConnectionType: ConnectionType = .related
@@ -68,14 +69,18 @@ struct InspectorPanelView: View {
             .padding(.horizontal)
 
             // Editable Title
-            TextField("Title", text: $item.title)
+            TextField("Title", text: $titleDraft)
                 .textFieldStyle(.plain)
                 .font(.groveBodyMedium)
                 .foregroundStyle(Color.textPrimary)
                 .padding(.horizontal)
-                .onChange(of: item.title) {
-                    item.updatedAt = .now
+                .focused($isTitleFocused)
+                .onChange(of: item.id, initial: true) {
+                    titleDraft = item.title
                 }
+                .onChange(of: item.title) { adoptTitleUnlessEditing() }
+                .onChange(of: isTitleFocused) { adoptTitleUnlessEditing() }
+                .onChange(of: titleDraft) { saveTitle() }
 
             // Source URL
             if let sourceURL = item.sourceURL, !sourceURL.isEmpty {
@@ -113,38 +118,36 @@ struct InspectorPanelView: View {
                 .sectionHeaderStyle()
                 .padding(.horizontal)
 
-            if item.boards.isEmpty {
+            if let board = item.board {
+                HStack(spacing: 6) {
+                    if let icon = board.icon {
+                        Image(systemName: icon)
+                            .font(.groveBadge)
+                            .foregroundStyle(Color.textSecondary)
+                    }
+                    Text(board.title)
+                        .font(.groveBody)
+                        .foregroundStyle(Color.textPrimary)
+                    Spacer()
+                }
+                .padding(.horizontal)
+            } else {
                 Text("Not in any board")
                     .font(.groveBodySmall)
                     .foregroundStyle(Color.textTertiary)
                     .padding(.horizontal)
-            } else {
-                ForEach(item.boards) { board in
-                    HStack(spacing: 6) {
-                        if let icon = board.icon {
-                            Image(systemName: icon)
-                                .font(.groveBadge)
-                                .foregroundStyle(Color.textSecondary)
-                        }
-                        Text(board.title)
-                            .font(.groveBody)
-                            .foregroundStyle(Color.textPrimary)
-                        Spacer()
-                    }
-                    .padding(.horizontal)
-                }
             }
         }
     }
 
     // MARK: - Connections Section
 
-    private var connectionSearchResults: [Item] {
+    private var connectionSearchResults: [ItemGraph] {
         let existingIDs = Set(
             item.outgoingConnections.compactMap(\.targetItem?.id) +
             item.incomingConnections.compactMap(\.sourceItem?.id)
         )
-        return allItems.filter { candidate in
+        return library.items.filter { candidate in
             guard candidate.id != item.id else { return false }
             guard !existingIDs.contains(candidate.id) else { return false }
             if connectionSearchText.isEmpty { return true }
@@ -221,11 +224,11 @@ struct InspectorPanelView: View {
         }
     }
 
-    private func backlinkRow(_ connection: Connection) -> some View {
+    private func backlinkRow(_ connection: ConnectionEdge) -> some View {
         connectionRow(connection)
             .contentShape(Rectangle())
             .onTapGesture {
-                if let source = connection.sourceItem {
+                if let source = library.item(connection.sourceItemID) {
                     onNavigateToItem?(source)
                 }
             }
@@ -293,7 +296,7 @@ struct InspectorPanelView: View {
         .padding(.horizontal)
     }
 
-    private func connectionRow(_ connection: Connection) -> some View {
+    private func connectionRow(_ connection: ConnectionEdge) -> some View {
         let isOutgoing = connection.sourceItem?.id == item.id
         let linkedItem = isOutgoing ? connection.targetItem : connection.sourceItem
         let typeLabel = connection.type.displayLabel(isOutgoing: isOutgoing)
@@ -330,17 +333,40 @@ struct InspectorPanelView: View {
         .padding(.horizontal)
     }
 
-    private func createConnectionTo(_ target: Item) {
-        let viewModel = ItemViewModel(modelContext: modelContext)
-        _ = viewModel.createConnection(source: item, target: target, type: selectedConnectionType)
+    private func createConnectionTo(_ target: ItemGraph) {
+        let viewModel = ItemViewModel()
+        _ = viewModel.createConnection(sourceID: item.id, targetID: target.id, type: selectedConnectionType)
         isAddingConnection = false
         connectionSearchText = ""
         selectedConnectionType = .related
     }
 
-    private func deleteConnection(_ connection: Connection) {
-        let viewModel = ItemViewModel(modelContext: modelContext)
-        viewModel.deleteConnection(connection)
+    private func deleteConnection(_ connection: ConnectionEdge) {
+        let viewModel = ItemViewModel()
+        viewModel.deleteConnection(connection.connection)
+    }
+
+    // MARK: - Title Editing
+
+    /// Saves as the user types. Focus tells typing apart from the draft being
+    /// reseeded, which must not write.
+    private func saveTitle() {
+        guard isTitleFocused, titleDraft != item.title else { return }
+        let title = titleDraft
+        database.attempt { db in
+            try Item.modify(item.id, in: db) {
+                $0.title = title
+                $0.updatedAt = .now
+            }
+        }
+    }
+
+    /// Takes on a title changed elsewhere. Not while the field has focus: `item`
+    /// arrives after the write that caused it, so a late copy would put back text
+    /// from a keystroke ago.
+    private func adoptTitleUnlessEditing() {
+        guard !isTitleFocused else { return }
+        titleDraft = item.title
     }
 
     // MARK: - Discussion Suggestions Section
@@ -348,12 +374,16 @@ struct InspectorPanelView: View {
     private var discussionSuggestionsSection: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             Button {
-                item.isIncludedInDiscussionSuggestions.toggle()
-                item.updatedAt = .now
-                try? modelContext.save()
+                database.attempt { db in
+                    try Item.modify(item.id, in: db) {
+                        $0.isIncludedInDiscussionSuggestions.toggle()
+                        $0.updatedAt = .now
+                    }
+                }
 
                 Task { @MainActor in
-                    let allItems: [Item] = modelContext.fetchAll()
+                    // Read here rather than from `library`, which hasn't seen the toggle yet.
+                    let allItems = database.attemptRead { try Library.fetch($0).items } ?? []
                     await ConversationStarterService.shared.forceRefresh(items: allItems)
                 }
             } label: {
@@ -382,7 +412,9 @@ struct InspectorPanelView: View {
 
             if item.isResurfacingEligible {
                 Button {
-                    item.isResurfacingPaused.toggle()
+                    database.attempt { db in
+                        try Item.modify(item.id, in: db) { $0.isResurfacingPaused.toggle() }
+                    }
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: item.isResurfacingPaused ? "circle" : "checkmark.circle.fill")

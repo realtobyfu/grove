@@ -1,14 +1,13 @@
+import SQLiteData
 import SwiftUI
-import SwiftData
 
 /// Inline "Paste a URL or type a note..." capture bar matching the Mac app's always-visible input.
 /// Used at the top of Home view and as the iPad capture surface.
 struct InlineCaptureBar: View {
-    @Environment(\.modelContext) private var modelContext
     @State private var inputText = ""
     @State private var isExpanded = false
     @FocusState private var isFocused: Bool
-    @Query(sort: \Board.sortOrder) private var boards: [Board]
+    @FetchAll(Board.order(by: \.sortOrder)) private var boards
     @State private var selectedBoardID: UUID?
 
     var body: some View {
@@ -76,7 +75,7 @@ struct InlineCaptureBar: View {
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        let captureService = CaptureService(modelContext: modelContext)
+        let captureService = CaptureService()
         _ = captureService.captureItem(input: trimmed)
 
         inputText = ""

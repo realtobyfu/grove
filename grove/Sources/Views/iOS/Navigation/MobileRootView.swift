@@ -4,7 +4,6 @@ import SwiftUI
 /// iPad (regular width): 3-column NavigationSplitView via iPadRootView.
 /// iPhone (compact width): Tab-based navigation via TabRootView.
 struct MobileRootView: View {
-    @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(OnboardingService.self) private var onboarding
     @State private var showOnboarding = false
@@ -32,7 +31,7 @@ struct MobileRootView: View {
             // Configure push notifications and start nudge engine
             NudgeNotificationService.shared.configure()
             if nudgeEngine == nil {
-                let engine = NudgeEngine(modelContext: modelContext)
+                let engine = NudgeEngine()
                 engine.startSchedule()
                 nudgeEngine = engine
             }

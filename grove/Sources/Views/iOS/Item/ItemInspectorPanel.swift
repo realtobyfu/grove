@@ -1,13 +1,13 @@
+import SQLiteData
 import SwiftUI
-import SwiftData
 
 /// Inspector panel for the iPad detail column.
 /// Shows item metadata, board membership, connections, and review toggles.
 /// Matches the Mac app's right-column article inspector (InspectorPanelView).
 struct ItemInspectorPanel: View {
-    @Bindable var item: Item
-    @Environment(\.modelContext) private var modelContext
-    @Query(sort: \Board.sortOrder) private var allBoards: [Board]
+    let item: ItemGraph
+    @Dependency(\.defaultDatabase) private var database
+    @FetchAll(Board.order(by: \.sortOrder)) private var allBoards
 
     @State private var showBoardPicker = false
     @State private var isEnrichingItem = false
@@ -45,7 +45,7 @@ struct ItemInspectorPanel: View {
         let sourceURL = item.sourceURL ?? ""
         let hasResolvedTitle = item.title != sourceURL
         let hasSummary = !(item.metadata["summary"] ?? "").isEmpty
-        let hasThumbnail = item.thumbnail != nil || item.metadata["thumbnailURL"] != nil
+        let hasThumbnail = hasStoredThumbnail || item.metadata["thumbnailURL"] != nil
         let hasAnyTags = !item.tags.isEmpty
         let hasOverview = item.metadata["hasLLMOverview"] == "true"
         let needsTags = LLMServiceConfig.isConfigured && !hasAnyTags
@@ -54,14 +54,25 @@ struct ItemInspectorPanel: View {
         return isFetchingMetadata || !hasResolvedTitle || !hasThumbnail || needsSummary || needsTags || needsOverview
     }
 
+    private var hasStoredThumbnail: Bool {
+        let itemID = item.id
+        // A count, so that checking doesn't read the image itself.
+        let storedThumbnails = database.attemptRead { db in
+            try ItemThumbnail.where { $0.itemID.eq(itemID) }.fetchCount(db)
+        }
+        return (storedThumbnails ?? 0) > 0
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.xl) {
                 // MARK: - Header
                 headerSection
 
-                if let thumbnailData = item.thumbnail {
-                    coverImageSection(thumbnailData)
+                ItemThumbnailReader(itemID: item.id) { thumbnailData in
+                    if let thumbnailData {
+                        coverImageSection(thumbnailData)
+                    }
                 }
 
                 Divider()
@@ -312,21 +323,19 @@ struct ItemInspectorPanel: View {
                        minHeight: LayoutDimensions.minTouchTarget)
             }
 
-            if item.boards.isEmpty {
+            if let board = item.board {
+                HStack(spacing: Spacing.sm) {
+                    Image(systemName: board.icon ?? "folder")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.textSecondary)
+                    Text(board.title)
+                        .font(.groveBody)
+                        .foregroundStyle(Color.textPrimary)
+                }
+            } else {
                 Text("Not in any board")
                     .font(.groveBodySecondary)
                     .foregroundStyle(Color.textMuted)
-            } else {
-                ForEach(item.boards) { board in
-                    HStack(spacing: Spacing.sm) {
-                        Image(systemName: board.icon ?? "folder")
-                            .font(.system(size: 12))
-                            .foregroundStyle(Color.textSecondary)
-                        Text(board.title)
-                            .font(.groveBody)
-                            .foregroundStyle(Color.textPrimary)
-                    }
-                }
             }
         }
     }
@@ -359,7 +368,7 @@ struct ItemInspectorPanel: View {
         }
     }
 
-    private func connectionRow(connection: Connection, isOutgoing: Bool) -> some View {
+    private func connectionRow(connection: ConnectionEdge, isOutgoing: Bool) -> some View {
         HStack(spacing: Spacing.sm) {
             Image(systemName: isOutgoing ? "arrow.right.circle" : "arrow.left.circle")
                 .font(.system(size: 12))
@@ -396,8 +405,9 @@ struct ItemInspectorPanel: View {
 
             if item.isResurfacingEligible {
                 Button {
-                    item.isResurfacingPaused.toggle()
-                    try? modelContext.save()
+                    database.attempt { db in
+                        try Item.modify(item.id, in: db) { $0.isResurfacingPaused.toggle() }
+                    }
                 } label: {
                     HStack(spacing: Spacing.sm) {
                         Image(systemName: item.isResurfacingPaused ? "circle" : "checkmark.circle.fill")
@@ -434,9 +444,12 @@ struct ItemInspectorPanel: View {
                 Divider()
 
                 Button {
-                    item.isIncludedInDiscussionSuggestions.toggle()
-                    item.updatedAt = .now
-                    try? modelContext.save()
+                    database.attempt { db in
+                        try Item.modify(item.id, in: db) {
+                            $0.isIncludedInDiscussionSuggestions.toggle()
+                            $0.updatedAt = .now
+                        }
+                    }
                 } label: {
                     HStack(spacing: Spacing.sm) {
                         Image(systemName: item.isIncludedInDiscussionSuggestions ? "checkmark.circle.fill" : "circle")
@@ -460,15 +473,19 @@ struct ItemInspectorPanel: View {
             List {
                 ForEach(allBoards) { board in
                     Button {
-                        let viewModel = ItemViewModel(modelContext: modelContext)
-                        viewModel.assignToBoard(item, board: board)
+                        let viewModel = ItemViewModel()
+                        if item.boardID == board.id {
+                            viewModel.removeFromBoard(item.id, boardID: board.id)
+                        } else {
+                            viewModel.assignToBoard(item.id, board: board)
+                        }
                         showBoardPicker = false
                     } label: {
                         HStack {
                             Label(board.title, systemImage: board.icon ?? "folder")
                                 .foregroundStyle(Color.textPrimary)
                             Spacer()
-                            if item.boards.contains(where: { $0.id == board.id }) {
+                            if item.boardID == board.id {
                                 Image(systemName: "checkmark")
                                     .foregroundStyle(Color.textMuted)
                             }
@@ -502,33 +519,32 @@ struct ItemInspectorPanel: View {
         guard let sourceURL = item.sourceURL, !sourceURL.isEmpty else { return }
 
         isEnrichingItem = true
-        item.metadata["fetchingMetadata"] = "true"
-        try? modelContext.save()
-
         let itemID = item.id
+        database.attempt { db in
+            try Item.modify(itemID, in: db) { $0.metadata["fetchingMetadata"] = "true" }
+        }
+
         let fallbackTitle = item.title
         let enricher = ItemMetadataEnricher()
         let tagger = ItemAutoTagger()
 
         let metadata = await enricher.enrichURLItem(
             itemID: itemID,
-            urlString: sourceURL,
-            context: modelContext
+            urlString: sourceURL
         )
 
-        await tagger.autoTagItem(itemID: itemID, context: modelContext)
-        enricher.markSummaryReviewIfNeeded(itemID: itemID, context: modelContext)
+        await tagger.autoTagItem(itemID: itemID)
+        enricher.markSummaryReviewIfNeeded(itemID: itemID)
 
         if item.type == .article {
             await enricher.generateOverview(
                 itemID: itemID,
-                context: modelContext,
                 title: metadata.title ?? fallbackTitle,
                 description: metadata.description,
                 bodyText: metadata.bodyText
             )
-            enricher.extractSummaryFallback(itemID: itemID, context: modelContext)
-            enricher.markSummaryReviewIfNeeded(itemID: itemID, context: modelContext)
+            enricher.extractSummaryFallback(itemID: itemID)
+            enricher.markSummaryReviewIfNeeded(itemID: itemID)
         }
 
         isEnrichingItem = false
@@ -541,20 +557,22 @@ struct ItemInspectorPanel: View {
 
         Task {
             let tagger = ItemAutoTagger()
-            await tagger.autoTagItem(itemID: itemID, context: modelContext)
+            await tagger.autoTagItem(itemID: itemID)
             isSuggestingTags = false
         }
     }
 
     private func confirmTag(_ tag: Tag) {
-        tag.isAutoGenerated = false
-        item.updatedAt = .now
-        try? modelContext.save()
+        database.attempt { db in
+            try Tag.modify(tag.id, in: db) { $0.isAutoGenerated = false }
+            try Item.modify(item.id, in: db) { $0.updatedAt = .now }
+        }
     }
 
     private func dismissTag(_ tag: Tag) {
-        item.tags.removeAll { $0.id == tag.id }
-        item.updatedAt = .now
-        try? modelContext.save()
+        database.attempt { db in
+            try Item.removeTag(tag.id, fromItem: item.id, in: db)
+            try Item.modify(item.id, in: db) { $0.updatedAt = .now }
+        }
     }
 }

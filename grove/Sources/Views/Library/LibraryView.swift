@@ -1,5 +1,5 @@
 import SwiftUI
-import SwiftData
+import SQLiteData
 import Combine
 
 // MARK: - Library Sort Option
@@ -23,7 +23,7 @@ enum LibrarySortOption: String, CaseIterable, Identifiable {
         }
     }
 
-    func sorted(_ items: [Item]) -> [Item] {
+    func sorted(_ items: [ItemGraph]) -> [ItemGraph] {
         switch self {
         case .recentlyUpdated:
             items.sorted { $0.updatedAt > $1.updatedAt }
@@ -42,22 +42,23 @@ enum LibrarySortOption: String, CaseIterable, Identifiable {
 /// Full library: persistent search bar + all items in reverse-chronological order.
 /// Boards act as filter chips to narrow the item list.
 struct LibraryView: View {
-    @Binding var selectedItem: Item?
-    @Binding var openedItem: Item?
+    @Binding var selectedItem: ItemGraph?
+    @Binding var openedItem: ItemGraph?
 
-    @Environment(\.modelContext) private var modelContext
+    @Dependency(\.defaultDatabase) private var database
 
-    @Query(sort: \Item.updatedAt, order: .reverse) private var allItems: [Item]
-    @Query(sort: \Board.sortOrder) private var allBoards: [Board]
+    @Fetch(Library.Request()) private var library = Library()
 
     @State private var searchQuery: String = ""
     @State private var selectedBoardID: UUID? = nil
     @State private var searchTask: Task<Void, Never>? = nil
-    @State private var filteredResults: [Item] = []
+    /// IDs rather than items: a result set outlives renders, and its rows should
+    /// show edits made since the search ran.
+    @State private var filteredResultIDs: [Item.ID] = []
     @State private var isSearching = false
     @State private var showingRevisitFilter = false
     @State private var showingArchived = false
-    @State private var itemToDelete: Item?
+    @State private var itemToDelete: ItemGraph?
 
     @AppStorage("librarySortOption") private var sortOption: LibrarySortOption = .recentlyUpdated
 
@@ -69,22 +70,28 @@ struct LibraryView: View {
 
     // MARK: - Computed
 
+    private var allItems: [ItemGraph] {
+        library.items.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    private var allBoards: [BoardGraph] { library.boards }
+
     /// Non-smart boards available as move targets
-    private var moveTargetBoards: [Board] {
+    private var moveTargetBoards: [BoardGraph] {
         allBoards.filter { !$0.isSmart }
     }
 
     /// Items overdue for resurfacing (spaced repetition queue)
-    private var overdueItems: [Item] {
+    private var overdueItems: [ItemGraph] {
         allItems.filter { $0.isResurfacingEligible && $0.isResurfacingOverdue }
     }
 
     /// Items scoped to the board filter (if any), before text search
-    private var boardFilteredItems: [Item] {
+    private var boardFilteredItems: [ItemGraph] {
         if showingRevisitFilter {
             return overdueItems
         }
-        let base: [Item]
+        let base: [ItemGraph]
         if let boardID = selectedBoardID,
            let board = allBoards.first(where: { $0.id == boardID }) {
             base = board.isSmart
@@ -93,7 +100,7 @@ struct LibraryView: View {
         } else {
             base = allItems
         }
-        let statusFiltered: [Item]
+        let statusFiltered: [ItemGraph]
         if showingArchived {
             statusFiltered = base.filter { $0.status == .archived }
         } else if selectedBoardID != nil {
@@ -110,12 +117,12 @@ struct LibraryView: View {
     }
 
     /// Displayed items: search-filtered or default
-    private var displayedItems: [Item] {
+    private var displayedItems: [ItemGraph] {
         let trimmed = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             return boardFilteredItems
         }
-        return filteredResults
+        return filteredResultIDs.compactMap { library.item($0) }
     }
 
     // MARK: - Body
@@ -211,7 +218,7 @@ struct LibraryView: View {
         .onChange(of: showingArchived) { _, _ in
             scheduleSearch(query: searchQuery)
         }
-        .onChange(of: allItems.count) { _, _ in
+        .onChange(of: library.items.count) { _, _ in
             scheduleSearch(query: searchQuery)
         }
         .onKeyPress(.escape) {
@@ -237,7 +244,7 @@ struct LibraryView: View {
             if let item = itemToDelete {
                 // Presentation state (selection, reader, write panel) is
                 // cleared by the .groveItemWillDelete observer.
-                ItemViewModel(modelContext: modelContext).deleteItem(item)
+                ItemViewModel().deleteItem(item.id)
             }
             itemToDelete = nil
         }
@@ -252,7 +259,7 @@ struct LibraryView: View {
         }
     }
 
-    private func toggleSelection(for item: Item) {
+    private func toggleSelection(for item: ItemGraph) {
         if selectedIDs.contains(item.id) {
             selectedIDs.remove(item.id)
             if selectedIDs.isEmpty {
@@ -264,35 +271,41 @@ struct LibraryView: View {
     }
 
     private func performMove(to board: Board?) {
-        let itemVM = ItemViewModel(modelContext: modelContext)
+        let itemVM = ItemViewModel()
         let itemsToMove = displayedItems.filter { selectedIDs.contains($0.id) }
-        itemVM.moveItemsToBoard(itemsToMove, board: board)
+        itemVM.moveItemsToBoard(itemsToMove.map(\.id), board: board)
         exitMultiSelect()
     }
 
     /// Currently selected items in multi-select mode
-    private var selectedItems: [Item] {
+    private var selectedItems: [ItemGraph] {
         displayedItems.filter { selectedIDs.contains($0.id) }
     }
 
     private func performBulkArchive() {
         let newStatus: ItemStatus = showingArchived ? .active : .archived
-        for item in selectedItems {
-            item.status = newStatus
-            item.updatedAt = .now
-            if newStatus == .archived {
-                if selectedItem?.id == item.id { selectedItem = nil }
-                if openedItem?.id == item.id { openedItem = nil }
+        let itemIDs = selectedItems.map(\.id)
+        database.attempt { db in
+            for itemID in itemIDs {
+                try Item.modify(itemID, in: db) {
+                    $0.status = newStatus
+                    $0.updatedAt = .now
+                }
             }
         }
-        try? modelContext.save()
+        if newStatus == .archived {
+            for itemID in itemIDs {
+                if selectedItem?.id == itemID { selectedItem = nil }
+                if openedItem?.id == itemID { openedItem = nil }
+            }
+        }
         exitMultiSelect()
     }
 
     private func performBulkDelete() {
         // Presentation state is cleared per item by the
         // .groveItemWillDelete observer in ContentViewHandlers.
-        ItemViewModel(modelContext: modelContext).deleteItems(selectedItems)
+        ItemViewModel().deleteItems(selectedItems.map(\.id))
         exitMultiSelect()
     }
 
@@ -357,14 +370,15 @@ struct LibraryView: View {
     // MARK: - Board Picker Sheet
 
     /// Multi-select move. `.move` mode replaces board membership (matching
-    /// `moveItemsToBoard`) and offers Unfiled as an explicit target.
+    /// `moveItemsToBoard`) and offers Unfiled as an explicit target. No
+    /// `currentBoardID`: choosing a board always moves the whole selection.
     private var boardPickerSheet: some View {
         BoardPickerView(
             boards: moveTargetBoards,
             mode: .move,
             onSelect: { board in
                 showBoardPicker = false
-                performMove(to: board)
+                performMove(to: board.board)
             },
             onSelectUnfiled: {
                 showBoardPicker = false
@@ -380,33 +394,25 @@ struct LibraryView: View {
         searchTask = nil
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            filteredResults = []
+            filteredResultIDs = []
             isSearching = false
             return
         }
 
         isSearching = true
         let candidates = boardFilteredItems
-        let ctx = modelContext
 
         searchTask = MainActorTaskScheduler.schedule(after: .milliseconds(300)) {
-            filteredResults = performSearch(query: trimmed, candidates: candidates, context: ctx)
+            filteredResultIDs = performSearch(query: trimmed, candidates: candidates).map(\.id)
             isSearching = false
         }
     }
 
-    private func performSearch(query: String, candidates: [Item], context: ModelContext) -> [Item] {
+    private func performSearch(query: String, candidates: [ItemGraph]) -> [ItemGraph] {
         let lower = query.lowercased()
 
         // Score each item
-        var scored: [(item: Item, score: Double)] = []
-
-        // Fetch reflection content for content matching
-        let reflectionDescriptor = FetchDescriptor<ReflectionBlock>()
-        let allReflections = (try? context.fetch(reflectionDescriptor)) ?? []
-        let reflectionsByItem: [UUID: [ReflectionBlock]] = Dictionary(grouping: allReflections) { block in
-            block.item?.id ?? UUID()
-        }
+        var scored: [(item: ItemGraph, score: Double)] = []
 
         for item in candidates {
             var score: Double = 0
@@ -428,11 +434,9 @@ struct LibraryView: View {
             }
 
             // Reflection content match
-            if let reflections = reflectionsByItem[item.id] {
-                for block in reflections {
-                    let reflScore = FuzzySearchScorer.score(normalizedQuery: lower, in: block.content.lowercased()) * 0.6
-                    score = max(score, reflScore)
-                }
+            for block in item.reflections {
+                let reflScore = FuzzySearchScorer.score(normalizedQuery: lower, in: block.content.lowercased()) * 0.6
+                score = max(score, reflScore)
             }
 
             if score > 0 {

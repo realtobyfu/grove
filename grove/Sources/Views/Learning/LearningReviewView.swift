@@ -1,5 +1,5 @@
 import SwiftUI
-import SwiftData
+import SQLiteData
 
 /// Session identity and source navigation stay local; durable learning is an
 /// append-only review event, written only after an explicit rating.
@@ -19,9 +19,8 @@ struct LearningReviewView: View {
         }
     }
 
-    @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
-    @Query private var cards: [Flashcard]
+    @FetchAll private var cards: [Flashcard]
     @State private var cardIDs: [UUID] = []
     @State private var index = 0
     @State private var reviewed = 0
@@ -283,7 +282,7 @@ struct LearningReviewView: View {
 
     private func load() {
         guard !didLoad else { return }
-        let service = LearningService(modelContext: modelContext)
+        let service = LearningService()
         let due = service.dueCards(boardID: boardID).filter { itemID == nil || $0.sourceItemID == itemID }
         cardIDs = Array(due.prefix(service.preferences().sessionCardLimit)).map(\.id)
         didLoad = true
@@ -306,7 +305,7 @@ struct LearningReviewView: View {
     private func record(_ card: Flashcard, rating: RecallRating) {
         guard currentCard?.id == card.id, revealed else { return }
         do {
-            try LearningService(modelContext: modelContext).recordReview(card: card, rating: rating, usedHint: usedHint,
+            try LearningService().recordReview(cardID: card.id, rating: rating, usedHint: usedHint,
                 readSource: readSource, sessionID: sessionID, eventID: eventID)
             if usedHint || readSource { supported += 1 }
             advance(recorded: true)

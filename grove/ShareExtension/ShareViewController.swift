@@ -1,6 +1,6 @@
 import UIKit
 import SwiftUI
-import SwiftData
+import SQLiteData
 import UniformTypeIdentifiers
 
 /// Share Extension entry point.
@@ -10,14 +10,21 @@ import UniformTypeIdentifiers
 /// board picker, and optional note — for the user to review before saving.
 final class ShareViewController: UIViewController {
 
-    private var modelContainer: ModelContainer?
+    /// An extension process can load this controller more than once, and the
+    /// default database can be set only once. This turns true only when the library
+    /// has opened: until then nothing has read the database, and Grove may have
+    /// created the file since the last try.
+    private static var isDatabasePrepared = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
 
         do {
-            modelContainer = try SharedModelContainer.makeForExtension()
+            guard try Self.prepareDatabase() else {
+                presentOpenGroveFirst()
+                return
+            }
         } catch {
             completeExtension()
             return
@@ -26,6 +33,17 @@ final class ShareViewController: UIViewController {
         Task { @MainActor in
             await self.extractAndPresent()
         }
+    }
+
+    /// Returns `false` if Grove has not created the library yet. The extension must
+    /// never create it: Grove imports the SwiftData library only while the file
+    /// doesn't exist, so a file made here would abandon that library.
+    private static func prepareDatabase() throws -> Bool {
+        guard !isDatabasePrepared else { return true }
+        guard let database = try AppDatabase.openExistingForExtension() else { return false }
+        prepareDependencies { $0.defaultDatabase = database }
+        isDatabasePrepared = true
+        return true
     }
 
     // MARK: - Content Extraction
@@ -84,21 +102,26 @@ final class ShareViewController: UIViewController {
 
     @MainActor
     private func presentShareView(url: String, title: String?) {
-        guard let container = modelContainer else {
-            completeExtension()
-            return
-        }
-
-        let shareView = ShareExtensionView(
+        embed(ShareExtensionView(
             sharedURL: url,
             sharedTitle: title,
             onComplete: { [weak self] in
                 self?.completeExtension()
             }
-        )
-        .modelContainer(container)
+        ))
+    }
 
-        let hostingController = UIHostingController(rootView: shareView)
+    /// Must not touch the database: it was never set up for this view.
+    @MainActor
+    private func presentOpenGroveFirst() {
+        embed(ShareOpenGroveFirstView(onDone: { [weak self] in
+            self?.completeExtension()
+        }))
+    }
+
+    @MainActor
+    private func embed(_ rootView: some View) {
+        let hostingController = UIHostingController(rootView: rootView)
         addChild(hostingController)
         hostingController.view.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(hostingController.view)

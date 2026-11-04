@@ -1,5 +1,5 @@
+import SQLiteData
 import SwiftUI
-import SwiftData
 
 /// Four native tabs for compact-width navigation. Boards live inside Library.
 struct TabRootView: View {
@@ -7,13 +7,12 @@ struct TabRootView: View {
         let id = UUID()
         let boardID: UUID?
         let prompt: String?
-        let editingItem: Item?
+        let editingItem: ItemGraph?
     }
 
     @Environment(DeepLinkRouter.self) private var deepLinkRouter
-    @Environment(\.modelContext) private var modelContext
-    @Query private var allItems: [Item]
-    @Query(sort: \Board.sortOrder) private var boards: [Board]
+    @Dependency(\.defaultDatabase) private var database
+    @Fetch(Library.Request()) private var library = Library()
     private struct LibraryBoardRoute: Hashable { let id: UUID }
     @State private var selectedTab: Tab = .home
     @State private var libraryPath = NavigationPath()
@@ -38,6 +37,9 @@ struct TabRootView: View {
     @State private var showBoardSuggestion = false
     @State private var showBoardPicker = false
     @State private var suggestionDismissTask: Task<Void, Never>?
+
+    private var allItems: [ItemGraph] { library.items }
+    private var boards: [BoardGraph] { library.boards }
 
     /// Personal captures only — newsletter issues stay in the Newsletters tab.
     private var inboxCount: Int {
@@ -179,7 +181,7 @@ struct TabRootView: View {
                     recommendedBoardID: suggestion.recommendedBoardID,
                     alternativeBoardIDs: suggestion.alternativeBoardIDs,
                     onSelect: { board in
-                        assignPendingItem(to: board)
+                        assignPendingItem(to: board.board)
                         dismissBoardSuggestion()
                     },
                     onCreate: { boardName in
@@ -255,14 +257,16 @@ struct TabRootView: View {
         if suggestion.mode == .existing,
            let recommendedBoardID = suggestion.recommendedBoardID,
            let recommended = boards.first(where: { $0.id == recommendedBoardID }) {
-            board = recommended
+            board = recommended.board
         } else if let existing = boards.first(where: {
             $0.title.localizedCaseInsensitiveCompare(suggestedName) == .orderedSame
         }) {
-            board = existing
+            board = existing.board
         } else {
             let newBoard = Board(title: suggestedName.isEmpty ? "General" : suggestedName)
-            modelContext.insert(newBoard)
+            database.attempt { db in
+                try Board.insert { newBoard }.execute(db)
+            }
             board = newBoard
         }
 
@@ -277,10 +281,12 @@ struct TabRootView: View {
         if let existing = boards.first(where: {
             $0.title.localizedCaseInsensitiveCompare(normalizedName) == .orderedSame
         }) {
-            assignPendingItem(to: existing)
+            assignPendingItem(to: existing.board)
         } else {
             let newBoard = Board(title: normalizedName)
-            modelContext.insert(newBoard)
+            database.attempt { db in
+                try Board.insert { newBoard }.execute(db)
+            }
             assignPendingItem(to: newBoard)
         }
     }
@@ -288,12 +294,13 @@ struct TabRootView: View {
     private func assignPendingItem(to board: Board) {
         guard let itemID = pendingSuggestionItemID else { return }
 
-        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-        guard let item = try? modelContext.fetch(descriptor).first else { return }
-
-        BoardSuggestionMetadata.recordSelection(board, on: item)
-        let viewModel = ItemViewModel(modelContext: modelContext)
-        viewModel.assignToBoard(item, board: board)
+        database.attempt { db in
+            try Item.modify(itemID, in: db) {
+                BoardSuggestionMetadata.recordSelection(board, on: &$0)
+            }
+        }
+        let viewModel = ItemViewModel()
+        viewModel.assignToBoard(itemID, board: board)
     }
 
     private func dismissBoardSuggestion() {
@@ -358,7 +365,7 @@ struct TabRootView: View {
         }
     }
 
-    private func presentWriteSheet(prompt: String? = nil, editingItem: Item? = nil) {
+    private func presentWriteSheet(prompt: String? = nil, editingItem: ItemGraph? = nil) {
         let trimmedPrompt = prompt?.trimmingCharacters(in: .whitespacesAndNewlines)
         writeSheetSession = WriteSheetSession(
             boardID: currentBoardID,
@@ -378,9 +385,8 @@ struct TabRootView: View {
             trigger: .userInitiated,
             seedItems: seedItems,
             board: currentBoardID.flatMap { boardID in
-                boards.first(where: { $0.id == boardID })
-            },
-            context: modelContext
+                boards.first(where: { $0.id == boardID })?.board
+            }
         )
 
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -390,32 +396,13 @@ struct TabRootView: View {
                 Task { @MainActor in
                     _ = await service.sendMessage(
                         userText: trimmedPrompt,
-                        conversation: conversation,
-                        context: modelContext
+                        conversationID: conversation.id
                     )
                 }
             case .asSystemPrompt:
-                let systemMessage = ChatMessage(
-                    role: .system,
-                    content: trimmedPrompt,
-                    position: conversation.nextPosition
-                )
-                systemMessage.conversation = conversation
-                conversation.messages.append(systemMessage)
-                modelContext.insert(systemMessage)
-                conversation.updatedAt = .now
-                try? modelContext.save()
+                service.appendMessage(role: .system, content: trimmedPrompt, to: conversation.id)
             case .asAssistantGreeting:
-                let assistantMessage = ChatMessage(
-                    role: .assistant,
-                    content: trimmedPrompt,
-                    position: conversation.nextPosition
-                )
-                assistantMessage.conversation = conversation
-                conversation.messages.append(assistantMessage)
-                modelContext.insert(assistantMessage)
-                conversation.updatedAt = .now
-                try? modelContext.save()
+                service.appendMessage(role: .assistant, content: trimmedPrompt, to: conversation.id)
             }
         }
 

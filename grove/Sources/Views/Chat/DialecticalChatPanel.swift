@@ -1,20 +1,21 @@
+import SQLiteData
 import SwiftUI
-import SwiftData
 
 struct DialecticalChatPanel: View {
-    @Environment(\.modelContext) private var modelContext
     @Environment(EntitlementService.self) private var entitlement
     @Environment(PaywallCoordinator.self) private var paywallCoordinator
-    @Query(sort: \Conversation.updatedAt, order: .reverse) private var conversations: [Conversation]
-    @Binding var selectedConversation: Conversation?
+    @Fetch(ConversationGraph.All()) private var conversations = [ConversationGraph]()
+    @Binding var selectedConversation: ConversationGraph?
     @Binding var isVisible: Bool
-    var currentBoard: Board?
-    var onNavigateToItem: ((Item) -> Void)?
+    var currentBoard: BoardGraph?
+    var onNavigateToItem: ((ItemGraph) -> Void)?
 
     @State private var viewModel: DialecticalChatViewModel?
 
-    private var activeConversation: Conversation? {
-        selectedConversation
+    /// The view model's copy, because that's the one a sent message reaches at
+    /// once. The selection is the fallback for the moment before it catches up.
+    private var activeConversation: ConversationGraph? {
+        viewModel?.current(selectedConversation) ?? selectedConversation
     }
 
     // MARK: - Bindings
@@ -69,8 +70,19 @@ struct DialecticalChatPanel: View {
             .background(Color.bgInspector)
             .onAppear {
                 if viewModel == nil {
-                    viewModel = DialecticalChatViewModel(modelContext: modelContext)
+                    let vm = DialecticalChatViewModel()
+                    vm.loadConversation(selectedConversation?.id)
+                    viewModel = vm
                 }
+            }
+            .onChange(of: selectedConversation?.id) {
+                viewModel?.loadConversation(selectedConversation?.id)
+            }
+            // Not only for sync: prompts and discussions started elsewhere send
+            // through their own `DialecticsService`, whose writes never reach this
+            // view model. Without this, their replies would never appear.
+            .onChange(of: conversations) {
+                viewModel?.loadConversation(selectedConversation?.id)
             }
             .sheet(item: connectionMessageBinding) { message in
                 connectionSheetContent(for: message)
@@ -166,7 +178,7 @@ struct DialecticalChatPanel: View {
         Button("Delete", role: .destructive) {
             if let conversation = viewModel?.conversationToDelete {
                 viewModel?.deleteConversation(
-                    conversation,
+                    conversation.id,
                     selectedConversation: $selectedConversation,
                     conversations: conversations
                 )
@@ -207,7 +219,7 @@ struct DialecticalChatPanel: View {
     }
 
     @ViewBuilder
-    private func headerConversationControls(_ conversation: Conversation) -> some View {
+    private func headerConversationControls(_ conversation: ConversationGraph) -> some View {
         Text(conversation.displayTitle)
             .font(.groveBodySmall)
             .foregroundStyle(Color.textSecondary)
@@ -338,7 +350,7 @@ struct DialecticalChatPanel: View {
 
     // MARK: - Chat View
 
-    private func chatView(for conversation: Conversation) -> some View {
+    private func chatView(for conversation: ConversationGraph) -> some View {
         VStack(spacing: 0) {
             chatMessages(for: conversation)
             Divider()
@@ -346,7 +358,7 @@ struct DialecticalChatPanel: View {
         }
     }
 
-    private func chatMessages(for conversation: Conversation) -> some View {
+    private func chatMessages(for conversation: ConversationGraph) -> some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: Spacing.md) {
@@ -396,7 +408,7 @@ struct DialecticalChatPanel: View {
     }
 
     @ViewBuilder
-    private func chatInput(for conversation: Conversation) -> some View {
+    private func chatInput(for conversation: ConversationGraph) -> some View {
         if let vm = viewModel {
             ChatInputArea(
                 inputText: Binding(
@@ -406,7 +418,7 @@ struct DialecticalChatPanel: View {
                 conversation: conversation,
                 isGenerating: vm.dialecticsService.isGenerating,
                 seeds: vm.seedItems(for: conversation),
-                onSend: { vm.sendMessage(to: conversation) },
+                onSend: { vm.sendMessage(to: conversation.id) },
                 onNavigateToItem: onNavigateToItem
             )
         }
@@ -473,7 +485,7 @@ struct DialecticalChatPanel: View {
         }
     }
 
-    private func recentConversationRow(_ conv: Conversation) -> some View {
+    private func recentConversationRow(_ conv: ConversationGraph) -> some View {
         Button {
             selectedConversation = conv
         } label: {
@@ -503,21 +515,18 @@ struct DialecticalChatPanel: View {
 
 struct SaveReflectionSheet: View {
     let message: ChatMessage
-    let conversation: Conversation?
+    let conversation: ConversationGraph?
     let dialecticsService: DialecticsService
     let onDismiss: () -> Void
 
-    @Environment(\.modelContext) private var modelContext
+    @Fetch(Library.Request()) private var library = Library()
     @State private var selectedItemID: UUID?
     @State private var selectedBlockType: ReflectionBlockType = .keyInsight
     @State private var editedContent: String = ""
     @State private var saved = false
 
-    private var referencedItems: [Item] {
-        let allItems: [Item] = modelContext.fetchAll()
-        return message.referencedItemIDs.compactMap { id in
-            allItems.first(where: { $0.id == id })
-        }
+    private var referencedItems: [ItemGraph] {
+        message.referencedItemIDs.compactMap { library.item($0) }
     }
 
     var body: some View {
@@ -651,8 +660,7 @@ struct SaveReflectionSheet: View {
             content: editedContent,
             itemTitle: item.title,
             blockType: selectedBlockType,
-            conversation: conv,
-            context: modelContext
+            conversationID: conv.id
         )
         saved = true
         Task { @MainActor in
@@ -666,11 +674,10 @@ struct SaveReflectionSheet: View {
 
 struct SaveNoteSheet: View {
     let message: ChatMessage
-    let conversation: Conversation?
+    let conversation: ConversationGraph?
     let dialecticsService: DialecticsService
     let onDismiss: () -> Void
 
-    @Environment(\.modelContext) private var modelContext
     @State private var editedTitle: String = ""
     @State private var saved = false
 
@@ -760,8 +767,7 @@ struct SaveNoteSheet: View {
         _ = dialecticsService.saveAsNote(
             content: message.content,
             title: editedTitle,
-            conversation: conv,
-            context: modelContext
+            conversationID: conv.id
         )
         saved = true
         Task { @MainActor in

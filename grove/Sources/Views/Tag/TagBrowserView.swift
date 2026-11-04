@@ -1,12 +1,12 @@
 import SwiftUI
-import SwiftData
+import SQLiteData
 
 struct TagBrowserView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query(sort: \Tag.name) private var allTags: [Tag]
-    @Binding var selectedItem: Item?
+    @Dependency(\.defaultDatabase) private var database
+    @Fetch(Library.Request()) private var library = Library()
+    @Binding var selectedItem: ItemGraph?
 
-    @State private var selectedTag: Tag?
+    @State private var selectedTag: TagGraph?
     @State private var isCreatingTag = false
     @State private var newTagName = ""
     @State private var newTagCategory: TagCategory = .custom
@@ -16,10 +16,14 @@ struct TagBrowserView: View {
     @State private var hierarchySuggestions: [TagHierarchySuggestion] = []
 
     private var tagService: TagService {
-        TagService(modelContext: modelContext)
+        TagService()
     }
 
-    private var groupedTags: [(TagCategory, [Tag])] {
+    private var allTags: [TagGraph] {
+        library.tags.sorted { $0.name < $1.name }
+    }
+
+    private var groupedTags: [(TagCategory, [TagGraph])] {
         // Only show root-level tags (no parent) at top level
         let rootTags = allTags.filter { $0.parentTag == nil }
         let grouped = Dictionary(grouping: rootTags, by: \.category)
@@ -30,11 +34,14 @@ struct TagBrowserView: View {
     }
 
     var body: some View {
-        if let tag = selectedTag {
-            TagDetailView(tag: tag, selectedItem: $selectedItem, onBack: { selectedTag = nil })
-        } else {
-            tagBrowserList
+        Group {
+            if let tag = selectedTag {
+                TagDetailView(tag: tag, selectedItem: $selectedItem, onBack: { selectedTag = nil })
+            } else {
+                tagBrowserList
+            }
         }
+        .keepingCurrent($selectedTag, in: library)
     }
 
     private var tagBrowserList: some View {
@@ -93,15 +100,17 @@ struct TagBrowserView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            tagService.updateTrends(for: allTags)
-            mergeSuggestions = tagService.findMergeSuggestions(from: allTags)
+            // This list reappears straight after a tag is deleted in the detail view.
+            let tags = currentTags()
+            tagService.updateTrends(for: tags)
+            mergeSuggestions = tagService.findMergeSuggestions(from: tags)
         }
         .sheet(isPresented: $showMergeSuggestions) {
             TagMergeSuggestionsView(
                 suggestions: mergeSuggestions,
                 onMerge: { keep, remove in
                     tagService.mergeTags(keep: keep, remove: remove)
-                    mergeSuggestions = tagService.findMergeSuggestions(from: allTags)
+                    mergeSuggestions = tagService.findMergeSuggestions(from: currentTags())
                 },
                 onDismissAll: {
                     mergeSuggestions = []
@@ -114,7 +123,7 @@ struct TagBrowserView: View {
                 suggestions: hierarchySuggestions,
                 onApply: { parent, child in
                     tagService.applyHierarchy(parent: parent, child: child)
-                    hierarchySuggestions = tagService.findHierarchySuggestions(from: allTags)
+                    hierarchySuggestions = tagService.findHierarchySuggestions(from: currentTags())
                 },
                 onDismissAll: {
                     hierarchySuggestions = []
@@ -134,9 +143,16 @@ struct TagBrowserView: View {
         }
 
         let tag = Tag(name: name, category: newTagCategory)
-        modelContext.insert(tag)
+        database.attempt { db in try Tag.insert { tag }.execute(db) }
         newTagName = ""
         isCreatingTag = false
+    }
+
+    /// `library` trails a write by a moment, so suggestions recomputed right after
+    /// one read the database. From `allTags`, a merged tag would be offered again.
+    private func currentTags() -> [TagGraph] {
+        let tags = database.attemptRead { try Library.fetch($0).tags } ?? allTags
+        return tags.sorted { $0.name < $1.name }
     }
 
     private func refreshSuggestions() {

@@ -1,10 +1,9 @@
 import SwiftUI
-import SwiftData
+import SQLiteData
 
 struct LearningFocusView: View {
-    @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
-    @Query(sort: \Board.sortOrder) private var boards: [Board]
+    @FetchAll(Board.order(by: \.sortOrder)) private var boards
     @State private var boardIDs: Set<UUID> = []
     @State private var minutes = 3
     @State private var errorMessage: String?
@@ -47,15 +46,15 @@ struct LearningFocusView: View {
         .onAppear {
             guard !didLoad else { return }
             didLoad = true
-            let prefs = LearningService(modelContext: modelContext).preferences()
+            let prefs = LearningService().preferences()
             boardIDs = Set(prefs.focusBoardIDs)
             minutes = prefs.sessionMinutes
         }
     }
 
     private func save() {
-        let service = LearningService(modelContext: modelContext)
-        let prefs = service.preferences()
+        let service = LearningService()
+        var prefs = service.preferences()
         prefs.focusBoardIDs = Array(boardIDs).sorted { $0.uuidString < $1.uuidString }
         prefs.sessionMinutes = minutes
         do {

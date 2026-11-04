@@ -1,5 +1,4 @@
 import SwiftUI
-import SwiftData
 
 struct ItemReaderHeaderView: View {
     @Bindable var vm: ItemReaderViewModel
@@ -204,7 +203,7 @@ struct AIOverviewHeaderRow: View {
 
             if canRevert {
                 Button {
-                    vm.item.metadata["overviewFeedback"] = "reverted"
+                    vm.modifyItem { $0.metadata["overviewFeedback"] = "reverted" }
                     vm.revertOverview()
                 } label: {
                     Text("Revert to original")

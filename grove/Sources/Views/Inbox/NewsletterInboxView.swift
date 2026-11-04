@@ -1,13 +1,13 @@
+import SQLiteData
 import SwiftUI
-import SwiftData
 
 /// The newsletter reading surface: current and past issues from subscribed
 /// feeds, organized by newsletter, with read/unread state. Issues open in the
 /// standard reader; keeping one promotes it into the library proper.
 struct NewsletterInboxView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query(sort: \Item.createdAt, order: .reverse) private var allItems: [Item]
-    @Query(sort: \FeedSource.createdAt) private var allSources: [FeedSource]
+    @Dependency(\.defaultDatabase) private var database
+    @Fetch(Library.Request()) private var library = Library()
+    @FetchAll(FeedSource.order(by: \.createdAt)) private var allSources
 
     @State private var showSubscriptions = false
     @State private var showDirectory = false
@@ -18,15 +18,19 @@ struct NewsletterInboxView: View {
     /// Issues shown per newsletter before "Show all" kicks in.
     private static let collapsedIssueLimit = 3
 
-    var onOpenItem: ((Item) -> Void)? = nil
+    var onOpenItem: ((ItemGraph) -> Void)? = nil
 
     // MARK: - Data
 
     /// Formatter creation is expensive; one instance for the whole view.
     private static let isoDateFormatter = ISO8601DateFormatter()
 
+    private var allItems: [ItemGraph] {
+        library.items.sorted { $0.createdAt > $1.createdAt }
+    }
+
     private struct DatedIssue: Identifiable {
-        let item: Item
+        let item: ItemGraph
         let publishedAt: Date
         var id: UUID { item.id }
     }
@@ -243,6 +247,9 @@ struct NewsletterInboxView: View {
             }
             .padding(.horizontal, LayoutDimensions.contentPaddingH)
             .padding(.vertical, Spacing.lg)
+            // On the list, not around the write: a hidden issue leaves when the
+            // library next arrives, which is after any `withAnimation` has ended.
+            .animation(.easeOut(duration: 0.25), value: groups.flatMap { $0.issues.map(\.id) })
         }
     }
 
@@ -342,43 +349,45 @@ struct NewsletterInboxView: View {
 
     // MARK: - Actions
 
-    private func markRead(_ item: Item) {
+    private func markRead(_ item: ItemGraph) {
         guard !item.isFeedIssueRead else { return }
-        item.isFeedIssueRead = true
-        try? modelContext.save()
+        database.attempt { db in
+            try Item.modify(item.id, in: db) { $0.isFeedIssueRead = true }
+        }
     }
 
-    private func toggleRead(_ item: Item) {
-        item.isFeedIssueRead.toggle()
-        try? modelContext.save()
+    private func toggleRead(_ item: ItemGraph) {
+        database.attempt { db in
+            try Item.modify(item.id, in: db) { $0.isFeedIssueRead.toggle() }
+        }
     }
 
     private func markAllRead(groups: [SourceGroup]) {
-        for group in visibleGroups(in: groups) {
-            for issue in group.issues where !issue.item.isFeedIssueRead {
-                issue.item.isFeedIssueRead = true
+        database.attempt { db in
+            for group in visibleGroups(in: groups) {
+                for issue in group.issues where !issue.item.isFeedIssueRead {
+                    try Item.modify(issue.item.id, in: db) { $0.isFeedIssueRead = true }
+                }
             }
         }
-        try? modelContext.save()
     }
 
     /// Promote an issue into the library: it stops being an ephemeral feed
     /// suggestion and joins the normal item lifecycle (boards, resurfacing).
     /// Kept issues get real content backfilled — page metadata plus an
     /// overview from the configured LLM (Apple Intelligence by default).
-    private func keep(_ item: Item) {
+    private func keep(_ item: ItemGraph) {
         recordSignal(for: item, kept: true)
-        item.promoteFromFeedSuggestionIfNeeded()
-        try? modelContext.save()
+        database.attempt { db in
+            try Item.modify(item.id, in: db) { $0.promoteFromFeedSuggestionIfNeeded() }
+        }
 
         if (item.content ?? "").isEmpty, let urlString = item.sourceURL {
-            let context = modelContext
             let itemID = item.id
             Task {
                 await ItemMetadataEnricher().enrichPromotedIssue(
                     itemID: itemID,
-                    urlString: urlString,
-                    context: context
+                    urlString: urlString
                 )
             }
         }
@@ -386,17 +395,18 @@ struct NewsletterInboxView: View {
 
     /// Hide an issue from newsletter history (and count a dismissal signal
     /// toward the source's auto-throttle).
-    private func hide(_ item: Item) {
+    private func hide(_ item: ItemGraph) {
         recordSignal(for: item, kept: false)
-        withAnimation(.easeOut(duration: 0.25)) {
-            item.status = .dismissed
-            item.metadata["suggestionDismissed"] = "true"
-            item.updatedAt = .now
-            try? modelContext.save()
+        database.attempt { db in
+            try Item.modify(item.id, in: db) {
+                $0.status = .dismissed
+                $0.metadata["suggestionDismissed"] = "true"
+                $0.updatedAt = .now
+            }
         }
     }
 
-    private func recordSignal(for item: Item, kept: Bool) {
+    private func recordSignal(for item: ItemGraph, kept: Bool) {
         guard item.isFeedSuggestion,
               let idString = item.metadata["feedSourceID"],
               let id = UUID(uuidString: idString) else { return }
@@ -466,7 +476,7 @@ private struct HistoryToggle: View {
 /// Compact mail-style row: unread dot, title, publish date. Kept issues show
 /// a bookmark; hover (macOS) reveals keep/hide, context menu carries the rest.
 private struct NewsletterIssueRow: View {
-    let item: Item
+    let item: ItemGraph
     let publishedAt: Date
     let onKeep: () -> Void
     let onToggleRead: () -> Void

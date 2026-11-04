@@ -1,19 +1,18 @@
 import SwiftUI
-import SwiftData
 
 /// Ordered list of items deferred with "Read Later", soonest return first.
 /// Rows are quiet and monochrome: title, source, and when the item returns
 /// to the inbox, with inline actions to read now or return it immediately.
 struct ReadingQueueView: View {
     /// Queued items, expected sorted by `readLaterUntil` ascending.
-    let items: [Item]
+    let items: [ItemGraph]
     /// Restore the item to the inbox and open it for reading.
-    let onReadNow: (Item) -> Void
+    let onReadNow: (ItemGraph) -> Void
     /// Restore the item to the inbox without opening it.
-    let onReturnToInbox: (Item) -> Void
+    let onReturnToInbox: (ItemGraph) -> Void
 
     /// Defensive re-sort so ordering holds even if the caller passes raw results.
-    private var orderedItems: [Item] {
+    private var orderedItems: [ItemGraph] {
         items.sorted { ($0.readLaterUntil ?? .distantFuture) < ($1.readLaterUntil ?? .distantFuture) }
     }
 
@@ -31,7 +30,7 @@ struct ReadingQueueView: View {
 
     // MARK: - Row
 
-    private func queueRow(for item: Item) -> some View {
+    private func queueRow(for item: ItemGraph) -> some View {
         HStack(spacing: 10) {
             Image(systemName: item.type.iconName)
                 .font(.groveMeta)
@@ -99,7 +98,7 @@ struct ReadingQueueView: View {
     // MARK: - Labels
 
     /// Source domain for links, otherwise the item type.
-    private func sourceLabel(for item: Item) -> String {
+    private func sourceLabel(for item: ItemGraph) -> String {
         if let url = item.sourceURL, !url.isEmpty {
             return domainFrom(url)
         }

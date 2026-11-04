@@ -1,11 +1,11 @@
+import SQLiteData
 import SwiftUI
-import SwiftData
 
 /// Bottom sheet for viewing and editing reflections on an item.
 /// iPhone: presented as sheet with .medium/.large detents.
 /// iPad: presented as inspector trailing column (caller uses .inspector modifier).
 struct MobileReflectionSheet: View {
-    let item: Item
+    let item: ItemGraph
     var onDismiss: (() -> Void)? = nil
     /// Set by the caller to open a specific block for editing. Consumed
     /// (reset to nil) once handled.
@@ -13,9 +13,13 @@ struct MobileReflectionSheet: View {
     /// Jump to the highlighted passage in the source article; nil when the
     /// item has no web-readable source.
     var onHighlightTap: ((String) -> Void)? = nil
-    @Environment(\.modelContext) private var modelContext
+    @Dependency(\.defaultDatabase) private var database
     @Environment(\.dismiss) private var dismiss
 
+    /// The block in the editor. A copy, and the editor reads this one rather than
+    /// the block in `item`: that arrives a moment after each write, so it can hold
+    /// text from a keystroke ago, and showing it would undo typing and move the
+    /// cursor. See `modifyEditingBlock`.
     @State private var editingBlock: ReflectionBlock?
     @State private var newBlockType: ReflectionBlockType = .keyInsight
     @State private var newBlockContent = ""
@@ -232,10 +236,9 @@ struct MobileReflectionSheet: View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             HStack {
                 Picker("Type", selection: Binding(
-                    get: { block.blockType },
+                    get: { editingBlock?.blockType ?? block.blockType },
                     set: { newType in
-                        block.blockType = newType
-                        try? modelContext.save()
+                        modifyEditingBlock { $0.blockType = newType }
                     }
                 )) {
                     ForEach(ReflectionBlockType.allCases, id: \.self) { type in
@@ -246,8 +249,7 @@ struct MobileReflectionSheet: View {
                 .pickerStyle(.segmented)
 
                 Button {
-                    try? modelContext.save()
-                    WikiLinkSync.sync(item: item, content: block.content, modelContext: modelContext)
+                    WikiLinkSync.sync(item.id, content: editingBlock?.content ?? block.content)
                     editingBlock = nil
                 } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -260,10 +262,9 @@ struct MobileReflectionSheet: View {
             }
 
             TextEditor(text: Binding(
-                get: { block.content },
+                get: { editingBlock?.content ?? block.content },
                 set: { newValue in
-                    block.content = newValue
-                    try? modelContext.save()
+                    modifyEditingBlock { $0.content = newValue }
                 }
             ))
             .font(.groveBody)
@@ -274,20 +275,34 @@ struct MobileReflectionSheet: View {
 
     // MARK: - Actions
 
+    /// Changes the block in the editor, as it types, and keeps the row that comes back.
+    private func modifyEditingBlock(_ body: (inout ReflectionBlock) -> Void) {
+        guard let blockID = editingBlock?.id else { return }
+        let saved = database.attempt { db in
+            try ReflectionBlock.modify(blockID, in: db, body)
+        } ?? nil
+        if let saved {
+            editingBlock = saved
+        }
+    }
+
     /// Autosave: creates the reflection when the editor loses focus (if non-empty).
     private func autoSaveNewReflection() {
         let trimmed = newBlockContent.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        let block = ReflectionBlock(
-            item: item,
-            blockType: newBlockType,
-            content: trimmed,
-            position: item.reflections.count
-        )
-        modelContext.insert(block)
-        try? modelContext.save()
-        WikiLinkSync.sync(item: item, content: trimmed, modelContext: modelContext)
+        let itemID = item.id
+        let blockType = newBlockType
+        database.attempt { db in
+            let block = ReflectionBlock(
+                itemID: itemID,
+                blockType: blockType,
+                content: trimmed,
+                position: try ReflectionBlock.nextPosition(onItem: itemID, in: db)
+            )
+            try ReflectionBlock.insert { block }.execute(db)
+        }
+        WikiLinkSync.sync(itemID, content: trimmed)
 
         newBlockContent = ""
         isAddingNew = false
@@ -306,17 +321,15 @@ struct MobileReflectionSheet: View {
         autoSaveNewReflection()
         // Save any in-progress block edit
         if let editingBlock {
-            try? modelContext.save()
-            WikiLinkSync.sync(item: item, content: editingBlock.content, modelContext: modelContext)
+            WikiLinkSync.sync(item.id, content: editingBlock.content)
             self.editingBlock = nil
         }
     }
 
     private func deleteBlocks(at offsets: IndexSet) {
-        let blocks = sortedReflections
-        for index in offsets {
-            modelContext.delete(blocks[index])
+        let blockIDs = offsets.map { sortedReflections[$0].id }
+        database.attempt { db in
+            try ReflectionBlock.where { $0.id.in(blockIDs) }.delete().execute(db)
         }
-        try? modelContext.save()
     }
 }

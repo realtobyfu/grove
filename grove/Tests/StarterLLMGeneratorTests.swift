@@ -81,32 +81,31 @@ struct StarterLLMGeneratorTests {
 
     @MainActor
     @Test func groundingIsNilWhenOnlyTheTitleIsKnown() {
-        let item = Item(title: "AI Broke Code Review ‣ Swift and Memes", type: .article)
-        #expect(StarterLLMGenerator.grounding(for: item) == nil)
+        var item = Item(title: "AI Broke Code Review ‣ Swift and Memes", type: .article)
+        #expect(StarterLLMGenerator.grounding(for: ItemGraph(item: item)) == nil)
 
         // Boilerplate scraps are not substance either.
         item.content = "Sign in to continue."
-        #expect(StarterLLMGenerator.grounding(for: item) == nil)
+        #expect(StarterLLMGenerator.grounding(for: ItemGraph(item: item)) == nil)
     }
 
     @MainActor
     @Test func groundingPrefersTheStoredSummaryOverRawContent() {
-        let item = Item(title: "AI Broke Code Review", type: .article)
+        var item = Item(title: "AI Broke Code Review", type: .article)
         item.content = String(repeating: "boilerplate nav chrome ", count: 10)
         item.metadata["summary"] = "Argues that LLM-authored diffs make reviewer attention the bottleneck."
 
-        let grounding = StarterLLMGenerator.grounding(for: item)
+        let grounding = StarterLLMGenerator.grounding(for: ItemGraph(item: item))
         #expect(grounding == "Argues that LLM-authored diffs make reviewer attention the bottleneck.")
     }
 
     @MainActor
     @Test func groundingPrefersTheUsersOwnNote() {
-        let item = Item(title: "AI Broke Code Review", type: .article)
+        var item = Item(title: "AI Broke Code Review", type: .article)
         item.metadata["summary"] = "A summary."
-        let reflection = ReflectionBlock(item: item, blockType: .disagreement, content: "I disagree — review was already broken.", position: 0)
-        item.reflections.append(reflection)
+        let reflection = ReflectionBlock(itemID: item.id, blockType: .disagreement, content: "I disagree — review was already broken.", position: 0)
 
-        let grounding = StarterLLMGenerator.grounding(for: item)
+        let grounding = StarterLLMGenerator.grounding(for: ItemGraph(item: item, reflections: [reflection]))
         #expect(grounding == "their note on it: I disagree — review was already broken.")
     }
 
@@ -114,11 +113,11 @@ struct StarterLLMGeneratorTests {
     @Test func recentItemsCandidateIsSkippedWhenNothingIsKnownBeyondTitles() {
         // A starter built on titles alone can only restate the title back as a
         // question, so the whole candidate drops out.
-        let bare = Item(title: "AI Broke Code Review ‣ Swift and Memes", type: .article)
+        var bare = Item(title: "AI Broke Code Review ‣ Swift and Memes", type: .article)
         bare.status = .active
         bare.createdAt = .now
 
-        let context = StarterContextBuilder.buildContext(from: [bare])
+        let context = StarterContextBuilder.buildContext(from: [ItemGraph(item: bare)])
         let candidates = StarterLLMGenerator.buildCandidates(from: context, didShowClusterBubble: false)
 
         #expect(!candidates.contains { $0.id == "recent_items" })
@@ -126,12 +125,12 @@ struct StarterLLMGeneratorTests {
 
     @MainActor
     @Test func recentItemsCandidateCarriesSubstanceNotJustTitles() {
-        let item = Item(title: "AI Broke Code Review ‣ Swift and Memes", type: .article)
+        var item = Item(title: "AI Broke Code Review ‣ Swift and Memes", type: .article)
         item.status = .active
         item.createdAt = .now
         item.metadata["summary"] = "Argues reviewer attention is now the bottleneck."
 
-        let context = StarterContextBuilder.buildContext(from: [item])
+        let context = StarterContextBuilder.buildContext(from: [ItemGraph(item: item)])
         let candidates = StarterLLMGenerator.buildCandidates(from: context, didShowClusterBubble: false)
         let recent = candidates.first { $0.id == "recent_items" }
 

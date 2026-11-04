@@ -1,5 +1,5 @@
 import Foundation
-import SwiftData
+import SQLiteData
 
 /// Ensures a `.related` Connection exists for every `[[Wiki Link]]` found in an
 /// item's markdown content.
@@ -52,29 +52,41 @@ enum WikiLinkSync {
         return titles
     }
 
-    /// Ensures a `.related` Connection exists from `item` to every existing item
+    /// Ensures a `.related` Connection exists from the item to every existing item
     /// referenced by a `[[Wiki Link]]` in `content`.
     ///
+    /// Reads and writes the database, so call it after a transaction, not in one.
+    ///
     /// - Parameters:
-    ///   - item: The source item the links were written in.
-    ///   - content: Markdown to scan. Defaults to `item.content` when nil.
-    ///   - modelContext: Context used to resolve targets and persist connections.
-    static func sync(item: Item, content: String? = nil, modelContext: ModelContext) {
+    ///   - itemID: The source item the links were written in.
+    ///   - content: Markdown to scan. Defaults to the item's content when nil.
+    ///   - database: Used to resolve targets and persist connections.
+    static func sync(
+        _ itemID: Item.ID,
+        content: String? = nil,
+        database: any DatabaseWriter = AppDatabase.current
+    ) {
+        guard let item = database.attemptRead({ try ItemGraph.fetch(itemID, in: $0) }) ?? nil else { return }
+
         let markdown = content ?? item.content ?? ""
         let titles = linkTitles(in: markdown)
         guard !titles.isEmpty else { return }
 
-        let allItems: [Item] = modelContext.fetchAll()
-        let viewModel = ItemViewModel(modelContext: modelContext)
+        guard let allItems = database.attemptRead({ try Item.all.fetchAll($0) }) else { return }
+        let viewModel = ItemViewModel(database: database)
+
+        // Dedupe in either direction — same check as the autocomplete path. Kept
+        // here, not read off `item`, which won't show the connections made below.
+        var connectedIDs = Set(
+            item.outgoingConnections.compactMap(\.targetItem?.id)
+                + item.incomingConnections.compactMap(\.sourceItem?.id)
+        )
 
         for title in titles {
-            guard let target = ItemResolver.resolveExactTitle(title, in: allItems, excluding: item.id) else { continue }
+            guard let target = ItemResolver.resolveExactTitle(title, in: allItems, excluding: itemID) else { continue }
 
-            // Dedupe in either direction — same check as the autocomplete path.
-            let alreadyConnected = item.outgoingConnections.contains { $0.targetItem?.id == target.id }
-                || item.incomingConnections.contains { $0.sourceItem?.id == target.id }
-            if !alreadyConnected {
-                _ = viewModel.createConnection(source: item, target: target, type: .related)
+            if connectedIDs.insert(target.id).inserted {
+                _ = viewModel.createConnection(sourceID: itemID, targetID: target.id, type: .related)
             }
         }
     }

@@ -6,21 +6,20 @@ import UniformTypeIdentifiers
 
 /// Extracted from BoardDetailView — item list/grid display with sorting, reorder, context menus, and video drop.
 struct BoardItemListView: View {
-    let board: Board
-    let sortedFilteredItems: [Item]
+    let board: BoardGraph
+    let sortedFilteredItems: [ItemGraph]
     let weekSections: [WeekSection]?
     let canReorder: Bool
     let viewMode: BoardViewMode
 
-    @Binding var selectedItem: Item?
-    @Binding var openedItem: Item?
+    @Binding var selectedItem: ItemGraph?
+    @Binding var openedItem: ItemGraph?
     @Binding var draggingItemID: UUID?
-    @Binding var itemToDelete: Item?
+    @Binding var itemToDelete: ItemGraph?
 
     let onMoveGrid: (UUID, UUID) -> Void
     let onMoveList: (IndexSet, Int) -> Void
 
-    @Environment(\.modelContext) private var modelContext
     @Environment(\.openURL) private var openURL
 
     var body: some View {
@@ -52,7 +51,7 @@ struct BoardItemListView: View {
     // MARK: - Item Context Menu
 
     @ViewBuilder
-    private func itemContextMenu(for item: Item) -> some View {
+    private func itemContextMenu(for item: ItemGraph) -> some View {
         Button {
             openedItem = item
             selectedItem = item
@@ -83,8 +82,8 @@ struct BoardItemListView: View {
 
         if !board.isSmart {
             Button {
-                let viewModel = ItemViewModel(modelContext: modelContext)
-                viewModel.removeFromBoard(item, board: board)
+                let viewModel = ItemViewModel()
+                viewModel.removeFromBoard(item.id, boardID: board.id)
             } label: {
                 Label("Remove from Board", systemImage: "folder.badge.minus")
             }
@@ -109,9 +108,9 @@ extension BoardItemListView {
                 let path = url.path
                 guard CaptureService.isSupportedVideoFile(path) else { return }
                 Task { @MainActor in
-                    let captureService = CaptureService(modelContext: modelContext)
-                    let item = captureService.createVideoItem(filePath: path, board: board)
-                    selectedItem = item
+                    let captureService = CaptureService()
+                    let item = captureService.createVideoItem(filePath: path, board: board.board)
+                    selectedItem = ItemGraph(item: item)
                 }
             }
             handled = true

@@ -1,20 +1,22 @@
+import SQLiteData
 import SwiftUI
-import SwiftData
 
 /// Full-screen note editor for iOS — title field, board chips, and a TextEditor
 /// for markdown content. Saves on dismiss via .onDisappear.
 struct MobileNoteEditorView: View {
-    let item: Item
-    @Environment(\.modelContext) private var modelContext
+    let item: ItemGraph
+    @Dependency(\.defaultDatabase) private var database
     @Environment(\.dismiss) private var dismiss
-    @Query(sort: \Board.sortOrder) private var boards: [Board]
+    @FetchAll(Board.order(by: \.sortOrder)) private var boards
 
+    // Seeded once and written back on the way out, so nothing arriving from the
+    // database can reach text being typed.
     @State private var title: String
     @State private var content: String
     @State private var showBoardPicker = false
     @State private var flashcardSession: LearningEditorSession?
 
-    init(item: Item) {
+    init(item: ItemGraph) {
         self.item = item
         _title = State(initialValue: item.title)
         _content = State(initialValue: item.content ?? "")
@@ -31,22 +33,20 @@ struct MobileNoteEditorView: View {
                 .padding(.bottom, Spacing.sm)
 
             // Board chips
-            if !item.boards.isEmpty {
+            if let board = item.board {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: Spacing.sm) {
-                        ForEach(item.boards) { board in
-                            HStack(spacing: 4) {
-                                Image(systemName: board.icon ?? "folder")
-                                    .font(.system(size: 10))
-                                Text(board.title)
-                                    .font(.groveMeta)
-                            }
-                            .foregroundStyle(Color.textTertiary)
-                            .padding(.horizontal, Spacing.sm)
-                            .padding(.vertical, 4)
-                            .background(Color.bgCard)
-                            .clipShape(Capsule())
+                        HStack(spacing: 4) {
+                            Image(systemName: board.icon ?? "folder")
+                                .font(.system(size: 10))
+                            Text(board.title)
+                                .font(.groveMeta)
                         }
+                        .foregroundStyle(Color.textTertiary)
+                        .padding(.horizontal, Spacing.sm)
+                        .padding(.vertical, 4)
+                        .background(Color.bgCard)
+                        .clipShape(Capsule())
                     }
                     .padding(.horizontal, LayoutDimensions.contentPaddingH)
                 }
@@ -68,7 +68,10 @@ struct MobileNoteEditorView: View {
                 Menu {
                     Button {
                         saveChanges()
-                        flashcardSession = LearningEditorSession(item: item, sourceQuote: content)
+                        // The session keeps what it's given, and `item` isn't up
+                        // to date with that save yet.
+                        let saved = database.attemptRead { try ItemGraph.fetch(item.id, in: $0) } ?? nil
+                        flashcardSession = LearningEditorSession(item: saved ?? item, sourceQuote: content)
                     } label: {
                         Label("Remember an insight", systemImage: "rectangle.on.rectangle")
                     }
@@ -100,7 +103,7 @@ struct MobileNoteEditorView: View {
         NavigationStack {
             List {
                 ForEach(boards) { board in
-                    let isAssigned = item.boards.contains(where: { $0.id == board.id })
+                    let isAssigned = item.boardID == board.id
                     Button {
                         toggleBoard(board)
                     } label: {
@@ -132,21 +135,26 @@ struct MobileNoteEditorView: View {
 
     private func saveChanges() {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedTitle.isEmpty {
-            item.title = trimmedTitle
+        let itemID = item.id
+        let text = content
+        database.attempt { db in
+            try Item.modify(itemID, in: db) {
+                if !trimmedTitle.isEmpty {
+                    $0.title = trimmedTitle
+                }
+                $0.content = text
+                $0.updatedAt = .now
+            }
         }
-        item.content = content
-        item.updatedAt = .now
-        try? modelContext.save()
-        WikiLinkSync.sync(item: item, modelContext: modelContext)
+        WikiLinkSync.sync(itemID)
     }
 
     private func toggleBoard(_ board: Board) {
-        let viewModel = ItemViewModel(modelContext: modelContext)
-        if item.boards.contains(where: { $0.id == board.id }) {
-            viewModel.removeFromBoard(item, board: board)
+        let viewModel = ItemViewModel()
+        if item.boardID == board.id {
+            viewModel.removeFromBoard(item.id, boardID: board.id)
         } else {
-            viewModel.assignToBoard(item, board: board)
+            viewModel.assignToBoard(item.id, board: board)
         }
     }
 }

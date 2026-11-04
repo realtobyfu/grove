@@ -1,5 +1,5 @@
 import Foundation
-import SwiftData
+import SQLiteData
 import SwiftUI
 import AVFoundation
 import UniformTypeIdentifiers
@@ -14,22 +14,23 @@ protocol CaptureServiceProtocol {
 @MainActor
 @Observable
 final class CaptureService: CaptureServiceProtocol {
-    private var modelContext: ModelContext
+    private let database: any DatabaseWriter
     private let enricher: ItemMetadataEnricher
     private let tagger: ItemAutoTagger
 
     init(
-        modelContext: ModelContext,
+        database: any DatabaseWriter = AppDatabase.current,
         metadataFetcher: URLMetadataFetcherProtocol = URLMetadataFetcher.shared,
         imageDownloader: ImageDownloadServiceProtocol = ImageDownloadService.shared,
         onBoardSuggestion: BoardSuggestionCallback? = nil
     ) {
-        self.modelContext = modelContext
+        self.database = database
         self.enricher = ItemMetadataEnricher(
+            database: database,
             metadataFetcher: metadataFetcher,
             imageDownloader: imageDownloader
         )
-        self.tagger = ItemAutoTagger(onBoardSuggestion: onBoardSuggestion)
+        self.tagger = ItemAutoTagger(database: database, onBoardSuggestion: onBoardSuggestion)
     }
 
     /// Quick capture: detects URL vs plain text, creates appropriate Item.
@@ -47,12 +48,18 @@ final class CaptureService: CaptureServiceProtocol {
            let scheme = url.scheme,
            ["http", "https"].contains(scheme.lowercased()),
            url.host != nil {
-            if let existing = existingItem(matchingURL: trimmed) {
+            if var existing = existingItem(matchingURL: trimmed) {
                 // Honor an explicit board target even on a duplicate, so
                 // "save to Research" isn't a silent no-op for an existing item.
-                if let board, !existing.boards.contains(where: { $0.id == board.id }) {
-                    existing.boards.append(board)
-                    try? modelContext.save()
+                // An item is on at most one board, so this moves it. A smart
+                // board gathers items by rule and holds none itself: moving
+                // there would only take the item off its real board.
+                if let board, !board.isSmart, existing.boardID != board.id {
+                    let existingID = existing.id
+                    database.attempt { db in
+                        try Item.setBoard(board.id, forItem: existingID, in: db)
+                    }
+                    existing.boardID = board.id
                 }
                 return (existing, true)
             }
@@ -92,15 +99,17 @@ final class CaptureService: CaptureServiceProtocol {
     /// in the library *before* acting on it — the reader's capture button
     /// resolves its state from this on every navigation, and must never
     /// re-capture a page it can already see.
-    func existingItem(forURL urlString: String) -> Item? {
-        existingItem(matchingURL: urlString)
+    func existingItem(forURL urlString: String) -> ItemGraph? {
+        guard let existing = existingItem(matchingURL: urlString) else { return nil }
+        return database.attemptRead { try ItemGraph(existing, in: $0) }
     }
 
     /// Returns an existing item whose source URL matches the given URL after normalization.
     private func existingItem(matchingURL urlString: String) -> Item? {
         let normalized = Self.normalizedURLString(urlString)
-        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.sourceURL != nil })
-        let candidates = (try? modelContext.fetch(descriptor)) ?? []
+        let candidates = database.attemptRead { db in
+            try Item.where { $0.sourceURL.isNot(nil) }.fetchAll(db)
+        } ?? []
         return candidates.first { candidate in
             guard let source = candidate.sourceURL else { return false }
             guard Self.normalizedURLString(source) == normalized else { return false }
@@ -122,7 +131,7 @@ final class CaptureService: CaptureServiceProtocol {
     /// In-app capture and the Share Extension drain both run this, so an item
     /// saved from the share sheet is indistinguishable from one captured in the
     /// app — same type, same arXiv/PDF/video routing.
-    static func applyURLClassification(item: Item, urlString: String) {
+    nonisolated static func applyURLClassification(item: inout Item, urlString: String) {
         let url = URL(string: urlString)
         let arxivID = url.flatMap { Self.arxivID(from: $0) }
         // Store the canonical abstract URL so the reader, the enricher, and any
@@ -155,9 +164,9 @@ final class CaptureService: CaptureServiceProtocol {
     // MARK: - URL Capture
 
     private func captureURLItem(_ trimmed: String, board: Board?) -> Item {
-        let item = Item(title: trimmed, type: .article)
-        prepare(item, for: board)
-        Self.applyURLClassification(item: item, urlString: trimmed)
+        var item = Item(title: trimmed, type: .article)
+        prepare(&item, for: board)
+        Self.applyURLClassification(item: &item, urlString: trimmed)
 
         // The classification may have rewritten the URL (arXiv canonicalization);
         // the placeholder title and the enrichment both follow it.
@@ -165,26 +174,23 @@ final class CaptureService: CaptureServiceProtocol {
         item.title = storedURL
         item.metadata["fetchingMetadata"] = "true"
 
-        modelContext.insert(item)
-        try? modelContext.save()
+        insert(item)
 
         let itemID = item.id
-        let context = self.modelContext
         let enricher = self.enricher
         let tagger = self.tagger
 
         Task {
             _ = await enricher.enrichURLItem(
                 itemID: itemID,
-                urlString: storedURL,
-                context: context
+                urlString: storedURL
             )
 
             // Auto-tag after metadata is available
-            await tagger.autoTagItem(itemID: itemID, context: context)
+            await tagger.autoTagItem(itemID: itemID)
 
             // Mark summary review if needed
-            enricher.markSummaryReviewIfNeeded(itemID: itemID, context: context)
+            enricher.markSummaryReviewIfNeeded(itemID: itemID)
         }
 
         return item
@@ -194,18 +200,16 @@ final class CaptureService: CaptureServiceProtocol {
 
     private func captureTextItem(_ trimmed: String, board: Board?) -> Item {
         let title = String(trimmed.prefix(80))
-        let item = Item(title: title, type: .note)
-        prepare(item, for: board)
+        var item = Item(title: title, type: .note)
+        prepare(&item, for: board)
         item.content = trimmed
-        modelContext.insert(item)
-        try? modelContext.save()
+        insert(item)
 
         let itemID = item.id
-        let context = self.modelContext
         let tagger = self.tagger
 
         Task {
-            await tagger.autoTagItem(itemID: itemID, context: context)
+            await tagger.autoTagItem(itemID: itemID)
         }
 
         return item
@@ -225,16 +229,15 @@ final class CaptureService: CaptureServiceProtocol {
     func createVideoItem(filePath: String, board: Board? = nil) -> Item {
         let url = URL(fileURLWithPath: filePath)
         let filename = url.deletingPathExtension().lastPathComponent
-        let item = Item(title: filename, type: .video)
-        prepare(item, for: board)
+        var item = Item(title: filename, type: .video)
+        prepare(&item, for: board)
         item.sourceURL = url.absoluteString
         item.metadata["videoLocalFile"] = "true"
         item.metadata["originalPath"] = filePath
-        modelContext.insert(item)
-        try? modelContext.save()
+        insert(item)
 
         let itemID = item.id
-        let context = self.modelContext
+        let database = self.database
         let tagger = self.tagger
 
         Task {
@@ -242,19 +245,23 @@ final class CaptureService: CaptureServiceProtocol {
             let meta = await VideoThumbnailGenerator.extractMetadata(for: fileURL)
             let thumbnailData = await VideoThumbnailGenerator.generateThumbnail(for: fileURL)
 
-            let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-            guard let fetchedItem = try? context.fetch(descriptor).first else { return }
-
-            for (key, value) in meta {
-                fetchedItem.metadata[key] = value
+            // Reading the file takes a while, and the item may be gone after it.
+            let stillExists = database.attempt { db in
+                let updated = try Item.modify(itemID, in: db) { fetchedItem in
+                    for (key, value) in meta {
+                        fetchedItem.metadata[key] = value
+                    }
+                    fetchedItem.updatedAt = .now
+                }
+                guard updated != nil else { return false }
+                if let thumbnailData = thumbnailData {
+                    try Item.setThumbnail(thumbnailData, forItem: itemID, in: db)
+                }
+                return true
             }
-            if let thumbnailData = thumbnailData {
-                fetchedItem.thumbnail = thumbnailData
-            }
-            fetchedItem.updatedAt = .now
-            try? context.save()
+            guard stillExists == true else { return }
 
-            await tagger.autoTagItem(itemID: itemID, context: context)
+            await tagger.autoTagItem(itemID: itemID)
         }
 
         return item
@@ -262,7 +269,7 @@ final class CaptureService: CaptureServiceProtocol {
 
     /// A destination selected by the user is an approval decision. Captures without
     /// a destination remain in the inbox, including items with passive AI suggestions.
-    private func prepare(_ item: Item, for board: Board?) {
+    private func prepare(_ item: inout Item, for board: Board?) {
         guard let board else {
             item.status = .inbox
             return
@@ -270,7 +277,13 @@ final class CaptureService: CaptureServiceProtocol {
 
         item.status = .active
         if !board.isSmart {
-            item.boards.append(board)
+            item.boardID = board.id
+        }
+    }
+
+    private func insert(_ item: Item) {
+        database.attempt { db in
+            try Item.insert { item }.execute(db)
         }
     }
 
@@ -300,7 +313,7 @@ final class CaptureService: CaptureServiceProtocol {
             || lower.contains("twitch.tv/")
     }
 
-    private static func isGitHubURL(_ urlString: String) -> Bool {
+    private nonisolated static func isGitHubURL(_ urlString: String) -> Bool {
         guard let url = URL(string: urlString),
               let host = url.host?.lowercased() else {
             return false

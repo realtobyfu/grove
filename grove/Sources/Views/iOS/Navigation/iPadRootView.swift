@@ -1,11 +1,11 @@
+import SQLiteData
 import SwiftUI
-import SwiftData
 
 /// Shared iPad selection state for views that can either highlight or open items.
 @Observable
 final class iPadReaderCoordinator {
-    var openedItem: Item?
-    var selectedItem: Item?
+    var openedItem: ItemGraph?
+    var selectedItem: ItemGraph?
 }
 
 /// iPad layout: sidebar navigation on the left and a single stacked workspace on the right.
@@ -14,13 +14,12 @@ struct iPadRootView: View {
         let id = UUID()
         let boardID: UUID?
         let prompt: String?
-        let editingItem: Item?
+        let editingItem: ItemGraph?
     }
 
-    @Environment(\.modelContext) private var modelContext
+    @Dependency(\.defaultDatabase) private var database
     @Environment(DeepLinkRouter.self) private var deepLinkRouter
-    @Query(sort: \Board.sortOrder) private var boards: [Board]
-    @Query private var allItems: [Item]
+    @Fetch(Library.Request()) private var library = Library()
 
     private enum DetailRoute: Hashable {
         case item(UUID)
@@ -84,12 +83,15 @@ struct iPadRootView: View {
     @State private var showNewBoardSheet = false
     @State private var suggestionDismissTask: Task<Void, Never>?
 
+    private var allItems: [ItemGraph] { library.items }
+    private var boards: [BoardGraph] { library.boards }
+
     private var inboxCount: Int {
         allItems.filter { $0.status == .inbox && !$0.isFeedSuggestion }.count
     }
 
     private var boardViewModel: BoardViewModel {
-        BoardViewModel(modelContext: modelContext)
+        BoardViewModel()
     }
 
     private var currentBoardID: UUID? {
@@ -97,14 +99,14 @@ struct iPadRootView: View {
         return boardID
     }
 
-    private var selectedItemBinding: Binding<Item?> {
+    private var selectedItemBinding: Binding<ItemGraph?> {
         Binding(
             get: { readerCoordinator.selectedItem },
             set: { readerCoordinator.selectedItem = $0 }
         )
     }
 
-    private var openedItemBinding: Binding<Item?> {
+    private var openedItemBinding: Binding<ItemGraph?> {
         Binding(
             get: { readerCoordinator.openedItem },
             set: { readerCoordinator.openedItem = $0 }
@@ -124,6 +126,8 @@ struct iPadRootView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
+        .keepingCurrent(selectedItemBinding, in: library)
+        .keepingCurrent(openedItemBinding, in: library)
         // The iOS roots own the reader bindings, so they — not the macOS-only
         // ContentViewHandlers — must drop a deleted item before the next
         // body pass reads its properties.
@@ -134,7 +138,7 @@ struct iPadRootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .groveOpenItem)) { note in
             guard let id = note.object as? UUID,
-                  let item = allItems.first(where: { $0.id == id }) else { return }
+                  let item = fetchItem(id: id) else { return }
             readerCoordinator.openedItem = item
             readerCoordinator.selectedItem = item
         }
@@ -223,7 +227,7 @@ struct iPadRootView: View {
                     recommendedBoardID: suggestion.recommendedBoardID,
                     alternativeBoardIDs: suggestion.alternativeBoardIDs,
                     onSelect: { board in
-                        assignPendingItem(to: board)
+                        assignPendingItem(to: board.board)
                         dismissBoardSuggestion()
                     },
                     onCreate: { boardName in
@@ -385,11 +389,7 @@ struct iPadRootView: View {
     private func detailDestination(for route: DetailRoute) -> some View {
         switch route {
         case .item(let itemID):
-            if let item = fetchItem(id: itemID) {
-                IPadItemReaderHostView(item: item)
-            } else {
-                ContentUnavailableView("Item not found", systemImage: "doc.text")
-            }
+            IPadItemReaderHostView(itemID: itemID)
         }
     }
 
@@ -425,7 +425,7 @@ struct iPadRootView: View {
         }
     }
 
-    private func openItemInPreferredContext(_ item: Item) {
+    private func openItemInPreferredContext(_ item: ItemGraph) {
         readerCoordinator.selectedItem = item
 
         if item.type == .note {
@@ -442,33 +442,31 @@ struct iPadRootView: View {
         }
     }
 
-    private func preferredSidebarSelection(for item: Item) -> SidebarSelection {
-        if let board = boards.first(where: { board in
-            item.boards.contains(where: { $0.id == board.id })
-        }) {
+    private func preferredSidebarSelection(for item: ItemGraph) -> SidebarSelection {
+        if let board = item.board {
             return .board(board.id)
         }
 
         return .library
     }
 
-    private func detailHostingSelection(for item: Item) -> SidebarSelection {
+    private func detailHostingSelection(for item: ItemGraph) -> SidebarSelection {
         switch sidebarSelection {
         case .home?, .library?:
             return sidebarSelection ?? preferredSidebarSelection(for: item)
-        case .board(let boardID)? where item.boards.contains(where: { $0.id == boardID }):
+        case .board(let boardID)? where item.boardID == boardID:
             return .board(boardID)
         default:
             return preferredSidebarSelection(for: item)
         }
     }
 
-    private func showItemReader(for item: Item) {
+    private func showItemReader(for item: ItemGraph) {
         detailPath = NavigationPath()
         detailPath.append(DetailRoute.item(item.id))
     }
 
-    private func presentWriteSheet(prompt: String? = nil, editingItem: Item? = nil) {
+    private func presentWriteSheet(prompt: String? = nil, editingItem: ItemGraph? = nil) {
         let trimmedPrompt = prompt?.trimmingCharacters(in: .whitespacesAndNewlines)
         detailPath = NavigationPath()
         writeSheetSession = WriteSheetSession(
@@ -489,9 +487,8 @@ struct iPadRootView: View {
             trigger: .userInitiated,
             seedItems: seedItems,
             board: currentBoardID.flatMap { boardID in
-                boards.first(where: { $0.id == boardID })
-            },
-            context: modelContext
+                boards.first(where: { $0.id == boardID })?.board
+            }
         )
 
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -501,32 +498,13 @@ struct iPadRootView: View {
                 Task { @MainActor in
                     _ = await service.sendMessage(
                         userText: trimmedPrompt,
-                        conversation: conversation,
-                        context: modelContext
+                        conversationID: conversation.id
                     )
                 }
             case .asSystemPrompt:
-                let systemMessage = ChatMessage(
-                    role: .system,
-                    content: trimmedPrompt,
-                    position: conversation.nextPosition
-                )
-                systemMessage.conversation = conversation
-                conversation.messages.append(systemMessage)
-                modelContext.insert(systemMessage)
-                conversation.updatedAt = .now
-                try? modelContext.save()
+                service.appendMessage(role: .system, content: trimmedPrompt, to: conversation.id)
             case .asAssistantGreeting:
-                let assistantMessage = ChatMessage(
-                    role: .assistant,
-                    content: trimmedPrompt,
-                    position: conversation.nextPosition
-                )
-                assistantMessage.conversation = conversation
-                conversation.messages.append(assistantMessage)
-                modelContext.insert(assistantMessage)
-                conversation.updatedAt = .now
-                try? modelContext.save()
+                service.appendMessage(role: .assistant, content: trimmedPrompt, to: conversation.id)
             }
         }
 
@@ -535,9 +513,8 @@ struct iPadRootView: View {
         deepLinkedConversationID = conversation.id
     }
 
-    private func fetchItem(id: UUID) -> Item? {
-        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == id })
-        return try? modelContext.fetch(descriptor).first
+    private func fetchItem(id: UUID) -> ItemGraph? {
+        database.attemptRead { try ItemGraph.fetch(id, in: $0) } ?? nil
     }
 
     // MARK: - Board Suggestion Actions
@@ -554,14 +531,16 @@ struct iPadRootView: View {
         if suggestion.mode == .existing,
            let recommendedBoardID = suggestion.recommendedBoardID,
            let recommended = boards.first(where: { $0.id == recommendedBoardID }) {
-            board = recommended
+            board = recommended.board
         } else if let existing = boards.first(where: {
             $0.title.localizedCaseInsensitiveCompare(suggestedName) == .orderedSame
         }) {
-            board = existing
+            board = existing.board
         } else {
             let newBoard = Board(title: suggestedName.isEmpty ? "General" : suggestedName)
-            modelContext.insert(newBoard)
+            database.attempt { db in
+                try Board.insert { newBoard }.execute(db)
+            }
             board = newBoard
         }
 
@@ -576,10 +555,12 @@ struct iPadRootView: View {
         if let existing = boards.first(where: {
             $0.title.localizedCaseInsensitiveCompare(normalizedName) == .orderedSame
         }) {
-            assignPendingItem(to: existing)
+            assignPendingItem(to: existing.board)
         } else {
             let newBoard = Board(title: normalizedName)
-            modelContext.insert(newBoard)
+            database.attempt { db in
+                try Board.insert { newBoard }.execute(db)
+            }
             assignPendingItem(to: newBoard)
         }
     }
@@ -587,12 +568,13 @@ struct iPadRootView: View {
     private func assignPendingItem(to board: Board) {
         guard let itemID = pendingSuggestionItemID else { return }
 
-        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-        guard let item = try? modelContext.fetch(descriptor).first else { return }
-
-        BoardSuggestionMetadata.recordSelection(board, on: item)
-        let viewModel = ItemViewModel(modelContext: modelContext)
-        viewModel.assignToBoard(item, board: board)
+        database.attempt { db in
+            try Item.modify(itemID, in: db) {
+                BoardSuggestionMetadata.recordSelection(board, on: &$0)
+            }
+        }
+        let viewModel = ItemViewModel()
+        viewModel.assignToBoard(itemID, board: board)
     }
 
     private func dismissBoardSuggestion() {

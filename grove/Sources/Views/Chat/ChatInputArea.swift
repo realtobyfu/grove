@@ -1,14 +1,13 @@
 import SwiftUI
-import SwiftData
 
 /// The input area at the bottom of a dialectics chat conversation.
 struct ChatInputArea: View {
     @Binding var inputText: String
-    let conversation: Conversation
+    let conversation: ConversationGraph
     let isGenerating: Bool
-    let seeds: [Item]
+    let seeds: [ItemGraph]
     var onSend: () -> Void
-    var onNavigateToItem: ((Item) -> Void)?
+    var onNavigateToItem: ((ItemGraph) -> Void)?
 
     var body: some View {
         VStack(spacing: Spacing.sm) {

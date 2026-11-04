@@ -1,23 +1,23 @@
 import SwiftUI
-import SwiftData
+import SQLiteData
 
 /// A TextEditor wrapper that detects [[ wiki-link syntax and shows an autocomplete dropdown.
 /// When a user selects an item from the dropdown, it inserts [[Item Title]] and auto-creates
 /// a Connection of type .related between the current item and the linked item.
 struct WikiLinkTextEditor: View {
     @Binding var text: String
-    var sourceItem: Item?
+    var sourceItem: ItemGraph?
     var placeholder: String = ""
     var minHeight: CGFloat = 80
 
-    @Environment(\.modelContext) private var modelContext
-    @Query private var allItems: [Item]
+    @Fetch(Library.Request()) private var library = Library()
+    private var allItems: [ItemGraph] { library.items }
 
     @State private var showWikiPopover = false
     @State private var wikiSearchText = ""
     @State private var cursorInsertionPoint: String.Index?
 
-    private var wikiSearchResults: [Item] {
+    private var wikiSearchResults: [ItemGraph] {
         allItems.filter { candidate in
             if let sourceItem, candidate.id == sourceItem.id { return false }
             if wikiSearchText.isEmpty { return true }
@@ -152,7 +152,7 @@ struct WikiLinkTextEditor: View {
         wikiSearchText = String(afterBrackets)
     }
 
-    private func insertWikiLink(for target: Item) {
+    private func insertWikiLink(for target: ItemGraph) {
         // Replace the partial [[search with [[Item Title]]
         guard let range = text.range(of: "[[", options: .backwards) else { return }
         let before = text[text.startIndex..<range.lowerBound]
@@ -160,12 +160,12 @@ struct WikiLinkTextEditor: View {
 
         // Auto-create a .related connection
         if let sourceItem {
-            let viewModel = ItemViewModel(modelContext: modelContext)
+            let viewModel = ItemViewModel()
             // Check if connection already exists
             let alreadyConnected = sourceItem.outgoingConnections.contains { $0.targetItem?.id == target.id }
                 || sourceItem.incomingConnections.contains { $0.sourceItem?.id == target.id }
             if !alreadyConnected {
-                _ = viewModel.createConnection(source: sourceItem, target: target, type: .related)
+                _ = viewModel.createConnection(sourceID: sourceItem.id, targetID: target.id, type: .related)
             }
         }
 

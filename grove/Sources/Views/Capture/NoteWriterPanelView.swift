@@ -1,25 +1,28 @@
 import SwiftUI
-import SwiftData
+import SQLiteData
 
 // MARK: - NoteWriterPanelView
 
 /// Note writer panel used both in the side write panel and the modal sheet flow.
 struct NoteWriterPanelView: View {
-    @Environment(\.modelContext) private var modelContext
+    @Dependency(\.defaultDatabase) private var database
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @Query(sort: \Board.sortOrder) private var boards: [Board]
+    @Fetch(Library.Request()) private var library = Library()
 
     @Binding var isPresented: Bool
     var currentBoardID: UUID?
     var prompt: String? = nil
-    var editingItem: Item? = nil
+    var editingItem: ItemGraph? = nil
     var isSidePanel: Bool = false
-    var onCreated: ((Item) -> Void)?
+    var onCreated: ((ItemGraph) -> Void)?
 
     @State private var title = ""
     @State private var content = ""
-    @State private var savedDraftItem: Item?
-    @State private var flashcardItem: Item?
+    /// The note this panel has already created, so a second save updates it. Just
+    /// the ID: `library` lags a new row, and losing track of the note for a moment
+    /// would save it twice.
+    @State private var savedDraftItemID: Item.ID?
+    @State private var flashcardItem: ItemGraph?
     @State private var saveError: String?
     @FocusState private var isTitleFocused: Bool
 
@@ -197,20 +200,21 @@ struct NoteWriterPanelView: View {
     // MARK: - Actions
 
     /// True once the item being edited has been deleted out from under the
-    /// panel. Writing to (or wiki-link syncing) a deleted model resurrects
-    /// garbage in the store, so every save path bails on this.
+    /// panel. There is no row left to write to, so every save path bails on this.
     private var isEditingDeletedItem: Bool {
-        guard let note = editingItem ?? savedDraftItem else { return false }
-        return note.isDeleted || note.modelContext == nil
+        guard let noteID = editingItem?.id ?? savedDraftItemID else { return false }
+        return database.attemptRead { db in
+            try Item.where { $0.id.eq(noteID) }.fetchCount(db)
+        } == 0
     }
 
-    private var referenceItems: [Item] {
-        let note = editingItem ?? savedDraftItem
-        let sourceBoards: [Board]
-        if let currentBoardID, let board = boards.first(where: { $0.id == currentBoardID }) {
+    private var referenceItems: [ItemGraph] {
+        let note = library.item(editingItem?.id ?? savedDraftItemID)
+        let sourceBoards: [BoardGraph]
+        if let board = library.board(currentBoardID) {
             sourceBoards = [board]
         } else {
-            sourceBoards = note?.boards ?? []
+            sourceBoards = library.board(note?.boardID).map { [$0] } ?? []
         }
         var seen: Set<UUID> = []
         return sourceBoards.flatMap(\.items)
@@ -222,7 +226,7 @@ struct NoteWriterPanelView: View {
 
     /// Persist content if non-empty. Called automatically on dismiss.
     @discardableResult
-    private func saveContent(notifyCreated: Bool = true) -> Item? {
+    private func saveContent(notifyCreated: Bool = true) -> ItemGraph? {
         guard !isEditingDeletedItem else { return nil }
 
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -232,12 +236,15 @@ struct NoteWriterPanelView: View {
         let noteTitle = trimmedTitle.isEmpty ? "Untitled Note" : trimmedTitle
         let noteContent = trimmedContent.isEmpty ? nil : trimmedContent
 
-        if let existingNote = editingItem ?? savedDraftItem {
-            existingNote.title = noteTitle
-            existingNote.content = noteContent
-            existingNote.updatedAt = .now
+        if let existingNoteID = editingItem?.id ?? savedDraftItemID {
             do {
-                try modelContext.save()
+                _ = try database.write { db in
+                    try Item.modify(existingNoteID, in: db) {
+                        $0.title = noteTitle
+                        $0.content = noteContent
+                        $0.updatedAt = .now
+                    }
+                }
                 saveError = nil
             } catch {
                 saveError = "Your note could not be saved. Please try again."
@@ -245,32 +252,37 @@ struct NoteWriterPanelView: View {
             }
             // The editor runs with `sourceItem: nil`, so autocomplete never creates
             // connections here — sync typed [[wiki links]] into connections on save.
-            WikiLinkSync.sync(item: existingNote, modelContext: modelContext)
+            WikiLinkSync.sync(existingNoteID, database: database)
+            guard let existingNote = savedNote(existingNoteID) else { return nil }
             if notifyCreated { onCreated?(existingNote) }
             return existingNote
         } else {
-            let board: Board? = currentBoardID.flatMap { id in
-                boards.first(where: { $0.id == id })
-            }
-            let note = Item(title: noteTitle, type: .note)
-            note.status = .active
-            note.content = noteContent
-            note.updatedAt = .now
-            modelContext.insert(note)
-            if let board { note.boards.append(board) }
+            var draft = Item(title: noteTitle, type: .note)
+            draft.status = .active
+            draft.content = noteContent
+            draft.updatedAt = .now
+            draft.boardID = library.board(currentBoardID)?.id
+            let row = draft
             do {
-                try modelContext.save()
+                try database.write { db in
+                    try Item.insert { row }.execute(db)
+                }
                 saveError = nil
             } catch {
-                modelContext.delete(note)
                 saveError = "Your note could not be saved. Please try again."
                 return nil
             }
-            savedDraftItem = note
-            WikiLinkSync.sync(item: note, modelContext: modelContext)
+            savedDraftItemID = row.id
+            WikiLinkSync.sync(row.id, database: database)
+            let note = savedNote(row.id) ?? ItemGraph(item: row)
             if notifyCreated { onCreated?(note) }
             return note
         }
+    }
+
+    /// The note as saved, with the connections the wiki-link sync just wrote.
+    private func savedNote(_ noteID: Item.ID) -> ItemGraph? {
+        database.attemptRead { try ItemGraph.fetch(noteID, in: $0) } ?? nil
     }
 
     private func configureInitialContent() {

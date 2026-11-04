@@ -1,33 +1,31 @@
 import Foundation
-import SwiftData
+import SQLiteData
 
-extension Legacy {
-    /// Learning choices belong to the synced library. Notification delivery and
-    /// transient window/session layout remain local to each device.
-    @Model
-    final class UserLearningPreferences {
-        var id: UUID = UUID(uuidString: "2776BFF0-9131-4BA7-9F43-9809986417D1")!
-        var focusBoardIDs: [UUID] = []
-        var sessionMinutes: Int = 3
-        var updatedAt: Date = Date.now
+/// Learning choices belong to the synced library. Notification delivery and
+/// transient window/session layout remain local to each device.
+@Table("learningPreferences")
+struct LearningPreferences: Hashable, Identifiable, Sendable {
+    let id: UUID
+    @Column(as: [UUID].JSONRepresentation.self)
+    var focusBoardIDs: [UUID] = []
+    var sessionMinutes: Int = 3
+    var updatedAt: Date = .now
+}
 
-        init(focusBoardIDs: [UUID] = [], sessionMinutes: Int = 3) {
-            self.focusBoardIDs = focusBoardIDs
-            self.sessionMinutes = sessionMinutes
-        }
+extension LearningPreferences {
+    /// The one row a library has. Two devices can each create it, so sync has to
+    /// meet on the same ID.
+    static let sharedID = UUID(uuidString: "2776BFF0-9131-4BA7-9F43-9809986417D1")!
 
-        var sessionCardLimit: Int {
-            switch sessionMinutes {
-            case ...1: 2
-            case 2...3: 5
-            default: 8
-            }
+    init(focusBoardIDs: [UUID] = [], sessionMinutes: Int = 3) {
+        self.init(id: Self.sharedID, focusBoardIDs: focusBoardIDs, sessionMinutes: sessionMinutes)
+    }
+
+    var sessionCardLimit: Int {
+        switch sessionMinutes {
+        case ...1: 2
+        case 2...3: 5
+        default: 8
         }
     }
 }
-
-typealias UserLearningPreferences = Legacy.UserLearningPreferences
-
-/// The stored entity is named `UserLearningPreferences` so it sorts after every 2.0 entity.
-/// Read "Migration Limits" in SharedModelContainer.swift before adding a model.
-typealias LearningPreferences = UserLearningPreferences

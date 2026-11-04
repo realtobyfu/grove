@@ -8,15 +8,18 @@ import SwiftUI
 /// page number, hover darkens the ink, and keyboard focus draws a 2pt left
 /// rule instead of filling the row.
 ///
+/// An item is on at most one board, so this is a single choice in both modes:
+/// choosing a board moves the item there.
+///
 /// Two modes:
-/// - `.add` appends board membership (inbox triage, capture, reader FAB).
-/// - `.move` replaces membership and offers an explicit "Unfiled" target
+/// - `.add` files one item (inbox triage, capture, reader FAB).
+/// - `.move` moves every selected item and offers an explicit "Unfiled" target
 ///   (library multi-select).
 struct BoardPickerView: View {
     enum Mode {
-        /// Append the chosen board to the item's existing boards.
+        /// File the item on the chosen board, moving it off any other.
         case add
-        /// Replace membership with the chosen board (or clear it via Unfiled).
+        /// Move the items to the chosen board (or clear it via Unfiled).
         case move
     }
 
@@ -27,16 +30,16 @@ struct BoardPickerView: View {
         case popover
     }
 
-    let boards: [Board]
+    let boards: [BoardGraph]
     var mode: Mode = .add
     var chrome: Chrome = .sheet
     /// Name proposed by the suggestion engine — seeds the "Create" row.
     var suggestedName: String = ""
     var recommendedBoardID: UUID? = nil
     var alternativeBoardIDs: [UUID] = []
-    var onSelect: (Board) -> Void
+    var onSelect: (BoardGraph) -> Void
     var onCreate: ((String) -> Void)? = nil
-    /// `.move` only: clear board membership entirely.
+    /// Clear board membership entirely. Runs for the Unfiled row in `.move`.
     var onSelectUnfiled: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
@@ -48,7 +51,7 @@ struct BoardPickerView: View {
 
     private enum Entry: Identifiable {
         case unfiled
-        case board(Board)
+        case board(BoardGraph)
         case create(String)
 
         var id: String {
@@ -81,7 +84,7 @@ struct BoardPickerView: View {
         return BoardSuggestionEngine.cleanedBoardName(candidate)
     }
 
-    private var exactExistingBoard: Board? {
+    private var exactExistingBoard: BoardGraph? {
         guard !boardNameCandidate.isEmpty else { return nil }
         // Match against selectable boards only: a smart board's name would
         // suppress the Create row while offering no row to click instead.
@@ -93,12 +96,12 @@ struct BoardPickerView: View {
     }
 
     /// Non-smart boards only — smart boards are rule-driven, nothing to file into.
-    private var selectableBoards: [Board] {
+    private var selectableBoards: [BoardGraph] {
         boards.filter { !$0.isSmart }
     }
 
-    private var rankedBoards: [Board] {
-        let filtered: [Board]
+    private var rankedBoards: [BoardGraph] {
+        let filtered: [BoardGraph]
         if normalizedQuery.isEmpty {
             filtered = selectableBoards
         } else {
@@ -122,7 +125,7 @@ struct BoardPickerView: View {
     }
 
     /// The board pinned into the BEST MATCH section, when it survives the search filter.
-    private var bestMatchBoard: Board? {
+    private var bestMatchBoard: BoardGraph? {
         guard let recommendedBoardID else { return nil }
         return rankedBoards.first { $0.id == recommendedBoardID }
     }
@@ -413,7 +416,8 @@ struct BoardPickerView: View {
 // MARK: - Row
 
 /// One line of the table of contents: glyph, title, page-number count.
-/// Hover darkens the ink; focus adds a 2pt left rule. Never a filled row.
+/// Hover and the item's current board darken the ink; focus adds a 2pt left
+/// rule. Never a filled row.
 private struct BoardPickerRow: View {
     let glyph: String
     let title: String
@@ -481,7 +485,7 @@ private struct BoardPickerRow: View {
 /// every picker surface ranks the same way.
 enum BoardRanking {
     static func rank(
-        _ board: Board,
+        _ board: BoardGraph,
         recommendedBoardID: UUID?,
         prioritizedBoardIDs: [UUID],
         suggestedName: String,
@@ -531,10 +535,10 @@ enum BoardRanking {
     /// Boards worth offering as one-click chips for an item: the recommended
     /// board first, then the engine's alternates. Smart boards excluded.
     static func suggestedBoards(
-        for item: Item,
-        from boards: [Board],
+        for item: ItemGraph,
+        from boards: [BoardGraph],
         limit: Int = 3
-    ) -> [Board] {
+    ) -> [BoardGraph] {
         let decision = BoardSuggestionMetadata.decision(from: item)
         var orderedIDs: [UUID] = []
         if let recommended = decision?.recommendedBoardID {
@@ -544,7 +548,7 @@ enum BoardRanking {
             orderedIDs.append(id)
         }
 
-        var result: [Board] = orderedIDs.compactMap { id in
+        var result: [BoardGraph] = orderedIDs.compactMap { id in
             boards.first { $0.id == id && !$0.isSmart }
         }
 

@@ -1,6 +1,8 @@
 import Foundation
-import SwiftData
+import SQLiteData
 
+/// Takes the database per call rather than holding it: `shared` is created while
+/// `GroveApp`'s properties initialize, before the database is set up.
 @MainActor
 @Observable
 final class FeedFetchService {
@@ -16,7 +18,7 @@ final class FeedFetchService {
     private(set) var isRefreshing = false
     private var lastRefreshAt: Date?
 
-    func refreshIfNeeded(in context: ModelContext) async {
+    func refreshIfNeeded(database: any DatabaseWriter = AppDatabase.current) async {
         guard !isRefreshing else { return }
         if let last = lastRefreshAt,
            Date.now.timeIntervalSince(last) < Self.refreshIntervalSeconds {
@@ -26,30 +28,28 @@ final class FeedFetchService {
         isRefreshing = true
         defer { isRefreshing = false }
 
-        expireOldSuggestions(in: context)
-        await fetchAllFeeds(in: context)
+        expireOldSuggestions(in: database)
+        await fetchAllFeeds(in: database)
         lastRefreshAt = .now
     }
 
     /// Fetches a single source immediately, bypassing the refresh-interval
     /// throttle. Used right after the user subscribes so the feed's first
     /// posts appear without waiting for the next background cycle.
-    func fetchNow(_ source: FeedSource, in context: ModelContext) async {
-        var existingURLs = existingSuggestedURLs(in: context)
-        _ = await fetchFeed(source, existingURLs: &existingURLs, in: context)
-        try? context.save()
+    func fetchNow(_ sourceID: FeedSource.ID, database: any DatabaseWriter = AppDatabase.current) async {
+        guard let source = database.attemptRead({ try FeedSource.find(sourceID).fetchOne($0) }) ?? nil else { return }
+        var existingURLs = existingSuggestedURLs(in: database)
+        _ = await fetchFeed(source, existingURLs: &existingURLs, in: database)
     }
 
     // MARK: - Fetch All Feeds
 
-    private func fetchAllFeeds(in context: ModelContext) async {
-        var descriptor = FetchDescriptor<FeedSource>()
-        descriptor.predicate = #Predicate<FeedSource> { source in
-            source.isEnabled == true
-        }
-        guard let sources = try? context.fetch(descriptor) else { return }
+    private func fetchAllFeeds(in database: any DatabaseWriter) async {
+        guard let sources = database.attemptRead({ db in
+            try FeedSource.where { $0.isEnabled }.fetchAll(db)
+        }) else { return }
 
-        var existingURLs = existingSuggestedURLs(in: context)
+        var existingURLs = existingSuggestedURLs(in: database)
         var totalCreated = 0
 
         for source in sources {
@@ -64,22 +64,20 @@ final class FeedFetchService {
                 continue
             }
 
-            let created = await fetchFeed(source, existingURLs: &existingURLs, in: context)
+            let created = await fetchFeed(source, existingURLs: &existingURLs, in: database)
             if !source.isUserSubscribed {
                 totalCreated += created
             }
         }
-
-        try? context.save()
     }
 
     private func fetchFeed(
         _ source: FeedSource,
         existingURLs: inout Set<String>,
-        in context: ModelContext
+        in database: any DatabaseWriter
     ) async -> Int {
         guard let url = URL(string: source.feedURL) else {
-            source.errorCount += 1
+            recordFailure(source.id, in: database)
             return 0
         }
 
@@ -90,20 +88,12 @@ final class FeedFetchService {
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               let httpResponse = response as? HTTPURLResponse,
               (200..<300).contains(httpResponse.statusCode) else {
-            source.errorCount += 1
+            recordFailure(source.id, in: database)
             return 0
         }
 
-        // Reset error count on success
-        source.errorCount = 0
-        source.lastFetchedAt = .now
-
-        // Update feed title if we don't have one yet
-        if source.title == nil {
-            source.title = Self.extractFeedTitle(from: data)
-        }
-
         let articles = FeedParserService.parse(data: data)
+        var newItems: [Item] = []
         var created = 0
 
         // Subscribed feeds keep their full recent history; auto-discovered
@@ -123,7 +113,7 @@ final class FeedFetchService {
             // already-saved article (e.g. ?utm_source=rss) don't slip through.
             guard !existingURLs.contains(CaptureService.normalizedURLString(article.url)) else { continue }
 
-            let item = Item(title: article.title, type: .article)
+            var item = Item(title: article.title, type: .article)
             item.sourceURL = article.url
             item.status = .inbox
             // The feed description is an excerpt (often the issue's own
@@ -144,48 +134,72 @@ final class FeedFetchService {
                 item.metadata["author"] = author
             }
 
-            context.insert(item)
+            newItems.append(item)
             existingURLs.insert(CaptureService.normalizedURLString(article.url))
             created += 1
         }
 
+        // The fetch was a suspension point, so `source` may be out of date: only
+        // what this fetch learned is written, onto the row as it stands now.
+        database.attempt { db in
+            try FeedSource.modify(source.id, in: db) { source in
+                // Reset error count on success
+                source.errorCount = 0
+                source.lastFetchedAt = .now
+
+                // Update feed title if we don't have one yet
+                if source.title == nil {
+                    source.title = Self.extractFeedTitle(from: data)
+                }
+            }
+            for item in newItems {
+                try Item.insert { item }.execute(db)
+            }
+        }
+
         return created
+    }
+
+    private func recordFailure(_ sourceID: FeedSource.ID, in database: any DatabaseWriter) {
+        database.attempt { db in
+            try FeedSource.modify(sourceID, in: db) { $0.errorCount += 1 }
+        }
     }
 
     // MARK: - Deduplication
 
     /// All source URLs already in the library. Built once per refresh cycle;
     /// URLs created during the cycle are appended by the caller.
-    private func existingSuggestedURLs(in context: ModelContext) -> Set<String> {
-        let descriptor = FetchDescriptor<Item>()
-        guard let items = try? context.fetch(descriptor) else { return [] }
+    private func existingSuggestedURLs(in database: any DatabaseWriter) -> Set<String> {
+        guard let items = database.attemptRead({ try Item.all.fetchAll($0) }) else { return [] }
         return Set(items.compactMap(\.sourceURL).map(CaptureService.normalizedURLString))
     }
 
     // MARK: - Expiration
 
-    private func expireOldSuggestions(in context: ModelContext) {
-        let descriptor = FetchDescriptor<Item>()
-        guard let items = try? context.fetch(descriptor) else { return }
-
+    private func expireOldSuggestions(in database: any DatabaseWriter) {
         let cutoff = Calendar.current.date(byAdding: .day, value: -Self.suggestionExpiryDays, to: .now) ?? .now
 
-        for item in items {
-            guard item.isFeedSuggestion,
-                  item.createdAt < cutoff else { continue }
-            if item.isNewsletterIssue {
-                // Newsletter issues stay browsable as history in the
-                // Newsletters section; expiry just clears their unread state.
-                guard !item.isFeedIssueRead else { continue }
-                item.isFeedIssueRead = true
-            } else if item.metadata["suggestionDismissed"] != "true" {
-                item.metadata["suggestionDismissed"] = "true"
-                if item.status == .inbox {
-                    // Archive rather than dismiss. Nothing in the app surfaces
-                    // `.dismissed`, so dismissing here stranded expired items
-                    // permanently out of reach; `.archived` keeps them
-                    // browsable under Library's archived filter.
-                    item.status = .archived
+        database.attempt { db in
+            for item in try Item.all.fetchAll(db) {
+                guard item.isFeedSuggestion,
+                      item.createdAt < cutoff else { continue }
+                if item.isNewsletterIssue {
+                    // Newsletter issues stay browsable as history in the
+                    // Newsletters section; expiry just clears their unread state.
+                    guard !item.isFeedIssueRead else { continue }
+                    try Item.modify(item.id, in: db) { $0.isFeedIssueRead = true }
+                } else if item.metadata["suggestionDismissed"] != "true" {
+                    try Item.modify(item.id, in: db) { item in
+                        item.metadata["suggestionDismissed"] = "true"
+                        if item.status == .inbox {
+                            // Archive rather than dismiss. Nothing in the app surfaces
+                            // `.dismissed`, so dismissing here stranded expired items
+                            // permanently out of reach; `.archived` keeps them
+                            // browsable under Library's archived filter.
+                            item.status = .archived
+                        }
+                    }
                 }
             }
         }

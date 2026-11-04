@@ -1,5 +1,5 @@
 import SwiftUI
-import SwiftData
+import SQLiteData
 import PDFKit
 #if os(macOS)
 import AppKit
@@ -16,12 +16,12 @@ import UIKit
 /// renders it — but selection, find, Reader mode and reading progress are all
 /// silently dead there, which is the whole reason this exists.
 struct PDFReaderPanel: View {
-    let item: Item
+    let item: ItemGraph
     /// Back to the item overview. Absent on surfaces that already carry their
     /// own navigation (iOS pushes the reader as a screen of its own).
     var onExit: (() -> Void)? = nil
 
-    @Environment(\.modelContext) private var modelContext
+    @Dependency(\.defaultDatabase) private var database
     @Environment(\.openURL) private var openURL
 
     private enum LoadState {
@@ -33,9 +33,9 @@ struct PDFReaderPanel: View {
     @State private var state: LoadState = .loading
     @State private var currentPageIndex = 0
     @State private var pageCount = 0
-    /// Mirrors ItemReaderViewModel.updateReadingProgress: the model is only
-    /// dirtied past a meaningful delta, so paging through a long document
-    /// doesn't fan out an observation invalidation per page. Seeded from the
+    /// Mirrors ItemReaderViewModel.updateReadingProgress: the row is only
+    /// written past a meaningful delta, so paging through a long document
+    /// doesn't wake every library observer per page. Seeded from the
     /// stored value in `load()`, so the first write has to genuinely differ
     /// from what is already persisted.
     @State private var lastSavedProgress: Double = -1
@@ -213,8 +213,9 @@ struct PDFReaderPanel: View {
         }
 
         if item.metadata["pdfCached"] != "true" {
-            item.metadata["pdfCached"] = "true"
-            try? modelContext.save()
+            database.attempt { db in
+                try Item.modify(item.id, in: db) { $0.metadata["pdfCached"] = "true" }
+            }
         }
         state = .loaded(document)
     }
@@ -228,8 +229,11 @@ struct PDFReaderPanel: View {
         let fraction = min(max(Double(pageIndex) / Double(max(pageCount - 1, 1)), 0), 1)
         guard abs(fraction - lastSavedProgress) >= 0.05 || fraction >= 0.995 else { return }
         lastSavedProgress = fraction
-        item.metadata["readingProgress"] = String(format: "%.3f", fraction)
-        try? modelContext.save()
+        database.attempt { db in
+            try Item.modify(item.id, in: db) {
+                $0.metadata["readingProgress"] = String(format: "%.3f", fraction)
+            }
+        }
     }
 
     // MARK: - Actions

@@ -189,7 +189,7 @@ enum StarterLLMGenerator {
     /// One item as the model sees it: type annotation plus a title with the
     /// publication suffix removed.
     @MainActor
-    private static func describe(_ item: Item) -> String {
+    private static func describe(_ item: ItemGraph) -> String {
         "(\(item.type.llmLabel)) \"\(trimmedTitle(item.title))\""
     }
 
@@ -197,7 +197,7 @@ enum StarterLLMGenerator {
     /// the person's own reflection first, then a stored summary, then the
     /// content itself. Nil when the title is all there is.
     @MainActor
-    static func grounding(for item: Item) -> String? {
+    static func grounding(for item: ItemGraph) -> String? {
         let reflection = item.reflections
             .sorted { $0.position < $1.position }
             .lazy

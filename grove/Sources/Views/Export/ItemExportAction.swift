@@ -13,7 +13,7 @@ import AppKit
 @MainActor
 enum ItemExportAction {
 
-    static func exportAsMarkdown(_ item: Item) {
+    static func exportAsMarkdown(_ item: ItemGraph) {
         #if os(macOS)
         guard let url = ExportService.showSavePanel(filename: item.title) else { return }
         guard let data = ExportService.exportItem(item) else {

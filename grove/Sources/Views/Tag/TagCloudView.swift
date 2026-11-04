@@ -3,8 +3,8 @@ import SwiftUI
 /// Extracted from TagBrowserView — tag cloud / tag list display with category sections,
 /// tag pills with children, new tag form, and merge suggestion banner.
 struct TagCloudView: View {
-    let allTags: [Tag]
-    let groupedTags: [(TagCategory, [Tag])]
+    let allTags: [TagGraph]
+    let groupedTags: [(TagCategory, [TagGraph])]
     let mergeSuggestions: [TagMergeSuggestion]
     let showMergeSuggestions: Bool
 
@@ -13,7 +13,7 @@ struct TagCloudView: View {
     @Binding var newTagCategory: TagCategory
     @Binding var showMergeSuggestionsSheet: Bool
 
-    let onSelectTag: (Tag) -> Void
+    let onSelectTag: (TagGraph) -> Void
     let onCreateTag: () -> Void
 
     var body: some View {
@@ -145,7 +145,7 @@ struct TagCloudView: View {
 
     // MARK: - Category Section
 
-    private func tagCategorySection(category: TagCategory, tags: [Tag]) -> some View {
+    private func tagCategorySection(category: TagCategory, tags: [TagGraph]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: category.iconName)
@@ -169,7 +169,7 @@ struct TagCloudView: View {
     // MARK: - Tag Pill with Children
 
     @ViewBuilder
-    private func tagPillWithChildren(tag: Tag) -> some View {
+    private func tagPillWithChildren(tag: TagGraph) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             TagPillView(tag: tag, showTrend: true) {
                 onSelectTag(tag)
@@ -183,7 +183,7 @@ struct TagCloudView: View {
                         .frame(width: 1)
                         .padding(.leading, 10)
                     FlowLayout(spacing: 4) {
-                        ForEach(tag.childTags.sorted(by: { $0.name < $1.name })) { child in
+                        ForEach(childGraphs(of: tag).sorted(by: { $0.name < $1.name })) { child in
                             TagPillView(tag: child, showTrend: true, isChild: true) {
                                 onSelectTag(child)
                             }
@@ -193,5 +193,11 @@ struct TagCloudView: View {
                 }
             }
         }
+    }
+
+    /// `childTags` are rows, and a pill needs the graph for its count and trend.
+    private func childGraphs(of tag: TagGraph) -> [TagGraph] {
+        let childIDs = Set(tag.childTags.map(\.id))
+        return allTags.filter { childIDs.contains($0.id) }
     }
 }

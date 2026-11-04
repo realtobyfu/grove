@@ -1,5 +1,5 @@
 import Foundation
-import SwiftData
+import SQLiteData
 
 /// Callback type for board suggestion events, replacing the NotificationCenter notification.
 typealias BoardSuggestionCallback = @MainActor @Sendable (UUID, BoardSuggestionDecision, Bool) -> Void
@@ -9,27 +9,29 @@ typealias BoardSuggestionCallback = @MainActor @Sendable (UUID, BoardSuggestionD
 @MainActor
 @Observable
 final class ItemAutoTagger {
+    private let database: any DatabaseWriter
 
     /// Optional callback invoked when a board suggestion is generated.
     /// Parameters: (itemID, decision, isColdStart)
     var onBoardSuggestion: BoardSuggestionCallback?
 
-    init(onBoardSuggestion: BoardSuggestionCallback? = nil) {
+    init(
+        database: any DatabaseWriter = AppDatabase.current,
+        onBoardSuggestion: BoardSuggestionCallback? = nil
+    ) {
+        self.database = database
         self.onBoardSuggestion = onBoardSuggestion
     }
 
     /// Runs auto-tagging on an item.
     /// If AI is configured, delegates to AutoTagService.
     /// Otherwise, performs cold-start heuristic board suggestions.
-    func autoTagItem(itemID: UUID, context: ModelContext) async {
-        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-        guard let item = try? context.fetch(descriptor).first else { return }
-
+    func autoTagItem(itemID: UUID) async {
         if LLMServiceConfig.isConfigured {
-            let service = AutoTagService()
-            await service.tagItem(item, in: context)
+            let service = AutoTagService(database: database)
+            await service.tagItem(itemID)
         } else {
-            await coldStartHeuristic(item: item, context: context)
+            await coldStartHeuristic(itemID: itemID)
         }
     }
 
@@ -37,10 +39,11 @@ final class ItemAutoTagger {
 
     /// When no LLM is configured and no boards exist, suggest a board name
     /// derived from the item title for the first few captures.
-    private func coldStartHeuristic(item: Item, context: ModelContext) async {
-        let boardDescriptor = FetchDescriptor<Board>()
-        let allBoards = (try? context.fetch(boardDescriptor)) ?? []
-        guard allBoards.isEmpty else { return }
+    private func coldStartHeuristic(itemID: UUID) async {
+        let snapshot = database.attemptRead { db in
+            (item: try ItemGraph.fetch(itemID, in: db), boardCount: try Board.all.fetchCount(db))
+        }
+        guard let item = snapshot?.item, snapshot?.boardCount == 0 else { return }
 
         let captureCount = UserDefaults.standard.integer(forKey: "grove.coldStartCaptureCount")
         guard captureCount < 3 else { return }
@@ -57,10 +60,11 @@ final class ItemAutoTagger {
         let decision = suggestionEngine.resolveSuggestion(
             for: item,
             suggestedName: suggestedName,
-            boards: allBoards
+            boards: []
         )
-        BoardSuggestionMetadata.apply(decision, to: item)
-        try? context.save()
+        database.attempt { db in
+            try Item.modify(itemID, in: db) { BoardSuggestionMetadata.apply(decision, to: &$0) }
+        }
 
         // Use callback if provided, otherwise fall back to notification
         if let callback = onBoardSuggestion {

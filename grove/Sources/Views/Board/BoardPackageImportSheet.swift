@@ -1,11 +1,10 @@
+import SQLiteData
 import SwiftUI
-import SwiftData
 
 struct BoardPackageImportSheet: View {
     let package: GrovePackage
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var modelContext
-    @Query private var allItems: [Item]
+    @Fetch(Library.Request()) private var library = Library()
     @State private var previews: [ImportPreviewItem] = []
     @State private var importError: String?
     @State private var isImporting = false
@@ -118,7 +117,7 @@ struct BoardPackageImportSheet: View {
         .onAppear {
             previews = BoardPackageService.buildImportPreview(
                 package: package,
-                existingItems: allItems
+                existingItems: library.items
             )
         }
     }
@@ -181,8 +180,7 @@ struct BoardPackageImportSheet: View {
         do {
             _ = try BoardPackageService.importPackage(
                 package: package,
-                decisions: previews,
-                modelContext: modelContext
+                decisions: previews
             )
             dismiss()
         } catch {

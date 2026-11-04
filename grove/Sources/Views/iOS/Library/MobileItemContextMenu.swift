@@ -1,12 +1,12 @@
+import SQLiteData
 import SwiftUI
-import SwiftData
 
 /// Context menu for item cards on iOS — provides Open, Add to Board,
 /// Archive, Discuss, Share, and Delete actions with confirmation.
 struct MobileItemContextMenu: ViewModifier {
-    let item: Item
-    @Environment(\.modelContext) private var modelContext
-    @Query(sort: \Board.sortOrder) private var boards: [Board]
+    let item: ItemGraph
+    @Dependency(\.defaultDatabase) private var database
+    @FetchAll(Board.order(by: \.sortOrder)) private var boards
 
     @State private var showDeleteConfirmation = false
 
@@ -17,8 +17,8 @@ struct MobileItemContextMenu: ViewModifier {
                 Menu {
                     ForEach(boards) { board in
                         Button {
-                            let viewModel = ItemViewModel(modelContext: modelContext)
-                            viewModel.assignToBoard(item, board: board)
+                            let viewModel = ItemViewModel()
+                            viewModel.assignToBoard(item.id, board: board)
                         } label: {
                             Label(board.title, systemImage: board.icon ?? "folder")
                         }
@@ -31,9 +31,12 @@ struct MobileItemContextMenu: ViewModifier {
 
                 // Archive
                 Button {
-                    item.status = .archived
-                    item.updatedAt = .now
-                    try? modelContext.save()
+                    database.attempt { db in
+                        try Item.modify(item.id, in: db) {
+                            $0.status = .archived
+                            $0.updatedAt = .now
+                        }
+                    }
                 } label: {
                     Label("Archive", systemImage: "archivebox")
                 }
@@ -73,8 +76,8 @@ struct MobileItemContextMenu: ViewModifier {
             }
             .alert("Delete Item?", isPresented: $showDeleteConfirmation) {
                 Button("Delete", role: .destructive) {
-                    let viewModel = ItemViewModel(modelContext: modelContext)
-                    viewModel.deleteItem(item)
+                    let viewModel = ItemViewModel()
+                    viewModel.deleteItem(item.id)
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
@@ -84,7 +87,7 @@ struct MobileItemContextMenu: ViewModifier {
 }
 
 extension View {
-    func mobileItemContextMenu(item: Item) -> some View {
+    func mobileItemContextMenu(item: ItemGraph) -> some View {
         modifier(MobileItemContextMenu(item: item))
     }
 }

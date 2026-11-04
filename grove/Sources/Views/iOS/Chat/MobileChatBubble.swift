@@ -1,5 +1,4 @@
 import SwiftUI
-import SwiftData
 
 /// Individual chat message bubble with role-based styling.
 /// User messages right-aligned (dark bg), assistant left-aligned (light bg).

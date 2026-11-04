@@ -94,23 +94,23 @@ enum LegacyStoreImporter {
         let queue = try DatabaseQueue(path: url.path(percentEncoded: false), configuration: AppDatabase.configuration())
         try AppDatabase.migrator.migrate(queue)
         try queue.write { db in
-            for row in snapshot.boards { try DB.Board.insert { row }.execute(db) }
-            for row in snapshot.items { try DB.Item.insert { row }.execute(db) }
-            for row in snapshot.thumbnails { try DB.ItemThumbnail.insert { row }.execute(db) }
-            for row in snapshot.tags { try DB.Tag.insert { row }.execute(db) }
-            for row in snapshot.itemTags { try DB.ItemTag.insert { row }.execute(db) }
-            for row in snapshot.smartRuleTags { try DB.BoardSmartRuleTag.insert { row }.execute(db) }
-            for row in snapshot.connections { try DB.Connection.insert { row }.execute(db) }
-            for row in snapshot.annotations { try DB.Annotation.insert { row }.execute(db) }
-            for row in snapshot.conversations { try DB.Conversation.insert { row }.execute(db) }
-            for row in snapshot.reflections { try DB.ReflectionBlock.insert { row }.execute(db) }
-            for row in snapshot.messages { try DB.ChatMessage.insert { row }.execute(db) }
-            for row in snapshot.nudges { try DB.Nudge.insert { row }.execute(db) }
-            for row in snapshot.feedSources { try DB.FeedSource.insert { row }.execute(db) }
-            for row in snapshot.flashcards { try DB.Flashcard.insert { row }.execute(db) }
-            for row in snapshot.reviews { try DB.FlashcardReview.insert { row }.execute(db) }
-            for row in snapshot.preferences { try DB.LearningPreferences.insert { row }.execute(db) }
-            for row in snapshot.extraBoardLinks { try DB.ExtraBoardLink.insert { row }.execute(db) }
+            for row in snapshot.boards { try Board.insert { row }.execute(db) }
+            for row in snapshot.items { try Item.insert { row }.execute(db) }
+            for row in snapshot.thumbnails { try ItemThumbnail.insert { row }.execute(db) }
+            for row in snapshot.tags { try Tag.insert { row }.execute(db) }
+            for row in snapshot.itemTags { try ItemTag.insert { row }.execute(db) }
+            for row in snapshot.smartRuleTags { try BoardSmartRuleTag.insert { row }.execute(db) }
+            for row in snapshot.connections { try Connection.insert { row }.execute(db) }
+            for row in snapshot.annotations { try Annotation.insert { row }.execute(db) }
+            for row in snapshot.conversations { try Conversation.insert { row }.execute(db) }
+            for row in snapshot.reflections { try ReflectionBlock.insert { row }.execute(db) }
+            for row in snapshot.messages { try ChatMessage.insert { row }.execute(db) }
+            for row in snapshot.nudges { try Nudge.insert { row }.execute(db) }
+            for row in snapshot.feedSources { try FeedSource.insert { row }.execute(db) }
+            for row in snapshot.flashcards { try Flashcard.insert { row }.execute(db) }
+            for row in snapshot.reviews { try FlashcardReview.insert { row }.execute(db) }
+            for row in snapshot.preferences { try LearningPreferences.insert { row }.execute(db) }
+            for row in snapshot.extraBoardLinks { try ExtraBoardLink.insert { row }.execute(db) }
         }
         try queue.close()
     }
@@ -139,29 +139,29 @@ enum LegacyStoreImporter {
                     }
                 }
             }
-            try expect("boards", DB.Board.select(\.id).fetchAll(db), snapshot.boards.map(\.id))
-            try expect("items", DB.Item.select(\.id).fetchAll(db), snapshot.items.map(\.id))
-            try expect("itemThumbnails", DB.ItemThumbnail.select(\.itemID).fetchAll(db), snapshot.thumbnails.map(\.itemID))
-            try expect("tags", DB.Tag.select(\.id).fetchAll(db), snapshot.tags.map(\.id))
-            try expect("itemTags", DB.ItemTag.select(\.id).fetchAll(db), snapshot.itemTags.map(\.id))
-            try expect("boardSmartRuleTags", DB.BoardSmartRuleTag.select(\.id).fetchAll(db), snapshot.smartRuleTags.map(\.id))
-            try expect("connections", DB.Connection.select(\.id).fetchAll(db), snapshot.connections.map(\.id))
-            try expect("annotations", DB.Annotation.select(\.id).fetchAll(db), snapshot.annotations.map(\.id))
-            try expect("reflectionBlocks", DB.ReflectionBlock.select(\.id).fetchAll(db), snapshot.reflections.map(\.id))
-            try expect("conversations", DB.Conversation.select(\.id).fetchAll(db), snapshot.conversations.map(\.id))
-            try expect("chatMessages", DB.ChatMessage.select(\.id).fetchAll(db), snapshot.messages.map(\.id))
-            try expect("nudges", DB.Nudge.select(\.id).fetchAll(db), snapshot.nudges.map(\.id))
-            try expect("feedSources", DB.FeedSource.select(\.id).fetchAll(db), snapshot.feedSources.map(\.id))
-            try expect("flashcards", DB.Flashcard.select(\.id).fetchAll(db), snapshot.flashcards.map(\.id))
-            try expect("flashcardReviews", DB.FlashcardReview.select(\.id).fetchAll(db), snapshot.reviews.map(\.id))
-            try expect("learningPreferences", DB.LearningPreferences.select(\.id).fetchAll(db), snapshot.preferences.map(\.id))
-            try expect("extraBoardLinks", DB.ExtraBoardLink.select(\.id).fetchAll(db), snapshot.extraBoardLinks.map(\.id))
+            try expect("boards", Board.select(\.id).fetchAll(db), snapshot.boards.map(\.id))
+            try expect("items", Item.select(\.id).fetchAll(db), snapshot.items.map(\.id))
+            try expect("itemThumbnails", ItemThumbnail.select(\.itemID).fetchAll(db), snapshot.thumbnails.map(\.itemID))
+            try expect("tags", Tag.select(\.id).fetchAll(db), snapshot.tags.map(\.id))
+            try expect("itemTags", ItemTag.select(\.id).fetchAll(db), snapshot.itemTags.map(\.id))
+            try expect("boardSmartRuleTags", BoardSmartRuleTag.select(\.id).fetchAll(db), snapshot.smartRuleTags.map(\.id))
+            try expect("connections", Connection.select(\.id).fetchAll(db), snapshot.connections.map(\.id))
+            try expect("annotations", Annotation.select(\.id).fetchAll(db), snapshot.annotations.map(\.id))
+            try expect("reflectionBlocks", ReflectionBlock.select(\.id).fetchAll(db), snapshot.reflections.map(\.id))
+            try expect("conversations", Conversation.select(\.id).fetchAll(db), snapshot.conversations.map(\.id))
+            try expect("chatMessages", ChatMessage.select(\.id).fetchAll(db), snapshot.messages.map(\.id))
+            try expect("nudges", Nudge.select(\.id).fetchAll(db), snapshot.nudges.map(\.id))
+            try expect("feedSources", FeedSource.select(\.id).fetchAll(db), snapshot.feedSources.map(\.id))
+            try expect("flashcards", Flashcard.select(\.id).fetchAll(db), snapshot.flashcards.map(\.id))
+            try expect("flashcardReviews", FlashcardReview.select(\.id).fetchAll(db), snapshot.reviews.map(\.id))
+            try expect("learningPreferences", LearningPreferences.select(\.id).fetchAll(db), snapshot.preferences.map(\.id))
+            try expect("extraBoardLinks", ExtraBoardLink.select(\.id).fetchAll(db), snapshot.extraBoardLinks.map(\.id))
 
             // Every board link the store held, wherever it landed.
             struct Link: Hashable { let itemID: UUID, boardID: UUID }
-            let primary = try DB.Item.where { $0.boardID.isNot(nil) }.fetchAll(db)
+            let primary = try Item.where { $0.boardID.isNot(nil) }.fetchAll(db)
                 .map { Link(itemID: $0.id, boardID: $0.boardID!) }
-            let extra = try DB.ExtraBoardLink.all.fetchAll(db).map { Link(itemID: $0.itemID, boardID: $0.boardID) }
+            let extra = try ExtraBoardLink.all.fetchAll(db).map { Link(itemID: $0.itemID, boardID: $0.boardID) }
             try expect(
                 "board links",
                 primary + extra,
@@ -173,23 +173,23 @@ enum LegacyStoreImporter {
 
 /// Everything in a SwiftData store, as rows for the new tables.
 struct LegacySnapshot {
-    var boards: [DB.Board] = []
-    var items: [DB.Item] = []
-    var thumbnails: [DB.ItemThumbnail] = []
-    var tags: [DB.Tag] = []
-    var itemTags: [DB.ItemTag] = []
-    var smartRuleTags: [DB.BoardSmartRuleTag] = []
-    var connections: [DB.Connection] = []
-    var annotations: [DB.Annotation] = []
-    var reflections: [DB.ReflectionBlock] = []
-    var conversations: [DB.Conversation] = []
-    var messages: [DB.ChatMessage] = []
-    var nudges: [DB.Nudge] = []
-    var feedSources: [DB.FeedSource] = []
-    var flashcards: [DB.Flashcard] = []
-    var reviews: [DB.FlashcardReview] = []
-    var preferences: [DB.LearningPreferences] = []
-    var extraBoardLinks: [DB.ExtraBoardLink] = []
+    var boards: [Board] = []
+    var items: [Item] = []
+    var thumbnails: [ItemThumbnail] = []
+    var tags: [Tag] = []
+    var itemTags: [ItemTag] = []
+    var smartRuleTags: [BoardSmartRuleTag] = []
+    var connections: [Connection] = []
+    var annotations: [Annotation] = []
+    var reflections: [ReflectionBlock] = []
+    var conversations: [Conversation] = []
+    var messages: [ChatMessage] = []
+    var nudges: [Nudge] = []
+    var feedSources: [FeedSource] = []
+    var flashcards: [Flashcard] = []
+    var reviews: [FlashcardReview] = []
+    var preferences: [LearningPreferences] = []
+    var extraBoardLinks: [ExtraBoardLink] = []
     /// Every item-to-board link in the store. An item keeps its first as
     /// `boardID`, and the rest become `extraBoardLinks`.
     var boardLinks: [(itemID: UUID, boardID: UUID)] = []
@@ -236,7 +236,7 @@ struct LegacySnapshot {
         }
 
         boards = legacyBoards.map { board in
-            DB.Board(
+            Board(
                 id: board.id,
                 title: board.title,
                 boardDescription: board.boardDescription,
@@ -261,11 +261,11 @@ struct LegacySnapshot {
             let distinct = linked.filter { seenBoards.insert($0.id).inserted }
             boardLinks += distinct.map { (item.id, $0.id) }
             for board in distinct.dropFirst() {
-                let link = DB.ExtraBoardLink(itemID: item.id, boardID: board.id)
+                let link = ExtraBoardLink(itemID: item.id, boardID: board.id)
                 if extraLinkIDs.insert(link.id).inserted { extraBoardLinks.append(link) }
             }
 
-            items.append(DB.Item(
+            items.append(Item(
                 id: item.id,
                 title: item.title,
                 type: item.type,
@@ -285,10 +285,10 @@ struct LegacySnapshot {
                 boardID: distinct.first?.id
             ))
             if let thumbnail = item.thumbnail {
-                thumbnails.append(DB.ItemThumbnail(itemID: item.id, imageData: thumbnail))
+                thumbnails.append(ItemThumbnail(itemID: item.id, imageData: thumbnail))
             }
             for tag in item.tags {
-                let row = DB.ItemTag(itemID: item.id, tagID: tag.id)
+                let row = ItemTag(itemID: item.id, tagID: tag.id)
                 if itemTagIDs.insert(row.id).inserted { itemTags.append(row) }
             }
         }
@@ -296,13 +296,13 @@ struct LegacySnapshot {
         var smartRuleIDs = Set<UUID>()
         for board in legacyBoards {
             for tag in board.smartRuleTags {
-                let row = DB.BoardSmartRuleTag(boardID: board.id, tagID: tag.id)
+                let row = BoardSmartRuleTag(boardID: board.id, tagID: tag.id)
                 if smartRuleIDs.insert(row.id).inserted { smartRuleTags.append(row) }
             }
         }
 
         tags = legacyTags.map { tag in
-            DB.Tag(
+            Tag(
                 id: tag.id,
                 name: tag.name,
                 isAutoGenerated: tag.isAutoGenerated,
@@ -316,7 +316,7 @@ struct LegacySnapshot {
 
         connections = try unique("connections", Legacy.Connection.self, id: \.id) { $0.createdAt > $1.createdAt }
             .map { connection in
-                DB.Connection(
+                Connection(
                     id: connection.id,
                     sourceItemID: connection.sourceItem?.id,
                     targetItemID: connection.targetItem?.id,
@@ -329,7 +329,7 @@ struct LegacySnapshot {
 
         annotations = try unique("annotations", Legacy.Annotation.self, id: \.id) { $0.createdAt > $1.createdAt }
             .map { annotation in
-                DB.Annotation(
+                Annotation(
                     id: annotation.id,
                     itemID: annotation.item?.id,
                     content: annotation.content,
@@ -341,7 +341,7 @@ struct LegacySnapshot {
 
         reflections = try unique("reflectionBlocks", Legacy.ReflectionBlock.self, id: \.id) { $0.createdAt > $1.createdAt }
             .map { block in
-                DB.ReflectionBlock(
+                ReflectionBlock(
                     id: block.id,
                     itemID: block.item?.id,
                     blockTypeRaw: block.blockTypeRaw,
@@ -356,7 +356,7 @@ struct LegacySnapshot {
 
         conversations = try unique("conversations", Legacy.Conversation.self, id: \.id) { $0.updatedAt > $1.updatedAt }
             .map { conversation in
-                DB.Conversation(
+                Conversation(
                     id: conversation.id,
                     title: conversation.title,
                     trigger: conversation.trigger,
@@ -370,7 +370,7 @@ struct LegacySnapshot {
 
         messages = try unique("chatMessages", Legacy.ChatMessage.self, id: \.id) { $0.createdAt > $1.createdAt }
             .map { message in
-                DB.ChatMessage(
+                ChatMessage(
                     id: message.id,
                     conversationID: message.conversation?.id,
                     role: message.role,
@@ -385,7 +385,7 @@ struct LegacySnapshot {
 
         nudges = try unique("nudges", Legacy.Nudge.self, id: \.id) { $0.createdAt > $1.createdAt }
             .map { nudge in
-                DB.Nudge(
+                Nudge(
                     id: nudge.id,
                     type: nudge.type,
                     targetItemID: nudge.targetItem?.id,
@@ -399,7 +399,7 @@ struct LegacySnapshot {
 
         feedSources = try unique("feedSources", Legacy.FeedSource.self, id: \.id) { $0.createdAt > $1.createdAt }
             .map { source in
-                DB.FeedSource(
+                FeedSource(
                     id: source.id,
                     feedURL: source.feedURL,
                     domain: source.domain,
@@ -415,7 +415,7 @@ struct LegacySnapshot {
 
         flashcards = try unique("flashcards", Legacy.UserFlashcard.self, id: \.id) { $0.updatedAt > $1.updatedAt }
             .map { card in
-                DB.Flashcard(
+                Flashcard(
                     id: card.id,
                     question: card.question,
                     answer: card.answer,
@@ -440,7 +440,7 @@ struct LegacySnapshot {
 
         reviews = try unique("flashcardReviews", Legacy.UserFlashcardReview.self, id: \.id) { $0.reviewedAt > $1.reviewedAt }
             .map { review in
-                DB.FlashcardReview(
+                FlashcardReview(
                     id: review.id,
                     cardID: review.cardID,
                     cardRevision: review.cardRevision,
@@ -457,7 +457,7 @@ struct LegacySnapshot {
         // newest is the one a person last chose.
         preferences = try unique("learningPreferences", Legacy.UserLearningPreferences.self, id: \.id) { $0.updatedAt > $1.updatedAt }
             .map { preferences in
-                DB.LearningPreferences(
+                LearningPreferences(
                     id: preferences.id,
                     focusBoardIDs: preferences.focusBoardIDs,
                     sessionMinutes: preferences.sessionMinutes,

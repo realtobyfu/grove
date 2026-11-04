@@ -1,5 +1,5 @@
 import Foundation
-import SwiftData
+import SQLiteData
 import Testing
 @testable import grove
 
@@ -69,121 +69,133 @@ struct LearningTests {
 
     @MainActor
     @Test func identicalReviewRetriesKeepOneEventAndItsOriginalDate() throws {
-        let context = try makeContext()
-        let service = LearningService(modelContext: context, refreshWidget: { _ in })
-        let card = Flashcard(question: "When?", answer: "After a miss.")
+        let database = try AppDatabase.openInMemory()
+        let service = LearningService(database: database, refreshWidget: { _ in })
+        var card = Flashcard(question: "When?", answer: "After a miss.")
         card.createdAt = epoch
         try service.saveCard(card)
         let eventID = UUID()
         let sessionID = UUID()
 
-        try service.recordReview(card: card, rating: .good, usedHint: false, readSource: false,
+        try service.recordReview(cardID: card.id, rating: .good, usedHint: false, readSource: false,
                                  sessionID: sessionID, eventID: eventID, now: epoch)
-        try service.recordReview(card: card, rating: .good, usedHint: false, readSource: false,
+        try service.recordReview(cardID: card.id, rating: .good, usedHint: false, readSource: false,
                                  sessionID: sessionID, eventID: eventID, now: epoch.addingTimeInterval(30))
 
-        let events = try context.fetch(FetchDescriptor<FlashcardReview>())
+        let events = try reviews(in: database)
         #expect(events.count == 1)
         #expect(events.first?.reviewedAt == epoch)
-        #expect(card.dueAt == epoch.addingTimeInterval(day))
+        #expect(try saved(card, in: database).dueAt == epoch.addingTimeInterval(day))
     }
 
+    /// There is no pending state any more, so the retry that matters is one whose
+    /// event reached the database while the card it schedules did not.
     @MainActor
-    @Test func retryCommitsAnEventThatWasStillPendingAfterAnEarlierSaveFailure() throws {
-        let context = try makeContext()
-        let service = LearningService(modelContext: context, refreshWidget: { _ in })
+    @Test func retryOfAnEventAlreadySavedKeepsItAndStillSchedulesTheCard() throws {
+        let database = try AppDatabase.openInMemory()
+        let service = LearningService(database: database, refreshWidget: { _ in })
         let card = Flashcard(question: "When?", answer: "After a miss.")
         try service.saveCard(card)
+        let dueBeforeReview = try saved(card, in: database).dueAt
         let eventID = UUID()
         let sessionID = UUID()
-        // A failed save leaves an inserted event pending in the model context.
-        context.insert(FlashcardReview(
-            id: eventID, cardID: card.id, cardRevision: card.revision, rating: .good,
-            sessionID: sessionID, reviewedAt: epoch, cardFingerprint: card.revisionFingerprint
-        ))
+        try database.write { db in
+            try FlashcardReview.insert {
+                FlashcardReview(
+                    id: eventID, cardID: card.id, cardRevision: card.revision, rating: .good,
+                    sessionID: sessionID, reviewedAt: epoch, cardFingerprint: card.revisionFingerprint
+                )
+            }.execute(db)
+        }
+        #expect(try saved(card, in: database).dueAt == dueBeforeReview)
 
-        try service.recordReview(card: card, rating: .good, usedHint: false, readSource: false,
+        try service.recordReview(cardID: card.id, rating: .good, usedHint: false, readSource: false,
                                  sessionID: sessionID, eventID: eventID, now: epoch.addingTimeInterval(30))
 
-        let reloaded = ModelContext(context.container)
-        let saved = try reloaded.fetch(FetchDescriptor<FlashcardReview>())
-        #expect(saved.count == 1)
-        #expect(saved.first?.reviewedAt == epoch)
-        #expect(card.dueAt == epoch.addingTimeInterval(day))
+        let events = try reviews(in: database)
+        #expect(events.count == 1)
+        #expect(events.first?.reviewedAt == epoch)
+        #expect(try saved(card, in: database).dueAt == epoch.addingTimeInterval(day))
     }
 
     @MainActor
     @Test func anEventCannotBeReusedForAnotherResult() throws {
-        let context = try makeContext()
-        let service = LearningService(modelContext: context, refreshWidget: { _ in })
+        let database = try AppDatabase.openInMemory()
+        let service = LearningService(database: database, refreshWidget: { _ in })
         let card = Flashcard(question: "When?", answer: "After a miss.")
         try service.saveCard(card)
         let eventID = UUID()
         let sessionID = UUID()
-        try service.recordReview(card: card, rating: .good, usedHint: false, readSource: false,
+        try service.recordReview(cardID: card.id, rating: .good, usedHint: false, readSource: false,
                                  sessionID: sessionID, eventID: eventID, now: epoch)
 
         #expect(throws: LearningError.self) {
-            try service.recordReview(card: card, rating: .easy, usedHint: false, readSource: false,
+            try service.recordReview(cardID: card.id, rating: .easy, usedHint: false, readSource: false,
                                      sessionID: sessionID, eventID: eventID, now: epoch)
         }
-        #expect(try context.fetch(FetchDescriptor<FlashcardReview>()).count == 1)
+        #expect(try reviews(in: database).count == 1)
     }
 
     @MainActor
     @Test func deletingTheSourceKeepsItsQuoteAndTitle() throws {
-        let context = try makeContext()
-        let service = LearningService(modelContext: context, refreshWidget: { _ in })
-        let article = Item(title: "Cache-aside", type: .article)
+        let database = try AppDatabase.openInMemory()
+        let service = LearningService(database: database, refreshWidget: { _ in })
+        var article = Item(title: "Cache-aside", type: .article)
         article.sourceURL = "https://example.com/cache"
-        context.insert(article)
-        let card = Flashcard(question: "When?", answer: "After a miss.", sourceItem: article,
+        let source = article
+        try database.write { db in
+            try Item.insert { source }.execute(db)
+        }
+        let card = Flashcard(question: "When?", answer: "After a miss.", sourceItem: ItemGraph(item: source),
                              sourceQuote: "Read from the store on a miss.")
         try service.saveCard(card)
 
-        context.delete(article)
-        try context.save()
+        try database.write { db in
+            try Item.find(source.id).delete().execute(db)
+        }
 
-        #expect(card.sourceQuote == "Read from the store on a miss.")
-        #expect(card.sourceTitle == "Cache-aside")
-        #expect(card.sourceURL == "https://example.com/cache")
-        #expect(service.sourceItem(for: card) == nil)
+        let kept = try saved(card, in: database)
+        #expect(kept.sourceQuote == "Read from the store on a miss.")
+        #expect(kept.sourceTitle == "Cache-aside")
+        #expect(kept.sourceURL == "https://example.com/cache")
+        #expect(service.sourceItem(for: kept) == nil)
     }
 
     @MainActor
     @Test func rewritingAQuestionRetainsHistoryButStartsFreshScheduling() throws {
-        let context = try makeContext()
-        let service = LearningService(modelContext: context, refreshWidget: { _ in })
-        let card = Flashcard(question: "Old question?", answer: "Old answer.")
+        let database = try AppDatabase.openInMemory()
+        let service = LearningService(database: database, refreshWidget: { _ in })
+        var card = Flashcard(question: "Old question?", answer: "Old answer.")
         card.createdAt = epoch
         try service.saveCard(card)
-        try service.recordReview(card: card, rating: .easy, usedHint: false, readSource: false,
+        try service.recordReview(cardID: card.id, rating: .easy, usedHint: false, readSource: false,
                                  sessionID: UUID(), eventID: UUID(), now: epoch)
         let editDate = epoch.addingTimeInterval(day)
 
-        try service.updateCard(card, question: "A more precise question?", answer: "A better answer.",
+        try service.updateCard(card.id, question: "A more precise question?", answer: "A better answer.",
                                hints: [], now: editDate)
         let due = service.dueCards(now: editDate)
 
-        #expect(card.revision == 2)
+        let rewritten = try saved(card, in: database)
+        #expect(rewritten.revision == 2)
         #expect(due.contains { $0.id == card.id })
-        #expect(card.dueAt == editDate)
-        #expect(try context.fetch(FetchDescriptor<FlashcardReview>()).count == 1)
+        #expect(rewritten.dueAt == editDate)
+        #expect(try reviews(in: database).count == 1)
     }
 
     @MainActor
     @Test func focusAndSessionBudgetFilterTheQueueWithoutASecondDeckHierarchy() throws {
-        let context = try makeContext()
-        let service = LearningService(modelContext: context, refreshWidget: { _ in })
+        let database = try AppDatabase.openInMemory()
+        let service = LearningService(database: database, refreshWidget: { _ in })
         let chosen = UUID()
         let other = UUID()
         for index in 0..<4 {
-            let card = Flashcard(question: "Question \(index)?", answer: "Answer.")
+            var card = Flashcard(question: "Question \(index)?", answer: "Answer.")
             card.createdAt = epoch
             card.boardIDs = [chosen]
             try service.saveCard(card)
         }
-        let otherCard = Flashcard(question: "Other board?", answer: "Answer.")
+        var otherCard = Flashcard(question: "Other board?", answer: "Answer.")
         otherCard.createdAt = epoch
         otherCard.boardIDs = [other]
         try service.saveCard(otherCard)
@@ -197,9 +209,9 @@ struct LearningTests {
 
     @MainActor
     @Test func concurrentContentForkDoesNotSupplyEvidenceForTheWinningQuestion() throws {
-        let context = try makeContext()
-        let service = LearningService(modelContext: context, refreshWidget: { _ in })
-        let card = Flashcard(question: "Which copy changes?", answer: "The original copy.")
+        let database = try AppDatabase.openInMemory()
+        let service = LearningService(database: database, refreshWidget: { _ in })
+        var card = Flashcard(question: "Which copy changes?", answer: "The original copy.")
         card.createdAt = epoch
         try service.saveCard(card)
         let imported = FlashcardReview(
@@ -210,71 +222,77 @@ struct LearningTests {
             reviewedAt: epoch,
             cardFingerprint: Flashcard.fingerprint(question: "A different question?", answer: "Different.", hints: [])
         )
-        context.insert(imported)
-        try context.save()
+        try database.write { db in
+            try FlashcardReview.insert { imported }.execute(db)
+        }
 
         let due = service.dueCards(now: epoch.addingTimeInterval(1))
 
         #expect(due.contains { $0.id == card.id })
-        #expect(card.dueAt == epoch)
+        #expect(try saved(card, in: database).dueAt == epoch)
     }
 
     @MainActor
     @Test func suspendingOrSavingUnchangedDoesNotPostponeARewrittenQuestion() throws {
-        let context = try makeContext()
-        let service = LearningService(modelContext: context, refreshWidget: { _ in })
-        let card = Flashcard(question: "Old?", answer: "Old.")
+        let database = try AppDatabase.openInMemory()
+        let service = LearningService(database: database, refreshWidget: { _ in })
+        var card = Flashcard(question: "Old?", answer: "Old.")
         card.createdAt = epoch
         try service.saveCard(card)
         let editDate = epoch.addingTimeInterval(day)
-        try service.updateCard(card, question: "New?", answer: "New.", hints: [], now: editDate)
+        try service.updateCard(card.id, question: "New?", answer: "New.", hints: [], now: editDate)
 
-        try service.setSuspended(card, suspended: true)
-        try service.setSuspended(card, suspended: false)
-        try service.saveCard(card)
+        try service.setSuspended(card.id, suspended: true)
+        try service.setSuspended(card.id, suspended: false)
+        try service.saveCard(try saved(card, in: database))
 
-        #expect(card.revision == 2)
-        #expect(card.revisionStartedAt == editDate)
+        let rewritten = try saved(card, in: database)
+        #expect(rewritten.revision == 2)
+        #expect(rewritten.revisionStartedAt == editDate)
         #expect(service.dueCards(now: editDate).map(\.id) == [card.id])
-        #expect(card.dueAt == editDate)
+        #expect(try saved(card, in: database).dueAt == editDate)
     }
 
+    /// `LearningError.foreignContext` is gone: cards are reached by ID now, so a
+    /// library that doesn't hold the card simply can't find it.
     @MainActor
-    @Test func foreignContextOperationsFailBeforeMutatingTheOtherLibrary() throws {
-        let owning = try makeContext()
-        let other = try makeContext()
+    @Test func operationsOnAnotherLibrarysCardFailWithoutTouchingEitherLibrary() throws {
+        let owning = try AppDatabase.openInMemory()
+        let other = try AppDatabase.openInMemory()
         let card = Flashcard(question: "Original?", answer: "Original.")
-        try LearningService(modelContext: owning, refreshWidget: { _ in }).saveCard(card)
-        let foreign = LearningService(modelContext: other, refreshWidget: { _ in })
+        try LearningService(database: owning, refreshWidget: { _ in }).saveCard(card)
+        let foreign = LearningService(database: other, refreshWidget: { _ in })
 
-        #expect(throws: LearningError.self) {
-            try foreign.updateCard(card, question: "Replaced?", answer: "Changed.", hints: [])
+        #expect(throws: LearningError.unavailableCard) {
+            try foreign.updateCard(card.id, question: "Replaced?", answer: "Changed.", hints: [])
         }
-        #expect(card.question == "Original?")
-        #expect(throws: LearningError.self) {
-            try foreign.deleteCard(card)
+        #expect(try saved(card, in: owning).question == "Original?")
+        #expect(throws: LearningError.unavailableCard) {
+            try foreign.deleteCard(card.id)
         }
-        #expect(card.deletedAt == nil)
-        #expect(!card.isSuspended)
+        let untouched = try saved(card, in: owning)
+        #expect(untouched.deletedAt == nil)
+        #expect(!untouched.isSuspended)
+        #expect(try other.read { try Flashcard.all.fetchCount($0) } == 0)
     }
 
     @MainActor
     @Test func suspendedAndDeletedCardsStayOutOfReviewWithoutErasingEvents() throws {
-        let context = try makeContext()
-        let service = LearningService(modelContext: context, refreshWidget: { _ in })
-        let card = Flashcard(question: "Which copy?", answer: "The original.")
+        let database = try AppDatabase.openInMemory()
+        let service = LearningService(database: database, refreshWidget: { _ in })
+        var card = Flashcard(question: "Which copy?", answer: "The original.")
         card.createdAt = epoch
         try service.saveCard(card)
-        try service.recordReview(card: card, rating: .again, usedHint: false, readSource: false,
+        try service.recordReview(cardID: card.id, rating: .again, usedHint: false, readSource: false,
                                  sessionID: UUID(), eventID: UUID(), now: epoch)
-        try service.setSuspended(card, suspended: true)
+        try service.setSuspended(card.id, suspended: true)
         #expect(service.dueCards(now: epoch.addingTimeInterval(day)).isEmpty)
-        try service.setSuspended(card, suspended: false)
-        try service.deleteCard(card, now: epoch.addingTimeInterval(day))
+        try service.setSuspended(card.id, suspended: false)
+        try service.deleteCard(card.id, now: epoch.addingTimeInterval(day))
 
         #expect(service.dueCards(now: epoch.addingTimeInterval(2 * day)).isEmpty)
-        #expect(try context.fetch(FetchDescriptor<FlashcardReview>()).count == 1)
-        #expect(try context.fetch(FetchDescriptor<Flashcard>()).count == 1)
+        #expect(try reviews(in: database).count == 1)
+        #expect(try database.read { try Flashcard.all.fetchCount($0) } == 1)
     }
 
     @MainActor
@@ -301,11 +319,12 @@ struct LearningTests {
         LearningScheduler.Review(id: id, reviewedAt: date, rating: rating, usedHint: usedHint, readSource: readSource)
     }
 
-    @MainActor
-    private func makeContext() throws -> ModelContext {
-        let schema = SharedModelContainer.schema
-        let config = ModelConfiguration("LearningTests", schema: schema, isStoredInMemoryOnly: true, cloudKitDatabase: .none)
-        let container = try ModelContainer(for: schema, configurations: [config])
-        return ModelContext(container)
+    /// The card as stored. Rows are values, so the one a test built never changes.
+    private func saved(_ card: Flashcard, in database: any DatabaseWriter) throws -> Flashcard {
+        try #require(try database.read { try Flashcard.find(card.id).fetchOne($0) })
+    }
+
+    private func reviews(in database: any DatabaseWriter) throws -> [FlashcardReview] {
+        try database.read { try FlashcardReview.all.fetchAll($0) }
     }
 }

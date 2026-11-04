@@ -1,23 +1,23 @@
+import SQLiteData
 import SwiftUI
-import SwiftData
 
 /// Full-screen item reader for iOS.
 /// Articles: displays WKWebView. Notes: navigates to MobileNoteEditorView.
 /// Toolbar: back, share, "Discuss", reflections button, find-in-page.
 struct MobileItemReaderView: View {
-    let item: Item
+    let item: ItemGraph
     var onCloseRequested: (() -> Void)? = nil
     var preferFullScreenReaderExperience: Bool = false
-    @Environment(\.modelContext) private var modelContext
+    @Dependency(\.defaultDatabase) private var database
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @Query(sort: \Board.sortOrder) private var boards: [Board]
+    @Fetch(Library.Request()) private var library = Library()
 
     // MARK: - Right panel (iPad 2-panel)
 
     enum RightPanel: Equatable {
         case none
         case reflections
-        case chat(Conversation)
+        case chat(ConversationGraph)
 
         static func == (lhs: RightPanel, rhs: RightPanel) -> Bool {
             switch (lhs, rhs) {
@@ -30,7 +30,7 @@ struct MobileItemReaderView: View {
     }
 
     @State private var rightPanel: RightPanel = .none
-    @State private var panelConversation: Conversation?
+    @State private var panelConversation: ConversationGraph?
 
     @State private var dialecticsService = DialecticsService()
     @State private var showReflections = false
@@ -49,7 +49,7 @@ struct MobileItemReaderView: View {
     @State private var scrollToTextQuery = ""
     @State private var scrollToTextToken = 0
     @State private var pendingEditBlock: ReflectionBlock?
-    @State private var navigateToChat: Conversation?
+    @State private var navigateToChat: ConversationGraph?
     @State private var reflectionDetent: PresentationDetent = .medium
     @State private var zoomLevel: CGFloat = 1.0
     @State private var sidePanelWidth: CGFloat? = LayoutSettings.width(for: .mobileReaderSidePanel)
@@ -64,12 +64,12 @@ struct MobileItemReaderView: View {
     @State private var goForwardToken = 0
     /// Library item for the page currently being browsed, once it has been
     /// captured (explicitly or by writing). Reflections follow it.
-    @State private var capturedPageItem: Item?
+    @State private var capturedPageItem: ItemGraph?
     @State private var capturedPageURL: String?
     @State private var showSavedIndicator = false
     /// Library item backing the page on screen, if any. Drives the capture
     /// FAB — nil means the page has never been saved.
-    @State private var pageLibraryItem: Item?
+    @State private var pageLibraryItem: ItemGraph?
     @State private var showCapturePicker = false
     /// Keeps the FAB on screen briefly after filing so the checkmark can
     /// confirm the action before the button retires from the page.
@@ -77,6 +77,8 @@ struct MobileItemReaderView: View {
     /// Held so a rapid second filing cancels the first timer instead of
     /// having it truncate the new confirmation.
     @State private var filedConfirmationTask: Task<Void, Never>? = nil
+
+    private var boards: [BoardGraph] { library.boards }
 
     /// True when the reader has navigated away from the item's own page. A
     /// remote video's embed stands in for its watch page, so landing on it is
@@ -90,7 +92,7 @@ struct MobileItemReaderView: View {
 
     /// The item reflections and highlights belong to: the linked page once
     /// it has been captured, otherwise the item being read.
-    private var readingItem: Item {
+    private var readingItem: ItemGraph {
         capturedPageItem ?? item
     }
 
@@ -132,8 +134,16 @@ struct MobileItemReaderView: View {
                 }
                 resolveCaptureState()
             }
-            // Cached model references for the browsed page must drop before
-            // the model they point at is deleted.
+            // Both are held copies, and reflections and the capture button read
+            // them, so they have to follow the database. This re-reads rather than
+            // using `keepingCurrent`, which takes the library's value and clears
+            // the state when the item isn't in it: a library loaded just before a
+            // capture would drop the page that was just saved, with its picker open.
+            .onChange(of: library) { _, _ in
+                capturedPageItem = capturedPageItem.flatMap { fetchItem($0.id) }
+                pageLibraryItem = pageLibraryItem.flatMap { fetchItem($0.id) }
+            }
+            // Held copies of the browsed page drop as soon as it's being deleted.
             .onReceive(NotificationCenter.default.publisher(for: .groveItemWillDelete)) { note in
                 guard let id = NotificationCenter.itemWillDeleteID(from: note) else { return }
                 if capturedPageItem?.id == id {
@@ -264,39 +274,35 @@ struct MobileItemReaderView: View {
         selectionGeometry = nil
     }
 
-    @discardableResult
-    private func addHighlight(_ text: String) -> ReflectionBlock {
-        let host = resolveWritingHost()
-        let nextPosition = (host.reflections.map(\.position).max() ?? -1) + 1
-        let block = ReflectionBlock(
-            item: host,
-            blockType: .keyInsight,
-            content: "",
-            highlight: text,
-            position: nextPosition
-        )
-        modelContext.insert(block)
-        // Mirror ItemReaderViewModel.addHighlight: maintain the relationship and
-        // bump updatedAt so highlights created on iOS sort/sync consistently.
-        host.reflections.append(block)
-        ReadingCapture.promoteAfterWriting(host, in: modelContext)
-        host.updatedAt = .now
-        try? modelContext.save()
+    private func addHighlight(_ text: String) {
+        let hostID = resolveWritingHost().id
+        database.attempt { db in
+            let block = ReflectionBlock(
+                itemID: hostID,
+                blockType: .keyInsight,
+                content: "",
+                highlight: text,
+                position: try ReflectionBlock.nextPosition(onItem: hostID, in: db)
+            )
+            try ReflectionBlock.insert { block }.execute(db)
+            // Mirror ItemReaderViewModel.addHighlight: bump updatedAt so highlights
+            // created on iOS sort/sync consistently.
+            try Item.modify(hostID, in: db) { $0.updatedAt = .now }
+        }
+        ReadingCapture.promoteAfterWriting(hostID)
         selectedText = nil
         selectionGeometry = nil
-        return block
     }
 
     /// Capture-on-write: a note taken on a linked page saves that page to
     /// the library first, so the note has a durable home.
-    private func resolveWritingHost() -> Item {
+    private func resolveWritingHost() -> ItemGraph {
         if let capturedPageItem, capturedPageURL == currentWebURL?.absoluteString {
             return capturedPageItem
         }
         let resolution = ReadingCapture.host(
             for: item,
-            navigatedURL: isBrowsingLinkedPage ? currentWebURL : nil,
-            in: modelContext
+            navigatedURL: isBrowsingLinkedPage ? currentWebURL : nil
         )
         if resolution.host.id != item.id {
             capturedPageItem = resolution.host
@@ -310,7 +316,7 @@ struct MobileItemReaderView: View {
 
     private func saveCurrentPage() {
         guard let currentWebURL, isBrowsingLinkedPage else { return }
-        let (captured, _) = ReadingCapture.capturePage(currentWebURL, readFrom: item, in: modelContext)
+        let (captured, _) = ReadingCapture.capturePage(currentWebURL, readFrom: item.id)
         capturedPageItem = captured
         capturedPageURL = currentWebURL.absoluteString
         flashSavedIndicator()
@@ -381,7 +387,7 @@ struct MobileItemReaderView: View {
                     onNavigationChanged: { back, forward, currentURL in
                         // This callback can fire synchronously from inside
                         // updateUIView (WKWebView's .url KVO fires on load).
-                        // Record state only; the model write in
+                        // Record state only; the database write in
                         // resolveCaptureState runs from the deferred
                         // .onChange(of: currentWebURL) below.
                         canGoBack = back
@@ -441,7 +447,7 @@ struct MobileItemReaderView: View {
 
     private var captureState: ReaderCaptureState {
         guard let pageLibraryItem else { return .unsaved }
-        return pageLibraryItem.boards.isEmpty ? .unfiled : .filed
+        return pageLibraryItem.board == nil ? .unfiled : .filed
     }
 
     @ViewBuilder
@@ -472,12 +478,12 @@ struct MobileItemReaderView: View {
                 recommendedBoardID: decision?.recommendedBoardID,
                 alternativeBoardIDs: decision?.alternativeBoardIDs ?? [],
                 onSelect: { board in
-                    BoardSuggestionMetadata.recordSelection(board, on: target)
-                    ItemViewModel(modelContext: modelContext).assignToBoard(target, board: board)
+                    recordSelection(board.board, on: target.id)
+                    ItemViewModel().assignToBoard(target.id, board: board.board)
                     finishFiling()
                 },
                 onCreate: { title in
-                    createAndAssignBoard(named: title, to: target)
+                    createAndAssignBoard(named: title, to: target.id)
                     finishFiling()
                 }
             )
@@ -510,7 +516,9 @@ struct MobileItemReaderView: View {
         }
     }
 
-    /// Re-resolve which library item backs the page on screen.
+    /// Re-resolve which library item backs the page on screen. This reads the
+    /// database, not `item` or `capturedPageItem`: filing lands here straight after
+    /// its write, and neither shows that write until the next render.
     private func resolveCaptureState() {
         guard item.type != .note, let capturePageURL else {
             pageLibraryItem = nil
@@ -518,34 +526,48 @@ struct MobileItemReaderView: View {
         }
         showFiledConfirmation = false
         if !isBrowsingLinkedPage {
-            pageLibraryItem = item
+            pageLibraryItem = fetchItem(item.id)
             return
         }
-        let resolved = capturedPageItem
-            ?? CaptureService(modelContext: modelContext).existingItem(forURL: capturePageURL.absoluteString)
+        let resolved = capturedPageItem.flatMap { fetchItem($0.id) }
+            ?? CaptureService().existingItem(forURL: capturePageURL.absoluteString)
         pageLibraryItem = resolved
         // Arriving at a page that is already in the library is the same trail
         // as capturing it here would have been — record it either way.
         if let resolved {
-            ReadingCapture.recordProvenance(from: item, to: resolved, in: modelContext)
+            ReadingCapture.recordProvenance(from: item.id, to: resolved.id)
         }
     }
 
-    private func createAndAssignBoard(named rawTitle: String, to target: Item) {
+    private func fetchItem(_ id: Item.ID) -> ItemGraph? {
+        database.attemptRead { try ItemGraph.fetch(id, in: $0) } ?? nil
+    }
+
+    private func recordSelection(_ board: Board, on itemID: Item.ID) {
+        database.attempt { db in
+            try Item.modify(itemID, in: db) {
+                BoardSuggestionMetadata.recordSelection(board, on: &$0)
+            }
+        }
+    }
+
+    private func createAndAssignBoard(named rawTitle: String, to itemID: Item.ID) {
         let title = BoardSuggestionEngine.cleanedBoardName(rawTitle)
         guard !title.isEmpty else { return }
 
-        let itemViewModel = ItemViewModel(modelContext: modelContext)
+        let itemViewModel = ItemViewModel()
         if let existing = boards.first(where: {
             $0.title.localizedCaseInsensitiveCompare(title) == .orderedSame
         }) {
-            BoardSuggestionMetadata.recordSelection(existing, on: target)
-            itemViewModel.assignToBoard(target, board: existing)
+            recordSelection(existing.board, on: itemID)
+            itemViewModel.assignToBoard(itemID, board: existing.board)
         } else {
             let board = Board(title: title)
-            modelContext.insert(board)
-            BoardSuggestionMetadata.recordSelection(board, on: target)
-            itemViewModel.assignToBoard(target, board: board)
+            database.attempt { db in
+                try Board.insert { board }.execute(db)
+            }
+            recordSelection(board, on: itemID)
+            itemViewModel.assignToBoard(itemID, board: board)
         }
     }
 
@@ -813,8 +835,10 @@ struct MobileItemReaderView: View {
     // MARK: - Actions
 
     private func startDiscussionForPanel() {
-        // Reuse existing panel conversation if it belongs to this item
-        if let existing = panelConversation,
+        // Reuse existing panel conversation if it belongs to this item. Read again,
+        // because it may have been deleted from the chat list since it was opened.
+        if let panelConversationID = panelConversation?.id,
+           let existing = database.attemptRead({ try ConversationGraph.fetch(panelConversationID, in: $0) }) ?? nil,
            existing.seedItemIDs.contains(item.id) {
             withAnimation { rightPanel = .chat(existing) }
             return
@@ -822,14 +846,12 @@ struct MobileItemReaderView: View {
         let conversation = dialecticsService.startConversation(
             trigger: .userInitiated,
             seedItems: [item],
-            board: item.boards.first,
-            context: modelContext
+            board: item.board
         )
         Task {
             _ = await dialecticsService.sendMessage(
                 userText: "Let's discuss \"\(item.title)\".",
-                conversation: conversation,
-                context: modelContext
+                conversationID: conversation.id
             )
         }
         panelConversation = conversation
@@ -840,15 +862,13 @@ struct MobileItemReaderView: View {
         let conversation = dialecticsService.startConversation(
             trigger: .userInitiated,
             seedItems: [item],
-            board: item.boards.first,
-            context: modelContext
+            board: item.board
         )
         // Send an opening message about the item
         Task {
             _ = await dialecticsService.sendMessage(
                 userText: "Let's discuss \"\(item.title)\".",
-                conversation: conversation,
-                context: modelContext
+                conversationID: conversation.id
             )
         }
         navigateToChat = conversation

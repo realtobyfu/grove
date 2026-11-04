@@ -2,9 +2,9 @@ import SwiftUI
 
 /// Recent items and recent conversations sections on the Home screen.
 struct HomeRecentItemsSection: View {
-    let recentItems: [Item]
+    let recentItems: [ItemGraph]
     @Binding var isCollapsed: Bool
-    let onOpen: (Item) -> Void
+    let onOpen: (ItemGraph) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
@@ -40,7 +40,7 @@ struct HomeRecentItemsSection: View {
         }
     }
 
-    private func compactItemRow(_ item: Item) -> some View {
+    private func compactItemRow(_ item: ItemGraph) -> some View {
         Button {
             onOpen(item)
         } label: {
@@ -55,7 +55,7 @@ struct HomeRecentItemsSection: View {
                         .font(.groveBody)
                         .foregroundStyle(Color.textPrimary)
                         .lineLimit(1)
-                    if let board = item.boards.first {
+                    if let board = item.board {
                         Text(board.title)
                             .font(.groveMeta)
                             .foregroundStyle(Color.textTertiary)
@@ -83,7 +83,7 @@ struct HomeRecentItemsSection: View {
 // MARK: - Recent Conversations Section
 
 struct HomeRecentConversationsSection: View {
-    let recentConversations: [Conversation]
+    let recentConversations: [ConversationGraph]
     @Binding var isCollapsed: Bool
 
     var body: some View {
@@ -113,7 +113,7 @@ struct HomeRecentConversationsSection: View {
         }
     }
 
-    private func conversationRow(_ conversation: Conversation) -> some View {
+    private func conversationRow(_ conversation: ConversationGraph) -> some View {
         Button {
             NotificationCenter.default.post(
                 name: .groveOpenConversation,

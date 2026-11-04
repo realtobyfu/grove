@@ -1,13 +1,10 @@
 import SwiftUI
-import SwiftData
 
 /// Inline follow input for the Following surface: paste a newspaper, blog,
 /// or site URL and Grove discovers its feed, subscribes, and fetches the
 /// first posts immediately. Mirrors the Home capture bar's field styling so
 /// "paste a URL here" reads the same everywhere in the app.
 struct FollowFeedBar: View {
-    @Environment(\.modelContext) private var modelContext
-
     /// Opens the curated newsletter directory; the trailing shortcut is
     /// hidden when nil (e.g. compact placements).
     var onBrowseDirectory: (() -> Void)? = nil
@@ -159,13 +156,13 @@ struct FollowFeedBar: View {
 
         Task {
             defer { isValidating = false }
-            switch await FeedSubscriptionService.validateAndAdd(urlString: trimmed, in: modelContext) {
+            switch await FeedSubscriptionService.validateAndAdd(urlString: trimmed) {
             case .success(let source):
                 urlText = ""
                 showConfirmation("Following \(source.title ?? source.domain)")
                 // Fetch right away so the first posts appear without waiting
                 // for the next background refresh cycle.
-                await FeedFetchService.shared.fetchNow(source, in: modelContext)
+                await FeedFetchService.shared.fetchNow(source.id)
             case .failure(let error):
                 errorText = error.errorDescription
             }

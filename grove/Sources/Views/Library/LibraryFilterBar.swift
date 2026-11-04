@@ -67,7 +67,7 @@ struct LibrarySearchBar: View {
 
 /// Horizontal board chip filter bar for the library.
 struct LibraryBoardFilterBar: View {
-    let boards: [Board]
+    let boards: [BoardGraph]
     @Binding var selectedBoardID: UUID?
     @Binding var showingArchived: Bool
 

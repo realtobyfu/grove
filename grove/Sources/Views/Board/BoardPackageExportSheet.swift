@@ -1,8 +1,8 @@
 import SwiftUI
 
 struct BoardPackageExportSheet: View {
-    let board: Board
-    let items: [Item]
+    let board: BoardGraph
+    let items: [ItemGraph]
     @State private var options = BoardExportOptions()
     @State private var isExporting = false
     @State private var exportError: String?

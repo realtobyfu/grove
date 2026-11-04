@@ -1,13 +1,12 @@
 import SwiftUI
-import SwiftData
+import SQLiteData
 
 struct FlashcardLibraryView: View {
     var boardID: UUID? = nil
     var itemID: UUID? = nil
-    @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
-    @Query(sort: \Flashcard.updatedAt, order: .reverse) private var allCards: [Flashcard]
-    @Query private var items: [Item]
+    @FetchAll(Flashcard.order { $0.updatedAt.desc() }) private var allCards
+    @Fetch(Library.Request()) private var library = Library()
     @State private var editor: LearningEditorSession?
     @State private var showReview = false
     @State private var errorMessage: String?
@@ -66,7 +65,7 @@ struct FlashcardLibraryView: View {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button("Review", systemImage: "play") { showReview = true }
                 Button("New flashcard", systemImage: "plus") {
-                    editor = LearningEditorSession(item: items.first { $0.id == itemID }, boardID: boardID)
+                    editor = LearningEditorSession(item: library.item(itemID), boardID: boardID)
                 }
             }
         }
@@ -93,25 +92,17 @@ struct FlashcardLibraryView: View {
     }
 
     private func delete(_ card: Flashcard) {
-        let previousDeletedAt = card.deletedAt
-        let previousSuspension = card.isSuspended
-        let previousUpdatedAt = card.updatedAt
         do {
-            try LearningService(modelContext: modelContext).deleteCard(card)
+            try LearningService().deleteCard(card.id)
             cardToDelete = nil
             errorMessage = nil
         } catch {
-            card.deletedAt = previousDeletedAt
-            card.isSuspended = previousSuspension
-            card.updatedAt = previousUpdatedAt
             errorMessage = error.localizedDescription
         }
     }
 
     private func togglePause(_ card: Flashcard) {
-        let wasSuspended = card.isSuspended
-        card.isSuspended.toggle()
-        do { try LearningService(modelContext: modelContext).saveCard(card) }
-        catch { card.isSuspended = wasSuspended; errorMessage = error.localizedDescription }
+        do { try LearningService().setSuspended(card.id, suspended: !card.isSuspended) }
+        catch { errorMessage = error.localizedDescription }
     }
 }

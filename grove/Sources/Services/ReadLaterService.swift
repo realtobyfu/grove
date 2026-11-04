@@ -1,5 +1,5 @@
 import Foundation
-import SwiftData
+import SQLiteData
 
 enum ReadLaterPreset: String, CaseIterable, Identifiable, Sendable {
     case tomorrowMorning
@@ -51,9 +51,9 @@ enum ReadLaterPreset: String, CaseIterable, Identifiable, Sendable {
 /// Protocol for read later service.
 @MainActor
 protocol ReadLaterServiceProtocol {
-    func queue(_ item: Item, for preset: ReadLaterPreset)
-    func queue(_ item: Item, until date: Date)
-    func restore(_ item: Item)
+    func queue(_ itemID: Item.ID, for preset: ReadLaterPreset)
+    func queue(_ itemID: Item.ID, until date: Date)
+    func restore(_ itemID: Item.ID)
     @discardableResult func restoreDueItems(referenceDate: Date) -> Int
 }
 
@@ -62,60 +62,67 @@ protocol ReadLaterServiceProtocol {
 @MainActor
 @Observable
 final class ReadLaterService: ReadLaterServiceProtocol {
-    private var modelContext: ModelContext
+    private let database: any DatabaseWriter
 
-    init(modelContext: ModelContext) {
-        self.modelContext = modelContext
+    init(database: any DatabaseWriter = AppDatabase.current) {
+        self.database = database
     }
 
-    func queue(_ item: Item, for preset: ReadLaterPreset) {
-        queue(item, until: preset.scheduledDate())
+    func queue(_ itemID: Item.ID, for preset: ReadLaterPreset) {
+        queue(itemID, until: preset.scheduledDate())
     }
 
-    func queue(_ item: Item, until date: Date) {
-        guard date > .now else {
-            item.status = .inbox
-            item.readLaterUntil = nil
-            item.updatedAt = .now
-            try? modelContext.save()
-            return
+    func queue(_ itemID: Item.ID, until date: Date) {
+        database.attempt { db in
+            try Item.modify(itemID, in: db) { item in
+                guard date > .now else {
+                    item.status = .inbox
+                    item.readLaterUntil = nil
+                    item.updatedAt = .now
+                    return
+                }
+
+                item.status = .queued
+                item.readLaterUntil = date
+                item.updatedAt = .now
+            }
         }
-
-        item.status = .queued
-        item.readLaterUntil = date
-        item.updatedAt = .now
-        try? modelContext.save()
     }
 
     /// Immediately returns a single queued item to the inbox. The one owner of
     /// the queued→inbox transition, so a future side effect (analytics, clearing
     /// a scheduled notification) lands everywhere.
-    func restore(_ item: Item) {
-        item.status = .inbox
-        item.readLaterUntil = nil
-        item.updatedAt = .now
-        try? modelContext.save()
+    func restore(_ itemID: Item.ID) {
+        database.attempt { db in
+            try Item.modify(itemID, in: db) { item in
+                item.status = .inbox
+                item.readLaterUntil = nil
+                item.updatedAt = .now
+            }
+        }
     }
 
     @discardableResult
     func restoreDueItems(referenceDate: Date = .now) -> Int {
-        let allItems: [Item] = modelContext.fetchAll()
-        let queuedItems = allItems.filter { $0.status == .queued }
-        var restoredCount = 0
+        let restored = database.attempt { db -> Int in
+            let allItems = try Item.all.fetchAll(db)
+            let queuedItems = allItems.filter { $0.status == .queued }
+            var restoredCount = 0
 
-        for item in queuedItems {
-            let dueDate = item.readLaterUntil ?? .distantPast
-            guard dueDate <= referenceDate else { continue }
-            item.status = .inbox
-            item.readLaterUntil = nil
-            item.updatedAt = .now
-            restoredCount += 1
+            for item in queuedItems {
+                let dueDate = item.readLaterUntil ?? .distantPast
+                guard dueDate <= referenceDate else { continue }
+                try Item.modify(item.id, in: db) { item in
+                    item.status = .inbox
+                    item.readLaterUntil = nil
+                    item.updatedAt = .now
+                }
+                restoredCount += 1
+            }
+
+            return restoredCount
         }
 
-        if restoredCount > 0 {
-            try? modelContext.save()
-        }
-
-        return restoredCount
+        return restored ?? 0
     }
 }

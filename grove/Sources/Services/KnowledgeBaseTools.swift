@@ -1,14 +1,14 @@
 import Foundation
-import SwiftData
+import SQLiteData
 
 /// Local tool fulfillment for the agentic loop.
-/// Queries SwiftData and returns formatted text strings for LLM context.
+/// Queries the database and returns formatted text strings for LLM context.
 @MainActor
 final class KnowledgeBaseTools {
-    private let modelContext: ModelContext
+    private let database: any DatabaseWriter
 
-    init(modelContext: ModelContext) {
-        self.modelContext = modelContext
+    init(database: any DatabaseWriter = AppDatabase.current) {
+        self.database = database
     }
 
     /// Dispatch a tool call by name. Returns the result string or nil if unknown tool.
@@ -43,6 +43,11 @@ final class KnowledgeBaseTools {
     }
 
     /// Available tool descriptions for the system prompt.
+    ///
+    /// Stored conversations hold this text in their system message, and the
+    /// native tool loop finds it there by exact match to swap it out. Changing a
+    /// word leaves every existing conversation with the prompt-based instructions
+    /// still in place alongside native tools.
     static let toolDescriptions = """
     You have access to the user's knowledge base. To search or look up information, output a JSON object \
     with a "tool_call" key (and nothing else before or after it). Search results include each item's id — \
@@ -117,7 +122,7 @@ final class KnowledgeBaseTools {
         ),
         LLMToolSpec(
             name: "create_board",
-            description: "Create a new board and assign the listed items to it. Use when the user confirms they want to organize items into a new board.",
+            description: "Create a new board and move the listed items onto it. An item is on at most one board, so this takes each one off any board it was on. Use when the user confirms they want to organize items into a new board.",
             parametersJSON: #"{"type":"object","properties":{"board_name":{"type":"string"},"item_titles":{"type":"string","description":"Comma-separated item ids or exact titles"}},"required":["board_name","item_titles"]}"#
         ),
         LLMToolSpec(
@@ -146,7 +151,7 @@ final class KnowledgeBaseTools {
         let semanticMatches = semanticHits.compactMap { itemsByID[$0.id] }
 
         var seen = Set<UUID>()
-        var merged: [Item] = []
+        var merged: [ItemGraph] = []
         for item in keywordMatches + semanticMatches where seen.insert(item.id).inserted {
             merged.append(item)
         }
@@ -252,7 +257,7 @@ final class KnowledgeBaseTools {
     }
 
     private func getBoardItems(boardName: String) -> String {
-        let allBoards: [Board] = modelContext.fetchAll()
+        let allBoards = fetchLibrary().boards
         guard let board = allBoards.first(where: { $0.title.lowercased() == boardName.lowercased() }) else {
             return "Board \"\(boardName)\" not found. Available boards: \(allBoards.map(\.title).joined(separator: ", "))"
         }
@@ -274,33 +279,38 @@ final class KnowledgeBaseTools {
             return "Error: board_name is required."
         }
 
-        let allBoards: [Board] = modelContext.fetchAll()
+        let library = fetchLibrary()
         // Avoid creating duplicate boards
-        if allBoards.contains(where: { $0.title.lowercased() == boardName.lowercased() }) {
+        if library.boards.contains(where: { $0.title.lowercased() == boardName.lowercased() }) {
             return "Board \"\(boardName)\" already exists. Items were not reassigned."
         }
 
         let board = Board(title: boardName)
-        modelContext.insert(board)
+        let items = itemTitles.compactMap { ItemResolver.resolve($0, in: library.items) }
 
-        // Assign listed items to the new board
-        let allItems = fetchAllItems()
-        var assignedTitles: [String] = []
-        for title in itemTitles {
-            if let item = ItemResolver.resolve(title, in: allItems) {
-                item.boards.append(board)
-                board.items.append(item)
-                assignedTitles.append(item.title)
+        // An item is on at most one board, so assigning one here moves it.
+        let saved: Void? = database.attempt { db in
+            try Board.insert { board }.execute(db)
+            for item in items {
+                try Item.setBoard(board.id, forItem: item.id, in: db)
             }
         }
+        guard saved != nil else {
+            return "Error: Board \"\(boardName)\" could not be saved."
+        }
 
-        try? modelContext.save()
-
-        if assignedTitles.isEmpty {
+        if items.isEmpty {
             return "Board \"\(boardName)\" created with no items (none of the specified titles matched)."
         }
 
-        return "Board \"\(boardName)\" created and \(assignedTitles.count) item(s) assigned: \(assignedTitles.joined(separator: ", "))."
+        var response = "Board \"\(boardName)\" created and \(items.count) item(s) assigned: \(items.map(\.title).joined(separator: ", "))."
+        let moved = items.compactMap { item in
+            item.board.map { "\(item.title) (from \"\($0.title)\")" }
+        }
+        if !moved.isEmpty {
+            response += " Moved off their previous board, since an item is on at most one board: \(moved.joined(separator: ", "))."
+        }
+        return response
     }
 
     private func createSynthesis(itemTitles: [String], focusPrompt: String, synthesisTitle: String) async -> String {
@@ -312,7 +322,7 @@ final class KnowledgeBaseTools {
         }
 
         let allItems = fetchAllItems()
-        var matchedItems: [Item] = []
+        var matchedItems: [ItemGraph] = []
         var missingTitles: [String] = []
         for title in itemTitles {
             if let item = ItemResolver.resolve(title, in: allItems) {
@@ -329,7 +339,7 @@ final class KnowledgeBaseTools {
         let scopeTitle = focusPrompt.isEmpty ? synthesisTitle : focusPrompt
         let resolvedTitle = synthesisTitle.isEmpty ? "Synthesis: \(scopeTitle)" : synthesisTitle
 
-        let service = SynthesisService(modelContext: modelContext)
+        let service = SynthesisService(database: database)
         guard let result = await service.generateSynthesis(items: matchedItems, scopeTitle: scopeTitle) else {
             return "Error: Synthesis generation failed."
         }
@@ -346,11 +356,15 @@ final class KnowledgeBaseTools {
 
     // MARK: - Helpers
 
-    private func fetchAllItems() -> [Item] {
-        modelContext.fetchAll()
+    private func fetchLibrary() -> Library {
+        database.attemptRead { try Library.fetch($0) } ?? Library()
     }
 
-    private func item(_ item: Item) -> String {
+    private func fetchAllItems() -> [ItemGraph] {
+        fetchLibrary().items
+    }
+
+    private func item(_ item: ItemGraph) -> String {
         var line = item.title
         let tags = item.tags.map(\.name).joined(separator: ", ")
         if !tags.isEmpty { line += " [\(tags)]" }

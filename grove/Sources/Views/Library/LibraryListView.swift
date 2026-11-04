@@ -1,18 +1,18 @@
 import SwiftUI
-import SwiftData
+import SQLiteData
 
 /// The main list of items in the library with multi-select support.
 struct LibraryListView: View {
-    @Environment(\.modelContext) private var modelContext
-    let displayedItems: [Item]
+    @Dependency(\.defaultDatabase) private var database
+    let displayedItems: [ItemGraph]
     let searchQuery: String
     let isMultiSelectMode: Bool
     let selectedIDs: Set<UUID>
-    @Binding var selectedItem: Item?
-    @Binding var openedItem: Item?
-    let onToggleSelection: (Item) -> Void
-    let onEnterMultiSelect: (Item) -> Void
-    let onDeleteRequest: (Item) -> Void
+    @Binding var selectedItem: ItemGraph?
+    @Binding var openedItem: ItemGraph?
+    let onToggleSelection: (ItemGraph) -> Void
+    let onEnterMultiSelect: (ItemGraph) -> Void
+    let onDeleteRequest: (ItemGraph) -> Void
 
     var body: some View {
         if displayedItems.isEmpty {
@@ -36,7 +36,7 @@ struct LibraryListView: View {
 
     // MARK: - Selectable Row
 
-    private func selectableRow(for item: Item) -> some View {
+    private func selectableRow(for item: ItemGraph) -> some View {
         let isItemSelected = selectedIDs.contains(item.id)
         let isHighlighted = isMultiSelectMode ? isItemSelected : selectedItem?.id == item.id
 
@@ -61,7 +61,7 @@ struct LibraryListView: View {
         }
     }
 
-    private func handleRowTap(item: Item) {
+    private func handleRowTap(item: ItemGraph) {
         if isMultiSelectMode {
             withAnimation(.easeInOut(duration: 0.1)) {
                 onToggleSelection(item)
@@ -79,7 +79,7 @@ struct LibraryListView: View {
     }
 
     @ViewBuilder
-    private func rowContextMenu(for item: Item) -> some View {
+    private func rowContextMenu(for item: ItemGraph) -> some View {
         Button {
             openedItem = item
             selectedItem = item
@@ -104,15 +104,18 @@ struct LibraryListView: View {
     }
 
     /// Archive an active item, or restore an archived one to active.
-    private func toggleArchive(for item: Item) {
+    private func toggleArchive(for item: ItemGraph) {
         let archiving = item.status != .archived
-        item.status = archiving ? .archived : .active
-        item.updatedAt = .now
+        database.attempt { db in
+            try Item.modify(item.id, in: db) {
+                $0.status = archiving ? .archived : .active
+                $0.updatedAt = .now
+            }
+        }
         if archiving {
             if selectedItem?.id == item.id { selectedItem = nil }
             if openedItem?.id == item.id { openedItem = nil }
         }
-        try? modelContext.save()
     }
 
     // MARK: - Empty State
@@ -149,7 +152,7 @@ struct LibraryListView: View {
 // MARK: - Library Row View
 
 struct LibraryRowView: View {
-    let item: Item
+    let item: ItemGraph
     @State private var isHovered = false
 
     var body: some View {
@@ -166,8 +169,8 @@ struct LibraryRowView: View {
                     .lineLimit(1)
 
                 HStack(spacing: 4) {
-                    if let firstBoard = item.boards.first {
-                        Text(firstBoard.title)
+                    if let board = item.board {
+                        Text(board.title)
                             .font(.groveMeta)
                             .foregroundStyle(Color.textTertiary)
                     } else {

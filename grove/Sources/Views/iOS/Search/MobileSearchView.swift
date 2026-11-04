@@ -1,21 +1,19 @@
 import SwiftUI
-import SwiftData
 
 /// Full-screen search view for iOS with segmented result filtering.
 /// Shows sections (Items, Boards, Tags, Reflections) in a List.
 /// Tap navigates to the result. Supports board-scoped search.
 struct MobileSearchView: View {
-    @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
     @State private var searchVM: SearchViewModel?
     @State private var searchText = ""
     @State private var filterType: SearchResultType?
     @State private var navigateToItemRoute: MobileItemRoute?
-    @State private var navigateToBoard: Board?
+    @State private var navigateToBoard: BoardGraph?
 
     /// Optional board scope — when set, shows a removable chip and restricts results.
-    var scopeBoard: Board?
+    var scopeBoard: BoardGraph?
     var initialQuery: String? = nil
 
     var body: some View {
@@ -60,7 +58,7 @@ struct MobileSearchView: View {
         }
         .onAppear {
             if searchVM == nil {
-                let vm = SearchViewModel(modelContext: modelContext)
+                let vm = SearchViewModel()
                 vm.scopeBoard = scopeBoard
                 searchVM = vm
             }

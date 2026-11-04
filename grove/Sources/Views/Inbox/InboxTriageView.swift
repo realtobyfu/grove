@@ -3,24 +3,25 @@ import AppKit
 #else
 import UIKit
 #endif
+import SQLiteData
 import SwiftUI
-import SwiftData
 import UniformTypeIdentifiers
 
 struct InboxTriageView: View {
-    @Binding var selectedItem: Item?
-    var openedItem: Binding<Item?>?
+    @Binding var selectedItem: ItemGraph?
+    var openedItem: Binding<ItemGraph?>?
     var isEmbedded: Bool = false
-    @Environment(\.modelContext) private var modelContext
-    @Query(sort: \Item.createdAt, order: .reverse) private var allItems: [Item]
-    @Query(sort: \Board.sortOrder) private var boards: [Board]
-    /// Queried (not fetched on demand) so subscribing re-evaluates the cards
+    @Dependency(\.defaultDatabase) private var database
+    @Fetch(Library.Request()) private var library = Library()
+    /// Observed (not fetched on demand) so subscribing re-evaluates the cards
     /// and the "+ Follow" affordance disappears on its own.
-    @Query private var feedSources: [FeedSource]
+    @FetchAll private var feedSources: [FeedSource]
     @State private var focusedIndex: Int = 0
     @State private var showQueuedSection = false
     @State private var showBoardPicker = false
-    @State private var itemToAssign: Item?
+    /// The picker files by ID and shows nothing of the item, so there's no copy
+    /// here to go stale.
+    @State private var itemIDToAssign: Item.ID?
     @State private var boardPickerSuggestedName: String = ""
     @State private var boardPickerRecommendedBoardID: UUID? = nil
     @State private var boardPickerAlternativeBoardIDs: [UUID] = []
@@ -41,17 +42,21 @@ struct InboxTriageView: View {
     }
 
     private var readLaterService: ReadLaterService {
-        ReadLaterService(modelContext: modelContext)
+        ReadLaterService()
     }
+
+    private var boards: [BoardGraph] { library.boards }
 
     /// Personal captures awaiting triage. Feed items live in the
     /// Newsletters section, not here.
-    private var inboxItems: [Item] {
-        allItems.filter { $0.status == .inbox && !$0.isFeedSuggestion }
+    private var inboxItems: [ItemGraph] {
+        library.items
+            .filter { $0.status == .inbox && !$0.isFeedSuggestion }
+            .sorted { $0.createdAt > $1.createdAt }
     }
 
-    private var queuedItems: [Item] {
-        allItems
+    private var queuedItems: [ItemGraph] {
+        library.items
             .filter { $0.status == .queued && $0.isQueuedForReadLater }
             .sorted { ($0.readLaterUntil ?? .distantFuture) < ($1.readLaterUntil ?? .distantFuture) }
     }
@@ -79,8 +84,12 @@ struct InboxTriageView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: filedConfirmation)
+        // Triage animates here rather than around its writes: the lists change
+        // when the library next arrives, after any `withAnimation` has ended.
+        .animation(.easeOut(duration: 0.25), value: inboxItems.isEmpty)
+        .animation(.easeOut(duration: 0.25), value: queuedItems.map(\.id))
         .sheet(isPresented: $showBoardPicker) {
-            if let item = itemToAssign {
+            if let itemID = itemIDToAssign {
                 BoardPickerView(
                     boards: boards,
                     mode: .add,
@@ -88,17 +97,21 @@ struct InboxTriageView: View {
                     recommendedBoardID: boardPickerRecommendedBoardID,
                     alternativeBoardIDs: boardPickerAlternativeBoardIDs,
                     onSelect: { board in
-                        BoardSuggestionMetadata.recordSelection(board, on: item)
-                        let viewModel = ItemViewModel(modelContext: modelContext)
+                        database.attempt { db in
+                            try Item.modify(itemID, in: db) {
+                                BoardSuggestionMetadata.recordSelection(board.board, on: &$0)
+                            }
+                        }
+                        let viewModel = ItemViewModel()
                         if boardPickerReplacesMembership {
-                            viewModel.moveItemsToBoard([item], board: board)
+                            viewModel.moveItemsToBoard([itemID], board: board.board)
                         } else {
-                            viewModel.assignToBoard(item, board: board)
+                            viewModel.assignToBoard(itemID, board: board.board)
                         }
                         resetBoardPickerState()
                     },
                     onCreate: { title in
-                        createAndAssignBoard(named: title, to: item)
+                        createAndAssignBoard(named: title, to: itemID)
                         resetBoardPickerState()
                     }
                 )
@@ -116,7 +129,7 @@ struct InboxTriageView: View {
             return .handled
         }
         .onChange(of: showBoardPicker) { _, isPresented in
-            if !isPresented, itemToAssign != nil {
+            if !isPresented, itemIDToAssign != nil {
                 resetBoardPickerState()
             }
         }
@@ -131,7 +144,7 @@ struct InboxTriageView: View {
         }
         .task(id: pendingDiscoveryDomain) {
             guard let domain = pendingDiscoveryDomain else { return }
-            await FeedDiscoveryService.shared.discoverFeed(forDomain: domain, in: modelContext)
+            await FeedDiscoveryService.shared.discoverFeed(forDomain: domain)
         }
     }
 
@@ -356,27 +369,14 @@ struct InboxTriageView: View {
     /// modal. Passing a board files it in the same gesture (the card's board
     /// chips). High-confidence auto-assign still fires for unfiled keeps, but
     /// now announces itself through the inline confirmation row.
-    private func keepItem(_ item: Item, filingTo board: Board? = nil) {
+    private func keepItem(_ item: ItemGraph, filingTo board: BoardGraph? = nil) {
         if item.isFeedSuggestion {
             recordSuggestionSignal(for: item, kept: true)
-            // Kept suggestions become regular items; clear the flag so they
-            // leave the "From your subscriptions" grouping for good.
-            item.metadata["isSuggested"] = nil
-            item.metadata["suggestionDismissed"] = nil
         }
 
-        item.status = .active
-        item.updatedAt = .now
-        item.tags.removeAll { $0.isAutoGenerated }
-
-        if let board {
-            // Explicit one-gesture filing — no auto-assign, no confirmation.
-            BoardSuggestionMetadata.recordSelection(board, on: item)
-            ItemViewModel(modelContext: modelContext).assignToBoard(item, board: board)
-            clearFiledConfirmation()
-        } else if item.boards.isEmpty {
+        var autoAssigned: BoardGraph? = nil
+        if board == nil, item.board == nil {
             // Auto-assign only when classification confidence is high.
-            var autoAssigned: Board? = nil
             if let decision = BoardSuggestionMetadata.decision(from: item),
                let matchedBoard = autoAssignBoard(from: decision) {
                 autoAssigned = matchedBoard
@@ -386,34 +386,56 @@ struct InboxTriageView: View {
                       }) {
                 autoAssigned = matchedBoard
             }
+        }
 
-            if let autoAssigned {
-                item.boards.append(autoAssigned)
-                BoardSuggestionMetadata.recordSelection(autoAssigned, on: item)
-                showFiledConfirmation(item: item, board: autoAssigned)
+        let filedBoard = (board ?? autoAssigned)?.board
+        database.attempt { db in
+            try Item.modify(item.id, in: db) { row in
+                if row.isFeedSuggestion {
+                    // Kept suggestions become regular items; clear the flag so they
+                    // leave the "From your subscriptions" grouping for good.
+                    row.metadata["isSuggested"] = nil
+                    row.metadata["suggestionDismissed"] = nil
+                }
+
+                row.status = .active
+                row.updatedAt = .now
+
+                if let filedBoard {
+                    row.boardID = filedBoard.id
+                    BoardSuggestionMetadata.recordSelection(filedBoard, on: &row)
+                }
+            }
+            for tag in item.tags where tag.isAutoGenerated {
+                try Item.removeTag(tag.id, fromItem: item.id, in: db)
             }
         }
 
-        try? modelContext.save()
+        if board != nil {
+            // Explicit one-gesture filing — no auto-assign, no confirmation.
+            clearFiledConfirmation()
+        } else if let autoAssigned {
+            showFiledConfirmation(item: item, board: autoAssigned)
+        }
 
-        adjustFocusAfterRemoval()
+        adjustFocusAfterRemoval(of: item.id)
     }
 
     /// Open the picker scoped to one item, seeded with its suggestion data.
     /// `replacingMembership` is the "Change" entry point: the pick corrects an
     /// assignment that already happened, so it must replace, not append.
-    private func presentBoardPicker(for item: Item, replacingMembership: Bool = false) {
+    private func presentBoardPicker(for item: ItemGraph, replacingMembership: Bool = false) {
         let decision = BoardSuggestionMetadata.decision(from: item)
         boardPickerSuggestedName = decision?.suggestedName ?? (item.metadata["suggestedBoard"] ?? "")
         boardPickerRecommendedBoardID = decision?.recommendedBoardID
         boardPickerAlternativeBoardIDs = decision?.alternativeBoardIDs ?? []
         boardPickerReplacesMembership = replacingMembership
-        itemToAssign = item
+        itemIDToAssign = item.id
         showBoardPicker = true
     }
 
     /// One-click board chips for a card: recommended first, then alternates.
-    private func suggestedBoards(for item: Item) -> [Board] {
+    private func suggestedBoards(for item: ItemGraph) -> [BoardGraph] {
         BoardRanking.suggestedBoards(for: item, from: boards)
     }
 
@@ -422,7 +444,7 @@ struct InboxTriageView: View {
     /// Host of an item's source, normalized to match `FeedSource.domain`.
     /// Nil for anything that isn't a plain http(s) page — local files, notes,
     /// and custom schemes have no site to follow.
-    private func followHost(for item: Item) -> String? {
+    private func followHost(for item: ItemGraph) -> String? {
         guard let urlString = item.sourceURL, !urlString.isEmpty,
               let url = resolvedSourceURL(from: urlString),
               let scheme = url.scheme?.lowercased(),
@@ -432,7 +454,7 @@ struct InboxTriageView: View {
         return normalized.isEmpty ? nil : normalized
     }
 
-    private func feedSource(for item: Item) -> FeedSource? {
+    private func feedSource(for item: ItemGraph) -> FeedSource? {
         guard let host = followHost(for: item) else { return nil }
         return feedSources.first { normalizedDomain($0.domain) == host }
     }
@@ -440,16 +462,16 @@ struct InboxTriageView: View {
     /// Display domain for the card's "+ Follow" chip, or nil to show nothing.
     /// Only sites Grove already knows a feed for are offerable; a site with no
     /// FeedSource yet stays silent until on-demand discovery lands one.
-    private func followableSite(for item: Item) -> String? {
+    private func followableSite(for item: ItemGraph) -> String? {
         guard let host = followHost(for: item),
               let source = feedSource(for: item),
               !source.isUserSubscribed else { return nil }
         return host
     }
 
-    private func followSite(for item: Item) {
+    private func followSite(for item: ItemGraph) {
         guard let source = feedSource(for: item), !source.isUserSubscribed else { return }
-        FeedSubscriptionService.subscribe(source, in: modelContext)
+        FeedSubscriptionService.subscribe(source.id)
     }
 
     /// Domain of the focused card when Grove has no FeedSource for it yet.
@@ -468,7 +490,7 @@ struct InboxTriageView: View {
 
     // MARK: - Auto-assign Confirmation
 
-    private func showFiledConfirmation(item: Item, board: Board) {
+    private func showFiledConfirmation(item: ItemGraph, board: BoardGraph) {
         filedConfirmationTask?.cancel()
         filedConfirmation = FiledConfirmation(itemID: item.id, boardTitle: board.title)
         filedConfirmationTask = MainActorTaskScheduler.schedule(after: .seconds(6)) {
@@ -496,7 +518,7 @@ struct InboxTriageView: View {
                 .foregroundStyle(Color.textMuted)
 
             Button("Change") {
-                guard let item = allItems.first(where: { $0.id == confirmation.itemID }) else { return }
+                guard let item = library.item(confirmation.itemID) else { return }
                 clearFiledConfirmation()
                 presentBoardPicker(for: item, replacingMembership: true)
             }
@@ -518,26 +540,25 @@ struct InboxTriageView: View {
         .transition(.opacity)
     }
 
-    private func dropItem(_ item: Item) {
+    private func dropItem(_ item: ItemGraph) {
         recordSuggestionSignal(for: item, kept: false)
 
-        withAnimation(.easeOut(duration: 0.3)) {
-            item.status = .dismissed
-            item.updatedAt = .now
-            try? modelContext.save()
+        database.attempt { db in
+            try Item.modify(item.id, in: db) {
+                $0.status = .dismissed
+                $0.updatedAt = .now
+            }
         }
 
-        adjustFocusAfterRemoval()
+        adjustFocusAfterRemoval(of: item.id)
     }
 
-    private func queueItem(_ item: Item, preset: ReadLaterPreset) {
-        withAnimation(.easeOut(duration: 0.25)) {
-            readLaterService.queue(item, for: preset)
-        }
-        adjustFocusAfterRemoval()
+    private func queueItem(_ item: ItemGraph, preset: ReadLaterPreset) {
+        readLaterService.queue(item.id, for: preset)
+        adjustFocusAfterRemoval(of: item.id)
     }
 
-    private func autoAssignBoard(from decision: BoardSuggestionDecision) -> Board? {
+    private func autoAssignBoard(from decision: BoardSuggestionDecision) -> BoardGraph? {
         guard decision.mode == .existing else { return nil }
         guard decision.confidence >= 0.78 else { return nil }
 
@@ -553,28 +574,28 @@ struct InboxTriageView: View {
         })
     }
 
-    private func createAndAssignBoard(named rawTitle: String, to item: Item) {
+    private func createAndAssignBoard(named rawTitle: String, to itemID: Item.ID) {
         let title = BoardSuggestionEngine.cleanedBoardName(rawTitle)
         guard !title.isEmpty else { return }
 
-        if let existingBoard = boards.first(where: {
+        let existingBoard = boards.first(where: {
             $0.title.localizedCaseInsensitiveCompare(title) == .orderedSame
-        }) {
-            BoardSuggestionMetadata.recordSelection(existingBoard, on: item)
-            let viewModel = ItemViewModel(modelContext: modelContext)
-            viewModel.assignToBoard(item, board: existingBoard)
-        } else {
-            let board = Board(title: title)
-            modelContext.insert(board)
-            BoardSuggestionMetadata.recordSelection(board, on: item)
-            let viewModel = ItemViewModel(modelContext: modelContext)
-            viewModel.assignToBoard(item, board: board)
+        })?.board
+        let board = existingBoard ?? Board(title: title)
+        database.attempt { db in
+            if existingBoard == nil {
+                try Board.insert { board }.execute(db)
+            }
+            try Item.modify(itemID, in: db) {
+                BoardSuggestionMetadata.recordSelection(board, on: &$0)
+            }
         }
+        ItemViewModel().assignToBoard(itemID, board: board)
     }
 
     private func resetBoardPickerState() {
         showBoardPicker = false
-        itemToAssign = nil
+        itemIDToAssign = nil
         boardPickerSuggestedName = ""
         boardPickerRecommendedBoardID = nil
         boardPickerAlternativeBoardIDs = []
@@ -584,14 +605,16 @@ struct InboxTriageView: View {
     // MARK: - Tag Actions
 
     private func confirmTag(_ tag: Tag) {
-        tag.isAutoGenerated = false
-        try? modelContext.save()
+        database.attempt { db in
+            try Tag.modify(tag.id, in: db) { $0.isAutoGenerated = false }
+        }
     }
 
-    private func dismissTag(_ tag: Tag, from item: Item) {
-        item.tags.removeAll { $0.id == tag.id }
-        item.updatedAt = .now
-        try? modelContext.save()
+    private func dismissTag(_ tag: Tag, from item: ItemGraph) {
+        database.attempt { db in
+            try Item.removeTag(tag.id, fromItem: item.id, in: db)
+            try Item.modify(item.id, in: db) { $0.updatedAt = .now }
+        }
     }
 
     private func moveFocus(by offset: Int) {
@@ -607,9 +630,10 @@ struct InboxTriageView: View {
         openedItem?.wrappedValue = items[focusedIndex]
     }
 
-    private func adjustFocusAfterRemoval() {
-        // After an item is removed, adjust focus so it stays in bounds
-        let items = inboxItems
+    private func adjustFocusAfterRemoval(of itemID: Item.ID) {
+        // After an item is removed, adjust focus so it stays in bounds. It's
+        // still in `inboxItems` until the library next arrives, so leave it out.
+        let items = inboxItems.filter { $0.id != itemID }
         if items.isEmpty {
             focusedIndex = 0
             selectedItem = nil
@@ -694,7 +718,7 @@ struct InboxTriageView: View {
 
     /// Per-source keep/dismiss counters feeding the auto-throttle in
     /// FeedFetchService. No-op for non-suggested items.
-    private func recordSuggestionSignal(for item: Item, kept: Bool) {
+    private func recordSuggestionSignal(for item: ItemGraph, kept: Bool) {
         guard item.isFeedSuggestion,
               let idString = item.metadata["feedSourceID"],
               let id = UUID(uuidString: idString) else { return }
@@ -707,16 +731,14 @@ struct InboxTriageView: View {
 
     /// Restore a queued item to the inbox and open it for reading,
     /// using the same open mechanism as Return on a focused inbox card.
-    private func readQueuedItemNow(_ item: Item) {
-        readLaterService.restore(item)
+    private func readQueuedItemNow(_ item: ItemGraph) {
+        readLaterService.restore(item.id)
         selectedItem = item
         openedItem?.wrappedValue = item
     }
 
-    private func returnQueuedItemToInbox(_ item: Item) {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            readLaterService.restore(item)
-        }
+    private func returnQueuedItemToInbox(_ item: ItemGraph) {
+        readLaterService.restore(item.id)
     }
 
     private func restoreDueQueuedItems() {
@@ -743,7 +765,7 @@ struct InboxTriageView: View {
 
     @MainActor
     private func importDroppedVideo(at path: String) {
-        let captureService = CaptureService(modelContext: modelContext)
+        let captureService = CaptureService()
         _ = captureService.createVideoItem(filePath: path)
     }
 }

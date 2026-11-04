@@ -1,19 +1,34 @@
+import SQLiteData
 import SwiftUI
-import SwiftData
 
 /// Messages-like chat UI for iOS Dialectics conversations.
 /// Shows message bubbles in a ScrollView with text input at bottom.
 struct MobileChatView: View {
-    @Bindable var conversation: Conversation
-    @Environment(\.modelContext) private var modelContext
+    /// What the screen was opened with, which is all that's left to show if the
+    /// conversation is deleted while it's up.
+    private let openedConversation: ConversationGraph
+    @Fetch private var currentConversation: ConversationGraph?
+    @Dependency(\.defaultDatabase) private var database
 
-    @Query private var allItemsForContext: [Item]
+    @Fetch(Library.Request()) private var library = Library()
     @State private var dialecticsService = DialecticsService()
     @State private var inputText = ""
     @State private var scrollProxy: ScrollViewProxy?
 
-    private var seedItems: [Item] {
-        allItemsForContext.filter { conversation.seedItemIDs.contains($0.id) }
+    init(conversation: ConversationGraph) {
+        openedConversation = conversation
+        _currentConversation = Fetch(
+            wrappedValue: conversation,
+            ConversationGraph.Request(id: conversation.id)
+        )
+    }
+
+    private var conversation: ConversationGraph {
+        currentConversation ?? openedConversation
+    }
+
+    private var seedItems: [ItemGraph] {
+        library.items.filter { conversation.seedItemIDs.contains($0.id) }
     }
 
     var body: some View {
@@ -170,8 +185,7 @@ struct MobileChatView: View {
         Task {
             _ = await dialecticsService.sendMessage(
                 userText: text,
-                conversation: conversation,
-                context: modelContext
+                conversationID: conversation.id
             )
         }
     }
@@ -190,24 +204,18 @@ struct MobileChatView: View {
         for url in urls {
             if url.scheme == "grove", url.host == "item" {
                 if let uuid = UUID(uuidString: url.lastPathComponent) {
-                    let allItems: [Item] = modelContext.fetchAll()
-                    if let item = allItems.first(where: { $0.id == uuid }) {
+                    if let item = library.item(uuid) {
                         inputText = "Let's discuss \"\(item.title)\"."
-                        if !conversation.seedItemIDs.contains(item.id) {
-                            conversation.seedItemIDs.append(item.id)
-                        }
+                        addSeedItem(item.id)
                         return true
                     }
                 }
             } else {
                 // Regular URL — find item by sourceURL
                 let urlString = url.absoluteString
-                let allItems: [Item] = modelContext.fetchAll()
-                if let item = allItems.first(where: { $0.sourceURL == urlString }) {
+                if let item = library.items.first(where: { $0.sourceURL == urlString }) {
                     inputText = "Let's discuss \"\(item.title)\"."
-                    if !conversation.seedItemIDs.contains(item.id) {
-                        conversation.seedItemIDs.append(item.id)
-                    }
+                    addSeedItem(item.id)
                     return true
                 }
             }
@@ -215,21 +223,27 @@ struct MobileChatView: View {
         return false
     }
 
+    private func addSeedItem(_ itemID: Item.ID) {
+        let conversationID = conversation.id
+        database.attempt { db in
+            try Conversation.modify(conversationID, in: db) {
+                if !$0.seedItemIDs.contains(itemID) {
+                    $0.seedItemIDs.append(itemID)
+                }
+            }
+        }
+    }
+
     // MARK: - Message actions (P6.7)
 
     private func saveAsReflection(_ message: ChatMessage) {
         // Save to the first seed item if available
-        let seedItem = conversation.seedItemIDs.first.flatMap { seedID in
-            let allItems: [Item] = modelContext.fetchAll()
-            return allItems.first { $0.id == seedID }
-        }
-        if let item = seedItem {
+        if let item = library.item(conversation.seedItemIDs.first) {
             _ = dialecticsService.saveAsReflection(
                 content: message.content,
                 itemTitle: item.title,
                 blockType: .keyInsight,
-                conversation: conversation,
-                context: modelContext
+                conversationID: conversation.id
             )
         }
     }
@@ -239,8 +253,7 @@ struct MobileChatView: View {
         _ = dialecticsService.saveAsNote(
             content: message.content,
             title: title,
-            conversation: conversation,
-            context: modelContext
+            conversationID: conversation.id
         )
     }
 }

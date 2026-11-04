@@ -1,21 +1,19 @@
+import SQLiteData
 import SwiftUI
-import SwiftData
 
 /// Library view for iOS — shows all items with board filter chips,
 /// mirroring the macOS LibraryView pattern.
 struct MobileLibraryView: View {
-    @Environment(\.modelContext) private var modelContext
     @Environment(iPadReaderCoordinator.self) private var readerCoordinator: iPadReaderCoordinator?
-    @Query(sort: \Item.updatedAt, order: .reverse) private var allItems: [Item]
-    @Query(sort: \Board.sortOrder) private var boards: [Board]
+    @Fetch(Library.Request()) private var library = Library()
 
     @State private var searchText: String = ""
     @State private var localSelectedBoardID: UUID?
     @State private var showNewBoardSheet = false
 
-    var onOpenItem: ((Item) -> Void)? = nil
-    var selectedItem: Binding<Item?>? = nil
-    var openedItem: Binding<Item?>? = nil
+    var onOpenItem: ((ItemGraph) -> Void)? = nil
+    var selectedItem: Binding<ItemGraph?>? = nil
+    var openedItem: Binding<ItemGraph?>? = nil
     var selectedBoard: Binding<UUID?>? = nil
 
     private var selectedBoardID: UUID? {
@@ -31,8 +29,15 @@ struct MobileLibraryView: View {
 
     // MARK: - Computed
 
+    /// Most recently changed first.
+    private var allItems: [ItemGraph] {
+        library.items.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    private var boards: [BoardGraph] { library.boards }
+
     /// Items scoped to the board filter (if any), before text search
-    private var boardFilteredItems: [Item] {
+    private var boardFilteredItems: [ItemGraph] {
         guard let boardID = selectedBoardID,
               let board = boards.first(where: { $0.id == boardID }) else {
             // Unkept newsletter issues live in the Newsletters tab, not here.
@@ -47,7 +52,7 @@ struct MobileLibraryView: View {
     }
 
     /// Final displayed items after text search
-    private var displayedItems: [Item] {
+    private var displayedItems: [ItemGraph] {
         let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return boardFilteredItems }
         return boardFilteredItems.filter {
@@ -57,7 +62,7 @@ struct MobileLibraryView: View {
 
     var body: some View {
         Group {
-            if allItems.isEmpty {
+            if library.items.isEmpty {
                 ContentUnavailableView {
                     Label("No Items", systemImage: "tray")
                 } description: {
@@ -82,7 +87,7 @@ struct MobileLibraryView: View {
         .sheet(isPresented: $showNewBoardSheet) {
             BoardEditorSheet(
                 onSave: { title, icon, color, nudgeFreq in
-                    let viewModel = BoardViewModel(modelContext: modelContext)
+                    let viewModel = BoardViewModel()
                     viewModel.createBoard(title: title, icon: icon, color: color, nudgeFrequencyHours: nudgeFreq)
                 }
             )
@@ -151,7 +156,7 @@ struct MobileLibraryView: View {
     }
 
     @ViewBuilder
-    private func openItemRow<Content: View>(item: Item, @ViewBuilder content: () -> Content) -> some View {
+    private func openItemRow<Content: View>(item: ItemGraph, @ViewBuilder content: () -> Content) -> some View {
         if let onOpenItem {
             Button {
                 onOpenItem(item)

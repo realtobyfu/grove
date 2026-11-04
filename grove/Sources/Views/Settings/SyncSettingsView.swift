@@ -41,6 +41,9 @@ struct SyncSettingsSections: View {
                     Text("Sync your library, flashcards, reviews, and focus across devices.")
                         .font(.groveBodySmall)
                         .foregroundStyle(Color.textSecondary)
+                    Text("Off until you turn it on here, even if iCloud sync was on before. This uploads your library as new iCloud records. The iCloud copy older versions of Grove made isn't read, changed, or removed.")
+                        .font(.groveBodySmall)
+                        .foregroundStyle(Color.textSecondary)
                 } else {
                     HStack(spacing: 6) {
                         Image(systemName: "lock")

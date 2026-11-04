@@ -34,6 +34,12 @@ enum ItemResolver {
         return contains.count == 1 ? contains.first : nil
     }
 
+    /// As above, for callers that went on to read the item's links.
+    static func resolve(_ reference: String, in items: [ItemGraph]) -> ItemGraph? {
+        guard let resolved = resolve(reference, in: items.map(\.item)) else { return nil }
+        return items.first { $0.id == resolved.id }
+    }
+
     /// Exact case-insensitive title match — the single source of truth for what
     /// a `[[wiki link]]` resolves to (connection creation and tap navigation).
     /// Deliberately strict (no fuzzy fallback) so a link never silently jumps to
@@ -45,6 +51,12 @@ enum ItemResolver {
             if let excludedID, item.id == excludedID { return false }
             return item.title.localizedCaseInsensitiveCompare(trimmed) == .orderedSame
         }
+    }
+
+    /// As above, for callers that went on to read the item's links.
+    static func resolveExactTitle(_ title: String, in items: [ItemGraph], excluding excludedID: UUID? = nil) -> ItemGraph? {
+        guard let resolved = resolveExactTitle(title, in: items.map(\.item), excluding: excludedID) else { return nil }
+        return items.first { $0.id == resolved.id }
     }
 
     /// Lowercase, strip punctuation, collapse whitespace.

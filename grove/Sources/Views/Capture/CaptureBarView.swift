@@ -1,5 +1,5 @@
 import SwiftUI
-import SwiftData
+import SQLiteData
 
 // MARK: - Board Suggestion Banner
 
@@ -145,8 +145,9 @@ private struct CaptureConfirmationChip: View {
 // MARK: - CaptureBarView
 
 struct CaptureBarView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query(sort: \Board.sortOrder) private var boards: [Board]
+    @Dependency(\.defaultDatabase) private var database
+    @Fetch(Library.Request()) private var library = Library()
+    private var boards: [BoardGraph] { library.boards }
     @State private var inputText = ""
     @State private var showConfirmation = false
     @State private var confirmationMessage = "Captured"
@@ -265,7 +266,7 @@ struct CaptureBarView: View {
                     recommendedBoardID: pendingSuggestion.recommendedBoardID,
                     alternativeBoardIDs: pendingSuggestion.alternativeBoardIDs,
                     onSelect: { board in
-                        selectBoardFromPicker(board)
+                        selectBoardFromPicker(board.board)
                     },
                     onCreate: { boardName in
                         createBoardFromPicker(named: boardName)
@@ -295,10 +296,8 @@ struct CaptureBarView: View {
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        let captureService = CaptureService(modelContext: modelContext)
-        let board = currentBoardID.flatMap { boardID in
-            boards.first(where: { $0.id == boardID })
-        }
+        let captureService = CaptureService()
+        let board = library.board(currentBoardID)?.board
         let result = captureService.captureItemDetailed(input: trimmed, board: board)
 
         inputText = ""
@@ -334,8 +333,7 @@ struct CaptureBarView: View {
         let suggestedName = BoardSuggestionEngine.cleanedBoardName(pendingSuggestion.suggestedName)
 
         Task { @MainActor in
-            let boardDescriptor = FetchDescriptor<Board>()
-            let allBoards = (try? modelContext.fetch(boardDescriptor)) ?? []
+            let allBoards = database.attemptRead { try Board.all.fetchAll($0) } ?? []
 
             let board: Board
             if pendingSuggestion.mode == .existing,
@@ -348,7 +346,9 @@ struct CaptureBarView: View {
                 board = existing
             } else {
                 let newBoard = Board(title: suggestedName.isEmpty ? "General" : suggestedName)
-                modelContext.insert(newBoard)
+                database.attempt { db in
+                    try Board.insert { newBoard }.execute(db)
+                }
                 board = newBoard
             }
 
@@ -371,8 +371,7 @@ struct CaptureBarView: View {
         guard !normalizedName.isEmpty else { return }
 
         Task { @MainActor in
-            let boardDescriptor = FetchDescriptor<Board>()
-            let allBoards = (try? modelContext.fetch(boardDescriptor)) ?? []
+            let allBoards = database.attemptRead { try Board.all.fetchAll($0) } ?? []
 
             if let existing = allBoards.first(where: {
                 $0.title.localizedCaseInsensitiveCompare(normalizedName) == .orderedSame
@@ -380,7 +379,9 @@ struct CaptureBarView: View {
                 assignPendingItem(to: existing)
             } else {
                 let newBoard = Board(title: normalizedName)
-                modelContext.insert(newBoard)
+                database.attempt { db in
+                    try Board.insert { newBoard }.execute(db)
+                }
                 assignPendingItem(to: newBoard)
             }
         }
@@ -391,12 +392,15 @@ struct CaptureBarView: View {
     private func assignPendingItem(to board: Board) {
         guard let itemID = pendingSuggestionItemID else { return }
 
-        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-        guard let item = try? modelContext.fetch(descriptor).first else { return }
+        let recorded = database.attempt { db in
+            try Item.modify(itemID, in: db) {
+                BoardSuggestionMetadata.recordSelection(board, on: &$0)
+            }
+        } ?? nil
+        guard recorded != nil else { return }
 
-        BoardSuggestionMetadata.recordSelection(board, on: item)
-        let viewModel = ItemViewModel(modelContext: modelContext)
-        viewModel.assignToBoard(item, board: board)
+        let viewModel = ItemViewModel()
+        viewModel.assignToBoard(itemID, board: board)
     }
 
     private func dismissBoardSuggestion() {
@@ -425,8 +429,9 @@ struct CaptureBarView: View {
 // MARK: - Capture Bar Overlay
 
 struct CaptureBarOverlayView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query(sort: \Board.sortOrder) private var boards: [Board]
+    @Dependency(\.defaultDatabase) private var database
+    @Fetch(Library.Request()) private var library = Library()
+    private var boards: [BoardGraph] { library.boards }
     @Binding var isPresented: Bool
     @State private var inputText = ""
     @State private var showConfirmation = false
@@ -545,7 +550,7 @@ struct CaptureBarOverlayView: View {
                     recommendedBoardID: pendingSuggestion.recommendedBoardID,
                     alternativeBoardIDs: pendingSuggestion.alternativeBoardIDs,
                     onSelect: { board in
-                        selectBoardFromPicker(board)
+                        selectBoardFromPicker(board.board)
                     },
                     onCreate: { boardName in
                         createBoardFromPicker(named: boardName)
@@ -572,10 +577,8 @@ struct CaptureBarOverlayView: View {
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        let captureService = CaptureService(modelContext: modelContext)
-        let board = currentBoardID.flatMap { boardID in
-            boards.first(where: { $0.id == boardID })
-        }
+        let captureService = CaptureService()
+        let board = library.board(currentBoardID)?.board
         let result = captureService.captureItemDetailed(input: trimmed, board: board)
 
         inputText = ""
@@ -623,8 +626,7 @@ struct CaptureBarOverlayView: View {
         let suggestedName = BoardSuggestionEngine.cleanedBoardName(pendingSuggestion.suggestedName)
 
         Task { @MainActor in
-            let boardDescriptor = FetchDescriptor<Board>()
-            let allBoards = (try? modelContext.fetch(boardDescriptor)) ?? []
+            let allBoards = database.attemptRead { try Board.all.fetchAll($0) } ?? []
 
             let board: Board
             if pendingSuggestion.mode == .existing,
@@ -637,7 +639,9 @@ struct CaptureBarOverlayView: View {
                 board = existing
             } else {
                 let newBoard = Board(title: suggestedName.isEmpty ? "General" : suggestedName)
-                modelContext.insert(newBoard)
+                database.attempt { db in
+                    try Board.insert { newBoard }.execute(db)
+                }
                 board = newBoard
             }
 
@@ -662,8 +666,7 @@ struct CaptureBarOverlayView: View {
         guard !normalizedName.isEmpty else { return }
 
         Task { @MainActor in
-            let boardDescriptor = FetchDescriptor<Board>()
-            let allBoards = (try? modelContext.fetch(boardDescriptor)) ?? []
+            let allBoards = database.attemptRead { try Board.all.fetchAll($0) } ?? []
 
             if let existing = allBoards.first(where: {
                 $0.title.localizedCaseInsensitiveCompare(normalizedName) == .orderedSame
@@ -671,7 +674,9 @@ struct CaptureBarOverlayView: View {
                 assignPendingItem(to: existing)
             } else {
                 let newBoard = Board(title: normalizedName)
-                modelContext.insert(newBoard)
+                database.attempt { db in
+                    try Board.insert { newBoard }.execute(db)
+                }
                 assignPendingItem(to: newBoard)
             }
         }
@@ -683,12 +688,15 @@ struct CaptureBarOverlayView: View {
     private func assignPendingItem(to board: Board) {
         guard let itemID = pendingSuggestionItemID else { return }
 
-        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-        guard let item = try? modelContext.fetch(descriptor).first else { return }
+        let recorded = database.attempt { db in
+            try Item.modify(itemID, in: db) {
+                BoardSuggestionMetadata.recordSelection(board, on: &$0)
+            }
+        } ?? nil
+        guard recorded != nil else { return }
 
-        BoardSuggestionMetadata.recordSelection(board, on: item)
-        let viewModel = ItemViewModel(modelContext: modelContext)
-        viewModel.assignToBoard(item, board: board)
+        let viewModel = ItemViewModel()
+        viewModel.assignToBoard(itemID, board: board)
     }
 
     private func dismissBoardSuggestion() {

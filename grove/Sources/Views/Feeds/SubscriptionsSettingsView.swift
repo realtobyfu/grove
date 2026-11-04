@@ -1,5 +1,5 @@
 import SwiftUI
-import SwiftData
+import SQLiteData
 
 /// Manages newsletter/RSS subscriptions: existing FeedSources, feeds
 /// discovered from the user's library (suggestions), manual feed adds,
@@ -9,9 +9,9 @@ import SwiftData
 /// true, so it carries its own title bar and close button), as a macOS
 /// Settings tab, and pushed onto the iOS settings stack.
 struct SubscriptionsSettingsView: View {
-    @Environment(\.modelContext) private var modelContext
+    @Dependency(\.defaultDatabase) private var database
     @Environment(\.dismiss) private var dismiss
-    @Query(sort: \FeedSource.createdAt, order: .reverse) private var allSources: [FeedSource]
+    @FetchAll(FeedSource.order { $0.createdAt.desc() }) private var allSources
 
     /// True when the view supplies its own title bar and close button —
     /// i.e. presented as a sheet rather than inside a settings container.
@@ -327,20 +327,18 @@ struct SubscriptionsSettingsView: View {
     // MARK: - Actions
 
     private func subscribe(_ source: FeedSource) {
-        FeedSubscriptionService.subscribe(source, in: modelContext)
+        FeedSubscriptionService.subscribe(source.id)
     }
 
     private func dismissSuggestion(_ source: FeedSource) {
         FeedPreferencesStore.dismissDiscovery(source.feedURL)
-        modelContext.delete(source)
-        try? modelContext.save()
+        database.attempt { db in try FeedSource.find(source.id).delete().execute(db) }
     }
 
     private func delete(_ source: FeedSource) {
         // Remember the URL so discovery doesn't silently resurrect the feed.
         FeedPreferencesStore.dismissDiscovery(source.feedURL)
-        modelContext.delete(source)
-        try? modelContext.save()
+        database.attempt { db in try FeedSource.find(source.id).delete().execute(db) }
     }
 
     private func addFeed() {
@@ -352,7 +350,7 @@ struct SubscriptionsSettingsView: View {
 
         Task {
             defer { isValidatingFeed = false }
-            switch await FeedSubscriptionService.validateAndAdd(urlString: trimmed, in: modelContext) {
+            switch await FeedSubscriptionService.validateAndAdd(urlString: trimmed) {
             case .success:
                 newFeedURL = ""
             case .failure(let error):
@@ -365,10 +363,26 @@ struct SubscriptionsSettingsView: View {
 // MARK: - Subscription Row
 
 private struct FeedSubscriptionRow: View {
-    @Bindable var source: FeedSource
+    let source: FeedSource
     let onDelete: () -> Void
 
+    @Dependency(\.defaultDatabase) private var database
+    @State private var isEnabled = false
     @State private var isHovering = false
+
+    /// Reads a draft: `source` catches up a moment after the write, and the
+    /// switch would snap back until it did.
+    private var enabledSelection: Binding<Bool> {
+        Binding(
+            get: { isEnabled },
+            set: { newValue in
+                isEnabled = newValue
+                database.attempt { db in
+                    try FeedSource.modify(source.id, in: db) { $0.isEnabled = newValue }
+                }
+            }
+        )
+    }
 
     private var statusText: String {
         if let lastFetched = source.lastFetchedAt {
@@ -432,7 +446,7 @@ private struct FeedSubscriptionRow: View {
             #endif
             .accessibilityLabel("Remove \(source.title ?? source.domain)")
 
-            Toggle("", isOn: $source.isEnabled)
+            Toggle("", isOn: enabledSelection)
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.small)
@@ -441,9 +455,12 @@ private struct FeedSubscriptionRow: View {
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.md)
-        .opacity(source.isEnabled ? 1 : 0.55)
+        .opacity(isEnabled ? 1 : 0.55)
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
+        .onChange(of: source.isEnabled, initial: true) { _, newValue in
+            isEnabled = newValue
+        }
         .contextMenu {
             Button(role: .destructive) {
                 onDelete()

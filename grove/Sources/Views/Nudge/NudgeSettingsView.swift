@@ -1,10 +1,8 @@
 import SwiftUI
-import SwiftData
 
 /// Settings view for configuring nudge behavior.
 /// Accessible from the app's Settings window.
 struct NudgeSettingsView: View {
-    @Environment(\.modelContext) private var modelContext
     @Environment(EntitlementService.self) private var entitlement
     @Environment(PaywallCoordinator.self) private var paywallCoordinator
     @State private var resurfaceEnabled = NudgeSettings.resurfaceEnabled
@@ -221,7 +219,7 @@ struct NudgeSettingsView: View {
     }
 
     private func loadQueueStats() {
-        let service = ResurfacingService(modelContext: modelContext)
+        let service = ResurfacingService()
         queueStats = service.queueStats()
     }
 

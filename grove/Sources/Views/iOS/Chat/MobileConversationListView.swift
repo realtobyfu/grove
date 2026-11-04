@@ -1,26 +1,29 @@
+import SQLiteData
 import SwiftUI
-import SwiftData
 
 /// List of past Dialectics conversations with search, sorted by most recent.
 /// Tap navigates to MobileChatView. New conversation button in toolbar.
 struct MobileConversationListView: View {
-    @Environment(\.modelContext) private var modelContext
+    @Dependency(\.defaultDatabase) private var database
     @Environment(EntitlementService.self) private var entitlement
     @Environment(PaywallCoordinator.self) private var paywallCoordinator
-    @Query(sort: \Conversation.updatedAt, order: .reverse) private var conversations: [Conversation]
+    @Fetch(ConversationGraph.All()) private var conversations = [ConversationGraph]()
 
     @State private var dialecticsService = DialecticsService()
     @State private var searchText = ""
-    @State private var routedConversation: Conversation?
+    /// Only what the chat screen opens with, which then keeps itself current. Never
+    /// refresh this while it's on screen: a new value here can mean a new push, and
+    /// the draft in the chat's input would go with the old one.
+    @State private var routedConversation: ConversationGraph?
     @State private var paywallPresentation: PaywallPresentation?
 
     var initialConversationID: UUID?
 
-    private var activeConversations: [Conversation] {
+    private var activeConversations: [ConversationGraph] {
         conversations.filter { !$0.isArchived && $0.isSavedToHistory }
     }
 
-    private var visibleHistoryConversations: [Conversation] {
+    private var visibleHistoryConversations: [ConversationGraph] {
         guard entitlement.hasAccess(to: .fullHistory) else {
             return Array(activeConversations.prefix(20))
         }
@@ -35,7 +38,7 @@ struct MobileConversationListView: View {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var filteredConversations: [Conversation] {
+    private var filteredConversations: [ConversationGraph] {
         let query = trimmedSearchText
         guard !query.isEmpty else { return visibleHistoryConversations }
         return visibleHistoryConversations.filter {
@@ -84,6 +87,9 @@ struct MobileConversationListView: View {
         .onChange(of: conversations.count) { _, _ in
             openInitialConversationIfNeeded()
         }
+        .onChange(of: conversations) { _, _ in
+            closeRoutedConversationIfDeleted()
+        }
         .navigationDestination(item: $routedConversation) { conversation in
             MobileChatView(conversation: conversation)
         }
@@ -115,7 +121,7 @@ struct MobileConversationListView: View {
             }
         }
         .listStyle(.plain)
-        .navigationDestination(for: Conversation.self) { conversation in
+        .navigationDestination(for: ConversationGraph.self) { conversation in
             MobileChatView(conversation: conversation)
         }
     }
@@ -156,7 +162,7 @@ struct MobileConversationListView: View {
         .padding(.vertical, Spacing.sm)
     }
 
-    private func conversationRow(_ conversation: Conversation) -> some View {
+    private func conversationRow(_ conversation: ConversationGraph) -> some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
             HStack {
                 Text(conversation.displayTitle)
@@ -197,21 +203,21 @@ struct MobileConversationListView: View {
         let conversation = dialecticsService.startConversation(
             trigger: .userInitiated,
             seedItems: [],
-            board: nil,
-            context: modelContext
+            board: nil
         )
         routedConversation = conversation
     }
 
-    private func deleteConversation(_ conversation: Conversation) {
+    private func deleteConversation(_ conversation: ConversationGraph) {
         if routedConversation?.id == conversation.id {
             routedConversation = nil
         }
-        modelContext.delete(conversation)
-        try? modelContext.save()
+        database.attempt { db in
+            try Conversation.find(conversation.id).delete().execute(db)
+        }
     }
 
-    private func conversationMatchesSearch(_ conversation: Conversation, query: String) -> Bool {
+    private func conversationMatchesSearch(_ conversation: ConversationGraph, query: String) -> Bool {
         if conversation.displayTitle.localizedStandardContains(query) {
             return true
         }
@@ -254,7 +260,20 @@ struct MobileConversationListView: View {
 
     private func openInitialConversationIfNeeded() {
         guard let initialConversationID else { return }
-        guard let conversation = conversations.first(where: { $0.id == initialConversationID }) else { return }
+        guard routedConversation?.id != initialConversationID,
+              let conversation = conversations.first(where: { $0.id == initialConversationID }) else { return }
         routedConversation = conversation
+    }
+
+    /// Asks the database rather than `conversations`, which can arrive from just
+    /// before a conversation was started and would close it as it opens.
+    private func closeRoutedConversationIfDeleted() {
+        guard let conversationID = routedConversation?.id else { return }
+        let matches = database.attemptRead { db in
+            try Conversation.where { $0.id.eq(conversationID) }.fetchCount(db)
+        }
+        if matches == 0 {
+            routedConversation = nil
+        }
     }
 }

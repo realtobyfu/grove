@@ -1,7 +1,7 @@
 import Foundation
-import SwiftData
+import SQLiteData
 
-enum NudgeType: String, Codable {
+enum NudgeType: String, Codable, QueryBindable {
     // Active engine categories.
     case resurface
     case staleInbox
@@ -21,39 +21,32 @@ enum NudgeType: String, Codable {
     case dialecticalCheckIn
 }
 
-enum NudgeStatus: String, Codable {
+enum NudgeStatus: String, Codable, QueryBindable {
     case pending
     case shown
     case actedOn
     case dismissed
 }
 
-extension Legacy {
-    @Model
-    final class Nudge {
-        var id: UUID = UUID()
-        var type: NudgeType = NudgeType.resurface
-        var targetItem: Item?
-        var relatedItemIDs: [UUID]?
-        var message: String = ""
-        var status: NudgeStatus = NudgeStatus.pending
-        var scheduledFor: Date = Date.now
-        var createdAt: Date = Date.now
+@Table("nudges")
+struct Nudge: Hashable, Identifiable, Sendable {
+    let id: UUID
+    var type: NudgeType = .resurface
+    var targetItemID: Item.ID?
+    @Column(as: [UUID]?.JSONRepresentation.self)
+    var relatedItemIDs: [UUID]?
+    var message: String = ""
+    var status: NudgeStatus = .pending
+    var scheduledFor: Date = .now
+    var createdAt: Date = .now
+}
 
-        init(type: NudgeType, message: String, scheduledFor: Date = .now, targetItem: Item? = nil) {
-            self.id = UUID()
-            self.type = type
-            self.targetItem = targetItem
-            self.relatedItemIDs = nil
-            self.message = message
-            self.status = .pending
-            self.scheduledFor = scheduledFor
-            self.createdAt = .now
-        }
+extension Nudge {
+    init(type: NudgeType, message: String, scheduledFor: Date = .now, targetItemID: Item.ID? = nil) {
+        self.init(id: UUID(), type: type, targetItemID: targetItemID, message: message, scheduledFor: scheduledFor)
     }
 }
 
-typealias Nudge = Legacy.Nudge
 
 extension Nudge {
     /// The user-facing message. For dialectical check-ins, extracts the portion before `|||`.

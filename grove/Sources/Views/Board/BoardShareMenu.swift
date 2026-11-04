@@ -1,8 +1,8 @@
 import SwiftUI
 
 struct BoardShareMenu: View {
-    let board: Board
-    let items: [Item]
+    let board: BoardGraph
+    let items: [ItemGraph]
     @State private var options = BoardExportOptions()
     @Environment(\.dismiss) private var dismiss
 

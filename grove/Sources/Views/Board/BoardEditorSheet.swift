@@ -30,7 +30,7 @@ struct BoardEditorSheet: View {
     ]
 
     init(
-        board: Board? = nil,
+        board: BoardGraph? = nil,
         onSave: @escaping (String, String?, String?, Int) -> Void
     ) {
         if let board {

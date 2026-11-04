@@ -1,15 +1,14 @@
 import SwiftUI
-import SwiftData
+import SQLiteData
 import AVKit
 
 struct ItemReaderView: View {
-    @Bindable var item: Item
+    let item: ItemGraph
     @Binding var isWebViewActive: Bool
     // Optional so hosts that don't manage window chrome (iPad) can omit it.
     var isPDFSurfaceActive: Binding<Bool>? = nil
     var alwaysShowReflectionPanel: Bool = false
-    var onNavigateToItem: ((Item) -> Void)?
-    @Environment(\.modelContext) private var modelContext
+    var onNavigateToItem: ((ItemGraph) -> Void)?
 
     // ViewModel created lazily per item
     @State private var vm: ItemReaderViewModel?
@@ -21,7 +20,7 @@ struct ItemReaderView: View {
 
     private var viewModel: ItemReaderViewModel {
         if let vm, vm.item.id == item.id { return vm }
-        let newVM = ItemReaderViewModel(item: item, modelContext: modelContext, onNavigateToItem: onNavigateToItem)
+        let newVM = ItemReaderViewModel(item: item, onNavigateToItem: onNavigateToItem)
         Task { @MainActor in self.vm = newVM }
         return newVM
     }
@@ -71,6 +70,12 @@ struct ItemReaderView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .groveOpenReflectMode)) { _ in
             vm.toggleReflectionEditor(focusTrigger: focusReflectionEditor)
+        }
+        .onChange(of: item) {
+            // The database changed under the reader: an auto-tag, an enrichment,
+            // sync. `item` only says that it did. The view model re-reads rather
+            // than taking this value, which can be a keystroke behind the editor.
+            vm.reloadItem()
         }
         .onChange(of: item.id) {
             // Reset first, then decide: the reset closes the web pane, so an
@@ -190,7 +195,7 @@ struct ItemReaderView: View {
                     // instead of re-flowing it.
                     ReaderMeasureColumn {
                         VStack(alignment: .leading, spacing: 0) {
-                            ItemReaderHeaderView(vm: vm, onExport: { ItemExportAction.exportAsMarkdown(item) })
+                            ItemReaderHeaderView(vm: vm, onExport: { ItemExportAction.exportAsMarkdown(vm.item) })
                             coverImage(vm: vm)
                             Divider().padding(.horizontal)
                             sourceContent(vm: vm).padding()
@@ -235,7 +240,7 @@ struct ItemReaderView: View {
         GeometryReader { geo in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    ItemReaderHeaderView(vm: vm, onExport: { ItemExportAction.exportAsMarkdown(item) })
+                    ItemReaderHeaderView(vm: vm, onExport: { ItemExportAction.exportAsMarkdown(vm.item) })
                     coverImage(vm: vm)
                     Divider().padding(.horizontal)
                     sourceContent(vm: vm).padding()
@@ -268,23 +273,25 @@ struct ItemReaderView: View {
 
     @ViewBuilder
     private func coverImage(vm: ItemReaderViewModel) -> some View {
-        if let thumbnailData = vm.item.thumbnail {
-            CoverImageView(
-                imageData: thumbnailData,
-                height: 200,
-                showPlayOverlay: false,
-                cornerRadius: 0,
-                contentMode: vm.item.type == .article ? .fit : .fill
-            )
-            .padding(.horizontal)
-            .onTapGesture {
-                if vm.isPDFItem {
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        vm.showPDFReader = true
-                    }
-                } else if vm.readerWebURL != nil {
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        vm.showArticleWebView = true
+        ItemThumbnailReader(itemID: vm.item.id) { thumbnailData in
+            if let thumbnailData {
+                CoverImageView(
+                    imageData: thumbnailData,
+                    height: 200,
+                    showPlayOverlay: false,
+                    cornerRadius: 0,
+                    contentMode: vm.item.type == .article ? .fit : .fill
+                )
+                .padding(.horizontal)
+                .onTapGesture {
+                    if vm.isPDFItem {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            vm.showPDFReader = true
+                        }
+                    } else if vm.readerWebURL != nil {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            vm.showArticleWebView = true
+                        }
                     }
                 }
             }
@@ -349,10 +356,7 @@ struct ItemReaderView: View {
             RichMarkdownEditor(
                 text: Binding(
                     get: { vm.item.content ?? "" },
-                    set: {
-                        vm.item.content = $0.isEmpty ? nil : $0
-                        vm.item.updatedAt = .now
-                    }
+                    set: { vm.updateContent($0) }
                 ),
                 sourceItem: vm.item,
                 minHeight: 200
@@ -424,7 +428,8 @@ struct ItemReaderView: View {
                     reflection: selection.reflection,
                     sourceQuote: selection.quote,
                     onSaved: {
-                        ReadingCapture.promoteAfterWriting(selection.item, in: modelContext)
+                        ReadingCapture.promoteAfterWriting(selection.item.id)
+                        vm.reloadItem()
                         vm.closeFlashcardEditor()
                     },
                     isEmbedded: true
@@ -443,8 +448,7 @@ struct ItemReaderView: View {
                     Menu {
                         ForEach(ReflectionBlockType.allCases, id: \.self) { type in
                             Button {
-                                block.blockType = type
-                                vm.item.updatedAt = .now
+                                vm.modifyEditingBlock { $0.blockType = type }
                             } label: {
                                 Label(type.displayName, systemImage: type.systemImage)
                             }
@@ -489,11 +493,11 @@ struct ItemReaderView: View {
                 // Editor -- fills remaining space
                 RichMarkdownEditor(
                     text: Binding(
-                        get: { block.content },
-                        set: {
-                            block.content = $0
-                            vm.item.updatedAt = .now
-                        }
+                        // Reads the view model, not `block`: that's the copy from
+                        // this render, and the text view must never be told the
+                        // text is what it was a keystroke ago.
+                        get: { vm.editingBlock?.content ?? block.content },
+                        set: { text in vm.modifyEditingBlock { $0.content = text } }
                     ),
                     sourceItem: vm.item,
                     minHeight: 200,
@@ -545,7 +549,9 @@ struct BlockDropDelegate: DropDelegate {
     let targetBlock: ReflectionBlock
     let allBlocks: [ReflectionBlock]
     @Binding var draggingBlock: ReflectionBlock?
-    let modelContext: ModelContext
+    var database: any DatabaseWriter = AppDatabase.current
+    /// `allBlocks` is a copy, so whoever holds it has to read the new order back.
+    var onReorder: () -> Void
 
     func performDrop(info: DropInfo) -> Bool {
         draggingBlock = nil
@@ -564,10 +570,12 @@ struct BlockDropDelegate: DropDelegate {
             let moved = reordered.remove(at: fromIndex)
             reordered.insert(moved, at: toIndex)
 
-            for (index, block) in reordered.enumerated() {
-                block.position = index
+            database.attempt { db in
+                for (index, block) in reordered.enumerated() {
+                    try ReflectionBlock.modify(block.id, in: db) { $0.position = index }
+                }
             }
-            try? modelContext.save()
+            onReorder()
         }
     }
 

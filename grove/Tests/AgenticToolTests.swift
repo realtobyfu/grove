@@ -1,5 +1,5 @@
 import Foundation
-import SwiftData
+import SQLiteData
 import Testing
 @testable import grove
 
@@ -30,27 +30,11 @@ private actor ScriptedToolProvider: LLMProvider {
 
 struct AgenticToolTests {
 
-    @MainActor
-    private func makeInMemoryModelContext() throws -> ModelContext {
-        let schema = SharedModelContainer.schema
-        let config = ModelConfiguration(
-            "AgenticToolTests",
-            schema: schema,
-            isStoredInMemoryOnly: true,
-            cloudKitDatabase: .none
-        )
-        let container = try ModelContainer(for: schema, configurations: [config])
-        return ModelContext(container)
-    }
-
     // MARK: - ItemResolver
 
     @Test @MainActor func itemResolverResolvesUUIDExactAndFuzzyReferences() throws {
-        let context = try makeInMemoryModelContext()
         let essay = Item(title: "The Myth of Sisyphus", type: .note)
         let other = Item(title: "Notes on Stoicism", type: .note)
-        context.insert(essay)
-        context.insert(other)
         let items = [essay, other]
 
         #expect(ItemResolver.resolve(essay.id.uuidString, in: items)?.id == essay.id)
@@ -64,24 +48,24 @@ struct AgenticToolTests {
     }
 
     @Test @MainActor func itemResolverRejectsAmbiguousSubstringMatches() throws {
-        let context = try makeInMemoryModelContext()
         let first = Item(title: "Attention Is All You Need", type: .article)
         let second = Item(title: "Attention and Focus", type: .article)
-        context.insert(first)
-        context.insert(second)
+        let items = [first, second]
 
-        #expect(ItemResolver.resolve("Attention", in: [first, second]) == nil)
+        #expect(ItemResolver.resolve("Attention", in: items) == nil)
     }
 
     // MARK: - Native Tool Loop
 
     @Test @MainActor func dialecticsExecutesNativeToolCallsAndPersistsHiddenMessages() async throws {
-        let context = try makeInMemoryModelContext()
-        let item = Item(title: "Free Will", type: .note)
-        item.content = "An essay arguing hard determinism undermines moral responsibility."
-        item.status = .active
-        context.insert(item)
-        try context.save()
+        let database = try AppDatabase.openInMemory()
+        var row = Item(title: "Free Will", type: .note)
+        row.content = "An essay arguing hard determinism undermines moral responsibility."
+        row.status = .active
+        let item = row
+        try await database.write { db in
+            try Item.insert { item }.execute(db)
+        }
 
         let toolCall = LLMToolCall(
             id: "call_1",
@@ -92,25 +76,25 @@ struct AgenticToolTests {
             LLMChatResponse(content: nil, toolCalls: [toolCall], inputTokens: 1, outputTokens: 1),
             LLMChatResponse(content: "Here is my analysis of [[Free Will]].", toolCalls: [], inputTokens: 1, outputTokens: 1),
         ])
-        let service = DialecticsService(provider: provider)
+        let service = DialecticsService(database: database, provider: provider)
         let conversation = service.startConversation(
             trigger: .userInitiated,
             seedItems: [],
-            board: nil,
-            context: context
+            board: nil
         )
 
         let reply = await service.sendMessage(
             userText: "What do I have on free will?",
-            conversation: conversation,
-            context: context
+            conversationID: conversation.id
         )
 
         #expect(reply?.content == "Here is my analysis of [[Free Will]].")
         #expect(reply?.referencedItemIDs == [item.id])
 
         // Tool call and result persisted as hidden messages
-        let hidden = conversation.messages.filter { $0.isHidden && $0.toolCallName == "get_item_detail" }
+        let conversationID = conversation.id
+        let saved = try #require(try await database.read { try ConversationGraph.fetch(conversationID, in: $0) })
+        let hidden = saved.messages.filter { $0.isHidden && $0.toolCallName == "get_item_detail" }
         #expect(hidden.count == 2)
 
         // Second request carried the tool result turn linked by call ID
@@ -164,24 +148,23 @@ struct AgenticToolTests {
     // MARK: - Tension Starters
 
     @Test @MainActor func starterContextBuildsContradictionPairsWithReason() throws {
-        let context = try makeInMemoryModelContext()
-        let a = Item(title: "Determinism", type: .note)
+        let database = try AppDatabase.openInMemory()
+        var a = Item(title: "Determinism", type: .note)
         a.status = .active
         a.content = "Choices are fixed by prior causes."
-        let b = Item(title: "Radical Freedom", type: .note)
+        var b = Item(title: "Radical Freedom", type: .note)
         b.status = .active
         b.content = "We are condemned to be free."
-        context.insert(a)
-        context.insert(b)
 
-        let connection = Connection(sourceItem: a, targetItem: b, type: .contradicts)
+        var connection = Connection(sourceItemID: a.id, targetItemID: b.id, type: .contradicts)
         connection.note = "One denies free will, the other makes it absolute."
-        context.insert(connection)
-        a.outgoingConnections.append(connection)
-        b.incomingConnections.append(connection)
-        try context.save()
+        try database.write { db in
+            try Item.insert { [a, b] }.execute(db)
+            try Connection.insert { connection }.execute(db)
+        }
 
-        let starterContext = StarterContextBuilder.buildContext(from: [a, b])
+        let library = try database.read { try Library.fetch($0) }
+        let starterContext = StarterContextBuilder.buildContext(from: library.items)
         #expect(starterContext.contradictionPairs.count == 1)
         let pair = try #require(starterContext.contradictionPairs.first)
         #expect(pair.reason == "One denies free will, the other makes it absolute.")
@@ -198,23 +181,24 @@ struct AgenticToolTests {
     }
 
     @Test @MainActor func starterContradictionPairsDedupeAndPreferReasoned() throws {
-        let context = try makeInMemoryModelContext()
-        let a = Item(title: "A", type: .note); a.status = .active
-        let b = Item(title: "B", type: .note); b.status = .active
-        let c = Item(title: "C", type: .note); c.status = .active
-        let d = Item(title: "D", type: .note); d.status = .active
-        [a, b, c, d].forEach(context.insert)
+        let database = try AppDatabase.openInMemory()
+        var a = Item(title: "A", type: .note); a.status = .active
+        var b = Item(title: "B", type: .note); b.status = .active
+        var c = Item(title: "C", type: .note); c.status = .active
+        var d = Item(title: "D", type: .note); d.status = .active
 
         // Reasonless pair A<->B
-        let ab = Connection(sourceItem: a, targetItem: b, type: .contradicts)
-        context.insert(ab); a.outgoingConnections.append(ab); b.incomingConnections.append(ab)
+        let ab = Connection(sourceItemID: a.id, targetItemID: b.id, type: .contradicts)
         // Reasoned pair C<->D
-        let cd = Connection(sourceItem: c, targetItem: d, type: .contradicts)
+        var cd = Connection(sourceItemID: c.id, targetItemID: d.id, type: .contradicts)
         cd.note = "They disagree on X."
-        context.insert(cd); c.outgoingConnections.append(cd); d.incomingConnections.append(cd)
-        try context.save()
+        try database.write { db in
+            try Item.insert { [a, b, c, d] }.execute(db)
+            try Connection.insert { [ab, cd] }.execute(db)
+        }
 
-        let starterContext = StarterContextBuilder.buildContext(from: [a, b, c, d])
+        let library = try database.read { try Library.fetch($0) }
+        let starterContext = StarterContextBuilder.buildContext(from: library.items)
         #expect(starterContext.contradictionPairs.count == 2)
         // Reasoned pair is ranked first.
         #expect(starterContext.contradictionPairs.first?.reason == "They disagree on X.")

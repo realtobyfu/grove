@@ -1,5 +1,4 @@
 import Foundation
-import SwiftData
 
 enum BoardSuggestionMode: String {
     case existing
@@ -24,7 +23,7 @@ enum BoardSuggestionMetadata {
     private static let reason = "suggestedBoardReason"
     private static let alternatives = "suggestedBoardAlternatives"
 
-    static func apply(_ decision: BoardSuggestionDecision, to item: Item) {
+    static func apply(_ decision: BoardSuggestionDecision, to item: inout Item) {
         item.metadata[suggestedBoard] = decision.suggestedName
         item.metadata[pendingBoardSuggestion] = decision.suggestedName
         item.metadata[mode] = decision.mode.rawValue
@@ -49,21 +48,25 @@ enum BoardSuggestionMetadata {
         }
     }
 
-    static func clearPendingSuggestion(on item: Item) {
+    static func clearPendingSuggestion(on item: inout Item) {
         item.metadata[pendingBoardSuggestion] = nil
     }
 
     /// Preserve a local, privacy-safe correction signal before resolving the
     /// pending suggestion. These fields can seed OS 27 evaluation datasets
     /// without storing prompt text or sending analytics off-device.
-    static func recordSelection(_ board: Board, on item: Item) {
+    static func recordSelection(_ board: Board, on item: inout Item) {
         let decision = decision(from: item)
         item.metadata["boardSuggestionOutcome"] = "selected"
         item.metadata["boardSuggestionSelectedBoardID"] = board.id.uuidString
         item.metadata["boardSuggestionMatchedRecommendation"] =
             decision?.recommendedBoardID == board.id ? "true" : "false"
         item.metadata["boardSuggestionResolvedAt"] = Date.now.ISO8601Format()
-        clearPendingSuggestion(on: item)
+        clearPendingSuggestion(on: &item)
+    }
+
+    static func decision(from item: ItemGraph) -> BoardSuggestionDecision? {
+        decision(from: item.item)
     }
 
     static func decision(from item: Item) -> BoardSuggestionDecision? {
@@ -171,13 +174,13 @@ enum BoardSuggestionMetadata {
 /// Protocol for board suggestion engine.
 @MainActor
 protocol BoardSuggestionEngineProtocol {
-    func resolveSuggestion(for item: Item, suggestedName: String, boards: [Board]) -> BoardSuggestionDecision
+    func resolveSuggestion(for item: ItemGraph, suggestedName: String, boards: [BoardGraph]) -> BoardSuggestionDecision
 }
 
 @MainActor
 struct BoardSuggestionEngine: BoardSuggestionEngineProtocol {
     private struct Candidate {
-        let board: Board
+        let board: BoardGraph
         let score: Double
         let titleSimilarity: Double
         let tokenOverlap: Double
@@ -185,7 +188,7 @@ struct BoardSuggestionEngine: BoardSuggestionEngineProtocol {
         let exactNameMatch: Bool
     }
 
-    func resolveSuggestion(for item: Item, suggestedName rawSuggestedName: String, boards: [Board]) -> BoardSuggestionDecision {
+    func resolveSuggestion(for item: ItemGraph, suggestedName rawSuggestedName: String, boards: [BoardGraph]) -> BoardSuggestionDecision {
         let suggestedName = Self.cleanedBoardName(rawSuggestedName)
         guard !suggestedName.isEmpty else {
             return BoardSuggestionDecision(
@@ -284,7 +287,7 @@ struct BoardSuggestionEngine: BoardSuggestionEngineProtocol {
     }
 
     private func scoreCandidate(
-        _ board: Board,
+        _ board: BoardGraph,
         suggestedName: String,
         itemTagNames: Set<String>
     ) -> Candidate {
@@ -357,7 +360,7 @@ struct BoardSuggestionEngine: BoardSuggestionEngineProtocol {
         return "No close existing board match."
     }
 
-    private func recentActivityScore(for board: Board) -> Double {
+    private func recentActivityScore(for board: BoardGraph) -> Double {
         guard let cutoff = Calendar.current.date(byAdding: .day, value: -45, to: .now) else { return 0 }
 
         let recentCount = board.items.reduce(into: 0) { partialResult, item in

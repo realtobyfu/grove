@@ -1,13 +1,12 @@
+import SQLiteData
 import SwiftUI
-import SwiftData
 
 // MARK: - Content View Event Handlers
 
 struct ContentViewEventHandlers: ViewModifier {
     @Bindable var viewModel: ContentViewModel
-    let searchScopeBoard: Board?
-    let boards: [Board]
-    let modelContext: ModelContext
+    let searchScopeBoard: BoardGraph?
+    let boards: [BoardGraph]
 
     func body(content: Content) -> some View {
         content
@@ -16,23 +15,22 @@ struct ContentViewEventHandlers: ViewModifier {
                 viewModel.openedItem = nil
                 viewModel.inspectorUserOverride = nil
             }
-            .onChange(of: viewModel.selectedItem) {
+            .onChange(of: viewModel.selectedItem?.id) {
                 viewModel.inspectorUserOverride = nil
             }
             .modifier(ContentViewNotificationHandlers(
                 viewModel: viewModel,
                 searchScopeBoard: searchScopeBoard,
-                boards: boards,
-                modelContext: modelContext
+                boards: boards
             ))
     }
 }
 
 struct ContentViewNotificationHandlers: ViewModifier {
     @Bindable var viewModel: ContentViewModel
-    let searchScopeBoard: Board?
-    let boards: [Board]
-    let modelContext: ModelContext
+    let searchScopeBoard: BoardGraph?
+    let boards: [BoardGraph]
+    @Dependency(\.defaultDatabase) private var database
 
     func body(content: Content) -> some View {
         let step1 = content
@@ -99,7 +97,7 @@ struct ContentViewNotificationHandlers: ViewModifier {
                 withAnimation(RightRailMetrics.widthChange) { viewModel.showChatPanel.toggle() }
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveOpenConversation)) { notification in
-                if let conversation = notification.object as? Conversation {
+                if let conversation = notification.object as? ConversationGraph {
                     viewModel.selectedConversation = conversation
                     withAnimation(RightRailMetrics.widthChange) { viewModel.showChatPanel = true }
                 }
@@ -133,7 +131,7 @@ struct ContentViewNotificationHandlers: ViewModifier {
             .onAppear {
                 NudgeNotificationService.shared.configure()
                 guard viewModel.nudgeEngine == nil else { return }
-                let engine = NudgeEngine(modelContext: modelContext)
+                let engine = NudgeEngine()
                 engine.startSchedule()
                 viewModel.nudgeEngine = engine
             }
@@ -148,7 +146,7 @@ struct ContentViewNotificationHandlers: ViewModifier {
     /// `writePanelEditItem` is the load-bearing one: opening a note nils
     /// `openedItem` right after handing the item to the write panel, so an
     /// id-match against `openedItem` alone never fires and the panel would keep
-    /// rendering — and on dismiss, keep saving into — a deleted model.
+    /// rendering — and on dismiss, keep saving — a deleted item.
     private func clearPresentationState(forDeletedItemID id: UUID) {
         if viewModel.writePanelEditItem?.id == id {
             viewModel.writePanelEditItem = nil
@@ -165,26 +163,33 @@ struct ContentViewNotificationHandlers: ViewModifier {
     /// Open an item by id — the app-wide answer to "show me that one".
     /// Used by the capture bar when a paste turns out to be a duplicate.
     private func openItem(id: UUID) {
-        let allItems: [Item] = modelContext.fetchAll()
-        guard let item = allItems.first(where: { $0.id == id }) else { return }
+        guard let item = fetchItem(id) else { return }
         viewModel.showCaptureOverlay = false
         viewModel.selectedItem = item
         viewModel.openedItem = item
     }
 
+    private func fetchItem(_ id: Item.ID) -> ItemGraph? {
+        database.attemptRead { try ItemGraph.fetch(id, in: $0) } ?? nil
+    }
+
+    private func fetchNudge(_ id: Nudge.ID) -> Nudge? {
+        database.attemptRead { try Nudge.find(id).fetchOne($0) } ?? nil
+    }
+
     private func openNudgeFromNotification(id: UUID) {
-        let allNudges: [Nudge] = modelContext.fetchAll()
-        guard let nudge = allNudges.first(where: { $0.id == id }),
+        guard let nudge = fetchNudge(id),
               nudge.status == .pending || nudge.status == .shown
         else {
             NudgeNotificationService.shared.cancel(for: id)
             return
         }
 
-        nudge.status = .actedOn
+        database.attempt { db in
+            try Nudge.modify(id, in: db) { $0.status = .actedOn }
+        }
         NudgeSettings.recordAction(type: nudge.type, actedOn: true)
         NudgeNotificationService.shared.cancel(for: id)
-        try? modelContext.save()
 
         switch nudge.type {
         case .staleInbox:
@@ -193,25 +198,25 @@ struct ContentViewNotificationHandlers: ViewModifier {
             viewModel.selection = .library
         default:
             // Resurface plus legacy types retained only for persisted records.
-            guard let item = nudge.targetItem else { return }
+            guard let targetID = nudge.targetItemID, let item = fetchItem(targetID) else { return }
             viewModel.selectedItem = item
             viewModel.openedItem = item
         }
     }
 
     private func dismissNudgeFromNotification(id: UUID) {
-        let allNudges: [Nudge] = modelContext.fetchAll()
-        guard let nudge = allNudges.first(where: { $0.id == id }),
+        guard let nudge = fetchNudge(id),
               nudge.status == .pending || nudge.status == .shown
         else {
             NudgeNotificationService.shared.cancel(for: id)
             return
         }
 
-        nudge.status = .dismissed
+        database.attempt { db in
+            try Nudge.modify(id, in: db) { $0.status = .dismissed }
+        }
         NudgeSettings.recordAction(type: nudge.type, actedOn: false)
         NudgeNotificationService.shared.cancel(for: id)
-        try? modelContext.save()
     }
 
     private func startConversation(
@@ -227,17 +232,16 @@ struct ContentViewNotificationHandlers: ViewModifier {
         }
         entitlement.recordUse(.dialectics)
 
-        var seedItems: [Item] = []
+        var seedItems: [ItemGraph] = []
         if !seedItemIDs.isEmpty {
-            let all: [Item] = modelContext.fetchAll()
+            let all = database.attemptRead { try Library.fetch($0).items } ?? []
             seedItems = all.filter { seedItemIDs.contains($0.id) }
         }
         let service = DialecticsService()
         let conversation = service.startConversation(
             trigger: .userInitiated,
             seedItems: seedItems,
-            board: nil,
-            context: modelContext
+            board: nil
         )
 
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -247,32 +251,13 @@ struct ContentViewNotificationHandlers: ViewModifier {
                 Task { @MainActor in
                     _ = await service.sendMessage(
                         userText: trimmedPrompt,
-                        conversation: conversation,
-                        context: modelContext
+                        conversationID: conversation.id
                     )
                 }
             case .asSystemPrompt:
-                let systemPromptMsg = ChatMessage(
-                    role: .system,
-                    content: trimmedPrompt,
-                    position: conversation.nextPosition
-                )
-                systemPromptMsg.conversation = conversation
-                conversation.messages.append(systemPromptMsg)
-                modelContext.insert(systemPromptMsg)
-                conversation.updatedAt = .now
-                try? modelContext.save()
+                service.appendMessage(role: .system, content: trimmedPrompt, to: conversation.id)
             case .asAssistantGreeting:
-                let greetingMsg = ChatMessage(
-                    role: .assistant,
-                    content: trimmedPrompt,
-                    position: conversation.nextPosition
-                )
-                greetingMsg.conversation = conversation
-                conversation.messages.append(greetingMsg)
-                modelContext.insert(greetingMsg)
-                conversation.updatedAt = .now
-                try? modelContext.save()
+                service.appendMessage(role: .assistant, content: trimmedPrompt, to: conversation.id)
             }
         }
 
@@ -280,11 +265,11 @@ struct ContentViewNotificationHandlers: ViewModifier {
         withAnimation(RightRailMetrics.widthChange) { viewModel.showChatPanel = true }
     }
 
-    private func startDiscussion(item: Item) {
+    private func startDiscussion(item: ItemGraph) {
         let service = DialecticsService()
         withAnimation(RightRailMetrics.widthChange) { viewModel.showChatPanel = true }
         Task { @MainActor in
-            let conversation = await service.startDiscussion(item: item, context: modelContext)
+            let conversation = await service.startDiscussion(item: item)
             viewModel.selectedConversation = conversation
         }
     }

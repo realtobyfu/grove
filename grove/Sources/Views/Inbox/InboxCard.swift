@@ -1,18 +1,17 @@
 import SwiftUI
-import SwiftData
 
 struct InboxCard: View {
-    let item: Item
+    let item: ItemGraph
     let isSelected: Bool
     /// Boards offered as one-click "keep + file" chips, recommended first.
-    var suggestedBoards: [Board] = []
+    var suggestedBoards: [BoardGraph] = []
     let onKeep: () -> Void
     let onDrop: () -> Void
     var onQueue: ((ReadLaterPreset) -> Void)?
     var onConfirmTag: ((Tag) -> Void)?
     var onDismissTag: ((Tag) -> Void)?
     /// Keep the item and file it into this board in a single gesture.
-    var onFileToBoard: ((Board) -> Void)?
+    var onFileToBoard: ((BoardGraph) -> Void)?
     /// Open the full board picker for this item.
     var onMoreBoards: (() -> Void)?
     /// Display domain of a site that publishes a feed the user isn't following
@@ -29,13 +28,15 @@ struct InboxCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
             // Cover image
-            if let thumbnailData = item.thumbnail {
-                CoverImageView(
-                    imageData: thumbnailData,
-                    height: 140,
-                    showPlayOverlay: item.type == .video,
-                    cornerRadius: 6
-                )
+            ItemThumbnailReader(itemID: item.id) { thumbnailData in
+                if let thumbnailData {
+                    CoverImageView(
+                        imageData: thumbnailData,
+                        height: 140,
+                        showPlayOverlay: item.type == .video,
+                        cornerRadius: 6
+                    )
+                }
             }
 
             // Header row: type icon + title

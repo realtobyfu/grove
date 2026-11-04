@@ -1,12 +1,13 @@
 import SwiftUI
-import SwiftData
+import SQLiteData
 import StoreKit
 
 #if !SHARE_EXTENSION
 @main
 #endif
 struct GroveApp: App {
-    let modelContainer: ModelContainer
+    /// Why the library could not open, in which case nothing else may run.
+    private let launchFailure: String?
     @State private var syncService: SyncService
     @State private var learningLaunch = LearningLaunchCoordinator.shared
     @State private var entitlementService = EntitlementService.shared
@@ -23,16 +24,48 @@ struct GroveApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
-        if LearningDemo.isEnabled {
-            do { modelContainer = try LearningDemo.makeContainer() }
-            catch { fatalError("Could not create learning preview: \(error)") }
-        } else {
-            modelContainer = SharedModelContainer.makeForApp()
-        }
-        _syncService = State(initialValue: SyncService(syncEnabled: !LearningDemo.isEnabled && SyncSettings.syncEnabled))
-        #if !SHARE_EXTENSION
-        GroveIntentModelStore.configure(with: modelContainer)
+        let launch = LearningDemo.isEnabled
+            ? AppDatabase.prepareForApp(demo: LearningDemo.makeDatabase)
+            : AppDatabase.prepareForApp()
+        launchFailure = launch.failure
+        _syncService = State(initialValue: SyncService(
+            engine: launch.syncEngine,
+            syncEnabled: !LearningDemo.isEnabled && SyncSettings.syncEnabled,
+            startupError: launch.syncFailure
+        ))
+    }
+
+    /// Everything the app does at launch once the library is open.
+    private func startBackgroundWork() async {
+        guard !LearningDemo.isEnabled, launchFailure == nil else { return }
+        LearningWidgetSnapshotStore.refresh()
+        AnnotationMigrationService.migrateIfNeeded()
+        FeedSuggestionMigrationService.migrateIfNeeded()
+        #if os(iOS)
+        ExtensionItemProcessor.processIfNeeded()
         #endif
+        storeKitService.start()
+        #if !SHARE_EXTENSION
+        await GroveSpotlightIndexer.refreshAll()
+        #endif
+        @Dependency(\.defaultDatabase) var database
+        let items = (try? await database.read { try Library.fetch($0).items }) ?? []
+        await EmbeddingIndexService.shared.indexItems(items.map(EmbeddingIndexService.snapshot))
+        await TensionDetectionService().runIfDue()
+        await refreshFeedPipeline()
+    }
+
+    private func refreshOnForeground() {
+        guard !LearningDemo.isEnabled, launchFailure == nil else { return }
+        #if os(iOS)
+        // The Share Extension writes from its own process, which database
+        // observation can't see, so a shared item would stay hidden until the
+        // next write here.
+        AppDatabase.current.attempt { try $0.notifyChanges(in: .fullDatabase) }
+        ExtensionItemProcessor.processIfNeeded()
+        #endif
+        LearningWidgetSnapshotStore.refresh()
+        Task { await refreshFeedPipeline() }
     }
 
     /// Newsletter pipeline: fetch new issues from enabled feeds (4h interval
@@ -40,14 +73,16 @@ struct GroveApp: App {
     /// saves from (24h cooldown, creates disabled suggestion sources only).
     private func refreshFeedPipeline() async {
         guard !LearningDemo.isEnabled else { return }
-        let context = modelContainer.mainContext
-        await feedFetchService.refreshIfNeeded(in: context)
-        await feedDiscoveryService.discoverFeeds(in: context)
+        await feedFetchService.refreshIfNeeded()
+        await feedDiscoveryService.discoverFeeds()
     }
 
     var body: some Scene {
         #if os(macOS)
         WindowGroup {
+            if let launchFailure {
+                LibraryUnavailableView(reason: launchFailure)
+            } else {
             ContentView(syncService: syncService)
                 .sheet(item: $learningLaunch.review) { route in
                     NavigationStack {
@@ -58,24 +93,11 @@ struct GroveApp: App {
                 .onOpenURL { url in learningLaunch.handle(url) }
                 .task {
                     NudgeNotificationService.shared.configure()
-                    let context = modelContainer.mainContext
-                    guard !LearningDemo.isEnabled else { return }
-                    LearningWidgetSnapshotStore.refresh(modelContext: context)
-                    AnnotationMigrationService.migrateIfNeeded(context: context)
-                    FeedSuggestionMigrationService.migrateIfNeeded(context: context)
-                    storeKitService.start()
-                    #if !SHARE_EXTENSION
-                    await GroveSpotlightIndexer.refreshAll(using: modelContainer)
-                    #endif
-                    let items: [Item] = context.fetchAll()
-                    await EmbeddingIndexService.shared.indexItems(items.map(EmbeddingIndexService.snapshot))
-                    await TensionDetectionService(modelContext: context).runIfDue()
-                    await refreshFeedPipeline()
+                    await startBackgroundWork()
                 }
                 .onChange(of: scenePhase) { _, phase in
-                    guard phase == .active, !LearningDemo.isEnabled else { return }
-                    LearningWidgetSnapshotStore.refresh(modelContext: modelContainer.mainContext)
-                    Task { await refreshFeedPipeline() }
+                    guard phase == .active else { return }
+                    refreshOnForeground()
                 }
                 .environment(syncService)
                 .environment(entitlementService)
@@ -86,8 +108,8 @@ struct GroveApp: App {
                 .environment(coachMarkService)
                 .environment(feedDiscoveryService)
                 .environment(feedFetchService)
+            }
         }
-        .modelContainer(modelContainer)
         .defaultSize(width: 1200, height: 800)
         .commands {
             GroveMenuCommands()
@@ -136,10 +158,12 @@ struct GroveApp: App {
             .environment(feedFetchService)
             .environment(syncService)
         }
-        .modelContainer(modelContainer)
         #else
         // iOS: four native tabs in compact width; a split sidebar on regular iPad.
         WindowGroup {
+            if let launchFailure {
+                LibraryUnavailableView(reason: launchFailure)
+            } else {
             MobileRootView()
                 .sheet(item: $learningLaunch.review) { route in
                     NavigationStack {
@@ -147,25 +171,11 @@ struct GroveApp: App {
                     }
                 }
                 .task {
-                    let context = modelContainer.mainContext
-                    guard !LearningDemo.isEnabled else { return }
-                    LearningWidgetSnapshotStore.refresh(modelContext: context)
-                    AnnotationMigrationService.migrateIfNeeded(context: context)
-                    FeedSuggestionMigrationService.migrateIfNeeded(context: context)
-                    ExtensionItemProcessor.processIfNeeded(context: context)
-                    storeKitService.start()
-                    #if !SHARE_EXTENSION
-                    await GroveSpotlightIndexer.refreshAll(using: modelContainer)
-                    #endif
-                    let items: [Item] = context.fetchAll()
-                    await EmbeddingIndexService.shared.indexItems(items.map(EmbeddingIndexService.snapshot))
-                    await TensionDetectionService(modelContext: context).runIfDue()
-                    await refreshFeedPipeline()
+                    await startBackgroundWork()
                 }
                 .onChange(of: scenePhase) { _, phase in
-                    guard phase == .active, !LearningDemo.isEnabled else { return }
-                    LearningWidgetSnapshotStore.refresh(modelContext: modelContainer.mainContext)
-                    Task { await refreshFeedPipeline() }
+                    guard phase == .active else { return }
+                    refreshOnForeground()
                 }
                 .environment(syncService)
                 .onOpenURL { url in
@@ -180,8 +190,8 @@ struct GroveApp: App {
                 .environment(coachMarkService)
                 .environment(feedDiscoveryService)
                 .environment(feedFetchService)
+            }
         }
-        .modelContainer(modelContainer)
         #endif
     }
 }

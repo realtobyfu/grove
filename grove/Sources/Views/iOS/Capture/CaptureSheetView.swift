@@ -1,12 +1,11 @@
+import SQLiteData
 import SwiftUI
-import SwiftData
 
 /// Capture sheet for iOS — URL/text entry with paste and board picker.
 /// Presented as a .sheet from FloatingCaptureButton or deep link.
 struct CaptureSheetView: View {
-    @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
-    @Query(sort: \Board.sortOrder) private var boards: [Board]
+    @FetchAll(Board.order(by: \.sortOrder)) private var boards
 
     /// Pre-filled URL from Share Extension or deep link (grove://capture?url=)
     var prefillURL: String?
@@ -103,7 +102,7 @@ struct CaptureSheetView: View {
         guard !trimmed.isEmpty else { return }
         isSaving = true
 
-        let captureService = CaptureService(modelContext: modelContext)
+        let captureService = CaptureService()
         let board = selectedBoardID.flatMap { boardID in
             boards.first(where: { $0.id == boardID })
         }

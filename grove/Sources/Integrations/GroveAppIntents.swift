@@ -2,15 +2,14 @@
 import AppIntents
 import CoreSpotlight
 import Foundation
-import SwiftData
+import SQLiteData
 
 // MARK: - App Entities
 
-/// A sendable snapshot of a SwiftData board for App Intents and Spotlight.
+/// A sendable snapshot of a board for App Intents and Spotlight.
 ///
-/// App Intents must not retain SwiftData models across actor boundaries, so
-/// queries and intents exchange these value types and resolve IDs inside a
-/// fresh `ModelContext`.
+/// Queries and intents exchange these value types and resolve IDs against the
+/// database when they run, so an entity never holds on to a stale board.
 struct GroveBoardEntity: IndexedEntity, URLRepresentableEntity {
     static let typeDisplayRepresentation = TypeDisplayRepresentation(
         name: "Grove Board",
@@ -42,7 +41,7 @@ struct GroveBoardEntity: IndexedEntity, URLRepresentableEntity {
     }
 }
 
-/// A sendable snapshot of a SwiftData item for App Intents and Spotlight.
+/// A sendable snapshot of an item for App Intents and Spotlight.
 struct GroveItemEntity: IndexedEntity, URLRepresentableEntity {
     static let typeDisplayRepresentation = TypeDisplayRepresentation(
         name: "Grove Item",
@@ -90,29 +89,29 @@ struct GroveItemEntity: IndexedEntity, URLRepresentableEntity {
 
 struct GroveBoardEntityQuery: EntityStringQuery {
     func entities(for identifiers: [UUID]) async throws -> [GroveBoardEntity] {
-        try await GroveIntentModelStore.boards(identifiers: Set(identifiers))
+        try await GroveIntentLibrary.boards(identifiers: Set(identifiers))
     }
 
     func suggestedEntities() async throws -> [GroveBoardEntity] {
-        try await GroveIntentModelStore.boards()
+        try await GroveIntentLibrary.boards()
     }
 
     func entities(matching string: String) async throws -> [GroveBoardEntity] {
-        try await GroveIntentModelStore.boards(matching: string)
+        try await GroveIntentLibrary.boards(matching: string)
     }
 }
 
 struct GroveItemEntityQuery: EntityStringQuery {
     func entities(for identifiers: [UUID]) async throws -> [GroveItemEntity] {
-        try await GroveIntentModelStore.items(identifiers: Set(identifiers))
+        try await GroveIntentLibrary.items(identifiers: Set(identifiers))
     }
 
     func suggestedEntities() async throws -> [GroveItemEntity] {
-        try await GroveIntentModelStore.items(limit: 20)
+        try await GroveIntentLibrary.items(limit: 20)
     }
 
     func entities(matching string: String) async throws -> [GroveItemEntity] {
-        try await GroveIntentModelStore.items(matching: string, limit: 50)
+        try await GroveIntentLibrary.items(matching: string, limit: 50)
     }
 }
 
@@ -143,7 +142,7 @@ struct CaptureInGroveIntent: AppIntent {
     }
 
     func perform() async throws -> some IntentResult & ReturnsValue<GroveItemEntity> & ProvidesDialog {
-        let entity = try await GroveIntentModelStore.capture(input: input, boardID: board?.id)
+        let entity = try await GroveIntentLibrary.capture(input: input, boardID: board?.id)
         try await GroveSpotlightIndexer.index(item: entity)
 
         if let board {
@@ -173,7 +172,7 @@ struct SaveItemToBoardIntent: AppIntent {
     }
 
     func perform() async throws -> some IntentResult & ReturnsValue<GroveItemEntity> & ProvidesDialog {
-        let entity = try await GroveIntentModelStore.save(itemID: item.id, toBoardID: board.id)
+        let entity = try await GroveIntentLibrary.save(itemID: item.id, toBoardID: board.id)
         try await GroveSpotlightIndexer.index(item: entity)
         return .result(
             value: entity,
@@ -234,23 +233,18 @@ struct GroveAppShortcuts: AppShortcutsProvider {
     }
 }
 
-// MARK: - SwiftData Bridge
+// MARK: - Database Bridge
 
+/// Reads and writes for the intents. The database is looked up on every call: an
+/// intent can be built before the app has set it up.
 @MainActor
-enum GroveIntentModelStore {
-    private static var configuredContainer: ModelContainer?
-
-    static func configure(with container: ModelContainer) {
-        configuredContainer = container
-    }
-
+enum GroveIntentLibrary {
     static func boards(
         identifiers: Set<UUID>? = nil,
         matching searchText: String? = nil
     ) throws -> [GroveBoardEntity] {
-        let context = ModelContext(container)
-        let descriptor = FetchDescriptor<Board>(sortBy: [SortDescriptor(\.sortOrder), SortDescriptor(\.title)])
-        let boards = try context.fetch(descriptor)
+        let boards = try AppDatabase.current.read { try Library.fetch($0).boards }
+            .sorted(using: [SortDescriptor(\.board.sortOrder), SortDescriptor(\.board.title)])
         let normalizedSearch = searchText?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         return boards
@@ -271,9 +265,8 @@ enum GroveIntentModelStore {
         matching searchText: String? = nil,
         limit: Int? = nil
     ) throws -> [GroveItemEntity] {
-        let context = ModelContext(container)
-        let descriptor = FetchDescriptor<Item>(sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])
-        let items = try context.fetch(descriptor)
+        let items = try AppDatabase.current.read { try Library.fetch($0).items }
+            .sorted { $0.updatedAt > $1.updatedAt }
         let normalizedSearch = searchText?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let results = items
@@ -286,7 +279,7 @@ enum GroveIntentModelStore {
                 guard let normalizedSearch, !normalizedSearch.isEmpty else { return true }
                 return item.title.localizedStandardContains(normalizedSearch)
                     || item.content?.localizedStandardContains(normalizedSearch) == true
-                    || item.boards.contains { $0.title.localizedStandardContains(normalizedSearch) }
+                    || item.board?.title.localizedStandardContains(normalizedSearch) == true
             }
             .map(GroveItemEntity.init)
 
@@ -297,15 +290,19 @@ enum GroveIntentModelStore {
     }
 
     static func capture(input: String, boardID: UUID?) throws -> GroveItemEntity {
+        // Saving into the throwaway database would report success and lose it.
+        guard AppDatabase.isLibraryOpen else {
+            throw GroveIntentError.libraryUnavailable
+        }
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw GroveIntentError.emptyCapture
         }
 
-        let context = ModelContext(container)
+        let database = AppDatabase.current
         let board: Board?
         if let boardID {
-            guard let resolvedBoard = try fetchBoard(id: boardID, in: context) else {
+            guard let resolvedBoard = try database.read({ try Board.find(boardID).fetchOne($0) }) else {
                 throw GroveIntentError.boardNotFound
             }
             guard !resolvedBoard.isSmart else {
@@ -318,68 +315,51 @@ enum GroveIntentModelStore {
 
         // Reuse the app's capture pipeline so URL metadata, thumbnails, and
         // auto-tagging continue after the intent's durable save completes.
-        let service = CaptureService(modelContext: context)
+        let service = CaptureService()
         let item = service.captureItem(input: trimmed, board: board)
-        try context.save()
-        return GroveItemEntity(item)
+
+        // Capture only logs a failed write, so reading the item back is what shows
+        // the save held. It also finds the board of a URL that was already saved.
+        guard let saved = try database.read({ try ItemGraph.fetch(item.id, in: $0) }) else {
+            throw GroveIntentError.itemNotFound
+        }
+        return GroveItemEntity(saved)
     }
 
     static func save(itemID: UUID, toBoardID boardID: UUID) throws -> GroveItemEntity {
-        let context = ModelContext(container)
-        guard let item = try fetchItem(id: itemID, in: context) else {
-            throw GroveIntentError.itemNotFound
-        }
-        guard let board = try fetchBoard(id: boardID, in: context) else {
-            throw GroveIntentError.boardNotFound
-        }
-        guard !board.isSmart else {
-            throw GroveIntentError.smartBoardCannotAcceptItems
-        }
+        try AppDatabase.current.write { db in
+            guard try Item.find(itemID).fetchOne(db) != nil else {
+                throw GroveIntentError.itemNotFound
+            }
+            guard let board = try Board.find(boardID).fetchOne(db) else {
+                throw GroveIntentError.boardNotFound
+            }
+            guard !board.isSmart else {
+                throw GroveIntentError.smartBoardCannotAcceptItems
+            }
 
-        if !item.boards.contains(where: { $0.id == board.id }) {
-            item.boards.append(board)
+            // An item is on at most one board, so this moves it off any other.
+            try Item.modify(itemID, in: db) {
+                $0.boardID = board.id
+                $0.status = .active
+                $0.updatedAt = .now
+            }
+            guard let saved = try ItemGraph.fetch(itemID, in: db) else {
+                throw GroveIntentError.itemNotFound
+            }
+            return GroveItemEntity(saved)
         }
-        item.status = .active
-        item.updatedAt = .now
-        try context.save()
-        return GroveItemEntity(item)
     }
-
-    private static var container: ModelContainer {
-        if let configuredContainer {
-            return configuredContainer
-        }
-        let container = SharedModelContainer.makeForApp()
-        configuredContainer = container
-        return container
-    }
-
-    private static func fetchBoard(id: UUID, in context: ModelContext) throws -> Board? {
-        var descriptor = FetchDescriptor<Board>(predicate: #Predicate { $0.id == id })
-        descriptor.fetchLimit = 1
-        return try context.fetch(descriptor).first
-    }
-
-    private static func fetchItem(id: UUID, in context: ModelContext) throws -> Item? {
-        var descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == id })
-        descriptor.fetchLimit = 1
-        return try context.fetch(descriptor).first
-    }
-
 }
 
 // MARK: - Spotlight
 
 @MainActor
 enum GroveSpotlightIndexer {
-    static func refreshAll(using container: ModelContainer? = nil) async {
-        if let container {
-            GroveIntentModelStore.configure(with: container)
-        }
-
+    static func refreshAll() async {
         do {
-            async let boards = GroveIntentModelStore.boards()
-            async let items = GroveIntentModelStore.items()
+            async let boards = GroveIntentLibrary.boards()
+            async let items = GroveIntentLibrary.items()
             try await replaceIndex(boards: boards, items: items)
         } catch {
             // Search indexing must never prevent the app from launching.
@@ -405,7 +385,7 @@ enum GroveSpotlightIndexer {
 // MARK: - Mapping and Errors
 
 private extension GroveBoardEntity {
-    init(_ board: Board) {
+    init(_ board: BoardGraph) {
         id = board.id
         title = board.title
         boardDescription = board.boardDescription
@@ -414,13 +394,13 @@ private extension GroveBoardEntity {
 }
 
 private extension GroveItemEntity {
-    init(_ item: Item) {
+    init(_ item: ItemGraph) {
         id = item.id
         title = item.title
         kind = item.type.intentDisplayName
         contentPreview = item.content.map { String($0.prefix(500)) }
         sourceURL = item.sourceURL.flatMap(URL.init(string:))
-        boardTitles = item.boards.map(\.title).sorted()
+        boardTitles = item.board.map { [$0.title] } ?? []
     }
 }
 
@@ -437,6 +417,7 @@ private extension ItemType {
 }
 
 private enum GroveIntentError: LocalizedError {
+    case libraryUnavailable
     case emptyCapture
     case itemNotFound
     case boardNotFound
@@ -444,6 +425,8 @@ private enum GroveIntentError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
+        case .libraryUnavailable:
+            "Grove couldn’t open your library, so nothing was saved. Open Grove to try again."
         case .emptyCapture:
             "Enter a note or URL to capture."
         case .itemNotFound:

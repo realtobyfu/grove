@@ -6,8 +6,8 @@ import SwiftUI
 /// Extracted from BoardDetailView — toolbar cluster, empty state, and prompt mode panel.
 @MainActor
 struct BoardDetailHeaderView {
-    let board: Board
-    let effectiveItems: [Item]
+    let board: BoardGraph
+    let effectiveItems: [ItemGraph]
     let boardDiscussionSuggestions: [PromptBubble]
     let sortOption: BoardSortOption
 

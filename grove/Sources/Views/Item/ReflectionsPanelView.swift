@@ -1,5 +1,4 @@
 import SwiftUI
-import SwiftData
 
 // MARK: - Reflections List Panel (split-pane right side, Mode B)
 
@@ -115,14 +114,14 @@ struct ReflectionsListPanel: View {
                     onNavigateToItemByTitle: { vm.navigateToItemByTitle($0) },
                     onHighlightTap: vm.articleURL != nil ? { vm.jumpToHighlight($0) } : nil,
                     onRemember: { vm.openFlashcardEditor(reflection: $0) },
-                    modelContext: vm.modelContext
+                    onChange: { vm.reloadItem() }
                 )
             }
             .onDrop(of: [.text], delegate: BlockDropDelegate(
                 targetBlock: block,
                 allBlocks: vm.sortedReflections,
                 draggingBlock: $draggingBlock,
-                modelContext: vm.modelContext
+                onReorder: { vm.reloadItem() }
             ))
 
             if index < vm.sortedReflections.count - 1 {
@@ -225,14 +224,14 @@ struct InlineReflectionsSection: View {
                         onNavigateToItemByTitle: { vm.navigateToItemByTitle($0) },
                         onHighlightTap: vm.articleURL != nil ? { vm.jumpToHighlight($0) } : nil,
                         onRemember: { vm.openFlashcardEditor(reflection: $0) },
-                        modelContext: vm.modelContext
+                        onChange: { vm.reloadItem() }
                     )
                 }
                 .onDrop(of: [.text], delegate: BlockDropDelegate(
                     targetBlock: block,
                     allBlocks: vm.sortedReflections,
                     draggingBlock: $draggingBlock,
-                    modelContext: vm.modelContext
+                    onReorder: { vm.reloadItem() }
                 ))
 
                 if index < vm.sortedReflections.count - 1 {

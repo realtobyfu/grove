@@ -1,11 +1,11 @@
 import Foundation
-import SwiftData
+import SQLiteData
 
 /// Represents a suggestion to merge two near-duplicate tags
 struct TagMergeSuggestion: Identifiable {
     let id = UUID()
-    let tag1: Tag
-    let tag2: Tag
+    let tag1: TagGraph
+    let tag2: TagGraph
     let similarity: Double
     let reason: String
 }
@@ -13,32 +13,32 @@ struct TagMergeSuggestion: Identifiable {
 /// Represents a suggestion for parent-child hierarchy between tags
 struct TagHierarchySuggestion: Identifiable {
     let id = UUID()
-    let parentTag: Tag
-    let childTag: Tag
+    let parentTag: TagGraph
+    let childTag: TagGraph
     let reason: String
 }
 
 /// Protocol for tag service.
 @MainActor
 protocol TagServiceProtocol {
-    func mergeTags(keep: Tag, remove: Tag)
-    func findMergeSuggestions(from tags: [Tag]) -> [TagMergeSuggestion]
+    func mergeTags(keep: Tag.ID, remove: Tag.ID)
+    func findMergeSuggestions(from tags: [TagGraph]) -> [TagMergeSuggestion]
 }
 
 /// Service for tag analysis: duplicate detection, merging, hierarchy suggestions, and improved clustering
 @MainActor
 @Observable
 final class TagService: TagServiceProtocol {
-    private var modelContext: ModelContext
+    private let database: any DatabaseWriter
 
-    init(modelContext: ModelContext) {
-        self.modelContext = modelContext
+    init(database: any DatabaseWriter = AppDatabase.current) {
+        self.database = database
     }
 
     // MARK: - Near-Duplicate Detection
 
     /// Find tags that are near-duplicates based on string similarity
-    func findMergeSuggestions(from tags: [Tag]) -> [TagMergeSuggestion] {
+    func findMergeSuggestions(from tags: [TagGraph]) -> [TagMergeSuggestion] {
         var suggestions: [TagMergeSuggestion] = []
         let seen = NSMutableSet()
 
@@ -138,41 +138,46 @@ final class TagService: TagServiceProtocol {
     // MARK: - Tag Merge
 
     /// Merge tag2 into tag1: moves all items from tag2 to tag1, then deletes tag2
-    func mergeTags(keep: Tag, remove: Tag) {
-        // Transfer all items from 'remove' to 'keep'
-        for item in remove.items {
-            if !keep.items.contains(where: { $0.id == item.id }) {
-                keep.items.append(item)
+    ///
+    /// A join row's ID comes from its pair, so a link can't be repointed by
+    /// changing `tagID`. Each gets a new row here, ignored if `keep` is already
+    /// linked, and the old rows go with the tag.
+    func mergeTags(keep keepID: Tag.ID, remove removeID: Tag.ID) {
+        database.attempt { db in
+            // A suggestion can outlive either tag.
+            guard let keep = try Tag.find(keepID).fetchOne(db),
+                  let remove = try Tag.find(removeID).fetchOne(db) else { return }
+
+            // Transfer all items from 'remove' to 'keep'
+            let itemIDs = try ItemTag.where { $0.tagID.eq(removeID) }.select(\.itemID).fetchAll(db)
+            for itemID in itemIDs {
+                try Item.addTag(keepID, toItem: itemID, in: db)
             }
-            item.tags.removeAll { $0.id == remove.id }
-        }
 
-        // Transfer child tags
-        for child in remove.childTags {
-            child.parentTag = keep
-        }
+            // Transfer child tags, before the delete clears them
+            try Tag.where { $0.parentTagID.eq(removeID) }
+                .update { $0.parentTagID = #bind(keepID) }
+                .execute(db)
 
-        // Transfer smart board rules
-        for board in remove.smartRuleBoards {
-            if !board.smartRuleTags.contains(where: { $0.id == keep.id }) {
-                board.smartRuleTags.append(keep)
+            // Transfer smart board rules
+            let boardIDs = try BoardSmartRuleTag.where { $0.tagID.eq(removeID) }.select(\.boardID).fetchAll(db)
+            for boardID in boardIDs {
+                try Board.addSmartRuleTag(keepID, toBoard: boardID, in: db)
             }
-            board.smartRuleTags.removeAll { $0.id == remove.id }
-        }
 
-        // If remove had a parent, keep that hierarchy for keep (if keep has no parent)
-        if let removeParent = remove.parentTag, keep.parentTag == nil {
-            keep.parentTag = removeParent
-        }
+            // If remove had a parent, keep that hierarchy for keep (if keep has no parent)
+            if let removeParentID = remove.parentTagID, keep.parentTagID == nil {
+                try Tag.modify(keepID, in: db) { $0.parentTagID = removeParentID }
+            }
 
-        modelContext.delete(remove)
-        try? modelContext.save()
+            try Tag.find(removeID).delete().execute(db)
+        }
     }
 
     // MARK: - Hierarchy Detection
 
     /// Detect potential parent-child relationships among tags
-    func findHierarchySuggestions(from tags: [Tag]) -> [TagHierarchySuggestion] {
+    func findHierarchySuggestions(from tags: [TagGraph]) -> [TagHierarchySuggestion] {
         var suggestions: [TagHierarchySuggestion] = []
 
         for i in 0..<tags.count {
@@ -212,7 +217,7 @@ final class TagService: TagServiceProtocol {
         return Array(bestForChild.values).sorted { $0.childTag.name < $1.childTag.name }
     }
 
-    private func checkHierarchyRelationship(parent: Tag, child: Tag) -> String? {
+    private func checkHierarchyRelationship(parent: TagGraph, child: TagGraph) -> String? {
         let parentLower = parent.name.lowercased()
         let childLower = child.name.lowercased()
 
@@ -248,38 +253,43 @@ final class TagService: TagServiceProtocol {
     }
 
     /// Apply a hierarchy suggestion
-    func applyHierarchy(parent: Tag, child: Tag) {
-        child.parentTag = parent
-        try? modelContext.save()
+    func applyHierarchy(parent parentID: Tag.ID, child childID: Tag.ID) {
+        database.attempt { db in
+            try Tag.modify(childID, in: db) { $0.parentTagID = parentID }
+        }
     }
 
     /// Remove a hierarchy relationship
-    func removeHierarchy(child: Tag) {
-        child.parentTag = nil
-        try? modelContext.save()
+    func removeHierarchy(child childID: Tag.ID) {
+        database.attempt { db in
+            try Tag.modify(childID, in: db) { $0.parentTagID = nil }
+        }
     }
 
     // MARK: - Trend Tracking
 
     /// Update trend data for all tags — call periodically (e.g., on app launch)
-    func updateTrends(for tags: [Tag]) {
+    func updateTrends(for tags: [TagGraph]) {
         let now = Date()
-        for tag in tags {
-            // Only update if we haven't calculated recently (within 24 hours)
-            if let lastCalc = tag.trendCalculatedAt,
-               now.timeIntervalSince(lastCalc) < 86400 {
-                continue
+        database.attempt { db in
+            for tag in tags {
+                // Only update if we haven't calculated recently (within 24 hours)
+                if let lastCalc = tag.trendCalculatedAt,
+                   now.timeIntervalSince(lastCalc) < 86400 {
+                    continue
+                }
+                try Tag.modify(tag.id, in: db) {
+                    $0.previousItemCount = tag.items.count
+                    $0.trendCalculatedAt = now
+                }
             }
-            tag.previousItemCount = tag.items.count
-            tag.trendCalculatedAt = now
         }
-        try? modelContext.save()
     }
 
     // MARK: - Improved Clustering (co-occurrence based)
 
     /// Compute co-occurrence matrix for tags based on shared items
-    nonisolated static func tagCooccurrence(tags: [Tag]) -> [UUID: [UUID: Int]] {
+    nonisolated static func tagCooccurrence(tags: [TagGraph]) -> [UUID: [UUID: Int]] {
         var matrix: [UUID: [UUID: Int]] = [:]
         for tag in tags {
             let itemIDs = Set(tag.items.map(\.id))

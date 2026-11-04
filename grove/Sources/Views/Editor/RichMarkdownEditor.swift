@@ -1,6 +1,6 @@
 #if os(macOS)
 import SwiftUI
-import SwiftData
+import SQLiteData
 import AppKit
 
 private extension NSAttributedString.Key {
@@ -15,18 +15,18 @@ private extension NSAttributedString.Key {
 /// Includes a formatting toolbar and wiki-link autocomplete.
 struct RichMarkdownEditor: View {
     @Binding var text: String
-    var sourceItem: Item?
+    var sourceItem: ItemGraph?
     var minHeight: CGFloat = 80
     var proseMode: Bool = false
 
-    @Environment(\.modelContext) private var modelContext
-    @Query private var allItems: [Item]
+    @Fetch(Library.Request()) private var library = Library()
+    private var allItems: [ItemGraph] { library.items }
 
     @State private var editingProxy = MarkdownEditingProxy()
     @State private var showWikiPopover = false
     @State private var wikiSearchText = ""
 
-    private var wikiSearchResults: [Item] {
+    private var wikiSearchResults: [ItemGraph] {
         allItems.filter { candidate in
             if let sourceItem, candidate.id == sourceItem.id { return false }
             if wikiSearchText.isEmpty { return true }
@@ -335,16 +335,16 @@ struct RichMarkdownEditor: View {
         .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
     }
 
-    private func insertWikiLink(for target: Item) {
+    private func insertWikiLink(for target: ItemGraph) {
         editingProxy.replaceActiveWikiQuery(with: target.title)
 
         // Auto-create connection
         if let sourceItem {
-            let viewModel = ItemViewModel(modelContext: modelContext)
+            let viewModel = ItemViewModel()
             let alreadyConnected = sourceItem.outgoingConnections.contains { $0.targetItem?.id == target.id }
                 || sourceItem.incomingConnections.contains { $0.sourceItem?.id == target.id }
             if !alreadyConnected {
-                _ = viewModel.createConnection(source: sourceItem, target: target, type: .related)
+                _ = viewModel.createConnection(sourceID: sourceItem.id, targetID: target.id, type: .related)
             }
         }
 
@@ -1635,7 +1635,7 @@ class HighlightingTextView: NSTextView {
 }
 #else
 import SwiftUI
-import SwiftData
+import SQLiteData
 import UIKit
 
 /// iOS rich markdown editor using UITextView for live syntax highlighting,
@@ -1643,12 +1643,12 @@ import UIKit
 /// smart list/quote continuation. Mirrors the macOS NSTextView implementation.
 struct RichMarkdownEditor: View {
     @Binding var text: String
-    var sourceItem: Item?
+    var sourceItem: ItemGraph?
     var minHeight: CGFloat = 80
     var proseMode: Bool = false
 
-    @Environment(\.modelContext) private var modelContext
-    @Query private var allItems: [Item]
+    @Fetch(Library.Request()) private var library = Library()
+    private var allItems: [ItemGraph] { library.items }
 
     @State private var editingProxy = MarkdownEditingProxy()
     @State private var showWikiPopover = false
@@ -1658,7 +1658,7 @@ struct RichMarkdownEditor: View {
         UIDevice.current.userInterfaceIdiom == .pad
     }
 
-    private var wikiSearchResults: [Item] {
+    private var wikiSearchResults: [ItemGraph] {
         allItems.filter { candidate in
             if let sourceItem, candidate.id == sourceItem.id { return false }
             if wikiSearchText.isEmpty { return true }
@@ -1855,7 +1855,7 @@ struct RichMarkdownEditor: View {
         .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
     }
 
-    private func insertWikiLink(for target: Item) {
+    private func insertWikiLink(for target: ItemGraph) {
         let originalText = text
         editingProxy.replaceActiveWikiQuery(with: target.title)
 
@@ -1865,11 +1865,11 @@ struct RichMarkdownEditor: View {
 
         // Auto-create connection
         if let sourceItem {
-            let viewModel = ItemViewModel(modelContext: modelContext)
+            let viewModel = ItemViewModel()
             let alreadyConnected = sourceItem.outgoingConnections.contains { $0.targetItem?.id == target.id }
                 || sourceItem.incomingConnections.contains { $0.sourceItem?.id == target.id }
             if !alreadyConnected {
-                _ = viewModel.createConnection(source: sourceItem, target: target, type: .related)
+                _ = viewModel.createConnection(sourceID: sourceItem.id, targetID: target.id, type: .related)
             }
         }
 

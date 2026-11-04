@@ -1,5 +1,5 @@
+import SQLiteData
 import SwiftUI
-import SwiftData
 #if os(iOS)
 import UIKit
 #endif
@@ -17,36 +17,56 @@ struct MobileBoardDetailView: View {
     }
 #endif
 
-    let board: Board
-    var onOpenItem: ((Item) -> Void)? = nil
-    var selectedItem: Binding<Item?>? = nil
-    var openedItem: Binding<Item?>? = nil
+    /// The board as it was opened. Read `board`, which follows the library: a
+    /// navigation destination can hold on to a copy that nothing refreshes.
+    private let openedBoard: BoardGraph
+    var onOpenItem: ((ItemGraph) -> Void)? = nil
+    var selectedItem: Binding<ItemGraph?>? = nil
+    var openedItem: Binding<ItemGraph?>? = nil
 
-    @Environment(\.modelContext) private var modelContext
+    @Dependency(\.defaultDatabase) private var database
     @Environment(\.openURL) private var openURL
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(EntitlementService.self) private var entitlement
     @Environment(PaywallCoordinator.self) private var paywallCoordinator
     @Environment(iPadReaderCoordinator.self) private var readerCoordinator: iPadReaderCoordinator?
 
-    @Query private var allItems: [Item]
+    @Fetch(Library.Request()) private var library = Library()
 
-    @State private var localSelectedItem: Item?
+    @State private var localSelectedItem: ItemGraph?
     @State private var viewMode: BoardViewMode = .grid
     @State private var sortOption: BoardSortOption = .dateAdded
     @State private var draggingItemID: UUID?
-    @State private var itemToDelete: Item?
+    @State private var itemToDelete: ItemGraph?
     @State private var isSuggestionsCollapsed = false
     @State private var starterService = ConversationStarterService.shared
     @State private var selectedSuggestion: PromptBubble?
     @State private var paywallPresentation: PaywallPresentation?
     @State private var showFlashcards = false
 
+    init(
+        board: BoardGraph,
+        onOpenItem: ((ItemGraph) -> Void)? = nil,
+        selectedItem: Binding<ItemGraph?>? = nil,
+        openedItem: Binding<ItemGraph?>? = nil
+    ) {
+        openedBoard = board
+        self.onOpenItem = onOpenItem
+        self.selectedItem = selectedItem
+        self.openedItem = openedItem
+    }
+
+    private var board: BoardGraph {
+        library.board(openedBoard.id) ?? openedBoard
+    }
+
+    private var allItems: [ItemGraph] { library.items }
+
     private var isRegularSplitMode: Bool {
         horizontalSizeClass == .regular && (selectedItem != nil || openedItem != nil || readerCoordinator != nil)
     }
 
-    private var selectedItemBinding: Binding<Item?> {
+    private var selectedItemBinding: Binding<ItemGraph?> {
         if let selectedItem {
             return selectedItem
         }
@@ -59,7 +79,7 @@ struct MobileBoardDetailView: View {
         return $localSelectedItem
     }
 
-    private var openedItemBinding: Binding<Item?> {
+    private var openedItemBinding: Binding<ItemGraph?> {
         if let openedItem {
             return openedItem
         }
@@ -72,11 +92,11 @@ struct MobileBoardDetailView: View {
         return .constant(nil)
     }
 
-    private var effectiveItems: [Item] {
+    private var effectiveItems: [ItemGraph] {
         Self.effectiveItems(for: board, allItems: allItems)
     }
 
-    private var sortedFilteredItems: [Item] {
+    private var sortedFilteredItems: [ItemGraph] {
         Self.sortedItems(effectiveItems, for: board, sortOption: sortOption)
     }
 
@@ -120,6 +140,8 @@ struct MobileBoardDetailView: View {
             }
         }
         .navigationTitle(board.title)
+        .keepingCurrent($localSelectedItem, in: library)
+        .keepingCurrent($itemToDelete, in: library)
         .navigationDestination(for: MobileItemRoute.self) { route in
             MobileItemRouteDestinationView(route: route)
         }
@@ -182,7 +204,7 @@ struct MobileBoardDetailView: View {
                     if openedItemBinding.wrappedValue?.id == item.id {
                         openedItemBinding.wrappedValue = nil
                     }
-                    ItemViewModel(modelContext: modelContext).deleteItem(item)
+                    ItemViewModel().deleteItem(item.id)
                 }
                 itemToDelete = nil
             }
@@ -267,7 +289,7 @@ struct MobileBoardDetailView: View {
     }
 
     @ViewBuilder
-    private func compactItemCard(for item: Item) -> some View {
+    private func compactItemCard(for item: ItemGraph) -> some View {
         if usesMacStyleCompactCards {
             ItemCardView(item: item, showTags: true, usesContainerReadAction: true)
                 .padding(.horizontal, Spacing.xs)
@@ -331,7 +353,7 @@ struct MobileBoardDetailView: View {
     // MARK: - Context Menu
 
     @ViewBuilder
-    private func itemContextMenu(for item: Item) -> some View {
+    private func itemContextMenu(for item: ItemGraph) -> some View {
         Button {
             openItem(item)
         } label: {
@@ -356,8 +378,8 @@ struct MobileBoardDetailView: View {
 
         if !board.isSmart {
             Button {
-                let viewModel = ItemViewModel(modelContext: modelContext)
-                viewModel.removeFromBoard(item, board: board)
+                let viewModel = ItemViewModel()
+                viewModel.removeFromBoard(item.id, boardID: board.id)
             } label: {
                 Label("Remove from Board", systemImage: "folder.badge.minus")
             }
@@ -408,7 +430,7 @@ struct MobileBoardDetailView: View {
         return scopedSeedIDs.isEmpty ? bubble.clusterItemIDs : scopedSeedIDs
     }
 
-    private func openItem(_ item: Item) {
+    private func openItem(_ item: ItemGraph) {
         selectedItemBinding.wrappedValue = item
         if let onOpenItem {
             onOpenItem(item)
@@ -421,33 +443,51 @@ struct MobileBoardDetailView: View {
 
     private func moveGridItem(fromID: UUID, toID: UUID) {
         guard !board.isSmart else { return }
-        var order = board.manualOrder()
-        let allIDs = board.items.map(\.id)
-        let known = Set(order)
-        order.insert(contentsOf: allIDs.filter { !known.contains($0) }, at: 0)
-        guard let fromIndex = order.firstIndex(of: fromID),
-              let toIndex = order.firstIndex(of: toID),
-              fromIndex != toIndex else { return }
-        order.move(fromOffsets: IndexSet(integer: fromIndex),
-                   toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex)
-        board.setManualOrder(order)
-        try? modelContext.save()
+        changeManualOrder { order in
+            guard let fromIndex = order.firstIndex(of: fromID),
+                  let toIndex = order.firstIndex(of: toID),
+                  fromIndex != toIndex else { return }
+            order.move(fromOffsets: IndexSet(integer: fromIndex),
+                       toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex)
+        }
     }
 
+    /// The offsets index the rows on screen, which are not the stored order: that
+    /// also holds items the board doesn't show. So they become IDs here, while
+    /// they still mean what the user dragged.
     private func moveListItems(from source: IndexSet, to destination: Int) {
         guard !board.isSmart else { return }
-        var order = board.manualOrder()
-        let allIDs = board.items.map(\.id)
-        let known = Set(order)
-        order.insert(contentsOf: allIDs.filter { !known.contains($0) }, at: 0)
-        order.move(fromOffsets: source, toOffset: destination)
-        board.setManualOrder(order)
-        try? modelContext.save()
+        let rows = sortedFilteredItems
+        let movedIDs = source.filter { rows.indices.contains($0) }.map { rows[$0].id }
+        let moved = Set(movedIDs)
+        let nextID = rows.dropFirst(destination).first { !moved.contains($0.id) }?.id
+        changeManualOrder { order in
+            order.removeAll { moved.contains($0) }
+            let index = nextID.flatMap { order.firstIndex(of: $0) } ?? order.endIndex
+            order.insert(contentsOf: movedIDs, at: index)
+        }
+    }
+
+    /// Changes the manual order as the database has it now. `board` is behind a
+    /// write until the library arrives, and a grid drag writes once per card it
+    /// crosses, so an order built from `board` would undo the step before it.
+    private func changeManualOrder(_ change: (inout [UUID]) -> Void) {
+        let boardID = board.id
+        database.attempt { db in
+            guard let row = try Board.find(boardID).fetchOne(db) else { return }
+            let items = try Item.where { $0.boardID.eq(boardID) }.fetchAll(db)
+            var order = BoardGraph(board: row, items: items.map { ItemGraph(item: $0) }).manualOrder()
+            let known = Set(order)
+            let unordered = items.filter { !known.contains($0.id) }
+            order.insert(contentsOf: unordered.sorted { $0.createdAt > $1.createdAt }.map(\.id), at: 0)
+            change(&order)
+            try Board.modify(boardID, in: db) { $0.itemOrder = order }
+        }
     }
 
     // MARK: - Testable Data Helpers
 
-    static func effectiveItems(for board: Board, allItems: [Item]) -> [Item] {
+    static func effectiveItems(for board: BoardGraph, allItems: [ItemGraph]) -> [ItemGraph] {
         if board.isSmart {
             return BoardViewModel.smartBoardItems(for: board, from: allItems)
                 .filter { $0.status == .active }
@@ -455,7 +495,7 @@ struct MobileBoardDetailView: View {
         return board.items.filter { $0.status == .active }
     }
 
-    static func sortedItems(_ items: [Item], for board: Board, sortOption: BoardSortOption) -> [Item] {
+    static func sortedItems(_ items: [ItemGraph], for board: BoardGraph, sortOption: BoardSortOption) -> [ItemGraph] {
         switch sortOption {
         case .manual:
             let order = board.manualOrder()

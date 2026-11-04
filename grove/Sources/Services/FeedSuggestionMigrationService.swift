@@ -1,5 +1,5 @@
 import Foundation
-import SwiftData
+import SQLiteData
 
 /// One-time repair for feed suggestions stranded by the core-loop overhaul.
 ///
@@ -22,44 +22,51 @@ final class FeedSuggestionMigrationService {
     }
 
     @discardableResult
-    static func migrateIfNeeded(context: ModelContext) -> (promoted: Int, unstranded: Int) {
+    static func migrateIfNeeded(
+        database: any DatabaseWriter = AppDatabase.current
+    ) -> (promoted: Int, unstranded: Int) {
         guard !hasMigrated else { return (0, 0) }
 
-        let descriptor = FetchDescriptor<Item>()
-        guard let items = try? context.fetch(descriptor) else { return (0, 0) }
+        let counts = database.attempt { db -> (promoted: Int, unstranded: Int) in
+            let items = try Library.fetch(db).items
+            let annotatedItemIDs = Set(try Annotation.all.fetchAll(db).compactMap(\.itemID))
 
-        var promoted = 0
-        var unstranded = 0
+            var promoted = 0
+            var unstranded = 0
 
-        for item in items {
-            // Rescue anything expiry pushed into the invisible `.dismissed`
-            // state. Only feed suggestions dismissed by the expiry sweep are
-            // touched — items the user dismissed by hand stay dismissed.
-            if item.isFeedSuggestion,
-               item.status == .dismissed,
-               item.metadata["suggestionDismissed"] == "true" {
-                item.status = .archived
-                unstranded += 1
+            for item in items {
+                // Rescue anything expiry pushed into the invisible `.dismissed`
+                // state. Only feed suggestions dismissed by the expiry sweep are
+                // touched — items the user dismissed by hand stay dismissed.
+                if item.isFeedSuggestion,
+                   item.status == .dismissed,
+                   item.metadata["suggestionDismissed"] == "true" {
+                    try Item.modify(item.id, in: db) { $0.status = .archived }
+                    unstranded += 1
+                }
+
+                // A durable artifact means the user already kept this, whether or
+                // not the capture path marked it as such at the time.
+                guard item.isFeedSuggestion,
+                      hasDurableArtifact(item, annotatedItemIDs: annotatedItemIDs) else { continue }
+                try Item.modify(item.id, in: db) { $0.promoteFromFeedSuggestionIfNeeded() }
+                promoted += 1
             }
 
-            // A durable artifact means the user already kept this, whether or
-            // not the capture path marked it as such at the time.
-            guard item.isFeedSuggestion, hasDurableArtifact(item) else { continue }
-            item.promoteFromFeedSuggestionIfNeeded()
-            promoted += 1
+            return (promoted, unstranded)
         }
+        guard let counts else { return (0, 0) }
 
-        try? context.save()
         UserDefaults.standard.set(true, forKey: migratedKey)
-        return (promoted, unstranded)
+        return counts
     }
 
     /// Mirrors `Item.promoteFromFeedSuggestionIfNeeded`'s notion of keeping:
     /// a reflection, highlight, board assignment, or connection.
-    private static func hasDurableArtifact(_ item: Item) -> Bool {
+    private static func hasDurableArtifact(_ item: ItemGraph, annotatedItemIDs: Set<Item.ID>) -> Bool {
         !item.reflections.isEmpty
-            || !item.annotations.isEmpty
-            || !item.boards.isEmpty
+            || annotatedItemIDs.contains(item.id)
+            || item.boardID != nil
             || !item.outgoingConnections.isEmpty
             || !item.incomingConnections.isEmpty
     }

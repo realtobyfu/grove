@@ -5,7 +5,7 @@ import SwiftUI
 // MARK: - Tag Pill View (browsable, colored by category, with usage count and trend)
 
 struct TagPillView: View {
-    let tag: Tag
+    let tag: TagGraph
     var showTrend: Bool = false
     var isChild: Bool = false
     let onTap: () -> Void
@@ -58,7 +58,7 @@ struct TagPillView: View {
 
 struct TagMergeSuggestionsView: View {
     let suggestions: [TagMergeSuggestion]
-    let onMerge: (Tag, Tag) -> Void
+    let onMerge: (Tag.ID, Tag.ID) -> Void
     let onDismissAll: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -110,7 +110,7 @@ struct TagMergeSuggestionsView: View {
 
 struct MergeSuggestionRow: View {
     let suggestion: TagMergeSuggestion
-    let onMerge: (Tag, Tag) -> Void
+    let onMerge: (Tag.ID, Tag.ID) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -132,13 +132,13 @@ struct MergeSuggestionRow: View {
 
             HStack(spacing: 8) {
                 Button("Keep \"\(suggestion.tag1.name)\"") {
-                    onMerge(suggestion.tag1, suggestion.tag2)
+                    onMerge(suggestion.tag1.id, suggestion.tag2.id)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
 
                 Button("Keep \"\(suggestion.tag2.name)\"") {
-                    onMerge(suggestion.tag2, suggestion.tag1)
+                    onMerge(suggestion.tag2.id, suggestion.tag1.id)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -149,7 +149,7 @@ struct MergeSuggestionRow: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
-    private func tagLabel(_ tag: Tag) -> some View {
+    private func tagLabel(_ tag: TagGraph) -> some View {
         HStack(spacing: 4) {
             Circle()
                 .fill(tag.category.color)
@@ -172,7 +172,7 @@ struct MergeSuggestionRow: View {
 
 struct TagHierarchySuggestionsView: View {
     let suggestions: [TagHierarchySuggestion]
-    let onApply: (Tag, Tag) -> Void
+    let onApply: (Tag.ID, Tag.ID) -> Void
     let onDismissAll: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -224,7 +224,7 @@ struct TagHierarchySuggestionsView: View {
 
 struct HierarchySuggestionRow: View {
     let suggestion: TagHierarchySuggestion
-    let onApply: (Tag, Tag) -> Void
+    let onApply: (Tag.ID, Tag.ID) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -266,7 +266,7 @@ struct HierarchySuggestionRow: View {
                 .foregroundStyle(Color.textSecondary)
 
             Button("Set \"\(suggestion.parentTag.name)\" as parent of \"\(suggestion.childTag.name)\"") {
-                onApply(suggestion.parentTag, suggestion.childTag)
+                onApply(suggestion.parentTag.id, suggestion.childTag.id)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)

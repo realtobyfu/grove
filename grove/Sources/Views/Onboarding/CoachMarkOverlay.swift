@@ -1,15 +1,14 @@
 import SwiftUI
-import SwiftData
+import SQLiteData
 
 struct CoachMarkOverlay: View {
     var coachMarks: CoachMarkService
-    @Query private var allItems: [Item]
-    @Query(sort: \Board.sortOrder) private var boards: [Board]
+    @Fetch(Library.Request()) private var library = Library()
     @Binding var showChatPanel: Bool
 
-    private var itemCount: Int { allItems.count }
-    private var boardCount: Int { boards.count }
-    private var hasItemWithBoard: Bool { allItems.contains { !$0.boards.isEmpty } }
+    private var itemCount: Int { library.items.count }
+    private var boardCount: Int { library.boards.count }
+    private var hasItemWithBoard: Bool { library.items.contains { $0.board != nil } }
 
     var body: some View {
         if coachMarks.isActive, let step = coachMarks.currentStep {

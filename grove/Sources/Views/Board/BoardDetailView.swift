@@ -1,8 +1,8 @@
 #if os(macOS)
 import AppKit
 #endif
+import SQLiteData
 import SwiftUI
-import SwiftData
 import UniformTypeIdentifiers
 
 enum BoardViewMode: String, CaseIterable, Sendable {
@@ -39,23 +39,25 @@ struct BoardDetailView: View {
         }
     }
 
-    let board: Board
-    @Binding var selectedItem: Item?
-    @Binding var openedItem: Item?
-    @Environment(\.modelContext) private var modelContext
-    @Query private var allItems: [Item]
+    let board: BoardGraph
+    @Binding var selectedItem: ItemGraph?
+    @Binding var openedItem: ItemGraph?
+    @Dependency(\.defaultDatabase) private var database
+    @Fetch(Library.Request()) private var library = Library()
     @State private var viewMode: BoardViewMode = .grid
     @State private var sortOption: BoardSortOption = .manual
     @State private var draggingItemID: UUID?
-    @State private var itemToDelete: Item?
+    @State private var itemToDelete: ItemGraph?
     @State private var isSuggestionsCollapsed = false
     @State private var starterService = ConversationStarterService.shared
     @State private var promptModeSelection: PromptModeSelection?
     @State private var promptModePanelWidth: CGFloat = LayoutSettings.width(for: .boardPrompt) ?? 330
     @State private var paywallPresentation: PaywallPresentation?
 
+    private var allItems: [ItemGraph] { library.items }
+
     /// The effective items for this board — smart boards compute from tag rules, regular boards use direct membership
-    private var effectiveItems: [Item] {
+    private var effectiveItems: [ItemGraph] {
         if board.isSmart {
             return BoardViewModel.smartBoardItems(for: board, from: allItems)
                 .filter { $0.status == .active }
@@ -63,7 +65,7 @@ struct BoardDetailView: View {
         return board.items.filter { $0.status == .active }
     }
 
-    private var sortedFilteredItems: [Item] {
+    private var sortedFilteredItems: [ItemGraph] {
         sortItems(effectiveItems)
     }
 
@@ -215,7 +217,7 @@ struct BoardDetailView: View {
                 if let item = itemToDelete {
                     // Presentation state (selection, reader, write panel) is
                     // cleared by the .groveItemWillDelete observer.
-                    ItemViewModel(modelContext: modelContext).deleteItem(item)
+                    ItemViewModel().deleteItem(item.id)
                 }
                 itemToDelete = nil
             }
@@ -333,9 +335,9 @@ struct BoardDetailView: View {
                 let path = url.path
                 guard CaptureService.isSupportedVideoFile(path) else { return }
                 Task { @MainActor in
-                    let captureService = CaptureService(modelContext: modelContext)
-                    let item = captureService.createVideoItem(filePath: path, board: board)
-                    selectedItem = item
+                    let captureService = CaptureService()
+                    let item = captureService.createVideoItem(filePath: path, board: board.board)
+                    selectedItem = ItemGraph(item: item)
                 }
             }
             handled = true
@@ -345,7 +347,7 @@ struct BoardDetailView: View {
 
     // MARK: - Sort & Reorder
 
-    private func sortItems(_ items: [Item]) -> [Item] {
+    private func sortItems(_ items: [ItemGraph]) -> [ItemGraph] {
         switch sortOption {
         case .manual:
             let order = board.manualOrder()
@@ -364,28 +366,46 @@ struct BoardDetailView: View {
 
     private func moveGridItem(fromID: UUID, toID: UUID) {
         guard !board.isSmart else { return }
-        var order = board.manualOrder()
-        let allIDs = board.items.map(\.id)
-        let known = Set(order)
-        order.insert(contentsOf: allIDs.filter { !known.contains($0) }, at: 0)
-        guard let fromIndex = order.firstIndex(of: fromID),
-              let toIndex = order.firstIndex(of: toID),
-              fromIndex != toIndex else { return }
-        order.move(fromOffsets: IndexSet(integer: fromIndex),
-                   toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex)
-        board.setManualOrder(order)
-        try? modelContext.save()
+        changeManualOrder { order in
+            guard let fromIndex = order.firstIndex(of: fromID),
+                  let toIndex = order.firstIndex(of: toID),
+                  fromIndex != toIndex else { return }
+            order.move(fromOffsets: IndexSet(integer: fromIndex),
+                       toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex)
+        }
     }
 
+    /// The offsets index the rows on screen, which are not the stored order: that
+    /// also holds items the board doesn't show. So they become IDs here, while
+    /// they still mean what the user dragged.
     private func moveListItems(from source: IndexSet, to destination: Int) {
         guard !board.isSmart else { return }
-        var order = board.manualOrder()
-        let allIDs = board.items.map(\.id)
-        let known = Set(order)
-        order.insert(contentsOf: allIDs.filter { !known.contains($0) }, at: 0)
-        order.move(fromOffsets: source, toOffset: destination)
-        board.setManualOrder(order)
-        try? modelContext.save()
+        let rows = sortedFilteredItems
+        let movedIDs = source.filter { rows.indices.contains($0) }.map { rows[$0].id }
+        let moved = Set(movedIDs)
+        let nextID = rows.dropFirst(destination).first { !moved.contains($0.id) }?.id
+        changeManualOrder { order in
+            order.removeAll { moved.contains($0) }
+            let index = nextID.flatMap { order.firstIndex(of: $0) } ?? order.endIndex
+            order.insert(contentsOf: movedIDs, at: index)
+        }
+    }
+
+    /// Changes the manual order as the database has it now. `board` is behind a
+    /// write until the parent re-renders, and a grid drag writes once per card it
+    /// crosses, so an order built from `board` would undo the step before it.
+    private func changeManualOrder(_ change: (inout [UUID]) -> Void) {
+        let boardID = board.id
+        database.attempt { db in
+            guard let row = try Board.find(boardID).fetchOne(db) else { return }
+            let items = try Item.where { $0.boardID.eq(boardID) }.fetchAll(db)
+            var order = BoardGraph(board: row, items: items.map { ItemGraph(item: $0) }).manualOrder()
+            let known = Set(order)
+            let unordered = items.filter { !known.contains($0.id) }
+            order.insert(contentsOf: unordered.sorted { $0.createdAt > $1.createdAt }.map(\.id), at: 0)
+            change(&order)
+            try Board.modify(boardID, in: db) { $0.itemOrder = order }
+        }
     }
 }
 

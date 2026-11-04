@@ -59,11 +59,11 @@ struct Suggestion: Identifiable {
     let type: SuggestionType
     let title: String
     let reason: String
-    let item: Item?
-    let board: Board?
+    let item: ItemGraph?
+    let board: BoardGraph?
     let nudge: Nudge?
 
-    init(type: SuggestionType, title: String, reason: String, item: Item? = nil, board: Board? = nil, nudge: Nudge? = nil) {
+    init(type: SuggestionType, title: String, reason: String, item: ItemGraph? = nil, board: BoardGraph? = nil, nudge: Nudge? = nil) {
         self.type = type
         self.title = title
         self.reason = reason

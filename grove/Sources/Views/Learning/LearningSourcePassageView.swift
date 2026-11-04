@@ -1,5 +1,5 @@
 import SwiftUI
-import SwiftData
+import SQLiteData
 
 /// The quote is a captured source snapshot, never the generated answer.
 struct LearningSourcePassageView: View {
@@ -8,10 +8,10 @@ struct LearningSourcePassageView: View {
     var onReadOriginal: (() -> Void)? = nil
     var onOpenSource: ((Flashcard) -> Void)? = nil
     @Environment(\.openURL) private var openURL
-    @Query private var items: [Item]
+    @Fetch(Library.Request()) private var library = Library()
     @State private var showOriginal = false
 
-    private var sourceItem: Item? { items.first { $0.id == card.sourceItemID } }
+    private var sourceItem: ItemGraph? { library.item(card.sourceItemID) }
 
     private var sourceLocation: String? {
         guard let locator = card.sourceLocator, !locator.isEmpty else { return nil }
@@ -88,13 +88,13 @@ private struct LearningOriginalSourceView: View {
     let card: Flashcard
     var onReturnToQuestion: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
-    @Query private var items: [Item]
+    @Fetch(Library.Request()) private var library = Library()
     @State private var webViewActive = false
 
     var body: some View {
         NavigationStack {
             Group {
-                if let item = items.first(where: { $0.id == card.sourceItemID }) {
+                if let item = library.item(card.sourceItemID) {
                     #if os(iOS)
                     MobileItemReaderView(item: item, preferFullScreenReaderExperience: true)
                     #else

@@ -1,11 +1,11 @@
+import SQLiteData
 import SwiftUI
-import SwiftData
 
 /// Handles push nudge notification responses on iOS.
 /// Listens for groveOpenNudgeNotification and groveDismissNudgeNotification,
 /// then updates the Nudge model and routes via DeepLinkRouter.
 struct MobileNudgeHandler: ViewModifier {
-    @Environment(\.modelContext) private var modelContext
+    @Dependency(\.defaultDatabase) private var database
     @Environment(DeepLinkRouter.self) private var deepLinkRouter
 
     func body(content: Content) -> some View {
@@ -21,26 +21,21 @@ struct MobileNudgeHandler: ViewModifier {
     }
 
     private func handleOpen(nudgeID: UUID) {
-        guard let nudge = fetchNudge(id: nudgeID) else { return }
-        nudge.status = .actedOn
-        try? modelContext.save()
+        let nudge = database.attempt { db in
+            try Nudge.modify(nudgeID, in: db) { $0.status = .actedOn }
+        } ?? nil
+        guard let nudge else { return }
 
         // Route to the nudge's target item via deep link
-        if let targetItem = nudge.targetItem {
-            deepLinkRouter.handle(URL(string: "grove://item/\(targetItem.id.uuidString)")!)
+        if let targetItemID = nudge.targetItemID {
+            deepLinkRouter.handle(URL(string: "grove://item/\(targetItemID.uuidString)")!)
         }
     }
 
     private func handleDismiss(nudgeID: UUID) {
-        guard let nudge = fetchNudge(id: nudgeID) else { return }
-        nudge.status = .dismissed
-        try? modelContext.save()
-    }
-
-    private func fetchNudge(id: UUID) -> Nudge? {
-        let descriptor = FetchDescriptor<Nudge>()
-        let allNudges = (try? modelContext.fetch(descriptor)) ?? []
-        return allNudges.first { $0.id == id }
+        database.attempt { db in
+            try Nudge.modify(nudgeID, in: db) { $0.status = .dismissed }
+        }
     }
 }
 

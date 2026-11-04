@@ -3,7 +3,7 @@ import SwiftUI
 /// Compact row for inbox items showing title, source domain, thumbnail,
 /// auto-tag chips (confirm/dismiss), and time since added.
 struct MobileInboxCard: View {
-    let item: Item
+    let item: ItemGraph
     var onConfirmTag: ((Tag) -> Void)?
     var onDismissTag: ((Tag) -> Void)?
 
@@ -14,12 +14,14 @@ struct MobileInboxCard: View {
     var body: some View {
         HStack(spacing: Spacing.md) {
             // Thumbnail
-            if let thumbnailData = item.thumbnail {
-                thumbnailImage(thumbnailData)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 56, height: 56)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            ItemThumbnailReader(itemID: item.id) { thumbnailData in
+                if let thumbnailData {
+                    thumbnailImage(thumbnailData)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 56, height: 56)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
             }
 
             VStack(alignment: .leading, spacing: Spacing.xs) {

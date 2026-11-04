@@ -1,33 +1,42 @@
+import SQLiteData
 import SwiftUI
-import SwiftData
 
 /// iOS Home screen — inbox triage, discussion suggestions, recent items, and nudge banners.
 struct MobileHomeView: View {
     private static let maxDiscussionCards = 3
 
-    @Environment(\.modelContext) private var modelContext
+    @Dependency(\.defaultDatabase) private var database
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(EntitlementService.self) private var entitlement
     @Environment(PaywallCoordinator.self) private var paywallCoordinator
-    @Query(sort: \Item.lastEngagedAt, order: .reverse) private var allItems: [Item]
-    @Query(sort: \Item.createdAt, order: .reverse) private var allItemsByDate: [Item]
-    @Query(sort: \Board.sortOrder) private var boards: [Board]
-    @Query(sort: \Nudge.createdAt, order: .reverse) private var allNudges: [Nudge]
+    @Fetch(Library.Request()) private var library = Library()
+    @FetchAll(Board.order(by: \.sortOrder)) private var boards
+    // Animated here because a banner leaves when this next arrives, after any
+    // `withAnimation` around the write that dismissed it has ended.
+    @FetchAll(Nudge.order { $0.createdAt.desc() }, animation: .default) private var allNudges
 
     @Environment(ConversationStarterService.self) private var starterService
     @Environment(iPadReaderCoordinator.self) private var readerCoordinator: iPadReaderCoordinator?
     @State private var showSearch = false
     @State private var showBoardPicker = false
-    @State private var itemToAssign: Item?
+    @State private var itemToAssign: ItemGraph?
     @State private var selectedSuggestion: PromptBubble?
     @State private var paywallPresentation: PaywallPresentation?
 
-    var onOpenItem: ((Item) -> Void)? = nil
-    var selectedItem: Binding<Item?>? = nil
-    var openedItem: Binding<Item?>? = nil
+    var onOpenItem: ((ItemGraph) -> Void)? = nil
+    var selectedItem: Binding<ItemGraph?>? = nil
+    var openedItem: Binding<ItemGraph?>? = nil
 
-    private var inboxItems: [Item] {
-        allItemsByDate.filter { $0.status == .inbox && !$0.isFeedSuggestion }
+    /// Most recently engaged first, and never-engaged last.
+    private var allItems: [ItemGraph] {
+        library.items.sorted { ($0.lastEngagedAt ?? .distantPast) > ($1.lastEngagedAt ?? .distantPast) }
+    }
+
+    /// Newest first.
+    private var inboxItems: [ItemGraph] {
+        library.items
+            .filter { $0.status == .inbox && !$0.isFeedSuggestion }
+            .sorted { $0.createdAt > $1.createdAt }
     }
 
     private var pendingNudges: [Nudge] {
@@ -65,6 +74,9 @@ struct MobileHomeView: View {
             nudgesSection
         }
         .listStyle(.plain)
+        // A triaged row leaves when `library` next arrives, after any `withAnimation`
+        // around the write has ended, so the animation lives here.
+        .animation(.default, value: inboxItems.map(\.id))
         .navigationTitle("Today")
         .navigationDestination(for: MobileItemRoute.self) { route in
             MobileItemRouteDestinationView(route: route)
@@ -104,7 +116,8 @@ struct MobileHomeView: View {
         .task {
             await starterService.refresh(items: allItems)
         }
-        .onChange(of: allItems.count) { _, newCount in
+        .keepingCurrent($itemToAssign, in: library)
+        .onChange(of: library.items.count) { _, newCount in
             guard newCount > 0, starterService.bubbles.isEmpty else { return }
             Task {
                 await starterService.forceRefresh(items: allItems)
@@ -194,16 +207,16 @@ struct MobileHomeView: View {
                     MobileNudgeBanner(
                         nudge: nudge,
                         onOpen: {
-                            nudge.status = .actedOn
+                            database.attempt { db in
+                                try Nudge.modify(nudge.id, in: db) { $0.status = .actedOn }
+                            }
                             NudgeSettings.recordAction(type: nudge.type, actedOn: true)
-                            try? modelContext.save()
                         },
                         onDismiss: {
-                            withAnimation {
-                                nudge.status = .dismissed
-                                NudgeSettings.recordAction(type: nudge.type, actedOn: false)
-                                try? modelContext.save()
+                            database.attempt { db in
+                                try Nudge.modify(nudge.id, in: db) { $0.status = .dismissed }
                             }
+                            NudgeSettings.recordAction(type: nudge.type, actedOn: false)
                         }
                     )
                 }
@@ -250,48 +263,52 @@ struct MobileHomeView: View {
 
     // MARK: - Inbox triage actions
 
-    private func keepItem(_ item: Item) {
+    private func keepItem(_ item: ItemGraph) {
         #if os(iOS)
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
         #endif
-        withAnimation {
-            item.status = .active
-            item.updatedAt = .now
-            try? modelContext.save()
+        database.attempt { db in
+            try Item.modify(item.id, in: db) {
+                $0.status = .active
+                $0.updatedAt = .now
+            }
         }
     }
 
-    private func dismissItem(_ item: Item) {
+    private func dismissItem(_ item: ItemGraph) {
         #if os(iOS)
         let generator = UIImpactFeedbackGenerator(style: .rigid)
         generator.impactOccurred()
         #endif
-        withAnimation {
-            item.status = .dismissed
-            item.updatedAt = .now
-            try? modelContext.save()
+        database.attempt { db in
+            try Item.modify(item.id, in: db) {
+                $0.status = .dismissed
+                $0.updatedAt = .now
+            }
         }
     }
 
-    private func assignToBoard(_ item: Item, board: Board) {
+    private func assignToBoard(_ item: ItemGraph, board: Board) {
         #if os(iOS)
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.success)
         #endif
-        let viewModel = ItemViewModel(modelContext: modelContext)
-        viewModel.assignToBoard(item, board: board)
+        let viewModel = ItemViewModel()
+        viewModel.assignToBoard(item.id, board: board)
     }
 
     private func confirmTag(_ tag: Tag) {
-        tag.isAutoGenerated = false
-        try? modelContext.save()
+        database.attempt { db in
+            try Tag.modify(tag.id, in: db) { $0.isAutoGenerated = false }
+        }
     }
 
-    private func dismissTag(_ tag: Tag, from item: Item) {
-        item.tags.removeAll { $0.id == tag.id }
-        item.updatedAt = .now
-        try? modelContext.save()
+    private func dismissTag(_ tag: Tag, from item: ItemGraph) {
+        database.attempt { db in
+            try Item.removeTag(tag.id, fromItem: item.id, in: db)
+            try Item.modify(item.id, in: db) { $0.updatedAt = .now }
+        }
     }
 
     // MARK: - Conversation actions
@@ -339,7 +356,7 @@ struct MobileHomeView: View {
     }
 
     @ViewBuilder
-    private func openItemRow<Content: View>(item: Item, @ViewBuilder content: () -> Content) -> some View {
+    private func openItemRow<Content: View>(item: ItemGraph, @ViewBuilder content: () -> Content) -> some View {
         if let onOpenItem {
             Button {
                 onOpenItem(item)

@@ -1,5 +1,5 @@
 import Foundation
-import SwiftData
+import SQLiteData
 #if os(macOS)
 import AppKit
 #endif
@@ -17,7 +17,7 @@ enum ImportItemDecision: Sendable {
 struct ImportPreviewItem: Identifiable {
     let id: UUID
     let transferItem: TransferItem
-    let matchedExistingItem: Item?
+    let matchedExistingItem: ItemGraph?
     var decision: ImportItemDecision
 
     var isNew: Bool { matchedExistingItem == nil }
@@ -31,8 +31,8 @@ final class BoardPackageService {
     // MARK: - Export
 
     static func exportPackage(
-        board: Board,
-        items: [Item],
+        board: BoardGraph,
+        items: [ItemGraph],
         options: BoardExportOptions
     ) throws -> Data {
         let boardItemIDs = Set(items.map(\.id))
@@ -157,7 +157,7 @@ final class BoardPackageService {
 
     static func buildImportPreview(
         package: GrovePackage,
-        existingItems: [Item]
+        existingItems: [ItemGraph]
     ) -> [ImportPreviewItem] {
         package.items.map { transferItem in
             let matched = existingItems.first { existing in
@@ -179,116 +179,121 @@ final class BoardPackageService {
     static func importPackage(
         package: GrovePackage,
         decisions: [ImportPreviewItem],
-        modelContext: ModelContext
+        database: any DatabaseWriter = AppDatabase.current
     ) throws -> Board {
-        let newBoard = Board(
-            title: package.manifest.boardTitle,
-            icon: package.manifest.boardIcon,
-            color: package.manifest.boardColor
-        )
-        newBoard.boardDescription = package.manifest.boardDescription
-        modelContext.insert(newBoard)
+        try database.write { db in
+            var board = Board(
+                title: package.manifest.boardTitle,
+                icon: package.manifest.boardIcon,
+                color: package.manifest.boardColor
+            )
+            board.boardDescription = package.manifest.boardDescription
+            let newBoard = board
+            try Board.insert { newBoard }.execute(db)
 
-        var uuidMap: [UUID: UUID] = [:]
-        var itemsByNewID: [UUID: Item] = [:]
+            var uuidMap: [UUID: UUID] = [:]
 
-        for preview in decisions {
-            switch preview.decision {
-            case .skip:
-                continue
+            for preview in decisions {
+                switch preview.decision {
+                case .skip:
+                    continue
 
-            case .mergeWithExisting:
-                guard let existing = preview.matchedExistingItem else { continue }
-                uuidMap[preview.transferItem.id] = existing.id
-                itemsByNewID[existing.id] = existing
-                existing.boards.append(newBoard)
-
-            case .importAsNew:
-                let transfer = preview.transferItem
-                let itemType = ItemType(rawValue: transfer.type) ?? .article
-                let newItem = Item(title: transfer.title, type: itemType)
-                newItem.status = ItemStatus(rawValue: transfer.status) ?? .active
-                newItem.sourceURL = transfer.sourceURL
-                newItem.content = transfer.content
-                newItem.createdAt = transfer.createdAt
-                newItem.updatedAt = transfer.updatedAt
-                modelContext.insert(newItem)
-
-                uuidMap[transfer.id] = newItem.id
-                itemsByNewID[newItem.id] = newItem
-                newItem.boards.append(newBoard)
-
-                // Tags
-                for transferTag in transfer.tags {
-                    let existingTag = try? findExistingTag(
-                        named: transferTag.name,
-                        in: modelContext
-                    )
-                    if let tag = existingTag {
-                        newItem.tags.append(tag)
+                case .mergeWithExisting:
+                    guard let existing = preview.matchedExistingItem else { continue }
+                    // The preview is a snapshot, and the sheet can stay open
+                    // while the item is deleted. Reflections and connections
+                    // below would fail the whole import on a missing item.
+                    guard let current = try Item.find(existing.id).fetchOne(db) else { continue }
+                    uuidMap[preview.transferItem.id] = existing.id
+                    // An item is on at most one board. One that already has a
+                    // board stays there, so importing can't pull it off a board
+                    // the person chose, and the link is held for later instead.
+                    if current.boardID == nil {
+                        try Item.setBoard(newBoard.id, forItem: existing.id, in: db)
                     } else {
-                        let category = TagCategory(rawValue: transferTag.category) ?? .custom
-                        let tag = Tag(
-                            name: transferTag.name,
-                            category: category,
-                            isAutoGenerated: transferTag.isAutoGenerated
-                        )
-                        modelContext.insert(tag)
-                        newItem.tags.append(tag)
+                        try ExtraBoardLink.insert {
+                            ExtraBoardLink(itemID: existing.id, boardID: newBoard.id)
+                        } onConflictDoUpdate: { _ in }.execute(db)
+                    }
+
+                case .importAsNew:
+                    let transfer = preview.transferItem
+                    let itemType = ItemType(rawValue: transfer.type) ?? .article
+                    var item = Item(title: transfer.title, type: itemType)
+                    item.status = ItemStatus(rawValue: transfer.status) ?? .active
+                    item.sourceURL = transfer.sourceURL
+                    item.content = transfer.content
+                    item.createdAt = transfer.createdAt
+                    item.updatedAt = transfer.updatedAt
+                    item.boardID = newBoard.id
+                    let newItem = item
+                    try Item.insert { newItem }.execute(db)
+
+                    uuidMap[transfer.id] = newItem.id
+
+                    // Tags
+                    for transferTag in transfer.tags {
+                        if let tag = try findExistingTag(named: transferTag.name, in: db) {
+                            try Item.addTag(tag.id, toItem: newItem.id, in: db)
+                        } else {
+                            let category = TagCategory(rawValue: transferTag.category) ?? .custom
+                            let tag = Tag(
+                                name: transferTag.name,
+                                category: category,
+                                isAutoGenerated: transferTag.isAutoGenerated
+                            )
+                            try Tag.insert { tag }.execute(db)
+                            try Item.addTag(tag.id, toItem: newItem.id, in: db)
+                        }
                     }
                 }
             }
-        }
 
-        // Reflections
-        for transferReflection in package.reflections {
-            guard let newItemID = uuidMap[transferReflection.itemID],
-                  let item = itemsByNewID[newItemID] else { continue }
-            // Skip reflections for merged items (they already have their own)
-            if decisions.first(where: { $0.transferItem.id == transferReflection.itemID })?.decision == .mergeWithExisting {
-                continue
+            // Reflections
+            for transferReflection in package.reflections {
+                guard let newItemID = uuidMap[transferReflection.itemID] else { continue }
+                // Skip reflections for merged items (they already have their own)
+                if decisions.first(where: { $0.transferItem.id == transferReflection.itemID })?.decision == .mergeWithExisting {
+                    continue
+                }
+                let blockType = ReflectionBlockType(rawValue: transferReflection.blockType) ?? .keyInsight
+                var reflection = ReflectionBlock(
+                    itemID: newItemID,
+                    blockType: blockType,
+                    content: transferReflection.content,
+                    highlight: transferReflection.highlight,
+                    position: transferReflection.position,
+                    videoTimestamp: transferReflection.videoTimestamp
+                )
+                reflection.createdAt = transferReflection.createdAt
+                let block = reflection
+                try ReflectionBlock.insert { block }.execute(db)
             }
-            let blockType = ReflectionBlockType(rawValue: transferReflection.blockType) ?? .keyInsight
-            let block = ReflectionBlock(
-                item: item,
-                blockType: blockType,
-                content: transferReflection.content,
-                highlight: transferReflection.highlight,
-                position: transferReflection.position,
-                videoTimestamp: transferReflection.videoTimestamp
-            )
-            block.createdAt = transferReflection.createdAt
-            modelContext.insert(block)
+
+            // Connections
+            for transferConn in package.connections {
+                guard let newSourceID = uuidMap[transferConn.sourceItemID],
+                      let newTargetID = uuidMap[transferConn.targetItemID] else { continue }
+                let connType = ConnectionType(rawValue: transferConn.type) ?? .related
+                var connection = Connection(sourceItemID: newSourceID, targetItemID: newTargetID, type: connType)
+                connection.note = transferConn.note
+                connection.isAutoGenerated = transferConn.isAutoGenerated
+                connection.createdAt = transferConn.createdAt
+                let conn = connection
+                try Connection.insert { conn }.execute(db)
+            }
+
+            // Remap board order
+            let newOrder = package.itemOrder.compactMap { uuidMap[$0] }
+            return try Board.modify(newBoard.id, in: db) { $0.itemOrder = newOrder } ?? newBoard
         }
-
-        // Connections
-        for transferConn in package.connections {
-            guard let newSourceID = uuidMap[transferConn.sourceItemID],
-                  let newTargetID = uuidMap[transferConn.targetItemID],
-                  let sourceItem = itemsByNewID[newSourceID],
-                  let targetItem = itemsByNewID[newTargetID] else { continue }
-            let connType = ConnectionType(rawValue: transferConn.type) ?? .related
-            let conn = Connection(sourceItem: sourceItem, targetItem: targetItem, type: connType)
-            conn.note = transferConn.note
-            conn.isAutoGenerated = transferConn.isAutoGenerated
-            conn.createdAt = transferConn.createdAt
-            modelContext.insert(conn)
-        }
-
-        // Remap board order
-        let newOrder = package.itemOrder.compactMap { uuidMap[$0] }
-        newBoard.setManualOrder(newOrder)
-
-        try modelContext.save()
-        return newBoard
     }
 
     // MARK: - Helpers
 
-    private static func findExistingTag(named name: String, in context: ModelContext) throws -> Tag? {
+    private static func findExistingTag(named name: String, in db: Database) throws -> Tag? {
         let lowered = name.lowercased()
-        let descriptor = FetchDescriptor<Tag>()
-        let allTags = try context.fetch(descriptor)
+        let allTags = try Tag.all.fetchAll(db)
         return allTags.first { $0.name.lowercased() == lowered }
     }
 

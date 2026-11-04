@@ -1,5 +1,5 @@
+import SQLiteData
 import SwiftUI
-import SwiftData
 #if os(macOS)
 import AppKit
 
@@ -67,12 +67,11 @@ enum SidebarItem: Hashable, Codable {
 }
 
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
+    @Dependency(\.defaultDatabase) private var database
     @Environment(OnboardingService.self) private var onboarding
     @State private var coachMarks = CoachMarkService.shared
-    @Query(sort: \Board.sortOrder) private var boards: [Board]
-    @Query private var allItemsForOnboarding: [Item]
-    @Query private var allConversationsForOnboarding: [Conversation]
+    @Fetch(Library.Request()) private var library = Library()
+    @Fetch(ConversationGraph.All()) private var conversations = [ConversationGraph]()
     @State private var viewModel = ContentViewModel()
     #if os(macOS)
     @State private var window: NSWindow? = nil
@@ -80,6 +79,8 @@ struct ContentView: View {
     #endif
 
     var syncService: SyncService
+
+    private var boards: [BoardGraph] { library.boards }
 
     /// Full screen over a reading surface means the page and nothing else: the
     /// window toolbar retires, and the panel's own strip carries the way out.
@@ -99,7 +100,7 @@ struct ContentView: View {
         return nil
     }
 
-    private var searchScopeBoard: Board? {
+    private var searchScopeBoard: BoardGraph? {
         if case .board(let boardID) = viewModel.selection {
             return boards.first(where: { $0.id == boardID })
         }
@@ -107,15 +108,15 @@ struct ContentView: View {
     }
 
     private var onboardingCaptureCompleted: Bool {
-        !allItemsForOnboarding.isEmpty
+        !library.items.isEmpty
     }
 
     private var onboardingOrganizeCompleted: Bool {
-        allItemsForOnboarding.contains { !$0.boards.isEmpty }
+        library.items.contains { $0.boardID != nil }
     }
 
     private var onboardingChatCompleted: Bool {
-        allConversationsForOnboarding.contains { conversation in
+        conversations.contains { conversation in
             conversation.messages.contains { $0.role == .user }
         }
     }
@@ -151,10 +152,16 @@ struct ContentView: View {
         .modifier(ContentViewEventHandlers(
             viewModel: viewModel,
             searchScopeBoard: searchScopeBoard,
-            boards: boards,
-            modelContext: modelContext
+            boards: boards
         ))
-        .onChange(of: viewModel.openedItem) {
+        .onChange(of: library) { refreshHeldItems() }
+        .onChange(of: conversations) { refreshHeldConversation() }
+        // Selecting can hand over a copy the library has moved on from, or a bare
+        // row with no links. If the library has already arrived, it won't change
+        // again to correct that.
+        .onChange(of: heldItems) { refreshHeldItems() }
+        .onChange(of: viewModel.selectedConversation?.id) { refreshHeldConversation() }
+        .onChange(of: viewModel.openedItem?.id) {
             if let item = viewModel.openedItem, item.type == .note {
                 viewModel.writePanelEditItem = item
                 viewModel.selectedItem = item
@@ -177,7 +184,7 @@ struct ContentView: View {
         .onAppear {
             refreshOnboardingState()
         }
-        .onChange(of: allItemsForOnboarding.count) {
+        .onChange(of: library.items.count) {
             refreshOnboardingState()
         }
         .onChange(of: boards.count) {
@@ -188,6 +195,49 @@ struct ContentView: View {
         }
         .onChange(of: onboardingChatCompleted) {
             refreshOnboardingState()
+        }
+    }
+
+    // MARK: - Held Snapshots
+
+    private var heldItems: [ItemGraph?] {
+        [viewModel.selectedItem, viewModel.openedItem, viewModel.writePanelEditItem]
+    }
+
+    /// Brings the items in `viewModel` up to date. They're values, and they feed
+    /// the reader, the inspector and the write panel, so this is what keeps the
+    /// Mac app's detail panes live. An item that's gone clears whatever held it.
+    private func refreshHeldItems() {
+        viewModel.selectedItem = current(viewModel.selectedItem)
+        viewModel.openedItem = current(viewModel.openedItem)
+        if let editing = viewModel.writePanelEditItem {
+            viewModel.writePanelEditItem = current(editing)
+            // Left open, the panel would save the draft as a new note.
+            if viewModel.writePanelEditItem == nil {
+                viewModel.showWritePanel = false
+            }
+        }
+    }
+
+    /// The latest copy of `held`, or `nil` if it's gone.
+    ///
+    /// `library` can be a step behind: a fetch that began before an item was
+    /// created can land just after it was selected. So missing from `library`
+    /// only means deleted once the database agrees. A failed read keeps `held`.
+    private func current(_ held: ItemGraph?) -> ItemGraph? {
+        guard let held else { return nil }
+        if let item = library.item(held.id) { return item }
+        return database.attemptRead { try ItemGraph.fetch(held.id, in: $0) } ?? held
+    }
+
+    /// As `refreshHeldItems`, for the conversation in the chat panel.
+    private func refreshHeldConversation() {
+        guard let held = viewModel.selectedConversation else { return }
+        if let conversation = conversations.first(where: { $0.id == held.id }) {
+            viewModel.selectedConversation = conversation
+        } else {
+            viewModel.selectedConversation =
+                database.attemptRead { try ConversationGraph.fetch(held.id, in: $0) } ?? held
         }
     }
 
@@ -407,7 +457,7 @@ struct ContentView: View {
 
     /// The item the inspector would describe. Nil means there is nothing to
     /// inspect, which resolves to `.hidden` — no rail, no placeholder column.
-    private var inspectorItem: Item? {
+    private var inspectorItem: ItemGraph? {
         viewModel.selectedItem ?? viewModel.openedItem
     }
 
@@ -497,7 +547,7 @@ struct ContentView: View {
             chatCompleted: onboardingChatCompleted
         )
         onboarding.evaluateAutoPresentation(
-            itemCount: allItemsForOnboarding.count,
+            itemCount: library.items.count,
             boardCount: boards.count
         )
     }

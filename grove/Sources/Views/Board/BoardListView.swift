@@ -1,14 +1,13 @@
 import SwiftUI
-import SwiftData
 
 struct BoardListView: View {
-    let items: [Item]
+    let items: [ItemGraph]
     var sections: [WeekSection]?
     let canReorder: Bool
-    @Binding var selectedItem: Item?
-    @Binding var openedItem: Item?
-    var onOpenItem: ((Item) -> Void)? = nil
-    var itemContextMenu: (Item) -> AnyView
+    @Binding var selectedItem: ItemGraph?
+    @Binding var openedItem: ItemGraph?
+    var onOpenItem: ((ItemGraph) -> Void)? = nil
+    var itemContextMenu: (ItemGraph) -> AnyView
     var onMove: (IndexSet, Int) -> Void
 
     var body: some View {
@@ -66,7 +65,7 @@ struct BoardListView: View {
         }
     }
 
-    private func staticListRow(item: Item) -> some View {
+    private func staticListRow(item: ItemGraph) -> some View {
         listRow(item: item)
             .contentShape(Rectangle())
             .onTapGesture {
@@ -77,7 +76,7 @@ struct BoardListView: View {
             .contextMenu { itemContextMenu(item) }
     }
 
-    private func listRow(item: Item) -> some View {
+    private func listRow(item: ItemGraph) -> some View {
         HStack(spacing: 10) {
             Image(systemName: item.type.iconName)
                 .font(.groveMeta)
@@ -126,7 +125,7 @@ struct BoardListView: View {
         .padding(.vertical, 6)
     }
 
-    private func openItem(_ item: Item) {
+    private func openItem(_ item: ItemGraph) {
         selectedItem = item
         if let onOpenItem {
             onOpenItem(item)

@@ -1,3 +1,4 @@
+import SQLiteData
 import SwiftUI
 
 /// Inline nudge banner with message, item title, and action buttons.
@@ -6,6 +7,8 @@ struct MobileNudgeBanner: View {
     let nudge: Nudge
     var onOpen: () -> Void
     var onDismiss: () -> Void
+
+    @Fetch(Library.Request()) private var library = Library()
 
     var body: some View {
         HStack(spacing: Spacing.md) {
@@ -20,7 +23,7 @@ struct MobileNudgeBanner: View {
                     .foregroundStyle(Color.textPrimary)
                     .lineLimit(2)
 
-                if let item = nudge.targetItem {
+                if let item = library.item(nudge.targetItemID) {
                     Text(item.title)
                         .font(.groveMeta)
                         .foregroundStyle(Color.textTertiary)

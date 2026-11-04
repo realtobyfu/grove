@@ -1,5 +1,5 @@
 import Foundation
-import SwiftData
+import SQLiteData
 
 /// Represents a single search result with its source type and relevance score.
 enum SearchResultType: String, Sendable {
@@ -25,9 +25,9 @@ struct SearchResult: Identifiable {
     let subtitle: String?
     let score: Double
     // Navigation targets — one of these will be non-nil
-    let item: Item?
-    let board: Board?
-    let tag: Tag?
+    let item: ItemGraph?
+    let board: BoardGraph?
+    let tag: TagGraph?
     let reflection: ReflectionBlock?
 }
 
@@ -39,7 +39,7 @@ final class SearchViewModel {
     var isSearching = false
 
     /// Optional board scope — when set, item/reflection results are restricted to this board
-    var scopeBoard: Board? {
+    var scopeBoard: BoardGraph? {
         didSet {
             if oldValue?.id != scopeBoard?.id {
                 cachedCorpus = nil
@@ -47,21 +47,23 @@ final class SearchViewModel {
         }
     }
 
-    private var modelContext: ModelContext
+    private let database: any DatabaseWriter
     private let debounceNanoseconds: UInt64
     private var searchTask: Task<Void, Never>?
     private var searchGeneration = 0
     private var cachedCorpus: SearchCorpus?
 
     private struct SearchCorpus {
-        let items: [Item]
+        let items: [ItemGraph]
         let reflections: [ReflectionBlock]
-        let tags: [Tag]
-        let boards: [Board]
+        let tags: [TagGraph]
+        let boards: [BoardGraph]
+        /// Resolves a reflection's parent, which the row only knows by ID.
+        let library: Library
     }
 
-    init(modelContext: ModelContext, debounceNanoseconds: UInt64 = 250_000_000) {
-        self.modelContext = modelContext
+    init(database: any DatabaseWriter = AppDatabase.current, debounceNanoseconds: UInt64 = 250_000_000) {
+        self.database = database
         self.debounceNanoseconds = debounceNanoseconds
     }
 
@@ -143,7 +145,7 @@ final class SearchViewModel {
         }
 
         // Search reflections
-        let reflectionResults = searchReflections(query: query, reflections: corpus.reflections)
+        let reflectionResults = searchReflections(query: query, reflections: corpus.reflections, library: corpus.library)
         if !reflectionResults.isEmpty {
             grouped[.reflection] = reflectionResults
         }
@@ -177,7 +179,7 @@ final class SearchViewModel {
 
     // MARK: - Entity Searches
 
-    private func searchItems(query: String, items: [Item]) -> [SearchResult] {
+    private func searchItems(query: String, items: [ItemGraph]) -> [SearchResult] {
         let queryLower = query.lowercased()
         var scored: [SearchResult] = []
 
@@ -214,7 +216,7 @@ final class SearchViewModel {
         return scored.sorted { $0.score > $1.score }.prefix(15).map { $0 }
     }
 
-    private func searchReflections(query: String, reflections: [ReflectionBlock]) -> [SearchResult] {
+    private func searchReflections(query: String, reflections: [ReflectionBlock], library: Library) -> [SearchResult] {
         let queryLower = query.lowercased()
         var scored: [SearchResult] = []
 
@@ -222,7 +224,8 @@ final class SearchViewModel {
             let contentScore = FuzzySearchScorer.score(normalizedQuery: queryLower, in: block.content.lowercased())
             guard contentScore > 0 else { continue }
 
-            let parentTitle = block.item?.title ?? "Unknown item"
+            let parentItem = library.item(block.itemID)
+            let parentTitle = parentItem?.title ?? "Unknown item"
             let preview = String(block.content.prefix(80))
 
             scored.append(SearchResult(
@@ -230,7 +233,7 @@ final class SearchViewModel {
                 title: preview,
                 subtitle: "\(block.blockType.displayName) on \(parentTitle)",
                 score: contentScore,
-                item: block.item,
+                item: parentItem,
                 board: nil,
                 tag: nil,
                 reflection: block
@@ -240,7 +243,7 @@ final class SearchViewModel {
         return scored.sorted { $0.score > $1.score }.prefix(10).map { $0 }
     }
 
-    private func searchTags(query: String, tags: [Tag]) -> [SearchResult] {
+    private func searchTags(query: String, tags: [TagGraph]) -> [SearchResult] {
         let queryLower = query.lowercased()
         var scored: [SearchResult] = []
 
@@ -263,7 +266,7 @@ final class SearchViewModel {
         return scored.sorted { $0.score > $1.score }.prefix(8).map { $0 }
     }
 
-    private func searchBoards(query: String, boards: [Board]) -> [SearchResult] {
+    private func searchBoards(query: String, boards: [BoardGraph]) -> [SearchResult] {
         let queryLower = query.lowercased()
         var scored: [SearchResult] = []
 
@@ -295,30 +298,32 @@ final class SearchViewModel {
             return cachedCorpus
         }
 
+        // One read, kept until the scope changes, so typing never touches the
+        // database. Reflections come from their table rather than the library
+        // because the library only has the ones attached to an item.
+        let (library, allReflections) = database.attemptRead { db in
+            (try Library.fetch(db), try ReflectionBlock.all.fetchAll(db))
+        } ?? (Library(), [])
+
         let boardScopeID = scopeBoard?.id
-        var items: [Item] = modelContext.fetchAll()
+        var items = library.items
         if let boardScopeID {
-            items = items.filter { item in
-                item.boards.contains(where: { $0.id == boardScopeID })
-            }
+            items = items.filter { $0.boardID == boardScopeID }
         }
 
-        var reflections: [ReflectionBlock] = modelContext.fetchAll()
+        var reflections = allReflections
         if let boardScopeID {
             reflections = reflections.filter { block in
-                guard let parentItem = block.item else { return false }
-                return parentItem.boards.contains(where: { $0.id == boardScopeID })
+                library.item(block.itemID)?.boardID == boardScopeID
             }
         }
-
-        let tags: [Tag] = modelContext.fetchAll()
-        let boards: [Board] = modelContext.fetchAll()
 
         let corpus = SearchCorpus(
             items: items,
             reflections: reflections,
-            tags: tags,
-            boards: boards
+            tags: library.tags,
+            boards: library.boards,
+            library: library
         )
         cachedCorpus = corpus
         return corpus

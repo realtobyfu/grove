@@ -7,7 +7,7 @@ import NaturalLanguage
 /// fine at personal-KB scale (thousands of items).
 ///
 /// Embeddings are derivable data and stay local: they are never written to
-/// SwiftData or synced via CloudKit.
+/// the database or synced via CloudKit.
 actor EmbeddingIndexService {
     static let shared = EmbeddingIndexService()
 
@@ -52,7 +52,7 @@ actor EmbeddingIndexService {
 
     /// Build the text that represents an item in embedding space.
     @MainActor
-    static func snapshot(_ item: Item) -> ItemSnapshot {
+    static func snapshot(_ item: ItemGraph) -> ItemSnapshot {
         var parts = [item.title]
         let tags = item.tags.map(\.name).joined(separator: ", ")
         if !tags.isEmpty { parts.append(tags) }

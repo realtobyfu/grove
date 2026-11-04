@@ -1,12 +1,13 @@
 import SwiftUI
-import SwiftData
+import SQLiteData
 
 struct TagDetailView: View {
-    @Bindable var tag: Tag
-    @Binding var selectedItem: Item?
+    let tag: TagGraph
+    @Binding var selectedItem: ItemGraph?
     var onBack: () -> Void
 
-    @Environment(\.modelContext) private var modelContext
+    @Dependency(\.defaultDatabase) private var database
+    @State private var category: TagCategory = .custom
     @State private var isEditingCategory = false
     @State private var showDeleteConfirmation = false
     @State private var sortOrder: TagItemSort = .dateAdded
@@ -15,7 +16,7 @@ struct TagDetailView: View {
         case dateAdded = "Date Added"
         case title = "Title"
 
-        var comparator: (Item, Item) -> Bool {
+        var comparator: (ItemGraph, ItemGraph) -> Bool {
             switch self {
             case .dateAdded: return { $0.createdAt > $1.createdAt }
             case .title: return { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
@@ -23,8 +24,22 @@ struct TagDetailView: View {
         }
     }
 
-    private var sortedItems: [Item] {
+    private var sortedItems: [ItemGraph] {
         tag.items.sorted(by: sortOrder.comparator)
+    }
+
+    /// Reads a draft: `tag` catches up a moment after the write, and the picker
+    /// would snap back until it did.
+    private var categorySelection: Binding<TagCategory> {
+        Binding(
+            get: { category },
+            set: { newCategory in
+                category = newCategory
+                database.attempt { db in
+                    try Tag.modify(tag.id, in: db) { $0.category = newCategory }
+                }
+            }
+        )
     }
 
     var body: some View {
@@ -39,6 +54,9 @@ struct TagDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onChange(of: tag.category, initial: true) { _, newCategory in
+            category = newCategory
+        }
         .alert("Delete Tag", isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
@@ -91,7 +109,7 @@ struct TagDetailView: View {
                     .foregroundStyle(Color.textPrimary)
 
                 // Category picker
-                Picker("", selection: $tag.category) {
+                Picker("", selection: categorySelection) {
                     ForEach(TagCategory.allCases, id: \.self) { cat in
                         Label(cat.displayName, systemImage: cat.iconName).tag(cat)
                     }
@@ -138,18 +156,23 @@ struct TagDetailView: View {
         }
     }
 
-    private func removeTagFromItem(_ item: Item) {
-        item.tags.removeAll { $0.id == tag.id }
-        item.updatedAt = .now
+    private func removeTagFromItem(_ item: ItemGraph) {
+        database.attempt { db in
+            try Item.removeTag(tag.id, fromItem: item.id, in: db)
+            try Item.modify(item.id, in: db) { $0.updatedAt = .now }
+        }
     }
 
     private func deleteTag() {
-        // Remove tag from all items first
-        for item in tag.items {
-            item.tags.removeAll { $0.id == tag.id }
-            item.updatedAt = .now
+        let tagID = tag.id
+        database.attempt { db in
+            // The links go with the tag, but the items it was on still changed.
+            let itemIDs = try ItemTag.where { $0.tagID.eq(tagID) }.select(\.itemID).fetchAll(db)
+            for itemID in itemIDs {
+                try Item.modify(itemID, in: db) { $0.updatedAt = .now }
+            }
+            try Tag.find(tagID).delete().execute(db)
         }
-        modelContext.delete(tag)
         onBack()
     }
 }
@@ -157,7 +180,7 @@ struct TagDetailView: View {
 // MARK: - Tag Item Row
 
 struct TagItemRow: View {
-    let item: Item
+    let item: ItemGraph
     let isSelected: Bool
     let onSelect: () -> Void
     let onRemoveTag: () -> Void

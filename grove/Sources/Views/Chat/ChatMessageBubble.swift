@@ -1,14 +1,13 @@
 import SwiftUI
-import SwiftData
 
 /// Renders a single chat message bubble with appropriate styling for each role.
 struct ChatMessageBubble: View {
     let message: ChatMessage
-    let conversation: Conversation
+    let conversation: ConversationGraph
     let dialecticsService: DialecticsService
     var onWikiLinkTapped: ((String) -> Void)?
     var onConnectionRequest: (ChatMessage) -> Void
-    var onReflectionRequest: (ChatMessage, Conversation) -> Void
+    var onReflectionRequest: (ChatMessage, ConversationGraph) -> Void
     var onNoteRequest: (ChatMessage) -> Void
 
     var body: some View {

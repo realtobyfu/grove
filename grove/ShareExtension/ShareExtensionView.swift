@@ -1,11 +1,11 @@
 import SwiftUI
-import SwiftData
+import SQLiteData
 
 /// SwiftUI view for the Share Extension — shows a preview of the shared
 /// content (title + domain), a board picker from the shared store, an
 /// optional note field, and Save/Cancel toolbar buttons.
 ///
-/// The view writes directly to the shared ModelContainer (App Group).
+/// The view writes directly to the shared database (App Group).
 /// Heavy processing (metadata fetch, auto-tagging, overview generation)
 /// is deferred to the main app's next launch to stay within the
 /// extension's 120 MB memory limit.
@@ -14,8 +14,8 @@ struct ShareExtensionView: View {
     let sharedTitle: String?
     let onComplete: () -> Void
 
-    @Environment(\.modelContext) private var modelContext
-    @Query(sort: \Board.sortOrder) private var boards: [Board]
+    @Dependency(\.defaultDatabase) private var database
+    @FetchAll(Board.order(by: \.sortOrder)) private var boards
 
     @State private var noteText = ""
     @State private var selectedBoardID: UUID?
@@ -119,7 +119,7 @@ struct ShareExtensionView: View {
     private func save() {
         isSaving = true
 
-        let item = Item(
+        var item = Item(
             title: sharedTitle ?? (isURL ? sharedURL : String(sharedURL.prefix(80))),
             type: isURL ? .article : .note
         )
@@ -144,15 +144,50 @@ struct ShareExtensionView: View {
             item.content = existing.isEmpty ? trimmedNote : existing + "\n\n---\n" + trimmedNote
         }
 
-        modelContext.insert(item)
-
         // Assign to board if selected
         if let boardID = selectedBoardID,
            let board = boards.first(where: { $0.id == boardID }) {
-            item.boards.append(board)
+            item.boardID = board.id
         }
 
-        try? modelContext.save()
+        database.attempt { db in
+            try Item.insert { item }.execute(db)
+        }
         onComplete()
+    }
+}
+
+/// Shown when Grove hasn't created the library yet, in place of the form: nothing
+/// can be saved until it has. See `ShareViewController.prepareDatabase`.
+struct ShareOpenGroveFirstView: View {
+    let onDone: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Open Grove first")
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+
+                        Text("Grove sets up your library the first time it opens. Open it once, then share this again.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+            .navigationTitle("Save to Grove")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        onDone()
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+        }
     }
 }

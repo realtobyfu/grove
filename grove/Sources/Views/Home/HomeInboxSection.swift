@@ -2,8 +2,8 @@ import SwiftUI
 
 /// Inbox triage section on the Home screen with collapsible header.
 struct HomeInboxSection: View {
-    @Binding var selectedItem: Item?
-    @Binding var openedItem: Item?
+    @Binding var selectedItem: ItemGraph?
+    @Binding var openedItem: ItemGraph?
     let inboxCount: Int
     @Binding var isCollapsed: Bool
 

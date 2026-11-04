@@ -1,5 +1,4 @@
 import Foundation
-import SwiftData
 
 extension Notification.Name {
     static let groveNewNote = Notification.Name("groveNewNote")
@@ -34,8 +33,8 @@ extension Notification.Name {
     /// Posted when a free user hits the dialectics monthly limit
     static let groveDialecticsLimitReached = Notification.Name("groveDialecticsLimitReached")
     /// Posted by `ItemViewModel.deleteItem(_:)` immediately *before* an Item is
-    /// removed from the model context, so presentation layers can drop every
-    /// reference to it while the model is still valid.
+    /// deleted from the database, so presentation layers can drop every
+    /// reference to it while the row still exists.
     /// userInfo["itemID"]: UUID — the id of the item about to be deleted.
     static let groveItemWillDelete = Notification.Name("groveItemWillDelete")
     /// Object: UUID — open an existing item in the reader. Posted by surfaces
@@ -62,7 +61,7 @@ struct ConversationPromptPayload {
 }
 
 struct DiscussItemPayload {
-    let item: Item
+    let item: ItemGraph
 }
 
 enum ConversationPromptInjectionMode: String {
@@ -104,12 +103,12 @@ extension NotificationCenter {
     }
 
     static func discussItemPayload(from notification: Notification) -> DiscussItemPayload? {
-        guard let item = notification.object as? Item else { return nil }
+        guard let item = notification.object as? ItemGraph else { return nil }
         return DiscussItemPayload(item: item)
     }
 
     /// Announce an imminent Item deletion. Carries only the id — observers must
-    /// not retain the model itself, since it is about to become invalid.
+    /// not hold on to the item itself, since its row is about to go.
     func postItemWillDelete(id: UUID) {
         post(name: .groveItemWillDelete, object: nil, userInfo: ["itemID": id])
     }

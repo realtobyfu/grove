@@ -1,5 +1,5 @@
 import Foundation
-import SwiftData
+import SQLiteData
 
 /// Protocol for nudge engine.
 @MainActor
@@ -16,16 +16,16 @@ protocol NudgeEngineProtocol {
 @MainActor
 @Observable
 final class NudgeEngine: NudgeEngineProtocol {
-    private var modelContext: ModelContext
+    private let database: any DatabaseWriter
     private var nudgeTask: Task<Void, Never>?
     private var readLaterTask: Task<Void, Never>?
     private(set) var resurfacingService: ResurfacingService
     private(set) var readLaterService: ReadLaterService
 
-    init(modelContext: ModelContext) {
-        self.modelContext = modelContext
-        self.resurfacingService = ResurfacingService(modelContext: modelContext)
-        self.readLaterService = ReadLaterService(modelContext: modelContext)
+    init(database: any DatabaseWriter = AppDatabase.current) {
+        self.database = database
+        self.resurfacingService = ResurfacingService(database: database)
+        self.readLaterService = ReadLaterService(database: database)
     }
 
     // MARK: - Scheduling
@@ -104,46 +104,53 @@ final class NudgeEngine: NudgeEngineProtocol {
     /// - a `staleInbox` nudge while system notifications are off — the Today
     ///   list on Home only renders `resurface` nudges, so a notification is
     ///   its only surface and there isn't one;
-    /// - a `resurface` nudge whose `targetItem` has since been deleted — Home
-    ///   filters it out (nothing to open), but the pending check still sees it.
+    /// - a `resurface` nudge with no `targetItemID` — Home filters it out
+    ///   (nothing to open), but the pending check still sees it. Deleting an
+    ///   item takes its nudges with it, so these are rows that were imported
+    ///   already orphaned.
     ///
     /// Idempotent: a swept nudge is `.dismissed` and never matches again.
     func sweepUnreachableNudges() {
         let notificationsEnabled = NudgeSettings.notificationsEnabled
-        let allNudges: [Nudge] = modelContext.fetchAll()
-        var didSweep = false
 
-        for nudge in allNudges where nudge.status == .pending || nudge.status == .shown {
-            let isUnreachable: Bool
-            switch nudge.type {
-            case .staleInbox:
-                isUnreachable = !notificationsEnabled
-            case .resurface:
-                isUnreachable = nudge.targetItem == nil
-            default:
-                isUnreachable = false
+        database.attempt { db in
+            for nudge in try Nudge.all.fetchAll(db) where nudge.status == .pending || nudge.status == .shown {
+                let isUnreachable: Bool
+                switch nudge.type {
+                case .staleInbox:
+                    isUnreachable = !notificationsEnabled
+                case .resurface:
+                    isUnreachable = nudge.targetItemID == nil
+                default:
+                    isUnreachable = false
+                }
+                guard isUnreachable else { continue }
+                try Nudge.modify(nudge.id, in: db) { $0.status = .dismissed }
             }
-            guard isUnreachable else { continue }
-            nudge.status = .dismissed
-            didSweep = true
         }
+    }
 
-        if didSweep { try? modelContext.save() }
+    // MARK: - Reads
+
+    private func fetchNudges() -> [Nudge] {
+        database.attemptRead { try Nudge.all.fetchAll($0) } ?? []
+    }
+
+    private func fetchItems() -> [ItemGraph] {
+        database.attemptRead { try Library.fetch($0).items } ?? []
     }
 
     // MARK: - Daily Limit Helpers
 
     private func nudgesCreatedToday() -> Int {
         let startOfDay = Calendar.current.startOfDay(for: .now)
-        let allNudges: [Nudge] = modelContext.fetchAll()
-        return allNudges.filter { $0.createdAt >= startOfDay }.count
+        return fetchNudges().filter { $0.createdAt >= startOfDay }.count
     }
 
     /// High engagement = user has acted on 3+ nudges in the past 7 days.
     private func userHasHighEngagement() -> Bool {
         let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -AppConstants.Days.recent, to: .now) ?? .now
-        let allNudges: [Nudge] = modelContext.fetchAll()
-        let recentActedOn = allNudges.filter { $0.status == .actedOn && $0.createdAt > sevenDaysAgo }
+        let recentActedOn = fetchNudges().filter { $0.status == .actedOn && $0.createdAt > sevenDaysAgo }
         return recentActedOn.count >= AppConstants.Nudge.highEngagementThreshold
     }
 
@@ -162,7 +169,7 @@ final class NudgeEngine: NudgeEngineProtocol {
         guard canCreateNudge() else { return }
         guard !NudgeSettings.spacedResurfacingGlobalPause else { return }
 
-        let allNudges: [Nudge] = modelContext.fetchAll()
+        let allNudges = fetchNudges()
 
         // Don't create if there's already a pending/shown resurface nudge
         let hasPending = allNudges.contains {
@@ -175,7 +182,7 @@ final class NudgeEngine: NudgeEngineProtocol {
         let recentlyDismissedIDs = Set(
             allNudges
                 .filter { $0.type == .resurface && $0.status == .dismissed && $0.createdAt > sevenDaysAgo }
-                .compactMap { $0.targetItem?.id }
+                .compactMap(\.targetItemID)
         )
 
         // Use ResurfacingService to find the best candidate
@@ -194,10 +201,9 @@ final class NudgeEngine: NudgeEngineProtocol {
             message += " \(context)"
         }
 
-        let nudge = Nudge(type: .resurface, message: message, targetItem: chosen)
-        resurfacingService.markResurfaced(chosen)
-        modelContext.insert(nudge)
-        try? modelContext.save()
+        let nudge = Nudge(type: .resurface, message: message, targetItemID: chosen.id)
+        resurfacingService.markResurfaced(chosen.id)
+        database.attempt { db in try Nudge.insert { nudge }.execute(db) }
         NudgeNotificationService.shared.schedule(for: nudge)
     }
 
@@ -207,8 +213,7 @@ final class NudgeEngine: NudgeEngineProtocol {
         let fourteenDaysAgo = Calendar.current.date(byAdding: .day, value: -AppConstants.Days.stale, to: .now) ?? .now
         let thirtyDaysAgo = Calendar.current.date(byAdding: .day, value: -AppConstants.Days.cooldown, to: .now) ?? .now
 
-        let allItems: [Item] = modelContext.fetchAll()
-        let staleActiveItems = allItems.filter {
+        let staleActiveItems = fetchItems().filter {
             $0.status == .active && $0.updatedAt < fourteenDaysAgo &&
             !$0.isResurfacingEligible // Only items not in the spaced queue
         }
@@ -217,7 +222,7 @@ final class NudgeEngine: NudgeEngineProtocol {
         let dismissedItemIDs = Set(
             allNudges
                 .filter { $0.type == .resurface && $0.status == .dismissed && $0.createdAt > thirtyDaysAgo }
-                .compactMap { $0.targetItem?.id }
+                .compactMap(\.targetItemID)
         )
 
         let candidates = staleActiveItems.filter { item in
@@ -229,9 +234,8 @@ final class NudgeEngine: NudgeEngineProtocol {
         let daysSaved = Calendar.current.dateComponents([.day], from: chosen.createdAt, to: .now).day ?? 0
         let message = "You saved \"\(chosen.title)\" \(daysSaved) days ago. Still relevant?"
 
-        let nudge = Nudge(type: .resurface, message: message, targetItem: chosen)
-        modelContext.insert(nudge)
-        try? modelContext.save()
+        let nudge = Nudge(type: .resurface, message: message, targetItemID: chosen.id)
+        database.attempt { db in try Nudge.insert { nudge }.execute(db) }
         NudgeNotificationService.shared.schedule(for: nudge)
     }
 
@@ -244,13 +248,12 @@ final class NudgeEngine: NudgeEngineProtocol {
         let fourteenDaysAgo = Calendar.current.date(byAdding: .day, value: -AppConstants.Days.stale, to: .now) ?? .now
         let thirtyDaysAgo = Calendar.current.date(byAdding: .day, value: -AppConstants.Days.cooldown, to: .now) ?? .now
 
-        let allItems: [Item] = modelContext.fetchAll()
-        let staleInboxItems = allItems.filter {
+        let staleInboxItems = fetchItems().filter {
             $0.status == .inbox && !$0.isFeedSuggestion && $0.createdAt < fourteenDaysAgo
         }
         guard staleInboxItems.count >= AppConstants.Nudge.staleInboxMinCount else { return }
 
-        let allNudges: [Nudge] = modelContext.fetchAll()
+        let allNudges = fetchNudges()
 
         let hasPending = allNudges.contains {
             $0.type == .staleInbox && ($0.status == .pending || $0.status == .shown)
@@ -265,18 +268,16 @@ final class NudgeEngine: NudgeEngineProtocol {
         let message = "You have \(staleInboxItems.count) items waiting in your inbox"
 
         let nudge = Nudge(type: .staleInbox, message: message)
-        modelContext.insert(nudge)
-        try? modelContext.save()
+        database.attempt { db in try Nudge.insert { nudge }.execute(db) }
         NudgeNotificationService.shared.schedule(for: nudge)
     }
 
     // MARK: - Per-Board Frequency
 
-    /// Check if all boards for an item have nudges disabled.
-    private func isBoardNudgeDisabled(for item: Item) -> Bool {
-        // If item has no boards, nudges are allowed
-        guard !item.boards.isEmpty else { return false }
-        // If ANY board allows nudges, the item is eligible
-        return item.boards.allSatisfy { $0.nudgeFrequencyHours == -1 }
+    /// Check if the item's board has nudges disabled.
+    private func isBoardNudgeDisabled(for item: ItemGraph) -> Bool {
+        // If item has no board, nudges are allowed
+        guard let board = item.board else { return false }
+        return board.nudgeFrequencyHours == -1
     }
 }

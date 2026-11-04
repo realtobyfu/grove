@@ -1,5 +1,5 @@
 import Foundation
-import SwiftData
+import SQLiteData
 import SwiftUI
 
 /// ViewModel that owns all business state for the Dialectics chat panel.
@@ -9,42 +9,70 @@ import SwiftUI
 final class DialecticalChatViewModel {
     // MARK: - Dependencies
 
-    private(set) var dialecticsService = DialecticsService()
-    private var modelContext: ModelContext
+    private(set) var dialecticsService: DialecticsService
+    private let database: any DatabaseWriter
 
     // MARK: - Business State
 
+    /// The conversation on screen, as of the last reload. A `ConversationGraph`
+    /// is a value, so the selection the view holds stops growing the moment it's
+    /// picked. This is what the chat shows instead: see `current(_:)`.
+    private(set) var conversation: ConversationGraph?
     var inputText = ""
     var connectionMessage: ChatMessage?
     var connectionType: ConnectionType = .related
     var reflectionMessage: ChatMessage?
-    var reflectionConversation: Conversation?
+    var reflectionConversation: ConversationGraph?
     var noteMessage: ChatMessage?
-    var conversationToDelete: Conversation?
+    var conversationToDelete: ConversationGraph?
     var conversationListQuery = ""
     var conversationListSelectionID: UUID?
     var paywallPresentation: PaywallPresentation?
     var showConversationList = false
 
-    init(modelContext: ModelContext) {
-        self.modelContext = modelContext
+    init(database: any DatabaseWriter = AppDatabase.current) {
+        self.database = database
+        dialecticsService = DialecticsService(database: database)
+        // Reloading on every write is what shows a sent message at once, without
+        // waiting for the reply the service is about to spend seconds on.
+        dialecticsService.onConversationChanged = { [weak self] conversationID in
+            guard let self, conversation?.id == conversationID else { return }
+            loadConversation(conversationID)
+        }
     }
 
-    /// Update the model context (e.g. when Environment changes).
-    func updateModelContext(_ context: ModelContext) {
-        self.modelContext = context
+    // MARK: - Current Conversation
+
+    /// Reads the conversation to show, or clears it for `nil`.
+    ///
+    /// Writes through `dialecticsService` reload it without help. The panel calls
+    /// this when its selection changes, and again when its `conversations` change,
+    /// because other writers can't reach this view model: a prompt or discussion
+    /// started from elsewhere runs on its own `DialecticsService`, and sync
+    /// arrives on its own.
+    func loadConversation(_ conversationID: Conversation.ID?) {
+        conversation = conversationID.flatMap { id in
+            database.attemptRead { try ConversationGraph.fetch(id, in: $0) } ?? nil
+        }
+    }
+
+    /// The freshest copy of the view's selection: the one loaded here, or the
+    /// selection itself in the moment before `loadConversation` catches up with it.
+    func current(_ selected: ConversationGraph?) -> ConversationGraph? {
+        guard let selected else { return nil }
+        return conversation?.id == selected.id ? conversation : selected
     }
 
     // MARK: - Computed Properties
 
-    func activeConversations(from conversations: [Conversation]) -> [Conversation] {
+    func activeConversations(from conversations: [ConversationGraph]) -> [ConversationGraph] {
         conversations.filter { !$0.isArchived && $0.isSavedToHistory }
     }
 
     func visibleHistoryConversations(
-        from conversations: [Conversation],
+        from conversations: [ConversationGraph],
         entitlement: EntitlementService
-    ) -> [Conversation] {
+    ) -> [ConversationGraph] {
         let active = activeConversations(from: conversations)
         guard entitlement.hasAccess(to: .fullHistory) else {
             return Array(active.prefix(20))
@@ -53,7 +81,7 @@ final class DialecticalChatViewModel {
     }
 
     func isHistoryCapped(
-        conversations: [Conversation],
+        conversations: [ConversationGraph],
         entitlement: EntitlementService
     ) -> Bool {
         let active = activeConversations(from: conversations)
@@ -66,9 +94,9 @@ final class DialecticalChatViewModel {
     }
 
     func filteredConversations(
-        from conversations: [Conversation],
+        from conversations: [ConversationGraph],
         entitlement: EntitlementService
-    ) -> [Conversation] {
+    ) -> [ConversationGraph] {
         let visible = visibleHistoryConversations(from: conversations, entitlement: entitlement)
         let query = trimmedConversationListQuery
         guard !query.isEmpty else { return visible }
@@ -76,7 +104,7 @@ final class DialecticalChatViewModel {
     }
 
     func filteredConversationIDs(
-        from conversations: [Conversation],
+        from conversations: [ConversationGraph],
         entitlement: EntitlementService
     ) -> [UUID] {
         filteredConversations(from: conversations, entitlement: entitlement).map(\.id)
@@ -85,8 +113,8 @@ final class DialecticalChatViewModel {
     // MARK: - Conversation CRUD
 
     func startNewConversation(
-        selectedConversation: Binding<Conversation?>,
-        currentBoard: Board?,
+        selectedConversation: Binding<ConversationGraph?>,
+        currentBoard: BoardGraph?,
         entitlement: EntitlementService,
         paywallCoordinator: PaywallCoordinator
     ) {
@@ -99,7 +127,7 @@ final class DialecticalChatViewModel {
         }
         entitlement.recordUse(.dialectics)
 
-        let seedItems: [Item]
+        let seedItems: [ItemGraph]
         if let board = currentBoard {
             seedItems = Array(
                 board.items
@@ -113,13 +141,12 @@ final class DialecticalChatViewModel {
         let conversation = dialecticsService.startConversation(
             trigger: .userInitiated,
             seedItems: seedItems,
-            board: currentBoard,
-            context: modelContext
+            board: currentBoard?.board
         )
         selectedConversation.wrappedValue = conversation
     }
 
-    func sendMessage(to conversation: Conversation) {
+    func sendMessage(to conversationID: Conversation.ID) {
         let text = inputText.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return }
         inputText = ""
@@ -127,24 +154,24 @@ final class DialecticalChatViewModel {
         Task {
             _ = await dialecticsService.sendMessage(
                 userText: text,
-                conversation: conversation,
-                context: modelContext
+                conversationID: conversationID
             )
         }
     }
 
     func deleteConversation(
-        _ conversation: Conversation,
-        selectedConversation: Binding<Conversation?>,
-        conversations: [Conversation]
+        _ conversationID: Conversation.ID,
+        selectedConversation: Binding<ConversationGraph?>,
+        conversations: [ConversationGraph]
     ) {
         let active = activeConversations(from: conversations)
-        let nextConversation = active.first { $0.id != conversation.id }
-        if selectedConversation.wrappedValue?.id == conversation.id {
+        let nextConversation = active.first { $0.id != conversationID }
+        if selectedConversation.wrappedValue?.id == conversationID {
             selectedConversation.wrappedValue = nextConversation
         }
-        modelContext.delete(conversation)
-        try? modelContext.save()
+        database.attempt { db in
+            try Conversation.find(conversationID).delete().execute(db)
+        }
         conversationToDelete = nil
     }
 
@@ -154,31 +181,33 @@ final class DialecticalChatViewModel {
         from message: ChatMessage,
         type: ConnectionType
     ) {
-        let allItems: [Item] = modelContext.fetchAll()
-        let referenced = message.referencedItemIDs.compactMap { id in
-            allItems.first(where: { $0.id == id })
-        }
+        let referenced = referencedItems(for: message)
         guard referenced.count >= 2 else { return }
 
         _ = dialecticsService.createConnection(
             sourceTitle: referenced[0].title,
             targetTitle: referenced[1].title,
-            type: type,
-            context: modelContext
+            type: type
         )
         connectionMessage = nil
     }
 
-    func referencedItems(for message: ChatMessage) -> [Item] {
-        let allItems: [Item] = modelContext.fetchAll()
-        return message.referencedItemIDs.compactMap { id in
-            allItems.first(where: { $0.id == id })
-        }
+    func referencedItems(for message: ChatMessage) -> [ItemGraph] {
+        fetchItems(message.referencedItemIDs)
+    }
+
+    /// Reads these items and no others, in this order. Views call this while
+    /// rendering, the chat input on every keystroke, so loading the whole
+    /// library here would be felt.
+    private func fetchItems(_ itemIDs: [Item.ID]) -> [ItemGraph] {
+        database.attemptRead { db in
+            try itemIDs.compactMap { try ItemGraph.fetch($0, in: db) }
+        } ?? []
     }
 
     // MARK: - Search & Navigation
 
-    func conversationMatchesSearch(_ conversation: Conversation, query: String) -> Bool {
+    func conversationMatchesSearch(_ conversation: ConversationGraph, query: String) -> Bool {
         if conversation.displayTitle.localizedStandardContains(query) {
             return true
         }
@@ -187,23 +216,20 @@ final class DialecticalChatViewModel {
         }
     }
 
-    func navigateToItemByTitle(_ title: String, onNavigateToItem: ((Item) -> Void)?) {
-        let allItems: [Item] = modelContext.fetchAll()
+    func navigateToItemByTitle(_ title: String, onNavigateToItem: ((ItemGraph) -> Void)?) {
+        let allItems = database.attemptRead { try Library.fetch($0).items } ?? []
         if let item = ItemResolver.resolveExactTitle(title, in: allItems) {
             onNavigateToItem?(item)
         }
     }
 
-    func seedItems(for conversation: Conversation) -> [Item] {
-        let allItems: [Item] = modelContext.fetchAll()
-        return conversation.seedItemIDs.compactMap { id in
-            allItems.first(where: { $0.id == id })
-        }
+    func seedItems(for conversation: ConversationGraph) -> [ItemGraph] {
+        fetchItems(conversation.seedItemIDs)
     }
 
     // MARK: - Conversation List Popover Logic
 
-    func prepareConversationListPopover(selectedConversation: Conversation?) {
+    func prepareConversationListPopover(selectedConversation: ConversationGraph?) {
         conversationListQuery = ""
         syncConversationListSelection(
             preferredID: selectedConversation?.id,
@@ -213,8 +239,8 @@ final class DialecticalChatViewModel {
 
     func syncConversationListSelection(
         preferredID: UUID? = nil,
-        conversations: [Conversation],
-        selectedConversation: Conversation? = nil
+        conversations: [ConversationGraph],
+        selectedConversation: ConversationGraph? = nil
     ) {
         guard !conversations.isEmpty else {
             conversationListSelectionID = nil
@@ -258,16 +284,16 @@ final class DialecticalChatViewModel {
     }
 
     func openConversationFromList(
-        _ conversation: Conversation,
-        selectedConversation: Binding<Conversation?>
+        _ conversation: ConversationGraph,
+        selectedConversation: Binding<ConversationGraph?>
     ) {
         selectedConversation.wrappedValue = conversation
         showConversationList = false
     }
 
     func openSelectedConversationFromList(
-        filteredConversations: [Conversation],
-        selectedConversation: Binding<Conversation?>
+        filteredConversations: [ConversationGraph],
+        selectedConversation: Binding<ConversationGraph?>
     ) {
         guard let selectedID = conversationListSelectionID,
               let conversation = filteredConversations.first(where: { $0.id == selectedID }) else { return }

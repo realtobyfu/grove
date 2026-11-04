@@ -1,5 +1,5 @@
 import Foundation
-import SwiftData
+import SQLiteData
 import SwiftUI
 import WebKit
 
@@ -8,16 +8,18 @@ import WebKit
 final class ItemReaderViewModel {
     struct FlashcardSelection: Identifiable {
         let id = UUID()
-        let item: Item
+        let item: ItemGraph
         let reflection: ReflectionBlock?
         let quote: String?
     }
 
     // MARK: - Dependencies
 
-    var item: Item
-    var modelContext: ModelContext
-    var onNavigateToItem: ((Item) -> Void)?
+    /// What the reader shows. A copy, so nothing updates it by itself: every write
+    /// here reloads it, and the owning view calls `reloadItem()` for the rest.
+    private(set) var item: ItemGraph
+    private let database: any DatabaseWriter
+    var onNavigateToItem: ((ItemGraph) -> Void)?
 
     // MARK: - Business State
 
@@ -108,10 +110,47 @@ final class ItemReaderViewModel {
 
     // MARK: - Init
 
-    init(item: Item, modelContext: ModelContext, onNavigateToItem: ((Item) -> Void)? = nil) {
+    init(
+        item: ItemGraph,
+        database: any DatabaseWriter = AppDatabase.current,
+        onNavigateToItem: ((ItemGraph) -> Void)? = nil
+    ) {
         self.item = item
-        self.modelContext = modelContext
+        self.database = database
         self.onNavigateToItem = onNavigateToItem
+    }
+
+    // MARK: - Staying Current
+
+    /// Reads `item` again, links included. The owning view calls this when the
+    /// database changes under the reader: an auto-tag finishing, an enrichment
+    /// landing, sync.
+    ///
+    /// This re-reads rather than taking the view's value on purpose. A value from
+    /// `@Fetch` arrives a moment after the write that caused it, so while the user
+    /// types, it can hold text from a keystroke ago, and taking it would put that
+    /// back in the editor. The database is never behind.
+    func reloadItem() {
+        let itemID = item.id
+        guard let fresh = database.attemptRead({ try ItemGraph.fetch(itemID, in: $0) }) ?? nil else { return }
+        item = fresh
+    }
+
+    /// Changes this item in the database and reloads it, so the reader shows the
+    /// change at once. `item` is a value: writing to it would change nothing.
+    ///
+    /// If nothing could be written, the change stays on screen anyway. Reloading
+    /// would put the old text back in the editor under someone's fingers.
+    func modifyItem(_ body: (inout Item) -> Void) {
+        let itemID = item.id
+        let saved = database.attempt { db in
+            try Item.modify(itemID, in: db, body)
+        } ?? nil
+        guard saved != nil else {
+            body(&item.item)
+            return
+        }
+        reloadItem()
     }
 
     // MARK: - Computed Properties
@@ -234,7 +273,7 @@ final class ItemReaderViewModel {
         readerArticle = cached
         isReaderMode = true
         if item.metadata["readTimeMinutes"] == nil {
-            item.metadata["readTimeMinutes"] = String(cached.readMinutes)
+            modifyItem { $0.metadata["readTimeMinutes"] = String(cached.readMinutes) }
         }
     }
 
@@ -274,8 +313,7 @@ final class ItemReaderViewModel {
             ) else { return }
             ArticleReaderService.shared.saveArticle(article, for: itemID)
             readerArticle = article
-            item.metadata["readTimeMinutes"] = String(article.readMinutes)
-            try? modelContext.save()
+            modifyItem { $0.metadata["readTimeMinutes"] = String(article.readMinutes) }
             withAnimation(.easeOut(duration: 0.2)) { isReaderMode = true }
         }
     }
@@ -353,17 +391,15 @@ final class ItemReaderViewModel {
         return stripWWW(sourceHost) == stripWWW(finishedHost)
     }
 
-    /// Persists throttled reading progress (0–1) to item metadata. Only touches
-    /// the model past a 0.05 delta so continuous scrolling (~4 reports/sec)
-    /// doesn't dirty the Item and fan out observation invalidations on every
-    /// scroll event.
+    /// Persists throttled reading progress (0–1) to item metadata. Only writes
+    /// past a 0.05 delta so continuous scrolling (~4 reports/sec) doesn't write
+    /// the row and wake every library observer on every scroll event.
     func updateReadingProgress(_ fraction: Double) {
         let clamped = min(max(fraction, 0), 1)
         liveReadingProgress = clamped
         guard abs(clamped - lastSavedReadingProgress) >= 0.05 || clamped >= 0.995 else { return }
         lastSavedReadingProgress = clamped
-        item.metadata["readingProgress"] = String(format: "%.3f", clamped)
-        try? modelContext.save()
+        modifyItem { $0.metadata["readingProgress"] = String(format: "%.3f", clamped) }
     }
 
     /// Scrolls the active web mode (Reader or Original) to the first
@@ -395,17 +431,27 @@ final class ItemReaderViewModel {
     /// reader's own item — but when the user has browsed to a different
     /// page inside the web panel, writing silently captures that page into
     /// the library (unfiled, skipping inbox triage) and attaches there.
-    private func reflectionHost() -> Item {
+    private func reflectionHost() -> ItemGraph {
         guard showArticleWebView else { return item }
         let resolution = ReadingCapture.host(
             for: item,
             navigatedURL: navigatedWebURL,
-            in: modelContext
+            database: database
         )
+        // A capture changes this item too: provenance, and the read state of an issue.
+        reloadItem()
         if resolution.didCapture {
             flashAutoCaptureIndicator()
         }
         return resolution.host
+    }
+
+    /// The item a block belongs to, which capture-on-write can make a page other
+    /// than the reader's own.
+    private func owner(of block: ReflectionBlock) -> ItemGraph? {
+        guard let ownerID = block.itemID else { return nil }
+        if ownerID == item.id { return item }
+        return database.attemptRead { try ItemGraph.fetch(ownerID, in: $0) } ?? nil
     }
 
     private func flashAutoCaptureIndicator() {
@@ -416,8 +462,8 @@ final class ItemReaderViewModel {
         }
     }
 
-    private func promoteAfterWriting(_ host: Item) {
-        ReadingCapture.promoteAfterWriting(host, in: modelContext)
+    private func promoteAfterWriting(_ hostID: Item.ID) {
+        ReadingCapture.promoteAfterWriting(hostID, database: database)
     }
 
     // MARK: - Highlights
@@ -428,21 +474,21 @@ final class ItemReaderViewModel {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         let host = reflectionHost()
-        let nextPosition = (host.reflections.map(\.position).max() ?? -1) + 1
         let timestamp: Int? = isVideoItem ? Int(videoCurrentTime) : nil
-        let block = ReflectionBlock(
-            item: host,
-            blockType: .keyInsight,
-            content: "",
-            highlight: trimmed,
-            position: nextPosition,
-            videoTimestamp: timestamp
-        )
-        modelContext.insert(block)
-        host.reflections.append(block)
-        promoteAfterWriting(host)
-        host.updatedAt = .now
-        try? modelContext.save()
+        database.attempt { db in
+            let block = ReflectionBlock(
+                itemID: host.id,
+                blockType: .keyInsight,
+                content: "",
+                highlight: trimmed,
+                position: try ReflectionBlock.nextPosition(onItem: host.id, in: db),
+                videoTimestamp: timestamp
+            )
+            try ReflectionBlock.insert { block }.execute(db)
+            try Item.modify(host.id, in: db) { $0.updatedAt = .now }
+        }
+        promoteAfterWriting(host.id)
+        reloadItem()
         // Dismisses the bar. In Reader mode the new block's highlight string
         // is picked up by the mark injection on the next render pass, which is
         // what makes the click visible on the page.
@@ -466,7 +512,7 @@ final class ItemReaderViewModel {
             reflectionPanelWasCollapsedBeforeFlashcard = isReflectionPanelCollapsed
         }
         if showReflectionEditor { closeReflectionEditor() }
-        let host = reflection?.item ?? reflectionHost()
+        let host = reflection.flatMap(owner(of:)) ?? reflectionHost()
         let selectedQuote = quote ?? reflection?.highlight
         flashcardSelection = FlashcardSelection(item: host, reflection: reflection, quote: selectedQuote)
         isReflectionPanelCollapsed = false
@@ -504,19 +550,22 @@ final class ItemReaderViewModel {
         flashcardSelection = nil
         if isReflectionPanelCollapsed { isReflectionPanelCollapsed = false }
         let host = reflectionHost()
-        let nextPosition = (host.reflections.map(\.position).max() ?? -1) + 1
         let timestamp: Int? = isVideoItem ? Int(videoCurrentTime) : nil
-        let block = ReflectionBlock(
-            item: host,
-            blockType: type,
-            content: content,
-            highlight: highlight,
-            position: nextPosition,
-            videoTimestamp: timestamp
-        )
-        modelContext.insert(block)
-        host.reflections.append(block)
-        editingBlock = block
+        let saved = database.attempt { db -> ReflectionBlock in
+            let block = ReflectionBlock(
+                itemID: host.id,
+                blockType: type,
+                content: content,
+                highlight: highlight,
+                position: try ReflectionBlock.nextPosition(onItem: host.id, in: db),
+                videoTimestamp: timestamp
+            )
+            try ReflectionBlock.insert { block }.execute(db)
+            return block
+        }
+        guard let saved else { return }
+        reloadItem()
+        editingBlock = saved
         withAnimation(.easeOut(duration: 0.25)) {
             showReflectionEditor = true
         }
@@ -535,28 +584,55 @@ final class ItemReaderViewModel {
         }
     }
 
+    /// Changes the block in the editor. `editingBlock` is a copy, so the editor
+    /// writes through here, as it types, and reads the copy this leaves behind.
+    func modifyEditingBlock(_ body: (inout ReflectionBlock) -> Void) {
+        guard let blockID = editingBlock?.id else { return }
+        let itemID = item.id
+        let saved = database.attempt { db -> ReflectionBlock? in
+            let block = try ReflectionBlock.modify(blockID, in: db, body)
+            try Item.modify(itemID, in: db) { $0.updatedAt = .now }
+            return block
+        } ?? nil
+        // As in `modifyItem`: a failed write keeps what was typed on screen.
+        guard let saved else {
+            if var block = editingBlock {
+                body(&block)
+                editingBlock = block
+            }
+            return
+        }
+        editingBlock = saved
+        reloadItem()
+    }
+
     func closeReflectionEditor() {
-        if let block = editingBlock {
+        // Read back what was saved. It decides below whether the block is kept.
+        if let blockID = editingBlock?.id,
+           let block = database.attemptRead({ try ReflectionBlock.find(blockID).fetchOne($0) }) ?? nil {
             // The block may live on a captured page item rather than the
             // reader's own item (capture-on-write); operate on its owner.
-            let host = block.item ?? item
+            let hostID = block.itemID ?? item.id
             let trimmed = block.content.trimmingCharacters(in: .whitespacesAndNewlines)
             let hasHighlight = !(block.highlight ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             if trimmed.isEmpty && !hasHighlight {
                 // Empty block with no highlight -- clean up orphan.
                 // A pure highlight (empty content, non-empty highlight) is valid.
-                host.reflections.removeAll { $0.id == block.id }
-                modelContext.delete(block)
-                host.updatedAt = .now
+                database.attempt { db in
+                    try ReflectionBlock.find(blockID).delete().execute(db)
+                    try Item.modify(hostID, in: db) { $0.updatedAt = .now }
+                }
             } else {
-                promoteAfterWriting(host)
-                host.updatedAt = .now
+                promoteAfterWriting(hostID)
+                database.attempt { db in
+                    try Item.modify(hostID, in: db) { $0.updatedAt = .now }
+                }
                 if !trimmed.isEmpty {
-                    WikiLinkSync.sync(item: host, content: block.content, modelContext: modelContext)
+                    WikiLinkSync.sync(hostID, content: block.content, database: database)
                 }
             }
-            try? modelContext.save()
+            reloadItem()
         }
         withAnimation(.easeOut(duration: 0.25)) {
             showReflectionEditor = false
@@ -568,11 +644,13 @@ final class ItemReaderViewModel {
     // MARK: - Block CRUD
 
     func deleteBlock(_ block: ReflectionBlock) {
+        let itemID = item.id
         withAnimation(.easeOut(duration: 0.25)) {
-            item.reflections.removeAll { $0.id == block.id }
-            modelContext.delete(block)
-            item.updatedAt = .now
-            try? modelContext.save()
+            database.attempt { db in
+                try ReflectionBlock.find(block.id).delete().execute(db)
+                try Item.modify(itemID, in: db) { $0.updatedAt = .now }
+            }
+            reloadItem()
         }
     }
 
@@ -602,46 +680,57 @@ final class ItemReaderViewModel {
     func finishEditingSummary() {
         let trimmed = editableSummary.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
-            item.metadata["summary"] = String(trimmed.prefix(120))
+            modifyItem { $0.metadata["summary"] = String(trimmed.prefix(120)) }
         }
         isEditingSummary = false
-        try? modelContext.save()
     }
 
     // MARK: - Review Banner
 
     func acceptReview() {
-        item.metadata["summaryReviewPending"] = nil
-        item.metadata["overviewReviewPending"] = nil
-        try? modelContext.save()
+        modifyItem {
+            $0.metadata["summaryReviewPending"] = nil
+            $0.metadata["overviewReviewPending"] = nil
+        }
     }
 
     func revertOverview() {
         if let original = item.metadata["originalDescription"], !original.isEmpty {
-            item.content = original
-            item.metadata["hasLLMOverview"] = nil
-            item.metadata["overviewReviewPending"] = nil
-            item.metadata["originalDescription"] = nil
-            try? modelContext.save()
+            modifyItem {
+                $0.content = original
+                $0.metadata["hasLLMOverview"] = nil
+                $0.metadata["overviewReviewPending"] = nil
+                $0.metadata["originalDescription"] = nil
+            }
         }
     }
 
     func dismissReview() {
-        item.metadata["summaryReviewPending"] = nil
-        item.metadata["overviewReviewPending"] = nil
-        try? modelContext.save()
+        modifyItem {
+            $0.metadata["summaryReviewPending"] = nil
+            $0.metadata["overviewReviewPending"] = nil
+        }
     }
 
     // MARK: - Content Editing
+
+    /// The content editor's write, as the user types.
+    func updateContent(_ text: String) {
+        modifyItem {
+            $0.content = text.isEmpty ? nil : text
+            $0.updatedAt = .now
+        }
+    }
 
     func toggleContentEditing() {
         let wasEditing = isEditingContent
         isEditingContent.toggle()
         if wasEditing {
             if item.metadata["isAIGenerated"] == "true" && item.metadata["isAIEdited"] != "true" {
-                item.metadata["isAIEdited"] = "true"
+                modifyItem { $0.metadata["isAIEdited"] = "true" }
             }
-            WikiLinkSync.sync(item: item, modelContext: modelContext)
+            WikiLinkSync.sync(item.id, database: database)
+            reloadItem()
         }
     }
 
@@ -651,7 +740,7 @@ final class ItemReaderViewModel {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else { return }
 
-        let allItems: [Item] = modelContext.fetchAll()
+        let allItems = database.attemptRead { try Library.fetch($0).items } ?? []
         if let matchedItem = ItemResolver.resolveExactTitle(trimmedTitle, in: allItems) {
             onNavigateToItem?(matchedItem)
         }
@@ -661,13 +750,19 @@ final class ItemReaderViewModel {
 
     /// Downloads cover image for existing items that have a thumbnailURL but no stored thumbnail.
     func backfillThumbnailIfNeeded() {
-        guard item.thumbnail == nil,
-              let thumbnailURL = item.metadata["thumbnailURL"],
+        guard let thumbnailURL = item.metadata["thumbnailURL"],
               !thumbnailURL.isEmpty else { return }
+        let itemID = item.id
+        // A count, so that checking doesn't read the image itself.
+        let storedThumbnails = database.attemptRead { db in
+            try ItemThumbnail.where { $0.itemID.eq(itemID) }.fetchCount(db)
+        }
+        guard storedThumbnails == 0 else { return }
         Task {
             if let imageData = await ImageDownloadService.shared.downloadAndCompress(urlString: thumbnailURL) {
-                item.thumbnail = imageData
-                try? modelContext.save()
+                database.attempt { db in
+                    try Item.setThumbnail(imageData, forItem: itemID, in: db)
+                }
             }
         }
     }
@@ -699,3 +794,4 @@ final class ItemReaderViewModel {
         lastSavedReadingProgress = -1
     }
 }
+

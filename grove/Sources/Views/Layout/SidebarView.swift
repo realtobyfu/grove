@@ -1,5 +1,5 @@
+import SQLiteData
 import SwiftUI
-import SwiftData
 
 /// Custom sidebar column: a field-style search control up top, quiet nav
 /// rows with soft monochrome selection, a BOARDS section with drag
@@ -7,14 +7,15 @@ import SwiftData
 /// traffic lights) is left to the system so full screen behaves.
 struct SidebarView: View {
     @Binding var selection: SidebarItem?
-    @Environment(\.modelContext) private var modelContext
-    @Query private var allItems: [Item]
-    @Query(sort: \Board.sortOrder) private var boards: [Board]
+    @Fetch(Library.Request()) private var library = Library()
 
     @State private var showNewBoardSheet = false
-    @State private var boardToEdit: Board?
-    @State private var boardToDelete: Board?
+    @State private var boardToEdit: BoardGraph?
+    @State private var boardToDelete: BoardGraph?
     @State private var isBoardsHeaderHovered = false
+
+    private var allItems: [ItemGraph] { library.items }
+    private var boards: [BoardGraph] { library.boards }
 
     /// Personal captures only — newsletter issues have their own unread count.
     private var inboxCount: Int {
@@ -28,7 +29,7 @@ struct SidebarView: View {
     }
 
     private var viewModel: BoardViewModel {
-        BoardViewModel(modelContext: modelContext)
+        BoardViewModel()
     }
 
     var body: some View {
@@ -79,6 +80,8 @@ struct SidebarView: View {
         // (no system toolbar material band above the content).
         .toolbarBackground(.hidden, for: .windowToolbar)
         #endif
+        .keepingCurrent($boardToEdit, in: library)
+        .keepingCurrent($boardToDelete, in: library)
         .onReceive(NotificationCenter.default.publisher(for: .groveNewBoard)) { _ in
             showNewBoardSheet = true
         }
@@ -93,7 +96,7 @@ struct SidebarView: View {
             BoardEditorSheet(
                 board: board,
                 onSave: { title, icon, color, nudgeFreq in
-                    viewModel.updateBoard(board, title: title, icon: icon, color: color, nudgeFrequencyHours: nudgeFreq)
+                    viewModel.updateBoard(board.id, title: title, icon: icon, color: color, nudgeFrequencyHours: nudgeFreq)
                 }
             )
         }
@@ -109,7 +112,7 @@ struct SidebarView: View {
             }
             Button("Delete", role: .destructive) {
                 if let board = boardToDelete {
-                    viewModel.deleteBoard(board)
+                    viewModel.deleteBoard(board.id)
                     if case .board(let id) = selection, id == board.id {
                         selection = nil
                     }
@@ -166,7 +169,7 @@ struct SidebarView: View {
         }
     }
 
-    private func boardRow(_ board: Board) -> some View {
+    private func boardRow(_ board: BoardGraph) -> some View {
         SidebarRow(
             icon: board.icon ?? "folder",
             iconColor: board.color.map { Color(hex: $0) },
@@ -194,7 +197,7 @@ struct SidebarView: View {
     /// Bool-returning dropDestination; macOS 26 resolves to the Void
     /// overload and discards it.
     @discardableResult
-    private func moveBoard(droppedIDs: [String], before target: Board) -> Bool {
+    private func moveBoard(droppedIDs: [String], before target: BoardGraph) -> Bool {
         guard let idString = droppedIDs.first,
               let sourceID = UUID(uuidString: idString),
               sourceID != target.id,
@@ -202,7 +205,7 @@ struct SidebarView: View {
               let targetIndex = boards.firstIndex(where: { $0.id == target.id }) else { return false }
         // IndexSet/offset semantics match List.onMove.
         let destination = sourceIndex < targetIndex ? targetIndex + 1 : targetIndex
-        viewModel.moveBoard(from: IndexSet(integer: sourceIndex), to: destination, in: boards)
+        viewModel.moveBoard(from: IndexSet(integer: sourceIndex), to: destination, in: boards.map(\.id))
         return true
     }
 

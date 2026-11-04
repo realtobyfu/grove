@@ -9,7 +9,7 @@ struct FlashcardDraft: Sendable, Equatable {
 }
 
 /// Optional assistance only: the editor can always create a card manually.
-/// Value snapshots cross the provider await, not live SwiftData objects.
+/// Only the source's title and passage cross the provider await, as plain strings.
 @MainActor
 final class FlashcardDraftService {
     private let provider: LLMProvider

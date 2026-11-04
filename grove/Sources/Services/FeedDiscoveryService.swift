@@ -1,6 +1,8 @@
 import Foundation
-import SwiftData
+import SQLiteData
 
+/// Takes the database per call rather than holding it: `shared` is created while
+/// `GroveApp`'s properties initialize, before the database is set up.
 @MainActor
 @Observable
 final class FeedDiscoveryService {
@@ -20,7 +22,7 @@ final class FeedDiscoveryService {
     @ObservationIgnored
     private var attemptedDomains: Set<String> = []
 
-    func discoverFeeds(in context: ModelContext) async {
+    func discoverFeeds(database: any DatabaseWriter = AppDatabase.current) async {
         guard !isRunning else { return }
         guard !isInCooldown() else { return }
 
@@ -30,8 +32,8 @@ final class FeedDiscoveryService {
             markCooldown()
         }
 
-        let domains = extractDomains(from: context)
-        let existingFeedURLs = existingFeedURLSet(from: context)
+        let domains = extractDomains(from: database)
+        let existingFeedURLs = existingFeedURLSet(from: database)
 
         var processed = 0
         for domain in domains {
@@ -50,7 +52,9 @@ final class FeedDiscoveryService {
                         isAutoDiscovered: true,
                         isEnabled: false
                     )
-                    context.insert(source)
+                    // Written as found, so the on-demand path below sees it
+                    // during the sweep's waits instead of adding a duplicate.
+                    database.attempt { db in try FeedSource.insert { source }.execute(db) }
                 }
             }
 
@@ -59,8 +63,6 @@ final class FeedDiscoveryService {
                 try? await Task.sleep(nanoseconds: Self.delayBetweenFetches)
             }
         }
-
-        try? context.save()
     }
 
     // MARK: - On-Demand Single-Domain Discovery
@@ -68,23 +70,23 @@ final class FeedDiscoveryService {
     /// Looks up one site's advertised feed so the inbox can offer "+ Follow"
     /// while the user is still looking at the article.
     ///
-    /// Unlike `discoverFeeds(in:)` this ignores the 24h library-wide cooldown —
+    /// Unlike `discoverFeeds()` this ignores the 24h library-wide cooldown —
     /// it is scoped to a single domain the user just captured from — but each
     /// domain is only fetched once per app session. Inserts at most one
     /// suggestion, left disabled and unsubscribed like every auto-discovery.
-    func discoverFeed(forDomain domain: String, in context: ModelContext) async {
+    func discoverFeed(forDomain domain: String, database: any DatabaseWriter = AppDatabase.current) async {
         let host = normalizedDomain(domain)
         guard !host.isEmpty else { return }
         guard attemptedDomains.insert(host).inserted else { return }
-        guard !hasFeedSource(forDomain: host, in: context) else { return }
+        guard !hasFeedSource(forDomain: host, in: database) else { return }
 
         guard let feeds = await fetchFeedLinks(for: host) else { return }
 
         // The network hop is a suspension point: the library sweep or another
         // card may have inserted a source for this domain in the meantime.
-        guard !hasFeedSource(forDomain: host, in: context) else { return }
+        guard !hasFeedSource(forDomain: host, in: database) else { return }
 
-        let existingFeedURLs = existingFeedURLSet(from: context)
+        let existingFeedURLs = existingFeedURLSet(from: database)
         guard let best = feeds.first(where: { feed in
             !existingFeedURLs.contains(feed.url)
                 && !FeedPreferencesStore.isDiscoveryDismissed(feed.url)
@@ -101,23 +103,20 @@ final class FeedDiscoveryService {
             isEnabled: false,
             isUserSubscribed: false
         )
-        context.insert(source)
-        try? context.save()
+        database.attempt { db in try FeedSource.insert { source }.execute(db) }
     }
 
-    private func hasFeedSource(forDomain host: String, in context: ModelContext) -> Bool {
-        guard let sources = try? context.fetch(FetchDescriptor<FeedSource>()) else { return false }
+    private func hasFeedSource(forDomain host: String, in database: any DatabaseWriter) -> Bool {
+        guard let sources = database.attemptRead({ try FeedSource.all.fetchAll($0) }) else { return false }
         return sources.contains { normalizedDomain($0.domain) == host }
     }
 
     // MARK: - Domain Extraction
 
-    private func extractDomains(from context: ModelContext) -> [String] {
-        var descriptor = FetchDescriptor<Item>()
-        descriptor.predicate = #Predicate<Item> { item in
-            item.sourceURL != nil
-        }
-        guard let items = try? context.fetch(descriptor) else { return [] }
+    private func extractDomains(from database: any DatabaseWriter) -> [String] {
+        let items = database.attemptRead { db in
+            try Item.where { $0.sourceURL.isNot(nil) }.fetchAll(db)
+        } ?? []
 
         let articleItems = items.filter { $0.type == .article }
         var seen = Set<String>()
@@ -139,9 +138,8 @@ final class FeedDiscoveryService {
 
     // MARK: - Existing Feed URLs
 
-    private func existingFeedURLSet(from context: ModelContext) -> Set<String> {
-        let descriptor = FetchDescriptor<FeedSource>()
-        guard let sources = try? context.fetch(descriptor) else { return [] }
+    private func existingFeedURLSet(from database: any DatabaseWriter) -> Set<String> {
+        guard let sources = database.attemptRead({ try FeedSource.all.fetchAll($0) }) else { return [] }
         return Set(sources.map(\.feedURL))
     }
 

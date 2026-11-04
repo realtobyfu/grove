@@ -77,9 +77,9 @@ struct SchemaMigrationTests {
         let container = try SharedModelContainer.openContainer(
             ModelConfiguration(schema: SharedModelContainer.schema, url: url, cloudKitDatabase: .none)
         )
-        let boards = try ModelContext(container).fetch(FetchDescriptor<Board>())
+        let boards = try ModelContext(container).fetch(FetchDescriptor<Legacy.Board>())
         #expect(boards.map(\.title) == ["Reading"])
-        #expect(boards.first?.items.map(\.title) == ["Essay"])
+        #expect(boards.first?.itemsStorage?.map(\.title) == ["Essay"])
     }
 
     /// Where a fixture store records the 2.0 relationship renames.

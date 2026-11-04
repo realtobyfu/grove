@@ -1,5 +1,5 @@
 import Foundation
-import SwiftData
+import SQLiteData
 
 /// Centralizes newsletter/RSS subscription mutations so the two entry points
 /// (SubscriptionsSettingsView and NewsletterDirectoryView) share one dedupe and
@@ -23,11 +23,16 @@ enum FeedSubscriptionService {
 
     /// Subscribes to an existing discovered/known source: enables it, marks it
     /// user-subscribed, and clears any prior error count.
-    static func subscribe(_ source: FeedSource, in context: ModelContext) {
+    static func subscribe(_ sourceID: FeedSource.ID, database: any DatabaseWriter = AppDatabase.current) {
+        database.attempt { db in
+            try FeedSource.modify(sourceID, in: db) { markSubscribed(&$0) }
+        }
+    }
+
+    private static func markSubscribed(_ source: inout FeedSource) {
         source.isEnabled = true
         source.isUserSubscribed = true
         source.errorCount = 0
-        try? context.save()
     }
 
     /// Subscribes by feed URL, reusing an existing source (matched on a
@@ -37,18 +42,9 @@ enum FeedSubscriptionService {
         feedURL: String,
         domain: String? = nil,
         title: String? = nil,
-        in context: ModelContext
+        database: any DatabaseWriter = AppDatabase.current
     ) -> FeedSource {
         let normalized = CaptureService.normalizedURLString(feedURL)
-        let existing = (try? context.fetch(FetchDescriptor<FeedSource>()))?
-            .first { CaptureService.normalizedURLString($0.feedURL) == normalized }
-
-        if let existing {
-            if let title, existing.title == nil { existing.title = title }
-            subscribe(existing, in: context)
-            return existing
-        }
-
         let source = FeedSource(
             feedURL: feedURL,
             domain: domain ?? domainFrom(feedURL),
@@ -57,14 +53,30 @@ enum FeedSubscriptionService {
             isEnabled: true,
             isUserSubscribed: true
         )
-        context.insert(source)
-        try? context.save()
-        return source
+
+        let saved = database.attempt { db -> FeedSource? in
+            let existing = try FeedSource.all.fetchAll(db)
+                .first { CaptureService.normalizedURLString($0.feedURL) == normalized }
+
+            if let existing {
+                return try FeedSource.modify(existing.id, in: db) { row in
+                    if let title, row.title == nil { row.title = title }
+                    markSubscribed(&row)
+                }
+            }
+
+            try FeedSource.insert { source }.execute(db)
+            return source
+        }
+        return (saved ?? nil) ?? source
     }
 
     /// Validates a user-entered feed URL (fetch + parse) and subscribes on
     /// success. Network + parsing live here rather than in the view.
-    static func validateAndAdd(urlString: String, in context: ModelContext) async -> Result<FeedSource, AddFeedError> {
+    static func validateAndAdd(
+        urlString: String,
+        database: any DatabaseWriter = AppDatabase.current
+    ) async -> Result<FeedSource, AddFeedError> {
         let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         let candidate = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
         guard let url = URL(string: candidate),
@@ -88,14 +100,14 @@ enum FeedSubscriptionService {
             // Not a feed — likely a blog or site homepage. Following someone's
             // blog by pasting its plain URL is the common case, so discover the
             // site's feed instead of rejecting.
-            return await addByDiscoveringFeed(fromPage: data, pageURL: url, in: context)
+            return await addByDiscoveringFeed(fromPage: data, pageURL: url, database: database)
         }
 
         let source = subscribe(
             feedURL: url.absoluteString,
             domain: domainFrom(url.absoluteString),
             title: FeedFetchService.extractFeedTitle(from: data),
-            in: context
+            database: database
         )
         return .success(source)
     }
@@ -108,7 +120,7 @@ enum FeedSubscriptionService {
     private static func addByDiscoveringFeed(
         fromPage data: Data,
         pageURL: URL,
-        in context: ModelContext
+        database: any DatabaseWriter
     ) async -> Result<FeedSource, AddFeedError> {
         var candidates: [String] = []
 
@@ -142,7 +154,7 @@ enum FeedSubscriptionService {
                 feedURL: url.absoluteString,
                 domain: domainFrom(pageURL.absoluteString),
                 title: FeedFetchService.extractFeedTitle(from: feedData),
-                in: context
+                database: database
             )
             return .success(source)
         }

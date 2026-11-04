@@ -1,5 +1,5 @@
 import SwiftUI
-import SwiftData
+import SQLiteData
 
 /// Browsable catalog of hand-curated newsletters, ranked on-device by
 /// relevance to the user's library (tag/keyword overlap, refined with
@@ -9,9 +9,9 @@ import SwiftData
 /// container, hairline rules between entries, serif names over a mono
 /// domain/topic line. Actions stay quiet until the row is hovered.
 struct NewsletterDirectoryView: View {
-    @Environment(\.modelContext) private var modelContext
+    @Dependency(\.defaultDatabase) private var database
     @Environment(\.dismiss) private var dismiss
-    @Query private var sources: [FeedSource]
+    @FetchAll private var sources: [FeedSource]
 
     @State private var ranked: [RankedNewsletterEntry] = []
     @State private var selectedTopic: String?
@@ -163,8 +163,7 @@ struct NewsletterDirectoryView: View {
         FeedSubscriptionService.subscribe(
             feedURL: entry.feedURL,
             domain: entry.domain,
-            title: entry.title,
-            in: modelContext
+            title: entry.title
         )
     }
 
@@ -184,16 +183,15 @@ struct NewsletterDirectoryView: View {
 
         // User signal: tags weighted by how many items carry them, plus
         // recent item titles.
-        let tags: [Tag] = (try? modelContext.fetch(FetchDescriptor<Tag>())) ?? []
+        let tags = database.attemptRead { try Library.fetch($0).tags } ?? []
         let userTags = tags
             .map { NewsletterRanker.UserTag(name: $0.name.lowercased(), weight: $0.items.count) }
             .filter { $0.weight > 0 }
 
-        var itemDescriptor = FetchDescriptor<Item>(
-            sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
-        )
-        itemDescriptor.fetchLimit = 50
-        let recentTitles = ((try? modelContext.fetch(itemDescriptor)) ?? []).map(\.title)
+        let recentItems = database.attemptRead { db in
+            try Item.order { $0.createdAt.desc() }.limit(50).fetchAll(db)
+        }
+        let recentTitles = (recentItems ?? []).map(\.title)
 
         let keywordRanked = NewsletterRanker.rank(
             entries: entries,

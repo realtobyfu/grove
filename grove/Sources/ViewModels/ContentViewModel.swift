@@ -1,5 +1,4 @@
 import SwiftUI
-import SwiftData
 
 /// ViewModel that owns navigation, panel, and UI-toggle state for ContentView.
 /// Extracted from ContentView's 19 @State vars to a single @Observable class.
@@ -8,15 +7,15 @@ import SwiftData
 final class ContentViewModel {
     // MARK: - Navigation State
     var selection: SidebarItem? = .home
-    var selectedItem: Item?
-    var openedItem: Item?
+    var selectedItem: ItemGraph?
+    var openedItem: ItemGraph?
     var columnVisibility: NavigationSplitViewVisibility = .automatic
-    var selectedConversation: Conversation?
+    var selectedConversation: ConversationGraph?
 
     // MARK: - Panel State
     var showWritePanel = false
     var writePanelPrompt: String?
-    var writePanelEditItem: Item?
+    var writePanelEditItem: ItemGraph?
     var writePanelWidth: CGFloat = LayoutSettings.width(for: .contentWrite) ?? 480
     var showChatPanel = false
     // The chat and inspector widths live in `RightRailContainer` now — the rail

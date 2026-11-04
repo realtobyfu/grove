@@ -1,5 +1,5 @@
 import SwiftUI
-import SwiftData
+import SQLiteData
 
 struct ReflectionBlockRow: View {
     let block: ReflectionBlock
@@ -12,7 +12,11 @@ struct ReflectionBlockRow: View {
     /// no web-readable source to scroll).
     var onHighlightTap: ((String) -> Void)? = nil
     var onRemember: ((ReflectionBlock) -> Void)? = nil
-    var modelContext: ModelContext
+    /// Called after the row writes to its block. `block` is a copy, so whoever
+    /// holds it has to read the change back.
+    var onChange: () -> Void
+
+    @Dependency(\.defaultDatabase) private var database
 
     @State private var isHovered = false
 
@@ -69,8 +73,10 @@ struct ReflectionBlockRow: View {
                 Menu {
                     ForEach(ReflectionBlockType.allCases, id: \.self) { type in
                         Button {
-                            block.blockType = type
-                            try? modelContext.save()
+                            database.attempt { db in
+                                try ReflectionBlock.modify(block.id, in: db) { $0.blockType = type }
+                            }
+                            onChange()
                         } label: {
                             Label(type.displayName, systemImage: type.systemImage)
                         }

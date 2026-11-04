@@ -1,26 +1,14 @@
 import Foundation
-import SwiftData
+import SQLiteData
 
-extension Legacy {
-    // DEPRECATED: migrated to ReflectionBlock. Kept in schema for SwiftData compatibility.
-    @Model
-    final class Annotation {
-        var id: UUID = UUID()
-        var item: Item?
-        var content: String = ""
-        var highlight: String?
-        var position: Int?
-        var createdAt: Date = Date.now
-
-        init(item: Item, content: String, highlight: String? = nil, position: Int? = nil) {
-            self.id = UUID()
-            self.item = item
-            self.content = content
-            self.highlight = highlight
-            self.position = position
-            self.createdAt = .now
-        }
-    }
+/// Deprecated in favour of `ReflectionBlock`, kept so old rows survive.
+@Table("annotations")
+struct Annotation: Hashable, Identifiable, Sendable {
+    let id: UUID
+    var itemID: Item.ID?
+    var content: String = ""
+    var highlight: String?
+    var position: Int?
+    var createdAt: Date = .now
 }
 
-typealias Annotation = Legacy.Annotation

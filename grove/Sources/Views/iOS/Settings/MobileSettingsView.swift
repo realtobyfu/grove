@@ -3,7 +3,6 @@ import SwiftUI
 /// iOS Settings screen — List-based with sections for AI, Sync, Appearance,
 /// Subscription, and About. Wired into the "More" tab.
 struct MobileSettingsView: View {
-    @Environment(\.modelContext) private var modelContext
     @Environment(\.openURL) private var openURL
     @Environment(EntitlementService.self) private var entitlement
     @Environment(PaywallCoordinator.self) private var paywallCoordinator

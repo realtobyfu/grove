@@ -1,9 +1,9 @@
 import SwiftUI
-import SwiftData
+import SQLiteData
 
 /// Works in a presentation or inside the desktop's existing contextual rail.
 struct FlashcardEditorView: View {
-    var item: Item? = nil
+    var item: ItemGraph? = nil
     var reflection: ReflectionBlock? = nil
     var card: Flashcard? = nil
     var sourceQuote: String? = nil
@@ -11,7 +11,7 @@ struct FlashcardEditorView: View {
     var isEmbedded = false
     var boardID: UUID? = nil
 
-    @Environment(\.modelContext) private var modelContext
+    @Dependency(\.defaultDatabase) private var database
     @Environment(\.dismiss) private var dismiss
     @State private var question = ""
     @State private var answer = ""
@@ -88,8 +88,8 @@ struct FlashcardEditorView: View {
                         .foregroundStyle(Color.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if let item, !item.boards.isEmpty {
-                    Label(item.boards.map(\.title).joined(separator: ", "), systemImage: "folder")
+                if let board = item?.board {
+                    Label(board.title, systemImage: "folder")
                         .font(.groveMeta)
                         .foregroundStyle(Color.textTertiary)
                 }
@@ -155,18 +155,29 @@ struct FlashcardEditorView: View {
 
     private func save() {
         let cueLines = hints.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        let service = LearningService(modelContext: modelContext)
+        let service = LearningService()
         do {
             if let card {
-                try service.updateCard(card, question: question, answer: answer, hints: cueLines)
+                try service.updateCard(card.id, question: question, answer: answer, hints: cueLines)
             } else {
-                let newCard = Flashcard(question: question, answer: answer, sourceItem: item,
+                // A card keeps a snapshot of its source, and the item can have
+                // changed since this editor opened: the reader stays usable beside
+                // an embedded one. A deleted source still leaves the passage.
+                let source = try item.flatMap { item in
+                    try database.read { try ItemGraph.fetch(item.id, in: $0) } ?? item
+                }
+                var newCard = Flashcard(question: question, answer: answer, sourceItem: source,
                                         sourceQuote: quote, sourceReflectionID: reflection?.id, hints: cueLines)
                 if let boardID, !newCard.boardIDs.contains(boardID) { newCard.boardIDs.append(boardID) }
                 if let timestamp = reflection?.videoTimestamp { newCard.sourceLocator = "video:\(timestamp)" }
                 try service.saveCard(newCard)
-                item?.promoteFromFeedSuggestionIfNeeded()
-                try modelContext.save()
+                // Its own write, after the card's: `saveCard` can't run inside one,
+                // and only a card that saved should keep the item.
+                if let source, source.isFeedSuggestion {
+                    _ = try database.write { db in
+                        try Item.modify(source.id, in: db) { $0.promoteFromFeedSuggestionIfNeeded() }
+                    }
+                }
             }
             onSaved?()
             if !isEmbedded { dismiss() }

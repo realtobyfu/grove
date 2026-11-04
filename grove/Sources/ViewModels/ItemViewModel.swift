@@ -1,132 +1,141 @@
 import Foundation
-import SwiftData
+import SQLiteData
 import SwiftUI
 
 @MainActor
 @Observable
 final class ItemViewModel {
-    private var modelContext: ModelContext
+    private let database: any DatabaseWriter
 
-    init(modelContext: ModelContext) {
-        self.modelContext = modelContext
+    init(database: any DatabaseWriter = AppDatabase.current) {
+        self.database = database
     }
 
     func createNote(title: String = "Untitled Note") -> Item {
-        let item = Item(title: title, type: .note)
-        item.status = .active
-        modelContext.insert(item)
-        try? modelContext.save()
+        var note = Item(title: title, type: .note)
+        note.status = .active
+        let item = note
+        database.attempt { db in
+            try Item.insert { item }.execute(db)
+        }
         return item
     }
 
-    func assignToBoard(_ item: Item, board: Board) {
-        if !board.isSmart,
-           !item.boards.contains(where: { $0.id == board.id }) {
-            item.boards.append(board)
-        }
-        item.promoteFromFeedSuggestionIfNeeded()
-        item.status = .active
-        item.updatedAt = .now
-        try? modelContext.save()
-    }
-
-    func removeFromBoard(_ item: Item, board: Board) {
-        item.boards.removeAll { $0.id == board.id }
-        item.updatedAt = .now
-        try? modelContext.save()
-    }
-
-    func moveItemsToBoard(_ items: [Item], board: Board?) {
-        for item in items {
-            item.boards.removeAll()
-            if let board {
+    /// An item is on at most one board, so this moves it off any other.
+    func assignToBoard(_ itemID: Item.ID, board: Board) {
+        database.attempt { db in
+            try Item.modify(itemID, in: db) { item in
                 if !board.isSmart {
-                    item.boards.append(board)
+                    item.boardID = board.id
                 }
+                item.promoteFromFeedSuggestionIfNeeded()
                 item.status = .active
+                item.updatedAt = .now
             }
-            item.updatedAt = .now
         }
-        try? modelContext.save()
     }
 
-    func updateItem(_ item: Item, title: String, content: String?) {
-        item.title = title
-        item.content = content
-        item.updatedAt = .now
-        try? modelContext.save()
+    func removeFromBoard(_ itemID: Item.ID, boardID: Board.ID) {
+        database.attempt { db in
+            try Item.modify(itemID, in: db) { item in
+                guard item.boardID == boardID else { return }
+                item.boardID = nil
+                item.updatedAt = .now
+            }
+        }
     }
 
-    /// The single UI-facing deletion path for `Item`. Views must never call
-    /// `modelContext.delete(_:)` on an Item directly: presentation layers hold
-    /// strong references to the model (write panel, reader, inspector,
-    /// selection) and only find out through `.groveItemWillDelete`.
+    func moveItemsToBoard(_ itemIDs: [Item.ID], board: Board?) {
+        database.attempt { db in
+            for itemID in itemIDs {
+                try Item.modify(itemID, in: db) { item in
+                    item.boardID = nil
+                    if let board {
+                        if !board.isSmart {
+                            item.boardID = board.id
+                        }
+                        item.status = .active
+                    }
+                    item.updatedAt = .now
+                }
+            }
+        }
+    }
+
+    func updateItem(_ itemID: Item.ID, title: String, content: String?) {
+        database.attempt { db in
+            try Item.modify(itemID, in: db) { item in
+                item.title = title
+                item.content = content
+                item.updatedAt = .now
+            }
+        }
+    }
+
+    /// The single UI-facing deletion path for `Item`. Views must never delete an
+    /// Item directly: presentation layers hold on to it (write panel, reader,
+    /// inspector, selection) and only find out through `.groveItemWillDelete`.
     ///
-    /// The notification is posted *before* the delete so observers can read
-    /// `item.id` and tear down while the model is still valid.
-    func deleteItem(_ item: Item) {
-        retireItem(item)
-        modelContext.delete(item)
-        try? modelContext.save()
+    /// The notification is posted *before* the delete so observers can tear down
+    /// while the row still exists.
+    func deleteItem(_ itemID: Item.ID) {
+        deleteItems([itemID])
     }
 
     /// Bulk variant of `deleteItem(_:)` — announces every item before deleting,
-    /// then saves once.
-    func deleteItems(_ items: [Item]) {
-        guard !items.isEmpty else { return }
-        for item in items {
-            retireItem(item)
-            modelContext.delete(item)
+    /// then deletes them in one transaction.
+    func deleteItems(_ itemIDs: [Item.ID]) {
+        guard !itemIDs.isEmpty else { return }
+        for itemID in itemIDs {
+            retireItem(itemID)
         }
-        try? modelContext.save()
+        database.attempt { db in
+            try Item.where { $0.id.in(itemIDs) }.delete().execute(db)
+        }
     }
 
-    /// Everything a deletion owes the rest of the app, in the moment the model
-    /// is still valid: announce it, then drop the on-disk caches keyed by its
-    /// id. Those caches (the Reader-mode extraction, the downloaded PDF) are
-    /// outside SwiftData, so nothing else will ever collect them.
-    private func retireItem(_ item: Item) {
-        let id = item.id
-        NotificationCenter.default.postItemWillDelete(id: id)
-        ArticleReaderService.shared.removeCachedArticle(for: id)
-        PDFMetadataService.removeCachedFile(itemID: id)
+    /// Everything a deletion owes the rest of the app, in the moment the row
+    /// still exists: announce it, then drop the on-disk caches keyed by its id.
+    /// Those caches (the Reader-mode extraction, the downloaded PDF) are outside
+    /// the database, so nothing else will ever collect them.
+    private func retireItem(_ itemID: Item.ID) {
+        NotificationCenter.default.postItemWillDelete(id: itemID)
+        ArticleReaderService.shared.removeCachedArticle(for: itemID)
+        PDFMetadataService.removeCachedFile(itemID: itemID)
     }
 
     // MARK: - Connections
 
-    func createConnection(source: Item, target: Item, type: ConnectionType) -> Connection? {
-        guard source.id != target.id else { return nil }
-        let connection = Connection(sourceItem: source, targetItem: target, type: type)
-        modelContext.insert(connection)
-        source.outgoingConnections.append(connection)
-        target.incomingConnections.append(connection)
-        source.promoteFromFeedSuggestionIfNeeded()
-        target.promoteFromFeedSuggestionIfNeeded()
-        source.updatedAt = .now
-        target.updatedAt = .now
-        try? modelContext.save()
-        return connection
+    @discardableResult
+    func createConnection(sourceID: Item.ID, targetID: Item.ID, type: ConnectionType) -> Connection? {
+        guard sourceID != targetID else { return nil }
+        let connection = Connection(sourceItemID: sourceID, targetItemID: targetID, type: type)
+        let saved: Void? = database.attempt { db in
+            try Connection.insert { connection }.execute(db)
+            for itemID in [sourceID, targetID] {
+                try Item.modify(itemID, in: db) { item in
+                    item.promoteFromFeedSuggestionIfNeeded()
+                    item.updatedAt = .now
+                }
+            }
+        }
+        return saved == nil ? nil : connection
     }
 
     func deleteConnection(_ connection: Connection) {
-        if let source = connection.sourceItem {
-            source.outgoingConnections.removeAll { $0.id == connection.id }
-            source.updatedAt = .now
+        database.attempt { db in
+            try Connection.find(connection.id).delete().execute(db)
+            for itemID in [connection.sourceItemID, connection.targetItemID].compactMap(\.self) {
+                try Item.modify(itemID, in: db) { $0.updatedAt = .now }
+            }
         }
-        if let target = connection.targetItem {
-            target.incomingConnections.removeAll { $0.id == connection.id }
-            target.updatedAt = .now
-        }
-        modelContext.delete(connection)
-        try? modelContext.save()
     }
 
     /// Find items matching a search query (for fuzzy-search in connection/wiki-link pickers)
-    func searchItems(query: String, excluding: Item? = nil) -> [Item] {
-        let descriptor = FetchDescriptor<Item>()
-        guard let allItems = try? modelContext.fetch(descriptor) else { return [] }
+    func searchItems(query: String, excluding excludedID: Item.ID? = nil) -> [Item] {
+        guard let allItems = database.attemptRead({ try Item.all.fetchAll($0) }) else { return [] }
         let filtered = allItems.filter { item in
-            if let excluding, item.id == excluding.id { return false }
+            if item.id == excludedID { return false }
             if query.isEmpty { return true }
             return item.title.localizedCaseInsensitiveContains(query)
         }

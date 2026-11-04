@@ -1,5 +1,5 @@
 import Foundation
-import SwiftData
+import SQLiteData
 import Testing
 @testable import grove
 
@@ -10,64 +10,76 @@ private final class FocusEventRecorder: @unchecked Sendable {
 struct GroveTests {
     @MainActor
     @Test func globalCaptureRemainsInInboxWithoutAUserSelectedBoard() throws {
-        let context = try makeInMemoryModelContext()
-        let service = CaptureService(modelContext: context)
+        let database = try AppDatabase.openInMemory()
+        let service = CaptureService(database: database)
 
         let item = service.captureItem(input: "Unfiled thought")
 
-        #expect(item.status == .inbox)
-        #expect(item.boards.isEmpty)
+        let saved = try #require(try database.read { try Item.find(item.id).fetchOne($0) })
+        #expect(saved.status == .inbox)
+        #expect(saved.boardID == nil)
     }
 
     @MainActor
     @Test func boardTargetedCaptureIsImmediatelyActive() throws {
-        let context = try makeInMemoryModelContext()
+        let database = try AppDatabase.openInMemory()
         let board = Board(title: "Research")
-        context.insert(board)
-        let service = CaptureService(modelContext: context)
+        try database.write { db in
+            try Board.insert { board }.execute(db)
+        }
+        let service = CaptureService(database: database)
 
         let item = service.captureItem(input: "Filed thought", board: board)
 
-        #expect(item.status == .active)
-        #expect(item.boards.map(\.id) == [board.id])
+        let saved = try #require(try database.read { try Item.find(item.id).fetchOne($0) })
+        #expect(saved.status == .active)
+        #expect(saved.boardID == board.id)
     }
 
     @MainActor
     @Test func explicitBoardAssignmentApprovesInboxItemWithoutDuplicatingBoard() throws {
-        let context = try makeInMemoryModelContext()
-        let item = Item(title: "Pending", type: .note)
+        let database = try AppDatabase.openInMemory()
+        var item = Item(title: "Pending", type: .note)
         item.status = .inbox
         let board = Board(title: "Research")
-        context.insert(item)
-        context.insert(board)
-        let viewModel = ItemViewModel(modelContext: context)
+        try database.write { db in
+            try Item.insert { item }.execute(db)
+            try Board.insert { board }.execute(db)
+        }
+        let viewModel = ItemViewModel(database: database)
 
-        viewModel.assignToBoard(item, board: board)
-        viewModel.assignToBoard(item, board: board)
+        viewModel.assignToBoard(item.id, board: board)
+        viewModel.assignToBoard(item.id, board: board)
 
-        #expect(item.status == .active)
-        #expect(item.boards.map(\.id) == [board.id])
+        let library = try database.read { try Library.fetch($0) }
+        let saved = try #require(library.item(item.id))
+        #expect(saved.status == .active)
+        #expect(saved.board?.id == board.id)
+        #expect(library.board(board.id)?.items.map(\.id) == [item.id])
     }
 
     @MainActor
     @Test func movingInboxItemsToBoardApprovesThem() throws {
-        let context = try makeInMemoryModelContext()
-        let item = Item(title: "Pending", type: .note)
+        let database = try AppDatabase.openInMemory()
+        var item = Item(title: "Pending", type: .note)
         item.status = .inbox
         let board = Board(title: "Research")
-        context.insert(item)
-        context.insert(board)
-        let viewModel = ItemViewModel(modelContext: context)
+        try database.write { db in
+            try Item.insert { item }.execute(db)
+            try Board.insert { board }.execute(db)
+        }
+        let viewModel = ItemViewModel(database: database)
 
-        viewModel.moveItemsToBoard([item], board: board)
+        viewModel.moveItemsToBoard([item.id], board: board)
 
-        #expect(item.status == .active)
-        #expect(item.boards.map(\.id) == [board.id])
+        let saved = try #require(try database.read { try Item.find(item.id).fetchOne($0) })
+        #expect(saved.status == .active)
+        #expect(saved.boardID == board.id)
     }
 
     @MainActor
     @Test func boardSuggestionSelectionRecordsLocalEvaluationSignal() {
-        let item = Item(title: "Pending", type: .note)
+        var item = Item(title: "Pending", type: .note)
         let board = Board(title: "Research")
         let decision = BoardSuggestionDecision(
             suggestedName: board.title,
@@ -77,9 +89,9 @@ struct GroveTests {
             reason: "Strong title match",
             alternativeBoardIDs: []
         )
-        BoardSuggestionMetadata.apply(decision, to: item)
+        BoardSuggestionMetadata.apply(decision, to: &item)
 
-        BoardSuggestionMetadata.recordSelection(board, on: item)
+        BoardSuggestionMetadata.recordSelection(board, on: &item)
 
         #expect(item.metadata["pendingBoardSuggestion"] == nil)
         #expect(item.metadata["boardSuggestionOutcome"] == "selected")
@@ -196,13 +208,13 @@ struct GroveTests {
         """
 
         let service = ConversationStarterService(provider: provider)
-        let recent = Item(title: "Recent", type: .note)
+        var recent = Item(title: "Recent", type: .note)
         recent.status = .active
         recent.createdAt = .now
         recent.updatedAt = .now
         recent.metadata["summary"] = "A recent thought with enough substance to ground a starter."
 
-        await service.refresh(items: [recent])
+        await service.refresh(items: [ItemGraph(item: recent)])
 
         #expect(service.bubbles.count == ConversationStarterService.maxBubbleCountFree)
     }
@@ -234,13 +246,13 @@ struct GroveTests {
         """
 
         let service = ConversationStarterService(provider: provider)
-        let recent = Item(title: "Recent", type: .note)
+        var recent = Item(title: "Recent", type: .note)
         recent.status = .active
         recent.createdAt = .now
         recent.updatedAt = .now
         recent.metadata["summary"] = "A recent thought with enough substance to ground a starter."
 
-        await service.refresh(items: [recent])
+        await service.refresh(items: [ItemGraph(item: recent)])
         let originalCount = service.bubbles.count
         #expect(originalCount > 1)
 
@@ -264,14 +276,14 @@ struct GroveTests {
         let service = ConversationStarterService(provider: provider)
 
         let board = Board(title: "Philosophy")
-        let item = Item(title: "Recent thought", type: .note)
+        var item = Item(title: "Recent thought", type: .note)
         item.status = .active
         item.createdAt = .now
         item.updatedAt = .now
         item.metadata["summary"] = "A recent thought with enough substance to ground a starter."
-        item.boards.append(board)
+        item.boardID = board.id
 
-        await service.refresh(items: [item])
+        await service.refresh(items: [ItemGraph(item: item, board: board)])
 
         let scoped = service.bubbles(for: board.id, maxResults: 3)
         #expect(scoped.count == 1)
@@ -291,13 +303,13 @@ struct GroveTests {
         await service.refreshBoard(board.id, items: [])
         #expect(service.bubbles(for: board.id, maxResults: 3).isEmpty)
 
-        let item = Item(title: "Board Item", type: .note)
+        var item = Item(title: "Board Item", type: .note)
         item.status = .active
         item.createdAt = .now
         item.updatedAt = .now
-        item.boards.append(board)
+        item.boardID = board.id
 
-        await service.refreshBoard(board.id, items: [item])
+        await service.refreshBoard(board.id, items: [ItemGraph(item: item, board: board)])
         #expect(!service.bubbles(for: board.id, maxResults: 3).isEmpty)
     }
 
@@ -326,22 +338,21 @@ struct GroveTests {
     }
 
     @Test func conversationOnlyAppearsInHistoryAfterUserMessage() {
-        let conversation = Conversation()
+        var conversation = ConversationGraph(conversation: Conversation())
 
-        let systemMessage = ChatMessage(role: .system, content: "system", position: 0, isHidden: true)
-        systemMessage.conversation = conversation
-        conversation.messages.append(systemMessage)
-
-        let greetingMessage = ChatMessage(role: .assistant, content: "Initial discussion prompt", position: 1)
-        greetingMessage.conversation = conversation
-        conversation.messages.append(greetingMessage)
+        conversation.messages.append(ChatMessage(
+            role: .system, content: "system", position: 0, conversationID: conversation.id, isHidden: true
+        ))
+        conversation.messages.append(ChatMessage(
+            role: .assistant, content: "Initial discussion prompt", position: 1, conversationID: conversation.id
+        ))
 
         #expect(!conversation.hasUserMessages)
         #expect(!conversation.isSavedToHistory)
 
-        let userMessage = ChatMessage(role: .user, content: "My response", position: 2)
-        userMessage.conversation = conversation
-        conversation.messages.append(userMessage)
+        conversation.messages.append(ChatMessage(
+            role: .user, content: "My response", position: 2, conversationID: conversation.id
+        ))
 
         #expect(conversation.hasUserMessages)
         #expect(conversation.isSavedToHistory)
@@ -349,18 +360,18 @@ struct GroveTests {
 
     @MainActor
     @Test func dialecticalChatHistoryExcludesAssistantOnlyConversations() throws {
-        let context = try makeInMemoryModelContext()
-        let viewModel = DialecticalChatViewModel(modelContext: context)
+        let database = try AppDatabase.openInMemory()
+        let viewModel = DialecticalChatViewModel(database: database)
 
-        let assistantOnly = Conversation()
-        let assistantMessage = ChatMessage(role: .assistant, content: "Prompt", position: 0)
-        assistantMessage.conversation = assistantOnly
-        assistantOnly.messages.append(assistantMessage)
+        var assistantOnly = ConversationGraph(conversation: Conversation())
+        assistantOnly.messages.append(ChatMessage(
+            role: .assistant, content: "Prompt", position: 0, conversationID: assistantOnly.id
+        ))
 
-        let replied = Conversation()
-        let repliedMessage = ChatMessage(role: .user, content: "Reply", position: 0)
-        repliedMessage.conversation = replied
-        replied.messages.append(repliedMessage)
+        var replied = ConversationGraph(conversation: Conversation())
+        replied.messages.append(ChatMessage(
+            role: .user, content: "Reply", position: 0, conversationID: replied.id
+        ))
 
         let visible = viewModel.activeConversations(from: [assistantOnly, replied])
 
@@ -369,11 +380,13 @@ struct GroveTests {
 
     @MainActor
     @Test func reflectionToolbarToggleClosesEditorThroughSaveAndExitPath() throws {
-        let context = try makeInMemoryModelContext()
+        let database = try AppDatabase.openInMemory()
         let item = Item(title: "StringBuilder", type: .article)
-        context.insert(item)
+        try database.write { db in
+            try Item.insert { item }.execute(db)
+        }
 
-        let viewModel = ItemReaderViewModel(item: item, modelContext: context)
+        let viewModel = ItemReaderViewModel(item: ItemGraph(item: item), database: database)
         let center = NotificationCenter.default
         let focusEventRecorder = FocusEventRecorder()
 
@@ -392,18 +405,20 @@ struct GroveTests {
         viewModel.toggleReflectionEditor { }
         #expect(viewModel.showReflectionEditor)
 
-        guard let block = viewModel.editingBlock else {
+        guard viewModel.editingBlock != nil else {
             Issue.record("Expected a reflection block to be opened for editing")
             return
         }
 
-        block.content = "LLMs use a Rust graph runtime."
+        viewModel.modifyEditingBlock { $0.content = "LLMs use a Rust graph runtime." }
         viewModel.toggleReflectionEditor { }
 
         #expect(!viewModel.showReflectionEditor)
         #expect(viewModel.editingBlock == nil)
-        #expect(item.reflections.count == 1)
-        #expect(item.reflections.first?.content == "LLMs use a Rust graph runtime.")
+        let saved = try #require(try database.read { try ItemGraph.fetch(item.id, in: $0) })
+        #expect(saved.reflections.count == 1)
+        #expect(saved.reflections.first?.content == "LLMs use a Rust graph runtime.")
+        #expect(viewModel.item.reflections == saved.reflections)
         #expect(focusEventRecorder.events == [.groveEnterFocusMode, .groveExitFocusMode])
     }
 
@@ -437,12 +452,13 @@ struct GroveTests {
 
     @MainActor
     @Test func searchViewModelDebouncesQueryUpdates() async throws {
-        let context = try makeInMemoryModelContext()
+        let database = try AppDatabase.openInMemory()
         let item = Item(title: "SwiftUI Search Overlay", type: .note)
-        context.insert(item)
-        try context.save()
+        try await database.write { db in
+            try Item.insert { item }.execute(db)
+        }
 
-        let viewModel = SearchViewModel(modelContext: context, debounceNanoseconds: 20_000_000)
+        let viewModel = SearchViewModel(database: database, debounceNanoseconds: 20_000_000)
         viewModel.updateQuery("swiftui")
 
         #expect(viewModel.totalResultCount == 0)
@@ -453,12 +469,13 @@ struct GroveTests {
 
     @MainActor
     @Test func searchViewModelCancelsStaleDebouncedQueries() async throws {
-        let context = try makeInMemoryModelContext()
+        let database = try AppDatabase.openInMemory()
         let item = Item(title: "Cancel stale result", type: .note)
-        context.insert(item)
-        try context.save()
+        try await database.write { db in
+            try Item.insert { item }.execute(db)
+        }
 
-        let viewModel = SearchViewModel(modelContext: context, debounceNanoseconds: 25_000_000)
+        let viewModel = SearchViewModel(database: database, debounceNanoseconds: 25_000_000)
         viewModel.updateQuery("cancel")
         viewModel.updateQuery("zzzzzz")
 
@@ -481,27 +498,28 @@ struct GroveTests {
 
     @MainActor
     @Test func mobileBoardDetailEffectiveItemsFiltersSmartBoardAndStatus() {
-        let board = Board(title: "Smart")
+        var board = Board(title: "Smart")
         board.isSmart = true
         board.smartRuleLogic = .or
 
         let topic = Tag(name: "swift", category: .technology)
-        board.smartRuleTags.append(topic)
 
-        let activeMatching = Item(title: "Active Match", type: .article)
+        var activeMatching = Item(title: "Active Match", type: .article)
         activeMatching.status = .active
-        activeMatching.tags.append(topic)
 
-        let dismissedMatching = Item(title: "Dismissed Match", type: .article)
+        var dismissedMatching = Item(title: "Dismissed Match", type: .article)
         dismissedMatching.status = .dismissed
-        dismissedMatching.tags.append(topic)
 
-        let unrelatedActive = Item(title: "Unrelated", type: .article)
+        var unrelatedActive = Item(title: "Unrelated", type: .article)
         unrelatedActive.status = .active
 
         let effective = MobileBoardDetailView.effectiveItems(
-            for: board,
-            allItems: [activeMatching, dismissedMatching, unrelatedActive]
+            for: BoardGraph(board: board, smartRuleTags: [topic]),
+            allItems: [
+                ItemGraph(item: activeMatching, tags: [topic]),
+                ItemGraph(item: dismissedMatching, tags: [topic]),
+                ItemGraph(item: unrelatedActive),
+            ]
         )
 
         #expect(effective.map(\.id) == [activeMatching.id])
@@ -509,22 +527,20 @@ struct GroveTests {
 
     @MainActor
     @Test func mobileBoardDetailManualSortUsesBoardOrder() {
-        let board = Board(title: "Manual")
-        let first = Item(title: "First", type: .note)
-        let second = Item(title: "Second", type: .note)
-        let third = Item(title: "Third", type: .note)
+        var board = Board(title: "Manual")
+        var first = Item(title: "First", type: .note)
+        var second = Item(title: "Second", type: .note)
+        var third = Item(title: "Third", type: .note)
         first.status = .active
         second.status = .active
         third.status = .active
 
-        board.items.append(first)
-        board.items.append(second)
-        board.items.append(third)
-        board.setManualOrder([second.id, third.id, first.id])
+        let items = [first, second, third].map { ItemGraph(item: $0) }
+        board.itemOrder = [second.id, third.id, first.id]
 
         let sorted = MobileBoardDetailView.sortedItems(
-            [first, second, third],
-            for: board,
+            items,
+            for: BoardGraph(board: board, items: items),
             sortOption: .manual
         )
 
@@ -622,36 +638,39 @@ struct GroveTests {
         }
         NudgeSettings.notificationsEnabled = false
 
-        let context = try makeInMemoryModelContext()
+        let database = try AppDatabase.openInMemory()
 
         // No notification surface, and Home only lists resurface nudges.
         let staleInbox = Nudge(type: .staleInbox, message: "8 items waiting")
-        context.insert(staleInbox)
 
         // Home filters targetless resurface nudges out, but the pending guard
         // in the generator still counted them.
         let orphanResurface = Nudge(type: .resurface, message: "Revisit?")
-        context.insert(orphanResurface)
 
         // Control: reachable, must survive untouched.
         let target = Item(title: "Still here", type: .note)
-        context.insert(target)
-        let liveResurface = Nudge(type: .resurface, message: "Revisit?", targetItem: target)
-        context.insert(liveResurface)
-        try context.save()
+        let liveResurface = Nudge(type: .resurface, message: "Revisit?", targetItemID: target.id)
+        try database.write { db in
+            try Item.insert { target }.execute(db)
+            try Nudge.insert { [staleInbox, orphanResurface, liveResurface] }.execute(db)
+        }
 
-        let engine = NudgeEngine(modelContext: context)
+        func status(of nudge: Nudge) throws -> NudgeStatus? {
+            try database.read { try Nudge.find(nudge.id).fetchOne($0)?.status }
+        }
+
+        let engine = NudgeEngine(database: database)
         engine.generateNudges()
 
-        #expect(staleInbox.status == .dismissed)
-        #expect(orphanResurface.status == .dismissed)
-        #expect(liveResurface.status == .pending)
+        #expect(try status(of: staleInbox) == .dismissed)
+        #expect(try status(of: orphanResurface) == .dismissed)
+        #expect(try status(of: liveResurface) == .pending)
 
         // Idempotent: a second run leaves the swept nudges exactly as they are.
         engine.generateNudges()
-        #expect(staleInbox.status == .dismissed)
-        #expect(orphanResurface.status == .dismissed)
-        #expect(liveResurface.status == .pending)
+        #expect(try status(of: staleInbox) == .dismissed)
+        #expect(try status(of: orphanResurface) == .dismissed)
+        #expect(try status(of: liveResurface) == .pending)
     }
 
     private func makeDate(
@@ -671,19 +690,6 @@ struct GroveTests {
         components.second = 0
         components.timeZone = calendar.timeZone
         return calendar.date(from: components) ?? .now
-    }
-
-    @MainActor
-    private func makeInMemoryModelContext() throws -> ModelContext {
-        let schema = SharedModelContainer.schema
-        let config = ModelConfiguration(
-            "Tests",
-            schema: schema,
-            isStoredInMemoryOnly: true,
-            cloudKitDatabase: .none
-        )
-        let container = try ModelContainer(for: schema, configurations: [config])
-        return ModelContext(container)
     }
 
     private func testDefaults() -> UserDefaults {

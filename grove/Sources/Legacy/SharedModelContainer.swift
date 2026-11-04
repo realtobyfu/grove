@@ -5,29 +5,19 @@ import OSLog
 
 private let syncLog = Logger(subsystem: "dev.tuist.grove", category: "sync")
 
-/// The SwiftData models. Nesting does not change their entity names, which
-/// `SchemaMigrationTests` pins, so stores written before this namespace existed
-/// still open.
-enum Legacy {}
-
-/// Shared ModelContainer factory for both the main app and Share Extension.
-///
-/// Uses the App Group container (`group.dev.tuist.grove`) on iOS so the main
-/// app and Share Extension can access the same on-device store. On macOS, each
-/// app target uses its own sandboxed store.
+/// Opens SwiftData stores for `LegacyStoreImporter`, which is all SwiftData does
+/// in this version of the app.
 enum SharedModelContainer {
 
-    /// The SwiftData schema including all model types. Kept in one place
-    /// so the main app, Share Extension, and tests always register the
-    /// same set of models.
+    /// The SwiftData schema including all model types.
     static let schema = Schema(models)
 
     /// Every model type. Read "Migration Limits" below before adding one.
     static var models: [any PersistentModel.Type] {
         versionTwoModels + [
-            UserFlashcard.self,
-            UserFlashcardReview.self,
-            UserLearningPreferences.self,
+            Legacy.UserFlashcard.self,
+            Legacy.UserFlashcardReview.self,
+            Legacy.UserLearningPreferences.self,
         ]
     }
 
@@ -36,105 +26,25 @@ enum SharedModelContainer {
     /// a deliberate decision.
     static var versionTwoModels: [any PersistentModel.Type] {
         [
-            Item.self,
-            Board.self,
-            Tag.self,
-            Connection.self,
-            Annotation.self,
-            ReflectionBlock.self,
-            Nudge.self,
-            Conversation.self,
-            ChatMessage.self,
-            FeedSource.self,
+            Legacy.Item.self,
+            Legacy.Board.self,
+            Legacy.Tag.self,
+            Legacy.Connection.self,
+            Legacy.Annotation.self,
+            Legacy.ReflectionBlock.self,
+            Legacy.Nudge.self,
+            Legacy.Conversation.self,
+            Legacy.ChatMessage.self,
+            Legacy.FeedSource.self,
         ]
     }
 
-    /// App Group identifier shared between main app and Share Extension.
-    static let appGroupIdentifier = "group.dev.tuist.grove"
-
-    /// URL for the shared SwiftData store inside the App Group container.
-    /// Returns `nil` when the App Group container is unavailable.
+    /// URL of the shared SwiftData store inside the App Group container, or
+    /// `nil` when the App Group container is unavailable.
     static var sharedStoreURL: URL? {
         FileManager.default
-            .containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier)?
+            .containerURL(forSecurityApplicationGroupIdentifier: AppDatabase.appGroupIdentifier)?
             .appendingPathComponent("grove.store")
-    }
-
-    // MARK: - Main App
-
-    /// Creates a `ModelContainer` for the main app.
-    ///
-    /// - On iOS, uses the App Group container when available so the Share
-    ///   Extension can access the same on-device data.
-    /// - On macOS, uses the target's default sandbox store.
-    /// - CloudKit sync is conditional on `SyncSettings.syncEnabled`.
-    /// - If CloudKit initialization fails, falls back to a local-only store
-    ///   and disables sync to prevent repeated failures.
-    static func makeForApp() -> ModelContainer {
-        let wantsSync = SyncSettings.syncEnabled
-        do {
-            return try makeContainer(syncEnabled: wantsSync)
-        } catch {
-            if wantsSync {
-                // CloudKit setup failed (e.g. account unavailable, entitlement or
-                // schema mismatch). Fall back to local-only so the app still opens,
-                // but log loudly so the failure is diagnosable instead of silent.
-                syncLog.error("CloudKit container init failed, falling back to local-only: \(error, privacy: .public)")
-            }
-            do {
-                let container = try makeContainer(syncEnabled: false)
-                SyncSettings.syncEnabled = false
-                return container
-            } catch {
-                fatalError("Failed to create ModelContainer: \(error)")
-            }
-        }
-    }
-
-    // MARK: - Share Extension
-
-    /// Creates a `ModelContainer` for the Share Extension.
-    ///
-    /// Always local-only (no CloudKit) to stay within the extension's 120 MB
-    /// memory limit. Uses the App Group container URL so writes are visible
-    /// to the main app.
-    static func makeForExtension() throws -> ModelContainer {
-        guard let storeURL = sharedStoreURL else {
-            throw ContainerError.appGroupUnavailable
-        }
-
-        let config = ModelConfiguration(
-            "Grove",
-            schema: schema,
-            url: storeURL,
-            cloudKitDatabase: .none
-        )
-        return try openContainer(config)
-    }
-
-    // MARK: - Private
-
-    private static func makeContainer(syncEnabled: Bool) throws -> ModelContainer {
-        let cloudKit: ModelConfiguration.CloudKitDatabase = syncEnabled ? .automatic : .none
-
-        #if os(iOS)
-        if let storeURL = sharedStoreURL {
-            let config = ModelConfiguration(
-                "Grove",
-                schema: schema,
-                url: storeURL,
-                cloudKitDatabase: cloudKit
-            )
-            return try openContainer(config)
-        }
-        #endif
-
-        let config = ModelConfiguration(
-            "Grove",
-            schema: schema,
-            cloudKitDatabase: cloudKit
-        )
-        return try openContainer(config)
     }
 
     /// Opens the store, first bringing a pre-2.0 store up to date. Internal so
@@ -142,17 +52,6 @@ enum SharedModelContainer {
     static func openContainer(_ config: ModelConfiguration) throws -> ModelContainer {
         try LegacyStoreMigration.migrateIfNeeded(storeURL: config.url)
         return try ModelContainer(for: schema, configurations: [config])
-    }
-
-    enum ContainerError: Error, LocalizedError {
-        case appGroupUnavailable
-
-        var errorDescription: String? {
-            switch self {
-            case .appGroupUnavailable:
-                return "App Group container '\(appGroupIdentifier)' is not available."
-            }
-        }
     }
 }
 

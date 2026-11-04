@@ -29,7 +29,7 @@ enum LLMContextBuilder {
     /// - Returns: A multi-line string describing the item.
     @MainActor
     static func itemDescription(
-        _ item: Item,
+        _ item: ItemGraph,
         includeContent: Bool = true,
         contentLimit: Int = 1000,
         includeReflections: Bool = true,
@@ -70,7 +70,7 @@ enum LLMContextBuilder {
     /// - Returns: A newline-separated numbered list.
     @MainActor
     static func itemList(
-        _ items: [Item],
+        _ items: [ItemGraph],
         maxItems: Int = 50,
         includeContent: Bool = false
     ) -> String {

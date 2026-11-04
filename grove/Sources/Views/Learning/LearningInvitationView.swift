@@ -1,5 +1,5 @@
 import SwiftUI
-import SwiftData
+import SQLiteData
 
 /// Learning sits alongside the library's other actions, without a promotion card.
 struct LearningInvitationView: View {
@@ -11,10 +11,9 @@ struct LearningInvitationView: View {
         var id: String { rawValue }
     }
 
-    @Environment(\.modelContext) private var modelContext
-    @Query private var cards: [Flashcard]
-    @Query private var reviews: [FlashcardReview]
-    @Query(sort: \LearningPreferences.updatedAt, order: .reverse) private var preferences: [LearningPreferences]
+    @FetchAll private var cards: [Flashcard]
+    @FetchAll private var reviews: [FlashcardReview]
+    @FetchAll(LearningPreferences.order { $0.updatedAt.desc() }) private var preferences
     @State private var presentation: Presentation?
 
     private var readyCount: Int {
@@ -66,7 +65,7 @@ struct LearningInvitationView: View {
         .task(id: reviews.map(\.id)) {
             // Imported events, rather than a remote cached due date, determine
             // whether the row offers a review.
-            _ = LearningService(modelContext: modelContext).dueCards(boardID: boardID)
+            _ = LearningService().dueCards(boardID: boardID)
         }
         .sheet(item: $presentation) { value in
             NavigationStack {

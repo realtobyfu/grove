@@ -1,5 +1,4 @@
 import Foundation
-import SwiftData
 import Observation
 
 // MARK: - Protocol
@@ -7,11 +6,11 @@ import Observation
 @MainActor protocol ConversationStarterServiceProtocol {
     var bubbles: [PromptBubble] { get }
     var isLoading: Bool { get }
-    func refresh(items: [Item]) async
-    func forceRefresh(items: [Item]) async
+    func refresh(items: [ItemGraph]) async
+    func forceRefresh(items: [ItemGraph]) async
     func bubbles(for boardID: UUID, maxResults: Int) -> [PromptBubble]
-    func refreshBoard(_ boardID: UUID, items: [Item]) async
-    func forceRefreshBoard(_ boardID: UUID, items: [Item]) async
+    func refreshBoard(_ boardID: UUID, items: [ItemGraph]) async
+    func forceRefreshBoard(_ boardID: UUID, items: [ItemGraph]) async
 }
 
 // MARK: - ConversationStarterService
@@ -60,7 +59,7 @@ import Observation
 
     /// Refreshes the prompt bubbles if not already loaded for this launch.
     /// Cached bubbles are shown immediately (from init); this replaces them with fresh ones.
-    func refresh(items: [Item]) async {
+    func refresh(items: [ItemGraph]) async {
         guard !hasLoaded else { return }
         hasLoaded = true
         isLoading = true
@@ -87,7 +86,7 @@ import Observation
         Self.saveCachedBubbles(bubbles)
     }
 
-    func forceRefresh(items: [Item]) async {
+    func forceRefresh(items: [ItemGraph]) async {
         hasLoaded = false
         await refresh(items: items)
     }
@@ -106,7 +105,7 @@ import Observation
     }
 
     /// Lazily generates board-scoped starters. Returns cached results immediately if available.
-    func refreshBoard(_ boardID: UUID, items: [Item]) async {
+    func refreshBoard(_ boardID: UUID, items: [ItemGraph]) async {
         guard !loadedBoards.contains(boardID) || (boardBubbles[boardID]?.isEmpty ?? true) else { return }
         loadedBoards.insert(boardID)
 
@@ -117,7 +116,7 @@ import Observation
         }
 
         // Generate board-specific starters
-        let boardItems = items.filter { $0.boards.contains(where: { $0.id == boardID }) }
+        let boardItems = items.filter { $0.boardID == boardID }
         let context = StarterContextBuilder.buildContext(from: boardItems)
         let isPro = EntitlementService.shared.isPro
         let cap = isPro ? Self.maxBubbleCountPro : Self.maxBubbleCountFree
@@ -138,7 +137,7 @@ import Observation
         }
     }
 
-    func forceRefreshBoard(_ boardID: UUID, items: [Item]) async {
+    func forceRefreshBoard(_ boardID: UUID, items: [ItemGraph]) async {
         loadedBoards.remove(boardID)
         boardBubbles[boardID] = nil
         Self.clearCachedBoardBubbles(for: boardID)

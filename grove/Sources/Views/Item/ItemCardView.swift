@@ -4,7 +4,7 @@ import AppKit
 import SwiftUI
 
 struct ItemCardView: View {
-    let item: Item
+    let item: ItemGraph
     var showTags: Bool = true
     /// Called when the user chooses "Read in App" from the thumbnail context menu or the badge button.
     var onReadInApp: (() -> Void)? = nil
@@ -209,19 +209,21 @@ struct ItemCardView: View {
 
     @ViewBuilder
     private var sourceCover: some View {
-        if let thumbnailData = item.thumbnail {
-            let cover = CoverImageView(
-                imageData: thumbnailData,
-                height: 132,
-                showPlayOverlay: item.type == .video,
-                cornerRadius: 8
-            )
+        ItemThumbnailReader(itemID: item.id) { thumbnailData in
+            if let thumbnailData {
+                let cover = CoverImageView(
+                    imageData: thumbnailData,
+                    height: 132,
+                    showPlayOverlay: item.type == .video,
+                    cornerRadius: 8
+                )
 
-            if usesContainerReadAction || onReadInApp == nil {
-                cover
-            } else {
-                cover.onTapGesture {
-                    onReadInApp?()
+                if usesContainerReadAction || onReadInApp == nil {
+                    cover
+                } else {
+                    cover.onTapGesture {
+                        onReadInApp?()
+                    }
                 }
             }
         }

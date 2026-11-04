@@ -21,7 +21,7 @@ final class BoardExportService {
 
     // MARK: - Markdown Generation
 
-    static func markdownForBoard(_ board: Board, items: [Item], options: BoardExportOptions) -> String {
+    static func markdownForBoard(_ board: BoardGraph, items: [ItemGraph], options: BoardExportOptions) -> String {
         var md = "# \(board.title)\n\n"
 
         if let desc = board.boardDescription, !desc.isEmpty {

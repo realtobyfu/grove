@@ -1,5 +1,5 @@
 import SwiftUI
-import SwiftData
+import SQLiteData
 import WebKit
 #if os(macOS)
 import AppKit
@@ -9,14 +9,15 @@ struct ItemReaderWebViewPanel: View {
     @Bindable var vm: ItemReaderViewModel
     let url: URL
     @Environment(\.openURL) private var openURL
-    @Environment(\.modelContext) private var modelContext
+    @Dependency(\.defaultDatabase) private var database
     @Environment(\.colorScheme) private var colorScheme
     var focusTrigger: () -> Void
     /// Unified selection callback: fires with the selected text in EITHER
     /// mode (Reader or Original), nil when the selection is cleared.
     var onTextSelected: ((String?) -> Void)? = nil
 
-    @Query(sort: \Board.sortOrder) private var boards: [Board]
+    @Fetch(Library.Request()) private var library = Library()
+    private var boards: [BoardGraph] { library.boards }
 
     @State private var canGoBack = false
     @State private var canGoForward = false
@@ -25,7 +26,7 @@ struct ItemReaderWebViewPanel: View {
     @State private var goForwardToken = 0
     /// Library item backing the page currently on screen, if it has one.
     /// Drives the capture FAB's state; nil means the page is unsaved.
-    @State private var capturedItem: Item? = nil
+    @State private var capturedItem: ItemGraph? = nil
     @State private var showCapturePicker = false
     /// Keeps the FAB on screen briefly after filing so the checkmark can
     /// confirm the action before the button retires from the page.
@@ -287,9 +288,17 @@ struct ItemReaderWebViewPanel: View {
         .onChange(of: capturePageURL) { _, _ in
             resolveCaptureState()
         }
-        // capturedItem is a cached model reference for whatever page is on
-        // screen; the deletion notification is the only signal that reference
-        // is about to go invalid (the page needn't be the selected item).
+        // capturedItem is a held copy, and the FAB and the page's highlight marks
+        // read it, so it has to follow the database. This re-reads rather than
+        // using `keepingCurrent`, which takes the library's value and clears the
+        // state when the item isn't in it: a library loaded just before a capture
+        // would drop the page that was just saved, with its picker open.
+        .onChange(of: library) { _, _ in
+            refreshCapturedItem()
+        }
+        // capturedItem is a cached copy for whatever page is on screen; the
+        // deletion notification also takes down what was open on it (the page
+        // needn't be the selected item).
         .onReceive(NotificationCenter.default.publisher(for: .groveItemWillDelete)) { note in
             guard let id = NotificationCenter.itemWillDeleteID(from: note) else { return }
             if capturedItem?.id == id {
@@ -499,7 +508,7 @@ struct ItemReaderWebViewPanel: View {
 
     private var captureState: ReaderCaptureState {
         guard let capturedItem else { return .unsaved }
-        return capturedItem.boards.isEmpty ? .unfiled : .filed
+        return capturedItem.board == nil ? .unfiled : .filed
     }
 
     /// Saved highlights belonging to the page on screen, in stable order.
@@ -541,12 +550,12 @@ struct ItemReaderWebViewPanel: View {
                     recommendedBoardID: decision?.recommendedBoardID,
                     alternativeBoardIDs: decision?.alternativeBoardIDs ?? [],
                     onSelect: { board in
-                        BoardSuggestionMetadata.recordSelection(board, on: capturedItem)
-                        ItemViewModel(modelContext: modelContext).assignToBoard(capturedItem, board: board)
+                        recordSelection(board.board, on: capturedItem.id)
+                        ItemViewModel().assignToBoard(capturedItem.id, board: board.board)
                         finishFiling()
                     },
                     onCreate: { title in
-                        createAndAssignBoard(named: title, to: capturedItem)
+                        createAndAssignBoard(named: title, to: capturedItem.id)
                         finishFiling()
                     }
                 )
@@ -557,6 +566,8 @@ struct ItemReaderWebViewPanel: View {
     /// After filing: close the picker, hold the checkmark for a beat so the
     /// action reads, then let the FAB retire from the page.
     private func finishFiling() {
+        // The filed page can be the reader's own item, which `vm` holds a copy of.
+        vm.reloadItem()
         resolveCaptureState()
         guard captureState == .filed else { return }
         showCapturePicker = false
@@ -577,39 +588,54 @@ struct ItemReaderWebViewPanel: View {
             capturedItem = vm.item
             return
         }
-        let existing = CaptureService(modelContext: modelContext).existingItem(forURL: pageURL)
+        let existing = CaptureService().existingItem(forURL: pageURL)
         capturedItem = existing
         // Arriving at a page that is already in the library is the same trail
         // as capturing it here would have been — record it either way, so the
         // link between the two isn't lost to the accident of having saved the
         // destination on some earlier day.
         if let existing {
-            ReadingCapture.recordProvenance(from: vm.item, to: existing, in: modelContext)
+            ReadingCapture.recordProvenance(from: vm.item.id, to: existing.id)
         }
+    }
+
+    private func refreshCapturedItem() {
+        guard let itemID = capturedItem?.id else { return }
+        capturedItem = database.attemptRead { try ItemGraph.fetch(itemID, in: $0) } ?? nil
     }
 
     /// Saving while reading is deliberate — straight to the library, active,
     /// skipping inbox triage. Filing happens right after, in the picker.
     private func captureCurrentPage() {
-        let (item, _) = ReadingCapture.capturePage(capturePageURL, readFrom: vm.item, in: modelContext)
+        let (item, _) = ReadingCapture.capturePage(capturePageURL, readFrom: vm.item.id)
         capturedItem = item
     }
 
-    private func createAndAssignBoard(named rawTitle: String, to item: Item) {
+    private func recordSelection(_ board: Board, on itemID: Item.ID) {
+        database.attempt { db in
+            try Item.modify(itemID, in: db) {
+                BoardSuggestionMetadata.recordSelection(board, on: &$0)
+            }
+        }
+    }
+
+    private func createAndAssignBoard(named rawTitle: String, to itemID: Item.ID) {
         let title = BoardSuggestionEngine.cleanedBoardName(rawTitle)
         guard !title.isEmpty else { return }
 
-        let itemViewModel = ItemViewModel(modelContext: modelContext)
+        let itemViewModel = ItemViewModel()
         if let existing = boards.first(where: {
             $0.title.localizedCaseInsensitiveCompare(title) == .orderedSame
         }) {
-            BoardSuggestionMetadata.recordSelection(existing, on: item)
-            itemViewModel.assignToBoard(item, board: existing)
+            recordSelection(existing.board, on: itemID)
+            itemViewModel.assignToBoard(itemID, board: existing.board)
         } else {
             let board = Board(title: title)
-            modelContext.insert(board)
-            BoardSuggestionMetadata.recordSelection(board, on: item)
-            itemViewModel.assignToBoard(item, board: board)
+            database.attempt { db in
+                try Board.insert { board }.execute(db)
+            }
+            recordSelection(board, on: itemID)
+            itemViewModel.assignToBoard(itemID, board: board)
         }
     }
 
@@ -857,7 +883,9 @@ struct ItemReaderWebViewPanel: View {
     /// on surfaces that mount the panel without one.
     private func open(_ item: Item) {
         if let navigate = vm.onNavigateToItem {
-            navigate(item)
+            // A connection carries the bare row, and the reader needs the links.
+            let graph = database.attemptRead { try ItemGraph.fetch(item.id, in: $0) } ?? nil
+            navigate(graph ?? ItemGraph(item: item))
         } else {
             NotificationCenter.default.post(name: .groveOpenItem, object: item.id)
         }

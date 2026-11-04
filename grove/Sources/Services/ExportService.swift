@@ -8,8 +8,8 @@ import AppKit
 /// Protocol for export service.
 @MainActor
 protocol ExportServiceProtocol {
-    static func exportItem(_ item: Item) -> Data?
-    static func markdownForItem(_ item: Item) -> String
+    static func exportItem(_ item: ItemGraph) -> Data?
+    static func markdownForItem(_ item: ItemGraph) -> String
 }
 
 @MainActor
@@ -17,7 +17,7 @@ final class ExportService: ExportServiceProtocol {
 
     // MARK: - Item Export
 
-    static func exportItem(_ item: Item) -> Data? {
+    static func exportItem(_ item: ItemGraph) -> Data? {
         return markdownForItem(item).data(using: .utf8)
     }
 
@@ -37,7 +37,7 @@ final class ExportService: ExportServiceProtocol {
 
     // MARK: - Markdown Generation
 
-    static func markdownForItem(_ item: Item) -> String {
+    static func markdownForItem(_ item: ItemGraph) -> String {
         var md = "# \(item.title)\n\n"
 
         // Metadata
@@ -56,8 +56,8 @@ final class ExportService: ExportServiceProtocol {
         }
 
         // Boards
-        if !item.boards.isEmpty {
-            md += "**Boards:** \(item.boards.map(\.title).joined(separator: ", "))  \n"
+        if let board = item.board {
+            md += "**Boards:** \(board.title)  \n"
         }
 
         md += "\n"

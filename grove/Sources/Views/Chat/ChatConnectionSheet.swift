@@ -1,10 +1,9 @@
 import SwiftUI
-import SwiftData
 
 /// Sheet for creating a connection between two items referenced in a chat message.
 struct ChatConnectionSheet: View {
     let message: ChatMessage
-    let referencedItems: [Item]
+    let referencedItems: [ItemGraph]
     @Binding var connectionType: ConnectionType
     var onCreateConnection: () -> Void
     var onDismiss: () -> Void

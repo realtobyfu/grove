@@ -4,9 +4,9 @@ import Foundation
 
 /// Aggregated context used by conversation starter generators.
 struct StarterContext {
-    let recentItems: [Item]          // last 7 days
-    let staleItems: [Item]           // untouched 30+ days with reflections
-    let contradictionItems: [Item]   // items with .contradicts outgoing connections
+    let recentItems: [ItemGraph]          // last 7 days
+    let staleItems: [ItemGraph]           // untouched 30+ days with reflections
+    let contradictionItems: [ItemGraph]   // items with .contradicts outgoing connections
     let contradictionPairs: [ContradictionPair]  // actual contradicting item pairs, with reason
     let topRecentTag: String?
     let topRecentTagCount: Int
@@ -18,15 +18,15 @@ struct StarterContext {
 /// TensionDetectionService). This is what makes a "resolve the tension" starter
 /// concrete rather than generic.
 struct ContradictionPair {
-    let source: Item
-    let target: Item
+    let source: ItemGraph
+    let target: ItemGraph
     let reason: String?
 }
 
 /// A cluster of unboarded items sharing a common tag.
 struct UnboardedCluster {
     let sharedTag: String
-    let items: [Item]
+    let items: [ItemGraph]
     let count: Int
 }
 
@@ -38,7 +38,7 @@ enum StarterContextBuilder {
     /// Builds aggregated context from the given items, identifying recent, stale,
     /// contradictory, tag-clustered, and unboarded items.
     @MainActor
-    static func buildContext(from allItems: [Item]) -> StarterContext {
+    static func buildContext(from allItems: [ItemGraph]) -> StarterContext {
         let suggestionEligibleItems = allItems.filter { $0.isIncludedInDiscussionSuggestions }
         let now = Date()
         let sevenDaysAgo = now.addingTimeInterval(-7 * 24 * 3600)
@@ -85,17 +85,15 @@ enum StarterContextBuilder {
     /// items, deduplicated by unordered pair. Pairs whose connection carries a
     /// reason note are ranked first, since they yield more concrete starters.
     @MainActor
-    private static func buildContradictionPairs(from items: [Item]) -> [ContradictionPair] {
-        let eligibleIDs = Set(items.map(\.id))
+    private static func buildContradictionPairs(from items: [ItemGraph]) -> [ContradictionPair] {
+        let eligibleItems = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var seen = Set<String>()
         var pairs: [ContradictionPair] = []
 
         for item in items {
             for connection in item.outgoingConnections where connection.type == .contradicts {
-                guard let source = connection.sourceItem,
-                      let target = connection.targetItem,
-                      eligibleIDs.contains(source.id),
-                      eligibleIDs.contains(target.id),
+                guard let source = connection.sourceItem.flatMap({ eligibleItems[$0.id] }),
+                      let target = connection.targetItem.flatMap({ eligibleItems[$0.id] }),
                       source.id != target.id else { continue }
 
                 let key = [source.id.uuidString, target.id.uuidString].sorted().joined(separator: "|")
@@ -117,8 +115,8 @@ enum StarterContextBuilder {
 
     /// Returns sorted, deduplicated board IDs for a set of items.
     @MainActor
-    static func boardIDs(for items: [Item]) -> [UUID] {
-        let ids = items.flatMap { $0.boards.map(\.id) }
+    static func boardIDs(for items: [ItemGraph]) -> [UUID] {
+        let ids = items.compactMap(\.boardID)
         let unique = Set(ids)
         return unique.sorted { $0.uuidString < $1.uuidString }
     }
@@ -128,9 +126,9 @@ enum StarterContextBuilder {
     /// Finds a cluster of unboarded items sharing 2+ tags, with at least 4 items total.
     /// Returns the largest such cluster, keyed on the most-shared tag.
     @MainActor
-    private static func findUnboardedCluster(from allItems: [Item]) -> UnboardedCluster? {
+    private static func findUnboardedCluster(from allItems: [ItemGraph]) -> UnboardedCluster? {
         let unboarded = allItems.filter {
-            $0.boards.isEmpty
+            $0.board == nil
                 && ($0.status == .active || $0.status == .inbox)
                 && !$0.isFeedSuggestion
         }

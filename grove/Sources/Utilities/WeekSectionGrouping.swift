@@ -3,9 +3,9 @@ import SwiftUI
 struct WeekSection: Identifiable {
     let id: String
     let title: String
-    let items: [Item]
+    let items: [ItemGraph]
 
-    static func group(_ items: [Item]) -> [WeekSection] {
+    static func group(_ items: [ItemGraph]) -> [WeekSection] {
         let calendar = Calendar.current
         let now = Date()
 
@@ -15,7 +15,7 @@ struct WeekSection: Identifiable {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d"
 
-        var buckets: [Date: [Item]] = [:]
+        var buckets: [Date: [ItemGraph]] = [:]
 
         for item in items {
             guard let weekInterval = calendar.dateInterval(of: .weekOfYear, for: item.createdAt) else { continue }

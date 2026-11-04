@@ -2,7 +2,6 @@
 import AppKit
 #endif
 import SwiftUI
-import SwiftData
 
 struct BoardGridView: View {
     private enum Layout {
@@ -11,14 +10,14 @@ struct BoardGridView: View {
         static let maxGridWidth: CGFloat = 1450
     }
 
-    let items: [Item]
+    let items: [ItemGraph]
     var sections: [WeekSection]?
     let canReorder: Bool
-    @Binding var selectedItem: Item?
-    @Binding var openedItem: Item?
+    @Binding var selectedItem: ItemGraph?
+    @Binding var openedItem: ItemGraph?
     @Binding var draggingItemID: UUID?
-    var onOpenItem: ((Item) -> Void)? = nil
-    var itemContextMenu: (Item) -> AnyView
+    var onOpenItem: ((ItemGraph) -> Void)? = nil
+    var itemContextMenu: (ItemGraph) -> AnyView
     var onReorder: (UUID, UUID) -> Void
 
     var body: some View {
@@ -49,7 +48,7 @@ struct BoardGridView: View {
         }
     }
 
-    private func gridCard(_ item: Item) -> some View {
+    private func gridCard(_ item: ItemGraph) -> some View {
         Button {
             openItem(item)
         } label: {
@@ -78,7 +77,7 @@ struct BoardGridView: View {
         ))
     }
 
-    private func openItem(_ item: Item) {
+    private func openItem(_ item: ItemGraph) {
         selectedItem = item
         if let onOpenItem {
             onOpenItem(item)

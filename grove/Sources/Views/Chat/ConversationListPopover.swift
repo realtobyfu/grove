@@ -1,17 +1,16 @@
 import SwiftUI
-import SwiftData
 
 /// Popover displaying a searchable list of conversations with keyboard navigation.
 struct ConversationListPopover: View {
-    let conversations: [Conversation]
-    let filteredConversations: [Conversation]
+    let conversations: [ConversationGraph]
+    let filteredConversations: [ConversationGraph]
     let isHistoryCapped: Bool
     let trimmedQuery: String
     @Binding var searchQuery: String
     @Binding var selectionID: UUID?
     let entitlement: EntitlementService
-    var onSelectConversation: (Conversation) -> Void
-    var onDeleteConversation: (Conversation) -> Void
+    var onSelectConversation: (ConversationGraph) -> Void
+    var onDeleteConversation: (ConversationGraph) -> Void
     var onUnlockPro: () -> Void
     var onPrepare: () -> Void
     var onSyncSelection: () -> Void

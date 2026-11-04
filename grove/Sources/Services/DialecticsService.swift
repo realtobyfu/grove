@@ -1,20 +1,18 @@
 import Foundation
-import SwiftData
+import SQLiteData
 
 /// Protocol for testability.
 @MainActor
 protocol DialecticsServiceProtocol {
     func startConversation(
         trigger: ConversationTrigger,
-        seedItems: [Item],
-        board: Board?,
-        context: ModelContext
-    ) -> Conversation
+        seedItems: [ItemGraph],
+        board: Board?
+    ) -> ConversationGraph
 
     func sendMessage(
         userText: String,
-        conversation: Conversation,
-        context: ModelContext
+        conversationID: Conversation.ID
     ) async -> ChatMessage?
 }
 
@@ -23,16 +21,25 @@ protocol DialecticsServiceProtocol {
 @MainActor
 @Observable
 final class DialecticsService: DialecticsServiceProtocol {
+    private let database: any DatabaseWriter
     private let provider: LLMProvider
     var isGenerating = false
     var streamingText = ""
     var lastError: String?
+    /// Called after each write to a conversation, with its ID. A conversation is
+    /// a value, so this is how whoever holds one hears that it went out of date
+    /// while a reply is still in flight.
+    @ObservationIgnored var onConversationChanged: (@MainActor (Conversation.ID) -> Void)?
 
     private static let maxToolRounds = 3
     private static let contextSummaryThreshold = 20
     private static let keepRecentMessages = 10
 
-    init(provider: LLMProvider = LLMServiceConfig.makeProvider()) {
+    init(
+        database: any DatabaseWriter = AppDatabase.current,
+        provider: LLMProvider = LLMServiceConfig.makeProvider()
+    ) {
+        self.database = database
         self.provider = provider
     }
 
@@ -62,74 +69,70 @@ final class DialecticsService: DialecticsServiceProtocol {
 
     func startConversation(
         trigger: ConversationTrigger,
-        seedItems: [Item],
-        board: Board?,
-        context: ModelContext
-    ) -> Conversation {
+        seedItems: [ItemGraph],
+        board: Board?
+    ) -> ConversationGraph {
         let conversation = Conversation(
             trigger: trigger,
-            board: board,
+            boardID: board?.id,
             seedItemIDs: seedItems.map(\.id)
         )
-        context.insert(conversation)
 
         // System message (hidden)
-        let systemMsg = ChatMessage(
-            role: .system,
-            content: Self.systemPrompt,
-            position: 0,
-            isHidden: true
-        )
-        systemMsg.conversation = conversation
-        conversation.messages.append(systemMsg)
-        context.insert(systemMsg)
+        var messages = [
+            ChatMessage(
+                role: .system,
+                content: Self.systemPrompt,
+                position: 0,
+                conversationID: conversation.id,
+                isHidden: true
+            )
+        ]
 
         // Inject seed item context if present
         if !seedItems.isEmpty {
             let contextText = buildSeedContext(items: seedItems)
-            let contextMsg = ChatMessage(
+            messages.append(ChatMessage(
                 role: .system,
                 content: contextText,
                 position: 1,
+                conversationID: conversation.id,
                 isHidden: true
-            )
-            contextMsg.conversation = conversation
-            conversation.messages.append(contextMsg)
-            context.insert(contextMsg)
+            ))
         }
 
-        try? context.save()
-        return conversation
+        let openingMessages = messages
+        database.attempt { db in
+            try Conversation.insert { conversation }.execute(db)
+            for message in openingMessages {
+                try ChatMessage.insert { message }.execute(db)
+            }
+        }
+        return ConversationGraph(conversation: conversation, board: board, messages: openingMessages)
     }
 
     func sendMessage(
         userText: String,
-        conversation: Conversation,
-        context: ModelContext
+        conversationID: Conversation.ID
     ) async -> ChatMessage? {
         guard !isGenerating else { return nil }
         isGenerating = true
         streamingText = ""
         lastError = nil
 
-        // Save user message
-        let userMsg = ChatMessage(
-            role: .user,
-            content: userText,
-            position: conversation.nextPosition
-        )
-        userMsg.conversation = conversation
-        conversation.messages.append(userMsg)
-        context.insert(userMsg)
-        conversation.updatedAt = .now
-        try? context.save()
-
-        // Build message history for LLM
-        let turns = buildTurns(for: conversation, context: context)
+        // Save user message, and build message history for LLM from what's saved.
+        // A message that didn't save can't be answered: it wouldn't be in the history.
+        guard appendMessage(role: .user, content: userText, to: conversationID) != nil,
+              let conversation = fetchConversation(conversationID) else {
+            lastError = "Unable to generate a response. Try again."
+            isGenerating = false
+            return nil
+        }
+        let turns = buildTurns(for: conversation)
 
         // Run agentic loop — native tool calling when the provider supports it,
         // prompt-based JSON tool calls otherwise.
-        let tools = KnowledgeBaseTools(modelContext: context)
+        let tools = KnowledgeBaseTools(database: database)
         var currentTurns = turns
         var assistantContent: String?
 
@@ -137,15 +140,13 @@ final class DialecticsService: DialecticsServiceProtocol {
             assistantContent = await runNativeToolLoop(
                 turns: &currentTurns,
                 tools: tools,
-                conversation: conversation,
-                context: context
+                conversationID: conversationID
             )
         } else {
             assistantContent = await runPromptToolLoop(
                 turns: &currentTurns,
                 tools: tools,
-                conversation: conversation,
-                context: context
+                conversationID: conversationID
             )
         }
 
@@ -158,30 +159,76 @@ final class DialecticsService: DialecticsServiceProtocol {
         }
 
         // Extract referenced item titles from [[wiki-links]]
-        let referencedIDs = extractReferencedItemIDs(from: finalContent, context: context)
+        let referencedIDs = extractReferencedItemIDs(from: finalContent)
 
         // Save assistant response
-        let assistantMsg = ChatMessage(
+        let assistantMsg = appendMessage(
             role: .assistant,
             content: finalContent,
-            position: conversation.nextPosition,
+            to: conversationID,
             referencedItemIDs: referencedIDs
         )
-        assistantMsg.conversation = conversation
-        conversation.messages.append(assistantMsg)
-        context.insert(assistantMsg)
-        conversation.updatedAt = .now
-        try? context.save()
 
-        // Auto-title after first exchange
-        if conversation.title == "New Conversation" && conversation.visibleMessages.count >= 3 {
-            Task {
-                await generateTitle(for: conversation, context: context)
+        // A conversation deleted during the reply leaves nothing to report to.
+        if let conversation = fetchConversation(conversationID) {
+            if assistantMsg == nil {
+                lastError = "Unable to generate a response. Try again."
+            }
+
+            // Auto-title after first exchange
+            if conversation.title == "New Conversation" && conversation.visibleMessages.count >= 3 {
+                Task {
+                    await generateTitle(for: conversationID)
+                }
             }
         }
 
         isGenerating = false
         return assistantMsg
+    }
+
+    /// Adds a message to the end of a conversation. Returns it, or `nil` when the
+    /// conversation is gone, which happens if it's deleted while a reply is in
+    /// flight.
+    ///
+    /// The position is read inside the transaction. A `ConversationGraph` held
+    /// across an `await` knows nothing of messages written since, so its
+    /// `nextPosition` would hand out a duplicate.
+    @discardableResult
+    func appendMessage(
+        role: ChatRole,
+        content: String,
+        to conversationID: Conversation.ID,
+        isHidden: Bool = false,
+        toolCallName: String? = nil,
+        referencedItemIDs: [UUID] = []
+    ) -> ChatMessage? {
+        let saved = database.attempt { db -> ChatMessage? in
+            guard try Conversation.modify(conversationID, in: db, { $0.updatedAt = .now }) != nil else {
+                return nil
+            }
+            let last = try ChatMessage
+                .where { $0.conversationID.eq(conversationID) }
+                .order { $0.position.desc() }
+                .fetchOne(db)
+            let message = ChatMessage(
+                role: role,
+                content: content,
+                position: (last?.position ?? -1) + 1,
+                conversationID: conversationID,
+                isHidden: isHidden,
+                toolCallName: toolCallName,
+                referencedItemIDs: referencedItemIDs
+            )
+            try ChatMessage.insert { message }.execute(db)
+            return message
+        } ?? nil
+        onConversationChanged?(conversationID)
+        return saved
+    }
+
+    private func fetchConversation(_ id: Conversation.ID) -> ConversationGraph? {
+        database.attemptRead { try ConversationGraph.fetch(id, in: $0) } ?? nil
     }
 
     // MARK: - Native Tool Loop
@@ -192,8 +239,7 @@ final class DialecticsService: DialecticsServiceProtocol {
     private func runNativeToolLoop(
         turns: inout [ChatTurn],
         tools: KnowledgeBaseTools,
-        conversation: Conversation,
-        context: ModelContext
+        conversationID: Conversation.ID
     ) async -> String? {
         // The persisted system prompt carries prompt-based tool instructions;
         // swap them for a short note so the model uses native tools instead.
@@ -233,30 +279,24 @@ final class DialecticsService: DialecticsServiceProtocol {
 
             for call in response.toolCalls {
                 // Persist the call and its result as hidden messages for traceability
-                let toolCallMsg = ChatMessage(
+                appendMessage(
                     role: .assistant,
                     content: "\(call.name)(\(call.argumentsJSON))",
-                    position: conversation.nextPosition,
+                    to: conversationID,
                     isHidden: true,
                     toolCallName: call.name
                 )
-                toolCallMsg.conversation = conversation
-                conversation.messages.append(toolCallMsg)
-                context.insert(toolCallMsg)
 
                 let toolResult = await tools.fulfill(toolName: call.name, args: call.stringArguments)
                     ?? "Tool \"\(call.name)\" returned no results."
 
-                let toolResultMsg = ChatMessage(
+                appendMessage(
                     role: .tool,
                     content: toolResult,
-                    position: conversation.nextPosition,
+                    to: conversationID,
                     isHidden: true,
                     toolCallName: call.name
                 )
-                toolResultMsg.conversation = conversation
-                conversation.messages.append(toolResultMsg)
-                context.insert(toolResultMsg)
 
                 turns.append(ChatTurn(role: "tool", content: toolResult, toolCallID: call.id))
             }
@@ -276,8 +316,7 @@ final class DialecticsService: DialecticsServiceProtocol {
     private func runPromptToolLoop(
         turns currentTurns: inout [ChatTurn],
         tools: KnowledgeBaseTools,
-        conversation: Conversation,
-        context: ModelContext
+        conversationID: Conversation.ID
     ) async -> String? {
         var assistantContent: String?
 
@@ -292,32 +331,26 @@ final class DialecticsService: DialecticsServiceProtocol {
             // Check if response contains a tool call
             if let toolCall = parseToolCall(from: content) {
                 // Save tool call message (hidden)
-                let toolCallMsg = ChatMessage(
+                appendMessage(
                     role: .assistant,
                     content: content,
-                    position: conversation.nextPosition,
+                    to: conversationID,
                     isHidden: true,
                     toolCallName: toolCall.name
                 )
-                toolCallMsg.conversation = conversation
-                conversation.messages.append(toolCallMsg)
-                context.insert(toolCallMsg)
 
                 // Fulfill tool call
                 let toolResult = await tools.fulfill(toolName: toolCall.name, args: toolCall.args)
                     ?? "Tool \"\(toolCall.name)\" returned no results."
 
                 // Save tool result (hidden)
-                let toolResultMsg = ChatMessage(
+                appendMessage(
                     role: .tool,
                     content: toolResult,
-                    position: conversation.nextPosition,
+                    to: conversationID,
                     isHidden: true,
                     toolCallName: toolCall.name
                 )
-                toolResultMsg.conversation = conversation
-                conversation.messages.append(toolResultMsg)
-                context.insert(toolResultMsg)
 
                 // Append to turns and loop
                 currentTurns.append(ChatTurn(role: "assistant", content: content))
@@ -367,7 +400,8 @@ final class DialecticsService: DialecticsServiceProtocol {
 
     // MARK: - Title Generation
 
-    func generateTitle(for conversation: Conversation, context: ModelContext) async {
+    func generateTitle(for conversationID: Conversation.ID) async {
+        guard let conversation = fetchConversation(conversationID) else { return }
         let visibleMsgs = conversation.visibleMessages.prefix(6)
         let transcript = visibleMsgs.map { "\($0.role.rawValue): \($0.content.prefix(200))" }.joined(separator: "\n")
 
@@ -379,19 +413,23 @@ final class DialecticsService: DialecticsServiceProtocol {
 
         if let title = result?.content.trimmingCharacters(in: .whitespacesAndNewlines),
            !title.isEmpty, title.count < 60 {
-            conversation.title = title.replacingOccurrences(of: "\"", with: "")
-            try? context.save()
+            database.attempt { db in
+                try Conversation.modify(conversationID, in: db) {
+                    $0.title = title.replacingOccurrences(of: "\"", with: "")
+                }
+            }
+            onConversationChanged?(conversationID)
         }
     }
 
     // MARK: - Context Building
 
-    private func buildTurns(for conversation: Conversation, context: ModelContext) -> [ChatTurn] {
+    private func buildTurns(for conversation: ConversationGraph) -> [ChatTurn] {
         var messages = conversation.sortedMessages
 
         // Context window management: summarize if too long
         if messages.count > Self.contextSummaryThreshold {
-            messages = summarizeOldMessages(messages, context: context, conversation: conversation)
+            messages = summarizeOldMessages(messages)
         }
 
         return messages.map { msg in
@@ -407,7 +445,7 @@ final class DialecticsService: DialecticsServiceProtocol {
         }
     }
 
-    private func summarizeOldMessages(_ messages: [ChatMessage], context: ModelContext, conversation: Conversation) -> [ChatMessage] {
+    private func summarizeOldMessages(_ messages: [ChatMessage]) -> [ChatMessage] {
         let keepCount = Self.keepRecentMessages
         let systemMessages = messages.filter { $0.role == .system }
         let nonSystem = messages.filter { $0.role != .system }
@@ -432,7 +470,7 @@ final class DialecticsService: DialecticsServiceProtocol {
         return systemMessages + [summaryMsg] + recentMessages
     }
 
-    private func buildSeedContext(items: [Item]) -> String {
+    private func buildSeedContext(items: [ItemGraph]) -> String {
         var parts = ["[Context: The user wants to discuss the following items from their knowledge base]\n"]
         for item in items {
             parts.append(LLMContextBuilder.itemDescription(item, contentLimit: 500))
@@ -497,12 +535,12 @@ final class DialecticsService: DialecticsServiceProtocol {
 
     // MARK: - Wiki-Link Extraction
 
-    private func extractReferencedItemIDs(from content: String, context: ModelContext) -> [UUID] {
+    private func extractReferencedItemIDs(from content: String) -> [UUID] {
         let pattern = /\[\[([^\]]+)\]\]/
         let matches = content.matches(of: pattern)
         guard !matches.isEmpty else { return [] }
 
-        let allItems: [Item] = context.fetchAll()
+        let allItems = fetchAllItems()
         let titles = matches.map { String($0.1) }
 
         return titles.compactMap { title in
@@ -510,19 +548,23 @@ final class DialecticsService: DialecticsServiceProtocol {
         }
     }
 
+    private func fetchAllItems() -> [Item] {
+        database.attemptRead { try Item.all.fetchAll($0) } ?? []
+    }
+
     // MARK: - Item-Anchored Conversation
 
     /// Creates a conversation anchored to a single item and generates an opening assistant message.
-    func startDiscussion(item: Item, context: ModelContext) async -> Conversation {
+    func startDiscussion(item: ItemGraph) async -> ConversationGraph {
         let conversation = startConversation(
             trigger: .userInitiated,
             seedItems: [item],
-            board: item.boards.first,
-            context: context
+            board: item.board
         )
         // Title the conversation immediately so it's identifiable
-        conversation.title = "Discuss: \(item.title)"
-        try? context.save()
+        database.attempt { db in
+            try Conversation.modify(conversation.id, in: db) { $0.title = "Discuss: \(item.title)" }
+        }
 
         // Generate opening message from assistant
         let openingPrompt = """
@@ -545,21 +587,16 @@ final class DialecticsService: DialecticsServiceProtocol {
             ?? "Let's explore your note on \"\(item.title)\". What aspect interests you most, or what made you save this?"
 
         // Extract any wiki-link references from the opening
-        let referencedIDs = extractReferencedItemIDs(from: openingContent, context: context)
+        let referencedIDs = extractReferencedItemIDs(from: openingContent)
 
-        let assistantMsg = ChatMessage(
+        appendMessage(
             role: .assistant,
             content: openingContent,
-            position: conversation.nextPosition,
+            to: conversation.id,
             referencedItemIDs: referencedIDs
         )
-        assistantMsg.conversation = conversation
-        conversation.messages.append(assistantMsg)
-        context.insert(assistantMsg)
-        conversation.updatedAt = .now
-        try? context.save()
 
-        return conversation
+        return fetchConversation(conversation.id) ?? conversation
     }
 
     // MARK: - Reflection Creation
@@ -568,23 +605,28 @@ final class DialecticsService: DialecticsServiceProtocol {
         content: String,
         itemTitle: String,
         blockType: ReflectionBlockType,
-        conversation: Conversation,
-        context: ModelContext
+        conversationID: Conversation.ID
     ) -> ReflectionBlock? {
-        let allItems: [Item] = context.fetchAll()
-        guard let item = ItemResolver.resolve(itemTitle, in: allItems) else {
+        guard let item = ItemResolver.resolve(itemTitle, in: fetchAllItems()) else {
             return nil
         }
 
-        let position = (item.reflections.map(\.position).max() ?? -1) + 1
-        let block = ReflectionBlock(item: item, blockType: blockType, content: content, position: position)
-        block.conversation = conversation
-        context.insert(block)
-        item.reflections.append(block)
-        conversation.createdReflections.append(block)
-        try? context.save()
-        WikiLinkSync.sync(item: item, content: content, modelContext: context)
-        return block
+        let saved = database.attempt { db -> ReflectionBlock in
+            var block = ReflectionBlock(
+                itemID: item.id,
+                blockType: blockType,
+                content: content,
+                position: try ReflectionBlock.nextPosition(onItem: item.id, in: db)
+            )
+            block.conversationID = conversationID
+            let row = block
+            try ReflectionBlock.insert { row }.execute(db)
+            return row
+        }
+        guard let saved else { return nil }
+        WikiLinkSync.sync(item.id, content: content, database: database)
+        onConversationChanged?(conversationID)
+        return saved
     }
 
     // MARK: - Note Creation
@@ -592,37 +634,37 @@ final class DialecticsService: DialecticsServiceProtocol {
     func saveAsNote(
         content: String,
         title: String,
-        conversation: Conversation,
-        context: ModelContext
+        conversationID: Conversation.ID
     ) -> Item? {
         let trimmedTitle = title.trimmingCharacters(in: .whitespaces)
         guard !trimmedTitle.isEmpty, !content.isEmpty else { return nil }
 
-        let item = Item(title: trimmedTitle, type: .note)
-        item.content = content
-        item.status = .active
-        context.insert(item)
+        var note = Item(title: trimmedTitle, type: .note)
+        note.content = content
+        note.status = .active
+        let item = note
+
+        let saved: Void? = database.attempt { db in
+            try Item.insert { item }.execute(db)
+
+            // If conversation is item-anchored, create a connection from source item to new note
+            if let sourceID = try Conversation.find(conversationID).fetchOne(db)?.seedItemIDs.first,
+               try Item.find(sourceID).fetchOne(db) != nil {
+                var connection = Connection(sourceItemID: sourceID, targetItemID: item.id, type: .related)
+                connection.note = "Created from dialectical conversation"
+                connection.isAutoGenerated = true
+                let row = connection
+                try Connection.insert { row }.execute(db)
+            }
+        }
+        guard saved != nil else { return nil }
 
         // Auto-tag the new item asynchronously
         Task {
-            let autoTagService = AutoTagService()
-            await autoTagService.tagItem(item, in: context)
+            let autoTagService = AutoTagService(database: database)
+            await autoTagService.tagItem(item.id)
         }
 
-        // If conversation is item-anchored, create a connection from source item to new note
-        if let sourceID = conversation.seedItemIDs.first {
-            let allItems: [Item] = context.fetchAll()
-            if let sourceItem = allItems.first(where: { $0.id == sourceID }), sourceItem.id != item.id {
-                let connection = Connection(sourceItem: sourceItem, targetItem: item, type: .related)
-                connection.note = "Created from dialectical conversation"
-                connection.isAutoGenerated = true
-                context.insert(connection)
-                sourceItem.outgoingConnections.append(connection)
-                item.incomingConnections.append(connection)
-            }
-        }
-
-        try? context.save()
         return item
     }
 
@@ -631,22 +673,21 @@ final class DialecticsService: DialecticsServiceProtocol {
     func createConnection(
         sourceTitle: String,
         targetTitle: String,
-        type: ConnectionType,
-        context: ModelContext
+        type: ConnectionType
     ) -> Connection? {
-        let allItems: [Item] = context.fetchAll()
+        let allItems = fetchAllItems()
         guard let source = ItemResolver.resolve(sourceTitle, in: allItems),
               let target = ItemResolver.resolve(targetTitle, in: allItems) else {
             return nil
         }
 
-        let connection = Connection(sourceItem: source, targetItem: target, type: type)
+        var connection = Connection(sourceItemID: source.id, targetItemID: target.id, type: type)
         connection.note = "Created from dialectical conversation"
         connection.isAutoGenerated = true
-        context.insert(connection)
-        source.outgoingConnections.append(connection)
-        target.incomingConnections.append(connection)
-        try? context.save()
-        return connection
+        let row = connection
+        let saved: Void? = database.attempt { db in
+            try Connection.insert { row }.execute(db)
+        }
+        return saved == nil ? nil : row
     }
 }

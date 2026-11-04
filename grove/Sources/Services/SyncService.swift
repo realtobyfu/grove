@@ -1,6 +1,5 @@
 import SwiftUI
-import SwiftData
-import CoreData
+import SQLiteData
 
 /// Sync status states for the UI indicator.
 enum SyncStatus: Equatable, Sendable {
@@ -32,8 +31,8 @@ enum SyncStatus: Equatable, Sendable {
 }
 
 /// Manages CloudKit sync state and monitoring.
-/// SwiftData handles the actual sync — this service monitors sync events
-/// and provides UI state for the sync indicator.
+/// SQLiteData's `SyncEngine` does the actual sync — this service watches it and
+/// provides UI state for the sync indicator.
 @MainActor
 @Observable
 final class SyncService {
@@ -41,36 +40,52 @@ final class SyncService {
     let isSyncConfigured: Bool
     private(set) var lastCompletedAt: Date?
 
+    private let engine: SyncEngine?
     private var monitoringTasks: [Task<Void, Never>] = []
     private var activeEventIDs: Set<UUID> = []
     private var lastEventError: String?
 
-    init(syncEnabled: Bool = SyncSettings.syncEnabled, startsMonitoring: Bool = true) {
+    init(
+        engine: SyncEngine? = nil,
+        syncEnabled: Bool = SyncSettings.syncEnabled,
+        startupError: String? = nil,
+        startsMonitoring: Bool = true
+    ) {
+        self.engine = engine
         isSyncConfigured = syncEnabled
+        lastEventError = startupError
         if syncEnabled {
-            status = .waiting
+            status = startupError.map(SyncStatus.error) ?? .waiting
             if startsMonitoring { startMonitoring() }
         }
     }
 
-    /// Start monitoring for SwiftData/CloudKit sync events.
+    /// Start watching the sync engine. Each stretch of synchronizing counts as
+    /// one event.
     func startMonitoring() {
-        guard isSyncConfigured, monitoringTasks.isEmpty else { return }
-        let remoteChangeTask = Task { [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: NSPersistentCloudKitContainer.eventChangedNotification) {
+        guard isSyncConfigured, let engine, monitoringTasks.isEmpty else { return }
+        let monitor = Task { [weak self] in
+            var activeEvent: UUID?
+            while !Task.isCancelled {
+                let isSynchronizing = await withCheckedContinuation { continuation in
+                    withObservationTracking {
+                        _ = engine.isSynchronizing
+                    } onChange: {
+                        continuation.resume(returning: engine.isSynchronizing)
+                    }
+                }
                 guard let self else { return }
-                if let event = notification.userInfo?[NSPersistentCloudKitContainer.eventNotificationUserInfoKey] as? NSPersistentCloudKitContainer.Event {
-                    self.recordEvent(
-                        id: event.identifier,
-                        completedAt: event.endDate,
-                        errorDescription: event.error?.localizedDescription,
-                        // Setup completion is not evidence that data was transferred.
-                        isDataTransfer: event.type == .import || event.type == .export
-                    )
+                if isSynchronizing, activeEvent == nil {
+                    let event = UUID()
+                    activeEvent = event
+                    self.recordEvent(id: event, completedAt: nil, errorDescription: nil)
+                } else if !isSynchronizing, let event = activeEvent {
+                    activeEvent = nil
+                    self.recordEvent(id: event, completedAt: .now, errorDescription: nil)
                 }
             }
         }
-        monitoringTasks.append(remoteChangeTask)
+        monitoringTasks.append(monitor)
     }
 
     /// Stop monitoring.
@@ -133,7 +148,10 @@ struct SyncSettings: Sendable {
     private static var defaults: UserDefaults { UserDefaults.standard }
 
     private enum Key: String {
-        case syncEnabled = "grove.sync.enabled"
+        // Not "grove.sync.enabled": that one is true wherever SwiftData sync was
+        // on, and reusing it would upload the whole library in a new format the
+        // first time a signed build launched.
+        case syncEnabled = "grove.sqlitedata.sync.enabled"
     }
 
     /// Whether CloudKit sync is enabled. Default: false (local-only).

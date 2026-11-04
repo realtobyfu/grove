@@ -1,20 +1,18 @@
 import SwiftUI
-import SwiftData
 
 struct SearchOverlayView: View {
-    @Environment(\.modelContext) private var modelContext
     @Binding var isPresented: Bool
     @State private var viewModel: SearchViewModel?
     @State private var selectedIndex = 0
     @FocusState private var isQueryFieldFocused: Bool
 
     /// Optional board scope for board-context search
-    var scopeBoard: Board?
+    var scopeBoard: BoardGraph?
 
     /// Called when a result is selected — navigates to item or board
-    var onSelectItem: ((Item) -> Void)?
-    var onSelectBoard: ((Board) -> Void)?
-    var onSelectTag: ((Tag) -> Void)?
+    var onSelectItem: ((ItemGraph) -> Void)?
+    var onSelectBoard: ((BoardGraph) -> Void)?
+    var onSelectTag: ((TagGraph) -> Void)?
 
     private var flatResults: [SearchResult] {
         guard let vm = viewModel else { return [] }
@@ -115,7 +113,7 @@ struct SearchOverlayView: View {
         }
         .shadow(color: .black.opacity(0.18), radius: 28, y: 14)
         .onAppear {
-            let vm = SearchViewModel(modelContext: modelContext)
+            let vm = SearchViewModel()
             vm.scopeBoard = scopeBoard
             viewModel = vm
             Task { @MainActor in
