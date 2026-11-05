@@ -1263,7 +1263,7 @@ enum ReaderModeSupport {
         // A fresh document carries no marks yet; the first pass after didFinish
         // renders the saved highlights without the ink-in animation.
         coordinator.lastAppliedHighlights = nil
-        coordinator.pendingRestoreProgress = (initialProgress > 0.01 && initialProgress < 0.99) ? initialProgress : nil
+        coordinator.pendingRestoreProgress = restorableProgress(initialProgress)
         let html = ReaderTemplate.page(
             article: article,
             typography: typography,
@@ -1344,18 +1344,39 @@ enum ReaderModeSupport {
         // Injecting before the document is up would silently no-op and, worse,
         // record the set as applied. didFinish passes documentIsReady.
         guard documentIsReady || !webView.isLoading else { return }
-        let desired = coordinator.desiredHighlights
-        let previous = coordinator.lastAppliedHighlights
-        if let previous, previous == desired { return }
-        let animated = previous.map { prior in desired.filter { !prior.contains($0) } } ?? []
-        coordinator.lastAppliedHighlights = desired
+        guard let pass = highlightPass(
+            desired: coordinator.desiredHighlights,
+            previous: coordinator.lastAppliedHighlights
+        ) else { return }
+        coordinator.lastAppliedHighlights = pass.highlights
         webView.evaluateJavaScript(
-            ReaderTemplate.applyHighlightsJS(desired, animated: animated),
+            ReaderTemplate.applyHighlightsJS(pass.highlights, animated: pass.animated),
             completionHandler: nil
         )
     }
 
-    private static func articleKey(_ article: ReadableArticle) -> String {
+    /// What one highlight pass should inject, or nil when the document already
+    /// carries exactly `desired`. `previous` is the set last injected into this
+    /// document — nil on its first pass, when nothing animates; afterwards only
+    /// strings absent from `previous` ink in.
+    nonisolated static func highlightPass(
+        desired: [String],
+        previous: [String]?
+    ) -> (highlights: [String], animated: [String])? {
+        if let previous, previous == desired { return nil }
+        let animated = previous.map { prior in desired.filter { !prior.contains($0) } } ?? []
+        return (desired, animated)
+    }
+
+    /// The saved scroll fraction worth restoring on load, or nil to start at
+    /// the top. Fractions within 1% of either end are not restored.
+    nonisolated static func restorableProgress(_ fraction: Double) -> Double? {
+        (fraction > 0.01 && fraction < 0.99) ? fraction : nil
+    }
+
+    /// Identity of one extraction: a re-extraction of the same page is a new
+    /// document and reloads, while typography/theme changes update in place.
+    nonisolated static func articleKey(_ article: ReadableArticle) -> String {
         "\(article.sourceURLString ?? "")#\(article.extractedAt.timeIntervalSince1970)"
     }
 }
