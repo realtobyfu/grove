@@ -19,7 +19,7 @@ struct ShortcutsSettingsView: View {
 
             Section("View") {
                 shortcutRow("Toggle Inspector", shortcut: "⌘]")
-                shortcutRow("Toggle Dialectics", shortcut: "⌘⇧D")
+                shortcutRow("Toggle Chat", shortcut: "⌘⇧D")
             }
 
             Section("Library") {

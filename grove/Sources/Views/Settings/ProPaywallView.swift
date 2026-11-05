@@ -219,7 +219,6 @@ struct ProPaywallView: View {
         case .fullHistory: return "text.magnifyingglass"
         case .smartRouting: return "point.3.connected.trianglepath.dotted"
         case .autoTagging: return "tag.fill"
-        case .synthesis: return "wand.and.stars"
         }
     }
 

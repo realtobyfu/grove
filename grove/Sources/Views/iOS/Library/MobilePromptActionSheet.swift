@@ -26,7 +26,7 @@ struct MobilePromptActionSheet: View {
 
                     VStack(spacing: Spacing.sm) {
                         actionCard(
-                            title: "Open Dialectics",
+                            title: "Open Chat",
                             subtitle: "Start a conversation grounded in this prompt and its context.",
                             systemImage: "bubble.left.and.bubble.right",
                             isPrimary: true,
@@ -46,7 +46,7 @@ struct MobilePromptActionSheet: View {
                         )
                     }
 
-                    Text("Dialectics opens a discussion. Writing only saves once you add a title or body.")
+                    Text("Chat opens a discussion. Writing only saves once you add a title or body.")
                         .font(.groveBodySmall)
                         .foregroundStyle(Color.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)

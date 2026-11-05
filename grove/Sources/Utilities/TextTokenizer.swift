@@ -2,7 +2,7 @@ import Foundation
 
 /// Unified text tokenization and keyword extraction.
 /// Consolidates duplicate tokenize/stopWords/jaccard logic from
-/// ConnectionSuggestionService, SynthesisService, and BoardSuggestionEngine.
+/// and BoardSuggestionEngine.
 enum TextTokenizer {
     /// Common English stop words — merged superset from all services.
     static let stopWords: Set<String> = [

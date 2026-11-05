@@ -16,7 +16,7 @@ extension ItemType {
 
 /// Shared utilities for building LLM prompt context from Item data.
 /// Eliminates duplicated item-description and item-list formatting
-/// across ConnectionSuggestionService, SynthesisService, DialecticsService,
+/// across DialecticsService,
 /// ReflectionPromptService, SmartNudgeService, and WeeklyDigestService.
 enum LLMContextBuilder {
     /// Build a text description of a single item for LLM context.

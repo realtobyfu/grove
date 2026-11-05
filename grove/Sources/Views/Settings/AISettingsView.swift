@@ -43,7 +43,7 @@ struct AISettingsView: View {
 
                 statusRow
 
-                Text("Chat, conversation starters, auto-tagging, article overviews, and synthesis.")
+                Text("Chat, conversation starters, auto-tagging, and article overviews.")
                     .font(.groveBodySmall)
                     .foregroundStyle(Color.textSecondary)
             }
@@ -225,21 +225,6 @@ struct AISettingsView: View {
                 }
             }
 
-            Section("Synthesis") {
-                if LLMServiceConfig.isConfigured {
-                    Text("AI generates themes, wiki-links, and reflection highlights.")
-                        .font(.groveBodySmall)
-                        .foregroundStyle(Color.textSecondary)
-                } else {
-                    Text("Uses local keywords until AI is configured.")
-                        .font(.groveBodySmall)
-                        .foregroundStyle(Color.textSecondary)
-                }
-
-                Text("Ask for a synthesis in Chat.")
-                    .font(.groveBadge)
-                    .foregroundStyle(Color.textTertiary)
-            }
         }
         .formStyle(.grouped)
         .frame(minWidth: 400)
@@ -422,9 +407,8 @@ struct AISettingsView: View {
     private func displayName(for service: String) -> String {
         switch service {
         case "tagging": return "Auto-Tagging"
-        case "synthesis": return "Synthesis"
         case "overview": return "Article Overview"
-        case "dialectics": return "Dialectics"
+        case "dialectics": return "Chat"
         default: return service.capitalized
         }
     }

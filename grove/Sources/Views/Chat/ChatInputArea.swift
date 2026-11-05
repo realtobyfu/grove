@@ -45,7 +45,7 @@ struct ChatInputArea: View {
                 .buttonStyle(.plain)
                 .disabled(inputText.trimmingCharacters(in: .whitespaces).isEmpty || isGenerating)
                 .accessibilityLabel("Send message")
-                .accessibilityHint("Submits your current prompt to Dialectics.")
+                .accessibilityHint("Sends your message to Chat.")
             }
         }
         .padding(Spacing.md)

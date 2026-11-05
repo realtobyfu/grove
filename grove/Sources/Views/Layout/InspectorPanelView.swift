@@ -62,7 +62,7 @@ struct InspectorPanelView: View {
                         .cardStyle(cornerRadius: 4)
                 }
                 .buttonStyle(.plain)
-                .help("Discuss this item in Dialectics")
+                .help("Discuss this item in Chat")
             }
             .padding(.horizontal)
 

@@ -61,20 +61,6 @@ enum AppConstants {
         static let imageCompressionQuality: Double = 0.7
     }
 
-    // MARK: - Activity Thresholds
-    enum Activity {
-        /// Minimum items added for weekly digest generation
-        static let digestMinItems: Int = 2
-        /// Minimum reflections for weekly digest (alternative to item count)
-        static let digestMinReflections: Int = 1
-        /// Minimum items for synthesis
-        static let synthesisMinItems: Int = 2
-        /// Maximum items for synthesis
-        static let synthesisMaxItems: Int = 30
-        /// Common tag threshold (appears in N+ items) for synthesis
-        static let commonTagThreshold: Int = 2
-    }
-
     // MARK: - Capture
     enum Capture {
         /// Auto-dismiss delay for inline board suggestions shown after capture.

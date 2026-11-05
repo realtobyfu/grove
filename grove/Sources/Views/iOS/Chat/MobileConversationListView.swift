@@ -49,7 +49,7 @@ struct MobileConversationListView: View {
                 ContentUnavailableView {
                     Label("No Conversations", systemImage: "bubble.left.and.bubble.right")
                 } description: {
-                    Text("Start a Dialectics conversation to explore your ideas.")
+                    Text("Start a conversation to explore your ideas.")
                 }
             } else {
                 conversationList

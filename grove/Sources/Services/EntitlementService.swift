@@ -19,27 +19,25 @@ struct MeteredUsage: Codable {
     var monthKey: String  // "yyyy-MM"
 }
 
-/// AI features the free tier can use a limited number of times per month.
-/// Every case is enforced somewhere (`canUse` + `recordUse`); a case with no
-/// call site is a ghost and must not be added back.
+/// AI features the free tier can use a limited number of times per month when
+/// they run on cloud AI. On-device AI costs nothing to serve, so it is never
+/// limited. Every case is enforced somewhere (`canUse` + `recordUse`); a case
+/// with no call site is a ghost and must not be added back.
 enum MeteredFeature: String, CaseIterable, Sendable {
     case dialectics      // DialecticalChatViewModel, Mobile chat entry points
     case autoTagging     // AutoTagService
-    case synthesis       // SynthesisService (via the chat create_synthesis tool)
 
     var freeLimit: Int {
         switch self {
         case .dialectics: return 6
         case .autoTagging: return 10
-        case .synthesis: return 1
         }
     }
 
     var displayName: String {
         switch self {
-        case .dialectics: return "Dialectics"
+        case .dialectics: return "Chat"
         case .autoTagging: return "Auto-Tagging"
-        case .synthesis: return "Synthesis"
         }
     }
 }
@@ -47,36 +45,33 @@ enum MeteredFeature: String, CaseIterable, Sendable {
 /// What Grove Pro unlocks. This list is shown on the paywall, so every case
 /// must be a feature that exists and is gated on `isPro` somewhere in the app:
 /// sync (SyncSettingsView), full history (chat conversation lists), smart
-/// routing (AI settings) and the three metered features above.
+/// routing (AI settings) and the two metered features above.
 enum ProFeature: String, CaseIterable, Sendable, Identifiable {
     case sync
     case dialectics
     case fullHistory
     case smartRouting
     case autoTagging
-    case synthesis
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .sync: return "Cross-device Sync"
-        case .dialectics: return "Unlimited Dialectics"
+        case .dialectics: return "Unlimited Chat"
         case .fullHistory: return "Full History"
         case .smartRouting: return "Smart Routing"
         case .autoTagging: return "Unlimited Auto-Tagging"
-        case .synthesis: return "AI Synthesis"
         }
     }
 
     var summary: String {
         switch self {
         case .sync: return "Your library, boards and reflections on every device, through iCloud."
-        case .dialectics: return "Unlimited conversations grounded in your own library. Free includes six a month."
+        case .dialectics: return "Unlimited cloud conversations grounded in your own library. Free includes six a month, and on-device chat is never limited."
         case .fullHistory: return "Keep and search your complete conversation history."
         case .smartRouting: return "On-device AI first, with cloud AI as a fallback when it is needed."
-        case .autoTagging: return "AI tags, a one-line summary and a board suggestion for every capture. Free includes ten a month."
-        case .synthesis: return "Ask Chat to synthesize a set of items into one note."
+        case .autoTagging: return "Cloud AI tags, a one-line summary and a board suggestion for every capture. Free includes ten a month, and on-device tagging is never limited."
         }
     }
 }
@@ -134,11 +129,17 @@ final class EntitlementService {
 
     nonisolated private static let stateKey = "grove.monetization.entitlementState"
     private let defaults: UserDefaults
+    /// Whether AI calls currently go to the cloud. Free-tier limits apply only then.
+    private let usesCloudAI: () -> Bool
 
     private(set) var state: EntitlementState
 
-    init(defaults: UserDefaults = .standard) {
+    init(
+        defaults: UserDefaults = .standard,
+        usesCloudAI: @escaping () -> Bool = { LLMServiceConfig.effectiveProviderType == .groq }
+    ) {
         self.defaults = defaults
+        self.usesCloudAI = usesCloudAI
         self.state = Self.loadState(from: defaults) ?? EntitlementState()
         refreshTrialState()
     }
@@ -174,15 +175,21 @@ final class EntitlementService {
         return formatter.string(from: Date())
     }
 
-    /// Returns true if the user can use this metered feature (Pro = always, Free = under limit).
+    /// True when metered features count against a monthly limit: a free user on cloud AI.
+    var hasUsageLimits: Bool {
+        !isPro && usesCloudAI()
+    }
+
+    /// Returns true if the user can use this metered feature. Only a free user
+    /// on cloud AI has a limit; Pro and on-device AI are unlimited.
     func canUse(_ feature: MeteredFeature) -> Bool {
-        if isPro { return true }
+        guard hasUsageLimits else { return true }
         return usageCount(for: feature) < feature.freeLimit
     }
 
-    /// Records one use of a metered feature. No-op if Pro.
+    /// Records one use of a metered feature. No-op when no limit applies.
     func recordUse(_ feature: MeteredFeature) {
-        guard !isPro else { return }
+        guard hasUsageLimits else { return }
         var usage = loadUsage(for: feature)
         let monthKey = Self.currentMonthKey
         if usage.monthKey != monthKey {
@@ -192,9 +199,9 @@ final class EntitlementService {
         saveUsage(usage, for: feature)
     }
 
-    /// Returns remaining free uses for this feature. Returns Int.max if Pro.
+    /// Returns remaining free uses for this feature. Returns Int.max when no limit applies.
     func remaining(_ feature: MeteredFeature) -> Int {
-        if isPro { return Int.max }
+        guard hasUsageLimits else { return Int.max }
         let used = usageCount(for: feature)
         return max(0, feature.freeLimit - used)
     }

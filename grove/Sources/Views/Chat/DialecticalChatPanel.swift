@@ -186,7 +186,7 @@ struct DialecticalChatPanel: View {
 
     private var headerBar: some View {
         HStack(spacing: Spacing.sm) {
-            Text("DIALECTICS")
+            Text("CHAT")
                 .font(.groveSectionHeader)
                 .textCase(.uppercase)
                 .tracking(1.2)
@@ -300,7 +300,7 @@ struct DialecticalChatPanel: View {
                 Image(systemName: "plus")
                     .font(.groveBody)
                     .foregroundStyle(Color.textMuted)
-                if !entitlement.isPro {
+                if entitlement.hasUsageLimits {
                     Text("\(entitlement.remaining(.dialectics))/\(MeteredFeature.dialectics.freeLimit)")
                         .font(.groveBadge)
                         .foregroundStyle(Color.textTertiary)
@@ -310,7 +310,7 @@ struct DialecticalChatPanel: View {
         .buttonStyle(.plain)
         .help("New conversation")
         .accessibilityLabel("New conversation")
-        .accessibilityHint("Starts a fresh Dialectics conversation.")
+        .accessibilityHint("Starts a new conversation.")
     }
 
     private var closeButton: some View {
@@ -332,8 +332,8 @@ struct DialecticalChatPanel: View {
         }
         .buttonStyle(.plain)
         .help("Close chat")
-        .accessibilityLabel("Close Dialectics")
-        .accessibilityHint("Hides the Dialectics panel.")
+        .accessibilityLabel("Close Chat")
+        .accessibilityHint("Hides the Chat panel.")
     }
 
     // MARK: - Chat View
@@ -429,10 +429,10 @@ struct DialecticalChatPanel: View {
             Image(systemName: "bubble.left.and.bubble.right")
                 .font(.system(size: 36))
                 .foregroundStyle(Color.textTertiary)
-            Text("Dialectics")
+            Text("Chat")
                 .font(.groveItemTitle)
                 .foregroundStyle(Color.textPrimary)
-            Text("Start a conversation to explore your ideas through dialectical reasoning.")
+            Text("Ask about what you have saved, or test an idea against it.")
                 .font(.groveBody)
                 .foregroundStyle(Color.textSecondary)
                 .multilineTextAlignment(.center)

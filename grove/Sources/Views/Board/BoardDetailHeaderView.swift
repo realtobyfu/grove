@@ -173,7 +173,7 @@ struct BoardPromptModePanel: View {
                 Button {
                     onDialectic()
                 } label: {
-                    Label("Open Dialectics", systemImage: "bubble.left.and.bubble.right")
+                    Label("Open Chat", systemImage: "bubble.left.and.bubble.right")
                         .font(.groveBody)
                         .foregroundStyle(Color.textPrimary)
                         .frame(maxWidth: .infinity, alignment: .leading)

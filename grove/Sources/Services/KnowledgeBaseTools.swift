@@ -31,12 +31,6 @@ final class KnowledgeBaseTools {
                 boardName: args["board_name"] ?? "",
                 itemTitles: (args["item_titles"] ?? "").components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
             )
-        case "create_synthesis":
-            return await createSynthesis(
-                itemTitles: (args["item_titles"] ?? "").components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty },
-                focusPrompt: args["focus_prompt"] ?? "",
-                synthesisTitle: args["title"] ?? ""
-            )
         default:
             return nil
         }
@@ -69,14 +63,6 @@ final class KnowledgeBaseTools {
     {"tool_call": {"name": "create_board", "args": {"board_name": "New Board Name", "item_titles": "Title 1, Title 2, Title 3"}}}
     Create a new board and assign the listed items to it. item_titles is a comma-separated list of exact item titles. \
     Use this when the user confirms they want to organize a group of items into a new board.
-
-    {"tool_call": {"name": "create_synthesis", "args": {"item_titles": "Title 1, Title 2, Title 3", "focus_prompt": "What unifies these?", "title": "Synthesis: My Topic"}}}
-    Generate a synthesis note from the listed items and save it as a new Item in the knowledge base. \
-    item_titles is a comma-separated list of exact item titles (2-30 items required). \
-    focus_prompt describes what angle or question the synthesis should address. \
-    title is the title for the new synthesis item. \
-    Use this when the user asks to synthesize, summarize across, or integrate multiple items. \
-    Returns the created item's wiki-link, title, and ID.
 
     Only use tool calls when you need to look up specific information or perform a write action. Most of the time, \
     respond directly in conversational markdown.
@@ -120,11 +106,6 @@ final class KnowledgeBaseTools {
             description: "Create a new board and assign the listed items to it. Use when the user confirms they want to organize items into a new board.",
             parametersJSON: #"{"type":"object","properties":{"board_name":{"type":"string"},"item_titles":{"type":"string","description":"Comma-separated item ids or exact titles"}},"required":["board_name","item_titles"]}"#
         ),
-        LLMToolSpec(
-            name: "create_synthesis",
-            description: "Generate a synthesis note from 2-30 items and save it as a new item. Use when the user asks to synthesize, summarize across, or integrate multiple items. Returns the created item's wiki-link, title, and id.",
-            parametersJSON: #"{"type":"object","properties":{"item_titles":{"type":"string","description":"Comma-separated item ids or exact titles (2-30)"},"focus_prompt":{"type":"string","description":"What angle or question the synthesis should address"},"title":{"type":"string","description":"Title for the new synthesis item"}},"required":["item_titles"]}"#
-        ),
     ]
 
     // MARK: - Tool Implementations
@@ -141,7 +122,11 @@ final class KnowledgeBaseTools {
 
         // Semantic matches from the embedding index, merged after keyword hits
         await EmbeddingIndexService.shared.indexItems(allItems.map(EmbeddingIndexService.snapshot))
-        let semanticHits = await EmbeddingIndexService.shared.search(query: query, limit: limit)
+        let semanticHits = await EmbeddingIndexService.shared.search(
+            query: query,
+            limit: limit,
+            minScore: SearchViewModel.semanticScoreThreshold
+        )
         let itemsByID = Dictionary(uniqueKeysWithValues: allItems.map { ($0.id, $0) })
         let semanticMatches = semanticHits.compactMap { itemsByID[$0.id] }
 
@@ -301,47 +286,6 @@ final class KnowledgeBaseTools {
         }
 
         return "Board \"\(boardName)\" created and \(assignedTitles.count) item(s) assigned: \(assignedTitles.joined(separator: ", "))."
-    }
-
-    private func createSynthesis(itemTitles: [String], focusPrompt: String, synthesisTitle: String) async -> String {
-        guard itemTitles.count >= AppConstants.Activity.synthesisMinItems else {
-            return "Error: create_synthesis requires at least \(AppConstants.Activity.synthesisMinItems) item titles. Got \(itemTitles.count)."
-        }
-        guard itemTitles.count <= AppConstants.Activity.synthesisMaxItems else {
-            return "Error: Too many items (\(itemTitles.count)). Synthesis works best with \(AppConstants.Activity.synthesisMinItems)-\(AppConstants.Activity.synthesisMaxItems) items."
-        }
-
-        let allItems = fetchAllItems()
-        var matchedItems: [Item] = []
-        var missingTitles: [String] = []
-        for title in itemTitles {
-            if let item = ItemResolver.resolve(title, in: allItems) {
-                matchedItems.append(item)
-            } else {
-                missingTitles.append(title)
-            }
-        }
-
-        guard matchedItems.count >= AppConstants.Activity.synthesisMinItems else {
-            return "Error: Could not find enough matching items. Missing: \(missingTitles.joined(separator: ", ")). Found: \(matchedItems.map(\.title).joined(separator: ", "))."
-        }
-
-        let scopeTitle = focusPrompt.isEmpty ? synthesisTitle : focusPrompt
-        let resolvedTitle = synthesisTitle.isEmpty ? "Synthesis: \(scopeTitle)" : synthesisTitle
-
-        let service = SynthesisService(modelContext: modelContext)
-        guard let result = await service.generateSynthesis(items: matchedItems, scopeTitle: scopeTitle) else {
-            return "Error: Synthesis generation failed."
-        }
-
-        let newItem = service.createSynthesisItem(from: result, title: resolvedTitle, inBoard: nil)
-
-        var response = "Synthesis note created: [[\(newItem.title)]] (ID: \(newItem.id.uuidString))\n"
-        response += "Sources: \(matchedItems.map { "[[\($0.title)]]" }.joined(separator: ", "))\n"
-        if !missingTitles.isEmpty {
-            response += "Note: \(missingTitles.count) item(s) not found and skipped: \(missingTitles.joined(separator: ", "))."
-        }
-        return response
     }
 
     // MARK: - Helpers

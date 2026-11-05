@@ -43,7 +43,7 @@ struct MobileAISettingsView: View {
 
                 statusRow
 
-                Text("Turns off Chat, conversation starters, auto-tagging, article overviews, and synthesis.")
+                Text("Turns off Chat, conversation starters, auto-tagging, and article overviews.")
                     .font(.groveBodySmall)
                     .foregroundStyle(Color.textSecondary)
             }
@@ -224,21 +224,6 @@ struct MobileAISettingsView: View {
                 }
             }
 
-            Section("Synthesis") {
-                if LLMServiceConfig.isConfigured {
-                    Text("Uses AI to generate themes, wiki-links, and reflection highlights.")
-                        .font(.groveBodySmall)
-                        .foregroundStyle(Color.textSecondary)
-                } else {
-                    Text("Uses local keyword extraction until AI is configured.")
-                        .font(.groveBodySmall)
-                        .foregroundStyle(Color.textSecondary)
-                }
-
-                Text("Ask for a synthesis in Chat.")
-                    .font(.groveBadge)
-                    .foregroundStyle(Color.textTertiary)
-            }
         }
         .navigationTitle("AI Settings")
         #if os(iOS)
@@ -427,9 +412,8 @@ struct MobileAISettingsView: View {
     private func displayName(for service: String) -> String {
         switch service {
         case "tagging": return "Auto-Tagging"
-        case "synthesis": return "Synthesis"
         case "overview": return "Article Overview"
-        case "dialectics": return "Dialectics"
+        case "dialectics": return "Chat"
         default: return service.capitalized
         }
     }
