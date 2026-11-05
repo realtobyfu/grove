@@ -37,7 +37,6 @@ final class OnboardingService {
 
     private let defaults: UserDefaults
     private var didEvaluateAutoPresentation = false
-    private var skippedInCurrentSession = false
 
     private(set) var isPresented = false
     private(set) var isHomeTeaserDismissed: Bool
@@ -73,8 +72,8 @@ final class OnboardingService {
         didEvaluateAutoPresentation = true
 
         guard progress.completedVersion < Self.currentVersion else { return }
+        guard progress.skippedAt == nil else { return }
         guard itemCount == 0, boardCount == 0 else { return }
-        guard !skippedInCurrentSession else { return }
 
         progress.currentStep = .capture
         isPresented = true
@@ -101,7 +100,6 @@ final class OnboardingService {
     func skip() {
         progress.skippedAt = .now
         defaults.set(progress.skippedAt, forKey: Self.skippedAtKey)
-        skippedInCurrentSession = true
         isPresented = false
     }
 

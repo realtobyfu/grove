@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 /// Top-level iOS entry point.
 /// iPad (regular width): 3-column NavigationSplitView via iPadRootView.
@@ -28,6 +29,7 @@ struct MobileRootView: View {
         }
         .mobileNudgeHandler()
         .onAppear {
+            evaluateOnboarding()
             showOnboarding = onboarding.isPresented
             // Configure push notifications and start nudge engine
             NudgeNotificationService.shared.configure()
@@ -37,5 +39,14 @@ struct MobileRootView: View {
                 nudgeEngine = engine
             }
         }
+    }
+
+    /// One-shot count rather than `@Query`: the service only evaluates once per
+    /// launch, so the root view needn't re-render on every library change. A
+    /// failed fetch leaves the welcome hidden instead of showing it over content.
+    private func evaluateOnboarding() {
+        guard let itemCount = try? modelContext.fetchCount(FetchDescriptor<Item>()),
+              let boardCount = try? modelContext.fetchCount(FetchDescriptor<Board>()) else { return }
+        onboarding.evaluateAutoPresentation(itemCount: itemCount, boardCount: boardCount)
     }
 }

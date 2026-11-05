@@ -120,10 +120,6 @@ struct OnboardingFlowView: View {
                     description: "Save links, notes, and ideas from anywhere"
                 )
                 featureRow(
-                    icon: "envelope",
-                    description: "Follow newsletters and feeds in a quiet inbox"
-                )
-                featureRow(
                     icon: "square.grid.2x2",
                     description: "File what you keep into boards by project or topic"
                 )
@@ -132,8 +128,12 @@ struct OnboardingFlowView: View {
                     description: "Read distraction-free and keep highlights"
                 )
                 featureRow(
+                    icon: "rectangle.on.rectangle",
+                    description: "Turn a highlight into a reflection, then a flashcard"
+                )
+                featureRow(
                     icon: "bubble.left.and.bubble.right",
-                    description: "Think it through in chat, grounded in your library"
+                    description: "Think it through in Chat, grounded in your library"
                 )
             }
             .frame(maxWidth: .infinity, alignment: .leading)
