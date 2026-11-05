@@ -91,7 +91,7 @@ struct MobileHomeView: View {
         }
         .sheet(item: $selectedSuggestion) { suggestion in
             MobilePromptActionSheet(
-                contextTitle: "Home",
+                contextTitle: "Today",
                 suggestion: suggestion,
                 onOpenDialectics: {
                     startConversation(with: suggestion)

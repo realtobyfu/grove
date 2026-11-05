@@ -30,33 +30,32 @@ private final class WindowTrackingView: NSView {
 }
 #endif
 
+/// macOS sidebar destinations. `.home` is the Today page; the case keeps its
+/// name so the stored "home" value stays stable.
 enum SidebarItem: Hashable, Codable {
     case home
-    case inbox
     case newsletters
     case library
     case board(UUID)
-    case settings
 
     /// String encoding for @SceneStorage persistence.
     var sceneStorageValue: String {
         switch self {
         case .home: "home"
-        case .inbox: "inbox"
         case .newsletters: "newsletters"
         case .library: "library"
         case .board(let id): "board:\(id.uuidString)"
-        case .settings: "settings"
         }
     }
 
     /// Decode from @SceneStorage string. Returns nil for invalid values.
+    /// "inbox" and "settings" were destinations once; they land on Today.
     init?(sceneStorageValue: String) {
         if sceneStorageValue == "home" { self = .home }
-        else if sceneStorageValue == "inbox" { self = .inbox }
+        else if sceneStorageValue == "inbox" { self = .home }
         else if sceneStorageValue == "newsletters" { self = .newsletters }
         else if sceneStorageValue == "library" { self = .library }
-        else if sceneStorageValue == "settings" { self = .settings }
+        else if sceneStorageValue == "settings" { self = .home }
         else if sceneStorageValue.hasPrefix("board:"),
                 let uuid = UUID(uuidString: String(sceneStorageValue.dropFirst(6))) {
             self = .board(uuid)
@@ -481,9 +480,6 @@ struct ContentView: View {
                 } else {
                     PlaceholderView(icon: "square.grid.2x2", title: "Board", message: "Board not found.")
                 }
-            case .inbox, .settings:
-                // iPad-only sidebar items; unused on macOS
-                PlaceholderView(icon: "leaf", title: "Grove", message: "Select an item from the sidebar to get started.")
             case nil:
                 PlaceholderView(icon: "leaf", title: "Grove", message: "Select an item from the sidebar to get started.")
             }

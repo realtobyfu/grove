@@ -124,6 +124,7 @@ struct iPadRootView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
+        .background { navigationShortcuts }
         // The iOS roots own the reader bindings, so they — not the macOS-only
         // ContentViewHandlers — must drop a deleted item before the next
         // body pass reads its properties.
@@ -279,7 +280,7 @@ struct iPadRootView: View {
     private var sidebar: some View {
         List(selection: $sidebarSelection) {
             Section {
-                Label("Home", systemImage: "envelope")
+                Label("Today", systemImage: "sun.max")
                     .badge(inboxCount)
                     .tag(SidebarSelection.home)
 
@@ -344,6 +345,26 @@ struct iPadRootView: View {
                 .keyboardShortcut("n", modifiers: .command)
             }
         }
+    }
+
+    // MARK: - Keyboard
+
+    /// The Mac's Navigate map: ⌘0 opens Today, ⌘1–9 open boards 1–9 in
+    /// sidebar order. Only this regular-width root registers them; the
+    /// compact TabView fallback has no number shortcuts.
+    private var navigationShortcuts: some View {
+        VStack {
+            Button("Go to Today") { sidebarSelection = .home }
+                .keyboardShortcut("0", modifiers: .command)
+
+            ForEach(Array(boards.prefix(9).enumerated()), id: \.element.id) { index, board in
+                Button("Go to \(board.title)") { sidebarSelection = .board(board.id) }
+                    .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
+            }
+        }
+        .frame(width: 0, height: 0)
+        .opacity(0)
+        .allowsHitTesting(false)
     }
 
     // MARK: - Primary Content

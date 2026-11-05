@@ -220,12 +220,13 @@ struct GroveMenuCommands: Commands {
 
             Divider()
 
-            Button("Go to Home") {
+            Button("Go to Today") {
                 NotificationCenter.default.post(name: .groveGoToHome, object: nil)
             }
             .keyboardShortcut("0", modifiers: .command)
 
-            // Board switching Cmd+1 through Cmd+9
+            // Board switching Cmd+1 through Cmd+9. iPad regular width mirrors
+            // this map in iPadRootView; compact width has no number shortcuts.
             ForEach(1...9, id: \.self) { index in
                 Button("Go to Board \(index)") {
                     NotificationCenter.default.post(name: .groveGoToBoard, object: index)

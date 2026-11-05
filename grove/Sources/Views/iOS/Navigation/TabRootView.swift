@@ -101,22 +101,8 @@ struct TabRootView: View {
             }
 
         }
-        // Hidden buttons for iPad keyboard shortcuts (Cmd+1–4)
-        .background {
-            VStack {
-                Button("") { selectedTab = .home }
-                    .keyboardShortcut("1", modifiers: .command)
-                Button("") { selectedTab = .library }
-                    .keyboardShortcut("2", modifiers: .command)
-                Button("") { selectedTab = .newsletters }
-                    .keyboardShortcut("3", modifiers: .command)
-                Button("") { selectedTab = .chat }
-                    .keyboardShortcut("4", modifiers: .command)
-            }
-            .frame(width: 0, height: 0)
-            .opacity(0)
-            .allowsHitTesting(false)
-        }
+        // No ⌘-number shortcuts here: ⌘1–9 mean boards (macOS, regular-width
+        // iPad), and this compact layout keeps boards inside Library.
         .overlay(alignment: .bottomTrailing) {
             // Show floating capture button on content tabs (Today and Library)
             if showFloatingCapture {

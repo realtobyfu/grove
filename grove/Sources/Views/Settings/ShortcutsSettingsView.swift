@@ -11,9 +11,10 @@ struct ShortcutsSettingsView: View {
 
             Section("Navigation") {
                 shortcutRow("Search", shortcut: "⌘F")
-                shortcutRow("Go to Home", shortcut: "⌘0")
+                shortcutRow("Go to Today", shortcut: "⌘0")
                 shortcutRow("Go to Board 1–9", shortcut: "⌘1 – ⌘9")
                 shortcutRow("New Board", shortcut: "⌘⇧B")
+                shortcutRow("Review flashcards", shortcut: "⌘⇧R")
             }
 
             Section("View") {
@@ -26,9 +27,9 @@ struct ShortcutsSettingsView: View {
             }
 
             Section("Reader") {
-                shortcutRow("Zoom In", shortcut: "⌘+")
-                shortcutRow("Zoom Out", shortcut: "⌘−")
-                shortcutRow("Actual Size", shortcut: "⌘0")
+                shortcutRow("Bigger Text", shortcut: "⌘+")
+                shortcutRow("Smaller Text", shortcut: "⌘−")
+                shortcutRow("Actual Size", shortcut: "⌘⇧0")
             }
 
             Section("Export") {
