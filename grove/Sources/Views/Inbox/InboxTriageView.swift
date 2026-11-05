@@ -197,7 +197,7 @@ struct InboxTriageView: View {
     // MARK: - Embedded Inbox List
 
     private var embeddedInboxList: some View {
-        let visibleItems = Array(inboxItems.prefix(8))
+        let visibleItems = inboxItems
         return VStack(spacing: 8) {
             if !queuedItems.isEmpty {
                 queuedDisclosure
@@ -232,18 +232,6 @@ struct InboxTriageView: View {
                         selectedItem = item
                     }
                 }
-            }
-
-            if inboxItems.count > 8 {
-                Button {
-                    NotificationCenter.default.post(name: .groveGoToHome, object: nil)
-                } label: {
-                    Text("Show all \(inboxItems.count) items")
-                        .font(.groveBodySmall)
-                        .foregroundStyle(Color.textSecondary)
-                }
-                .buttonStyle(.plain)
-                .padding(.top, Spacing.xs)
             }
 
         }

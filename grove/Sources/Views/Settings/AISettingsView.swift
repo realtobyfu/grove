@@ -43,7 +43,7 @@ struct AISettingsView: View {
 
                 statusRow
 
-                Text("AI tagging, suggestions, nudges, and synthesis.")
+                Text("Chat, conversation starters, auto-tagging, article overviews, and synthesis.")
                     .font(.groveBodySmall)
                     .foregroundStyle(Color.textSecondary)
             }
@@ -236,7 +236,7 @@ struct AISettingsView: View {
                         .foregroundStyle(Color.textSecondary)
                 }
 
-                Text("Available in boards and tag clusters.")
+                Text("Ask for a synthesis in Chat.")
                     .font(.groveBadge)
                     .foregroundStyle(Color.textTertiary)
             }
@@ -422,12 +422,7 @@ struct AISettingsView: View {
     private func displayName(for service: String) -> String {
         switch service {
         case "tagging": return "Auto-Tagging"
-        case "suggestions": return "Connection Suggestions"
-        case "reflection_prompts": return "Reflection Prompts"
-        case "nudges": return "Smart Nudges"
         case "synthesis": return "Synthesis"
-        case "digest": return "Weekly Digest"
-        case "learning_path": return "Learning Paths"
         case "overview": return "Article Overview"
         case "dialectics": return "Dialectics"
         default: return service.capitalized

@@ -63,7 +63,7 @@ struct NudgeSettingsView: View {
                     }
 
                 if !entitlement.isPro {
-                    Text("Smart resurfacing nudges require Pro. Stale inbox nudges are available to all.")
+                    Text("Resurfacing nudges are available with Pro. Stale inbox nudges are available to all.")
                         .font(.groveBodySmall)
                         .foregroundStyle(Color.textSecondary)
                 } else {
@@ -74,7 +74,7 @@ struct NudgeSettingsView: View {
             }
 
             Section("Cadence") {
-                if entitlement.hasAccess(to: .automations) {
+                if entitlement.isPro {
                     Picker("Check Frequency", selection: $scheduleIntervalHours) {
                         ForEach(Self.intervalOptions, id: \.value) { option in
                             Text(option.label).tag(option.value)
@@ -107,14 +107,14 @@ struct NudgeSettingsView: View {
                         Image(systemName: "lock")
                             .font(.groveBodySmall)
                             .foregroundStyle(Color.textSecondary)
-                        Text("Automation cadence controls are available with Pro.")
+                        Text("Cadence controls are available with Pro.")
                             .font(.groveBodySmall)
                             .foregroundStyle(Color.textSecondary)
                     }
 
                     Button("Unlock Pro") {
                         paywallPresentation = paywallCoordinator.present(
-                            feature: .automations,
+                            feature: nil,
                             source: .nudgeSettings
                         )
                     }
@@ -124,7 +124,7 @@ struct NudgeSettingsView: View {
             }
 
             Section("Advanced") {
-                if entitlement.hasAccess(to: .automations) {
+                if entitlement.isPro {
                     DisclosureGroup("Resurfacing queue and analytics", isExpanded: $showAdvancedDetails) {
                         Toggle("Enable spaced resurfacing", isOn: $spacedResurfacingEnabled)
                             .onChange(of: spacedResurfacingEnabled) { _, newValue in
@@ -178,13 +178,13 @@ struct NudgeSettingsView: View {
                         Image(systemName: "lock")
                             .font(.groveBodySmall)
                             .foregroundStyle(Color.textSecondary)
-                        Text("Advanced automation analytics are available with Pro.")
+                        Text("The resurfacing queue and analytics are available with Pro.")
                             .font(.groveBodySmall)
                             .foregroundStyle(Color.textSecondary)
                     }
                     Button("Unlock Pro") {
                         paywallPresentation = paywallCoordinator.present(
-                            feature: .automations,
+                            feature: nil,
                             source: .nudgeSettings
                         )
                     }

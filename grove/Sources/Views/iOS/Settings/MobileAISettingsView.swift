@@ -43,7 +43,7 @@ struct MobileAISettingsView: View {
 
                 statusRow
 
-                Text("Disables AI-powered tagging, suggestions, nudges, and synthesis.")
+                Text("Turns off Chat, conversation starters, auto-tagging, article overviews, and synthesis.")
                     .font(.groveBodySmall)
                     .foregroundStyle(Color.textSecondary)
             }
@@ -235,7 +235,7 @@ struct MobileAISettingsView: View {
                         .foregroundStyle(Color.textSecondary)
                 }
 
-                Text("Available from the board header toolbar and tag cluster headers.")
+                Text("Ask for a synthesis in Chat.")
                     .font(.groveBadge)
                     .foregroundStyle(Color.textTertiary)
             }
@@ -427,12 +427,7 @@ struct MobileAISettingsView: View {
     private func displayName(for service: String) -> String {
         switch service {
         case "tagging": return "Auto-Tagging"
-        case "suggestions": return "Connection Suggestions"
-        case "reflection_prompts": return "Reflection Prompts"
-        case "nudges": return "Smart Nudges"
         case "synthesis": return "Synthesis"
-        case "digest": return "Weekly Digest"
-        case "learning_path": return "Learning Paths"
         case "overview": return "Article Overview"
         case "dialectics": return "Dialectics"
         default: return service.capitalized

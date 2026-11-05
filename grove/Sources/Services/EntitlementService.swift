@@ -19,87 +19,64 @@ struct MeteredUsage: Codable {
     var monthKey: String  // "yyyy-MM"
 }
 
+/// AI features the free tier can use a limited number of times per month.
+/// Every case is enforced somewhere (`canUse` + `recordUse`); a case with no
+/// call site is a ghost and must not be added back.
 enum MeteredFeature: String, CaseIterable, Sendable {
-    case dialectics
-    case reflectionPrompts
-    case autoTagging
-    case connectionSuggestions
-    case synthesis
-    case suggestedArticles
+    case dialectics      // DialecticalChatViewModel, Mobile chat entry points
+    case autoTagging     // AutoTagService
+    case synthesis       // SynthesisService (via the chat create_synthesis tool)
 
     var freeLimit: Int {
         switch self {
         case .dialectics: return 6
-        case .reflectionPrompts: return 3
         case .autoTagging: return 10
-        case .connectionSuggestions: return 5
         case .synthesis: return 1
-        case .suggestedArticles: return 3
         }
     }
 
     var displayName: String {
         switch self {
         case .dialectics: return "Dialectics"
-        case .reflectionPrompts: return "Reflection Prompts"
         case .autoTagging: return "Auto-Tagging"
-        case .connectionSuggestions: return "Connection Suggestions"
         case .synthesis: return "Synthesis"
-        case .suggestedArticles: return "Suggested Articles"
         }
     }
 }
 
+/// What Grove Pro unlocks. This list is shown on the paywall, so every case
+/// must be a feature that exists and is gated on `isPro` somewhere in the app:
+/// sync (SyncSettingsView), full history (chat conversation lists), smart
+/// routing (AI settings) and the three metered features above.
 enum ProFeature: String, CaseIterable, Sendable, Identifiable {
-    case automations
-    case batchActions
-    case savedWorkflows
     case sync
+    case dialectics
     case fullHistory
     case smartRouting
-    case dialectics
-    case reflectionPrompts
     case autoTagging
-    case connectionSuggestions
     case synthesis
-    case weeklyDigest
-    case suggestedArticles
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .automations: return "Automations"
-        case .batchActions: return "Batch Actions"
-        case .savedWorkflows: return "Saved Workflows"
         case .sync: return "Cross-device Sync"
+        case .dialectics: return "Unlimited Dialectics"
         case .fullHistory: return "Full History"
         case .smartRouting: return "Smart Routing"
-        case .dialectics: return "Unlimited Dialectics"
-        case .reflectionPrompts: return "AI Reflection Prompts"
-        case .autoTagging: return "Auto-Tagging"
-        case .connectionSuggestions: return "Connection Suggestions"
+        case .autoTagging: return "Unlimited Auto-Tagging"
         case .synthesis: return "AI Synthesis"
-        case .weeklyDigest: return "Weekly Digest"
-        case .suggestedArticles: return "Suggested Articles"
         }
     }
 
     var summary: String {
         switch self {
-        case .automations: return "Run recurring workflows with less manual overhead."
-        case .batchActions: return "Apply actions across multiple items in fewer steps."
-        case .savedWorkflows: return "Save and reuse repeatable high-value workflows."
-        case .sync: return "Continue work seamlessly across devices."
-        case .fullHistory: return "Search and revisit complete conversation history."
-        case .smartRouting: return "Use cloud or on-device AI with optional smart fallback between them."
-        case .dialectics: return "Unlimited AI conversation sessions."
-        case .reflectionPrompts: return "AI-generated reflection prompts."
-        case .autoTagging: return "AI tags, summaries, and board placement."
-        case .connectionSuggestions: return "AI-suggested item connections."
-        case .synthesis: return "AI-generated cross-item synthesis."
-        case .weeklyDigest: return "AI weekly learning summaries."
-        case .suggestedArticles: return "AI-curated article suggestions from your trusted sources."
+        case .sync: return "Your library, boards and reflections on every device, through iCloud."
+        case .dialectics: return "Unlimited conversations grounded in your own library. Free includes six a month."
+        case .fullHistory: return "Keep and search your complete conversation history."
+        case .smartRouting: return "On-device AI first, with cloud AI as a fallback when it is needed."
+        case .autoTagging: return "AI tags, a one-line summary and a board suggestion for every capture. Free includes ten a month."
+        case .synthesis: return "Ask Chat to synthesize a set of items into one note."
         }
     }
 }
@@ -182,13 +159,9 @@ final class EntitlementService {
         state.trialEndsAt
     }
 
+    /// Pro is all-or-nothing: every `ProFeature` unlocks together.
     func hasAccess(to feature: ProFeature) -> Bool {
-        switch feature {
-        case .automations, .batchActions, .savedWorkflows, .sync, .fullHistory, .smartRouting,
-             .dialectics, .reflectionPrompts, .autoTagging, .connectionSuggestions, .synthesis, .weeklyDigest,
-             .suggestedArticles:
-            return isPro
-        }
+        isPro
     }
 
     // MARK: - Metered Usage
