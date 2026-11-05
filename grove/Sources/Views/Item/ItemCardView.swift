@@ -111,10 +111,10 @@ struct ItemCardView: View {
                         .foregroundStyle(Color.textPrimary)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    if item.metadata["isAIGenerated"] == "true" {
+                    if item.isAIGenerated {
                         Label(
-                            item.metadata["isAIEdited"] == "true" ? "Edited" : "AI Draft",
-                            systemImage: item.metadata["isAIEdited"] == "true" ? "pencil" : "sparkles"
+                            item.isAIEdited ? "Edited" : "AI Draft",
+                            systemImage: item.isAIEdited ? "pencil" : "sparkles"
                         )
                         .font(.groveBadge)
                         .foregroundStyle(Color.textSecondary)
@@ -122,7 +122,7 @@ struct ItemCardView: View {
                 }
             }
 
-            if let summary = item.metadata["summary"], !summary.isEmpty {
+            if let summary = item.summary, !summary.isEmpty {
                 Text(summary)
                     .font(.groveBodySecondary)
                     .foregroundStyle(Color.textSecondary)
@@ -170,7 +170,7 @@ struct ItemCardView: View {
 
                 Spacer(minLength: 0)
 
-                if item.metadata["videoLocalFile"] == "true" {
+                if item.isVideoLocalFile {
                     Text("Local")
                         .font(.groveBadge)
                         .foregroundStyle(Color.textTertiary)

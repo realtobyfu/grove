@@ -42,7 +42,7 @@ enum LLMContextBuilder {
             if !tags.isEmpty { desc += "\nTags: \(tags)" }
         }
 
-        if let summary = item.metadata["summary"], !summary.isEmpty {
+        if let summary = item.summary, !summary.isEmpty {
             desc += "\nSummary: \(summary)"
         }
 
@@ -76,7 +76,7 @@ enum LLMContextBuilder {
     ) -> String {
         items.prefix(maxItems).enumerated().map { index, item in
             let tags = item.tags.map(\.name).joined(separator: ", ")
-            let summary = item.metadata["summary"] ?? ""
+            let summary = item.summary ?? ""
             return "\(index + 1). (\(item.type.llmLabel)) \"\(item.title)\" [tags: \(tags.isEmpty ? "none" : tags)]\(summary.isEmpty ? "" : " — \(summary)")"
         }.joined(separator: "\n")
     }

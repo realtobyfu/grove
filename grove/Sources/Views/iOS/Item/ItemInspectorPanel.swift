@@ -38,7 +38,7 @@ struct ItemInspectorPanel: View {
     }
 
     private var isFetchingMetadata: Bool {
-        item.metadata["fetchingMetadata"] == "true"
+        item.isFetchingMetadata
     }
 
     private var canRunMetadataEnrichment: Bool {
@@ -369,7 +369,7 @@ struct ItemInspectorPanel: View {
             recommendedBoardID: decision?.recommendedBoardID,
             alternativeBoardIDs: decision?.alternativeBoardIDs ?? [],
             onSelect: { board in
-                BoardSuggestionMetadata.recordSelection(board, on: item)
+                BoardSuggestionMetadata.clearPendingSuggestion(on: item)
                 ItemViewModel(modelContext: modelContext).assignToBoard(item, board: board)
             },
             onCreate: { title in
@@ -386,13 +386,13 @@ struct ItemInspectorPanel: View {
         if let existing = allBoards.first(where: {
             $0.title.localizedCaseInsensitiveCompare(title) == .orderedSame
         }) {
-            BoardSuggestionMetadata.recordSelection(existing, on: item)
+            BoardSuggestionMetadata.clearPendingSuggestion(on: item)
             itemViewModel.assignToBoard(item, board: existing)
         } else {
             let board = Board(title: title)
             board.sortOrder = (allBoards.map(\.sortOrder).max() ?? -1) + 1
             modelContext.insert(board)
-            BoardSuggestionMetadata.recordSelection(board, on: item)
+            BoardSuggestionMetadata.clearPendingSuggestion(on: item)
             itemViewModel.assignToBoard(item, board: board)
         }
     }
@@ -436,7 +436,7 @@ struct ItemInspectorPanel: View {
                     }
                 }
 
-                if let summary = item.metadata["summary"], !summary.isEmpty {
+                if let summary = item.summary, !summary.isEmpty {
                     Text(summary)
                         .font(.groveBodySecondary)
                         .foregroundStyle(Color.textSecondary)
@@ -547,7 +547,7 @@ struct ItemInspectorPanel: View {
         guard let sourceURL = item.sourceURL, !sourceURL.isEmpty else { return }
 
         isEnrichingItem = true
-        item.metadata["fetchingMetadata"] = "true"
+        item.isFetchingMetadata = true
         try? modelContext.save()
 
         let itemID = item.id

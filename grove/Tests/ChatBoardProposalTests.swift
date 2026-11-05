@@ -243,7 +243,7 @@ struct ChatBoardProposalTests {
         let context = try makeInMemoryModelContext()
         let suggestion = insertItem("Suggested issue", in: context)
         suggestion.status = .inbox
-        suggestion.metadata["isSuggested"] = "true"
+        suggestion.isFeedSuggestion = true
         let pending = insertItem("Pending note", in: context)
         pending.status = .inbox
         try context.save()

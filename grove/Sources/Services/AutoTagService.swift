@@ -118,7 +118,7 @@ final class AutoTagService: AutoTagServiceProtocol {
 
         // Apply one-line summary
         if let summary = parsed.one_line_summary, !summary.isEmpty {
-            item.metadata["summary"] = String(summary.prefix(120))
+            item.summary = String(summary.prefix(120))
         }
 
         // Apply suggested board

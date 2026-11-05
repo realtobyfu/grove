@@ -61,7 +61,7 @@ struct BoardItemListView: View {
         }
 
         if let urlString = item.sourceURL, let url = URL(string: urlString),
-           item.metadata["videoLocalFile"] != "true" {
+           !item.isVideoLocalFile {
             Button {
                 openedItem = item
                 selectedItem = item

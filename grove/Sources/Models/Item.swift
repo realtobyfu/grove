@@ -149,59 +149,15 @@ final class Item {
         computedScoreBreakdown.reduce(0) { $0 + $1.points }
     }
 
-    // MARK: - Video
-
-    /// Runtime of a video item as `m:ss` (or `h:mm:ss`), when its length is
-    /// known. Written in seconds — fractional for local files, whole numbers
-    /// from a host's oEmbed data — so both forms are parsed as a Double.
-    var videoDurationLabel: String? {
-        guard type == .video,
-              let raw = metadata["videoDuration"],
-              let seconds = Double(raw),
-              seconds.isFinite, seconds >= 1 else { return nil }
-        return seconds.formattedTimestamp
-    }
-
-    // MARK: - Documents
-
-    /// True when what this item points at is a PDF rather than a web page.
-    ///
-    /// The capture path and the metadata enricher both record the format
-    /// explicitly; the URL check is the fallback for items saved before they
-    /// did, so a legacy `.pdf` link still opens in the document reader.
-    var isPDFDocument: Bool {
-        if metadata["format"] == "pdf" { return true }
-        guard let url = resolvedSourceURL(from: sourceURL) else { return false }
-        return url.pathExtension.lowercased() == "pdf"
-    }
-
     // MARK: - Feed / Newsletter
-
-    /// True for any item that originated from a subscribed feed, regardless
-    /// of whether it was later kept into the library.
-    var isNewsletterIssue: Bool {
-        metadata["feedSourceID"] != nil
-    }
-
-    /// True for feed-pipeline items the user has not explicitly kept.
-    /// These stay out of inbox triage counts and lists.
-    var isFeedSuggestion: Bool {
-        metadata["isSuggested"] == "true"
-    }
-
-    /// Read state for newsletter issues. Opening an issue marks it read.
-    var isFeedIssueRead: Bool {
-        get { metadata["feedRead"] == "true" }
-        set { metadata["feedRead"] = newValue ? "true" : nil }
-    }
 
     /// Writing is keeping: any durable artifact (reflection, highlight,
     /// board assignment, connection) promotes a feed suggestion into the
     /// library proper — same effect as the explicit Keep action.
     func promoteFromFeedSuggestionIfNeeded() {
         guard isFeedSuggestion else { return }
-        metadata["isSuggested"] = nil
-        metadata["suggestionDismissed"] = nil
+        isFeedSuggestion = false
+        isSuggestionDismissed = false
         isFeedIssueRead = true
         if status == .inbox {
             status = .active
@@ -213,19 +169,6 @@ final class Item {
     var isQueuedForReadLater: Bool {
         guard status == .queued, let until = readLaterUntil else { return false }
         return until > .now
-    }
-
-    /// Whether this item should be considered by discussion suggestion generation.
-    /// Only article items can opt out; all other types are always included.
-    var isIncludedInDiscussionSuggestions: Bool {
-        get {
-            guard type == .article else { return true }
-            return metadata["excludeFromDiscussionSuggestions"] != "true"
-        }
-        set {
-            guard type == .article else { return }
-            metadata["excludeFromDiscussionSuggestions"] = newValue ? nil : "true"
-        }
     }
 
     init(title: String, type: ItemType) {

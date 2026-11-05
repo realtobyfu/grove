@@ -29,7 +29,7 @@ struct ItemConnectionTests {
         let source = insertItem("Issue", in: context)
         let target = insertItem("Other issue", in: context)
         for item in [source, target] {
-            item.metadata["isSuggested"] = "true"
+            item.isFeedSuggestion = true
             #expect(item.isFeedSuggestion)
         }
 
@@ -87,7 +87,7 @@ struct ItemConnectionTests {
         let dismissed = insertItem("Dismissed", in: context)
         dismissed.status = .dismissed
         let suggestion = insertItem("Suggestion", in: context)
-        suggestion.metadata["isSuggested"] = "true"
+        suggestion.isFeedSuggestion = true
         let archived = insertItem("Archived", in: context)
         archived.status = .archived
 

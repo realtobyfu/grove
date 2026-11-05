@@ -117,21 +117,14 @@ final class FeedFetchService {
             // only. The reader loads the real page; promotion generates a
             // proper overview.
             if let description = article.description, !description.isEmpty {
-                item.metadata["summary"] = String(description.prefix(200))
+                item.summary = String(description.prefix(200))
             }
             // Unkept issues live in Following, not inbox triage: every inbox
             // surface filters on this flag (`Item.isFeedSuggestion`), and
             // Keep clears it.
-            item.metadata["isSuggested"] = "true"
-            item.metadata["suggestionSource"] = "rss"
-            item.metadata["feedSourceID"] = source.id.uuidString
-            item.metadata["feedSourceDomain"] = source.domain
-            if let pubDate = article.publishedAt {
-                item.metadata["publishedAt"] = ISO8601DateFormatter().string(from: pubDate)
-            }
-            if let author = article.author {
-                item.metadata["author"] = author
-            }
+            item.isFeedSuggestion = true
+            item.feedSourceID = source.id.uuidString
+            item.publishedAt = article.publishedAt
 
             context.insert(item)
             existingURLs.insert(CaptureService.normalizedURLString(article.url))

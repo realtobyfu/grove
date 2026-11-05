@@ -192,7 +192,7 @@ struct MobileItemReaderView: View {
         return false
     }
     private var articleURL: URL? {
-        guard item.type != .note, item.metadata["videoLocalFile"] != "true" else { return nil }
+        guard item.type != .note, !item.isVideoLocalFile else { return nil }
         // A video hosted elsewhere loads its player, not its watch page: the
         // page is a full site, the embed is the video.
         if let embed = remoteVideoEmbedURL { return embed }
@@ -201,8 +201,8 @@ struct MobileItemReaderView: View {
 
     /// The privacy-enhanced player for a video that isn't a local capture.
     private var remoteVideoEmbedURL: URL? {
-        guard item.type == .video, item.metadata["videoLocalFile"] != "true" else { return nil }
-        return VideoEmbed.remoteURL(sourceURL: item.sourceURL, metadata: item.metadata)
+        guard item.type == .video, !item.isVideoLocalFile else { return nil }
+        return VideoEmbed.remoteURL(sourceURL: item.sourceURL, videoSource: item.videoSource, videoID: item.videoID)
     }
 
     var body: some View {
@@ -503,7 +503,7 @@ struct MobileItemReaderView: View {
             // Fallback: render item content as scrollable text
             ScrollView {
                 VStack(alignment: .leading, spacing: Spacing.md) {
-                    if let summary = item.metadata["summary"], !summary.isEmpty {
+                    if let summary = item.summary, !summary.isEmpty {
                         Text(summary)
                             .font(.groveBodySecondary)
                             .foregroundStyle(Color.textSecondary)
@@ -585,7 +585,7 @@ struct MobileItemReaderView: View {
             article: article,
             typography: readerTypography,
             isDark: colorScheme == .dark,
-            initialProgress: Double(item.metadata["readingProgress"] ?? "") ?? 0,
+            initialProgress: item.readingProgress,
             scrollToTextQuery: scrollToTextQuery,
             scrollToTextToken: scrollToTextToken,
             highlights: readerHighlights,
@@ -620,8 +620,8 @@ struct MobileItemReaderView: View {
             }.value
             if let cached {
                 readerArticle = cached
-                if item.metadata["readTimeMinutes"] == nil {
-                    item.metadata["readTimeMinutes"] = String(cached.readMinutes)
+                if item.readTimeMinutes == nil {
+                    item.readTimeMinutes = cached.readMinutes
                 }
             }
         }
@@ -645,7 +645,7 @@ struct MobileItemReaderView: View {
                 sourceURL: webView.url
             ) else { return }
             ArticleReaderService.shared.saveArticle(article, for: itemID)
-            item.metadata["readTimeMinutes"] = String(article.readMinutes)
+            item.readTimeMinutes = article.readMinutes
             try? modelContext.save()
             // Switching into Reader drops a live-page selection with the page.
             if prefersReaderMode {
@@ -696,7 +696,7 @@ struct MobileItemReaderView: View {
         let reachedEnd = clamped >= 0.995 && lastSavedReadingProgress < 0.995
         guard abs(clamped - lastSavedReadingProgress) >= 0.05 || reachedEnd else { return }
         lastSavedReadingProgress = clamped
-        item.metadata["readingProgress"] = String(format: "%.3f", clamped)
+        item.readingProgress = clamped
         try? modelContext.save()
     }
 
@@ -745,7 +745,7 @@ struct MobileItemReaderView: View {
                 recommendedBoardID: decision?.recommendedBoardID,
                 alternativeBoardIDs: decision?.alternativeBoardIDs ?? [],
                 onSelect: { board in
-                    BoardSuggestionMetadata.recordSelection(board, on: target)
+                    BoardSuggestionMetadata.clearPendingSuggestion(on: target)
                     ItemViewModel(modelContext: modelContext).assignToBoard(target, board: board)
                     finishFiling()
                 },
@@ -812,12 +812,12 @@ struct MobileItemReaderView: View {
         if let existing = boards.first(where: {
             $0.title.localizedCaseInsensitiveCompare(title) == .orderedSame
         }) {
-            BoardSuggestionMetadata.recordSelection(existing, on: target)
+            BoardSuggestionMetadata.clearPendingSuggestion(on: target)
             itemViewModel.assignToBoard(target, board: existing)
         } else {
             let board = Board(title: title)
             modelContext.insert(board)
-            BoardSuggestionMetadata.recordSelection(board, on: target)
+            BoardSuggestionMetadata.clearPendingSuggestion(on: target)
             itemViewModel.assignToBoard(target, board: board)
         }
     }

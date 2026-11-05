@@ -539,7 +539,7 @@ enum BoardRanking {
 
         // Fall back to the plain name suggestion when the engine only left a title.
         if result.isEmpty {
-            let name = decision?.suggestedName ?? item.metadata["suggestedBoard"] ?? ""
+            let name = decision?.suggestedName ?? item.suggestedBoard ?? ""
             if !name.isEmpty,
                let matched = boards.first(where: {
                    $0.title.localizedCaseInsensitiveCompare(name) == .orderedSame

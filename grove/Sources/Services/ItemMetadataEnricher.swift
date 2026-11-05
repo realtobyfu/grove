@@ -65,11 +65,11 @@ final class ItemMetadataEnricher {
         let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
         guard let item = try? context.fetch(descriptor).first else { return EnrichmentRouting() }
         return EnrichmentRouting(
-            arxivID: item.metadata["arxivID"],
-            videoSource: item.metadata["videoSource"],
-            videoID: item.metadata["videoID"],
+            arxivID: item.arxivID,
+            videoSource: item.videoSource,
+            videoID: item.videoID,
             isVideo: item.type == .video,
-            isPDF: item.metadata["format"] == "pdf"
+            isPDF: item.isPDFFormat
         )
     }
 
@@ -77,7 +77,7 @@ final class ItemMetadataEnricher {
     private func finishFetching(itemID: UUID, context: ModelContext) {
         let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
         guard let item = try? context.fetch(descriptor).first else { return }
-        item.metadata["fetchingMetadata"] = nil
+        item.isFetchingMetadata = false
         item.updatedAt = .now
         try? context.save()
     }
@@ -101,9 +101,9 @@ final class ItemMetadataEnricher {
             item.content = paper.summary
         }
         if !paper.authors.isEmpty {
-            item.metadata["authors"] = paper.authors.joined(separator: ", ")
+            item.authors = paper.authors.joined(separator: ", ")
         }
-        item.metadata["fetchingMetadata"] = nil
+        item.isFetchingMetadata = false
         item.updatedAt = .now
         try? context.save()
 
@@ -168,19 +168,19 @@ final class ItemMetadataEnricher {
             item.content = description
         }
         if let author = oembed?.authorName, !author.isEmpty {
-            item.metadata["authors"] = author
+            item.authors = author
         }
         if let thumbnailURL {
-            item.metadata["thumbnailURL"] = thumbnailURL
+            item.thumbnailURL = thumbnailURL
         }
         if let thumbnailData {
             item.thumbnail = thumbnailData
         }
         if let duration = oembed?.duration ?? scraped?.durationSeconds {
             // Same format the local-video importer writes.
-            item.metadata["videoDuration"] = String(format: "%.1f", Double(duration))
+            item.videoDurationSeconds = Double(duration)
         }
-        item.metadata["fetchingMetadata"] = nil
+        item.isFetchingMetadata = false
         item.updatedAt = .now
         try? context.save()
 
@@ -214,13 +214,13 @@ final class ItemMetadataEnricher {
             item.title = title
         }
         if let author = extracted.author, !author.isEmpty {
-            item.metadata["authors"] = author
+            item.authors = author
         }
         if let thumbnailData = extracted.thumbnailData {
             item.thumbnail = thumbnailData
         }
-        item.metadata["pdfCached"] = "true"
-        item.metadata["fetchingMetadata"] = nil
+        item.isPDFCached = true
+        item.isFetchingMetadata = false
         item.updatedAt = .now
         try? context.save()
 
@@ -230,7 +230,7 @@ final class ItemMetadataEnricher {
     private func markPDFFormat(itemID: UUID, context: ModelContext) {
         let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
         guard let item = try? context.fetch(descriptor).first else { return }
-        item.metadata["format"] = "pdf"
+        item.isPDFFormat = true
         try? context.save()
     }
 
@@ -245,7 +245,7 @@ final class ItemMetadataEnricher {
             // Clear loading flag even on failure
             let desc = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
             if let fetchedItem = try? context.fetch(desc).first {
-                fetchedItem.metadata["fetchingMetadata"] = nil
+                fetchedItem.isFetchingMetadata = false
                 try? context.save()
             }
             return (nil, nil, nil)
@@ -271,7 +271,7 @@ final class ItemMetadataEnricher {
         }
 
         if let authors = metadata.authors, !authors.isEmpty {
-            fetchedItem.metadata["authors"] = authors
+            fetchedItem.authors = authors
         }
         if let title = metadata.title {
             fetchedItem.title = title
@@ -285,13 +285,13 @@ final class ItemMetadataEnricher {
            let compressed = imageDownloader.compressImageData(rawImageData) {
             fetchedItem.thumbnail = compressed
         } else if let imageURLString = metadata.imageURL {
-            fetchedItem.metadata["thumbnailURL"] = imageURLString
+            fetchedItem.thumbnailURL = imageURLString
             if let imageData = await imageDownloader.downloadAndCompress(urlString: imageURLString) {
                 fetchedItem.thumbnail = imageData
             }
         }
 
-        fetchedItem.metadata["fetchingMetadata"] = nil
+        fetchedItem.isFetchingMetadata = false
         fetchedItem.updatedAt = .now
         try? context.save()
 
@@ -363,11 +363,10 @@ final class ItemMetadataEnricher {
         guard let item = try? context.fetch(descriptor).first else { return }
 
         if let original = item.content, !original.isEmpty {
-            item.metadata["originalDescription"] = original
+            item.originalDescription = original
         }
         item.content = overview
-        item.metadata["hasLLMOverview"] = "true"
-        item.metadata["overviewGeneratedByAI"] = "true"
+        item.hasLLMOverview = true
         item.updatedAt = .now
         try? context.save()
     }
@@ -379,7 +378,7 @@ final class ItemMetadataEnricher {
     ) {
         let desc = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
         guard let item = try? context.fetch(desc).first,
-              item.metadata["summary"] == nil,
+              item.summary == nil,
               let overviewContent = item.content, !overviewContent.isEmpty else { return }
 
         let firstSentence = overviewContent
@@ -387,7 +386,7 @@ final class ItemMetadataEnricher {
             .first?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !firstSentence.isEmpty {
-            item.metadata["summary"] = String(firstSentence.prefix(120))
+            item.summary = String(firstSentence.prefix(120))
             try? context.save()
         }
     }
@@ -399,10 +398,10 @@ final class ItemMetadataEnricher {
     ) {
         let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
         guard let item = try? context.fetch(descriptor).first,
-              item.metadata["summary"] != nil else { return }
-        item.metadata["summaryGeneratedByAI"] = "true"
-        item.metadata["summaryReviewPending"] = nil
-        item.metadata["overviewReviewPending"] = nil
+              item.summary != nil else { return }
+        item.isSummaryGeneratedByAI = true
+        item.isSummaryReviewPending = false
+        item.isOverviewReviewPending = false
         try? context.save()
     }
 }

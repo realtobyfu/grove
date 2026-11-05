@@ -207,7 +207,7 @@ enum StarterLLMGenerator {
             return "their note on it: \(excerpt(reflection))"
         }
 
-        let summary = item.metadata["summary"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let summary = item.summary?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let summary, !summary.isEmpty {
             return excerpt(summary)
         }

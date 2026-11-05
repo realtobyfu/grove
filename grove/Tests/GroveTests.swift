@@ -66,7 +66,7 @@ struct GroveTests {
     }
 
     @MainActor
-    @Test func boardSuggestionSelectionRecordsLocalEvaluationSignal() {
+    @Test func boardSuggestionSelectionClearsPendingSuggestion() {
         let item = Item(title: "Pending", type: .note)
         let board = Board(title: "Research")
         let decision = BoardSuggestionDecision(
@@ -79,12 +79,9 @@ struct GroveTests {
         )
         BoardSuggestionMetadata.apply(decision, to: item)
 
-        BoardSuggestionMetadata.recordSelection(board, on: item)
+        BoardSuggestionMetadata.clearPendingSuggestion(on: item)
 
-        #expect(item.metadata["pendingBoardSuggestion"] == nil)
-        #expect(item.metadata["boardSuggestionOutcome"] == "selected")
-        #expect(item.metadata["boardSuggestionSelectedBoardID"] == board.id.uuidString)
-        #expect(item.metadata["boardSuggestionMatchedRecommendation"] == "true")
+        #expect(item.pendingBoardSuggestion == nil)
     }
 
     @MainActor
@@ -200,7 +197,7 @@ struct GroveTests {
         recent.status = .active
         recent.createdAt = .now
         recent.updatedAt = .now
-        recent.metadata["summary"] = "A recent thought with enough substance to ground a starter."
+        recent.summary = "A recent thought with enough substance to ground a starter."
 
         await service.refresh(items: [recent])
 
@@ -239,7 +236,7 @@ struct GroveTests {
         recent.status = .active
         recent.createdAt = .now
         recent.updatedAt = .now
-        recent.metadata["summary"] = "A recent thought with enough substance to ground a starter."
+        recent.summary = "A recent thought with enough substance to ground a starter."
 
         await service.refresh(items: [recent])
         let originalCount = service.bubbles.count
@@ -306,7 +303,7 @@ struct GroveTests {
         item.status = .active
         item.createdAt = .now
         item.updatedAt = .now
-        item.metadata["summary"] = "A recent thought with enough substance to ground a starter."
+        item.summary = "A recent thought with enough substance to ground a starter."
         item.boards.append(board)
 
         await service.refresh(items: [item])

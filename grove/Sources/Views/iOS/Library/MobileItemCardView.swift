@@ -46,7 +46,7 @@ struct MobileItemCardView: View {
                     }
                 }
 
-                if let summary = item.metadata["summary"], !summary.isEmpty {
+                if let summary = item.summary, !summary.isEmpty {
                     Text(summary)
                         .font(.groveBodySecondary)
                         .foregroundStyle(Color.textSecondary)

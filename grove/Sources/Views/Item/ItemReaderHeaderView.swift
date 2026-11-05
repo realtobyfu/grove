@@ -15,7 +15,7 @@ struct ItemReaderHeaderView: View {
                     .font(.groveMeta)
                     .foregroundStyle(Color.textSecondary)
 
-                if vm.item.metadata["isAIGenerated"] == "true" {
+                if vm.item.isAIGenerated {
                     AIMetaLabel(text: "AI-Generated Synthesis")
                 }
 
@@ -34,7 +34,7 @@ struct ItemReaderHeaderView: View {
                 .controlSize(.small)
                 #endif
 
-                if vm.item.type == .note || (vm.item.type == .article && vm.item.metadata["hasLLMOverview"] == "true") {
+                if vm.item.type == .note || (vm.item.type == .article && vm.item.hasLLMOverview) {
                     Button {
                         vm.toggleContentEditing()
                     } label: {
@@ -52,20 +52,19 @@ struct ItemReaderHeaderView: View {
                 .tracking(-0.36)
                 .textSelection(.enabled)
 
-            if vm.item.metadata["isAIGenerated"] == "true" {
-                let isEdited = vm.item.metadata["isAIEdited"] == "true"
+            if vm.item.isAIGenerated {
+                let isEdited = vm.item.isAIEdited
                 AIMetaLabel(
                     text: isEdited ? "Edited" : "AI Draft",
                     systemImage: isEdited ? "pencil" : "sparkles"
                 )
-            } else if vm.item.metadata["hasLLMOverview"] == "true"
-                        || vm.item.metadata["summaryGeneratedByAI"] == "true" {
+            } else if vm.item.hasLLMOverview || vm.item.isSummaryGeneratedByAI {
                 // Revert lives on the overview paragraph it actually reverts.
                 AIMetaLabel(text: "AI-assisted")
             }
 
             // One-line summary display/edit
-            if let summary = vm.item.metadata["summary"], !summary.isEmpty {
+            if let summary = vm.item.summary, !summary.isEmpty {
                 ItemReaderSummaryField(vm: vm, summary: summary)
             }
 
@@ -81,7 +80,7 @@ struct ItemReaderHeaderView: View {
                     .font(.groveMeta)
                     .foregroundStyle(Color.textTertiary)
 
-                if let readTime = vm.item.metadata["readTimeMinutes"], !readTime.isEmpty {
+                if let readTime = vm.item.readTimeMinutes {
                     Label("\(readTime) min read", systemImage: "clock")
                         .font(.groveMeta)
                         .foregroundStyle(Color.textTertiary)
@@ -97,7 +96,7 @@ struct ItemReaderHeaderView: View {
 
     @ViewBuilder
     private func sourceURLView(sourceURL: String) -> some View {
-        if vm.item.metadata["videoLocalFile"] == "true", let path = vm.item.metadata["originalPath"] {
+        if vm.item.isVideoLocalFile, let path = vm.item.originalPath {
             HStack(spacing: 4) {
                 Image(systemName: "folder")
                     .font(.groveMeta)
@@ -194,8 +193,8 @@ struct AIOverviewHeaderRow: View {
     @State private var isLinkHovered = false
 
     private var canRevert: Bool {
-        vm.item.metadata["hasLLMOverview"] == "true"
-            && !(vm.item.metadata["originalDescription"] ?? "").isEmpty
+        vm.item.hasLLMOverview
+            && !(vm.item.originalDescription ?? "").isEmpty
     }
 
     var body: some View {
@@ -204,7 +203,6 @@ struct AIOverviewHeaderRow: View {
 
             if canRevert {
                 Button {
-                    vm.item.metadata["overviewFeedback"] = "reverted"
                     vm.revertOverview()
                 } label: {
                     Text("Revert to original")

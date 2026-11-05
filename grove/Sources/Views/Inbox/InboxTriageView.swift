@@ -85,7 +85,7 @@ struct InboxTriageView: View {
                     recommendedBoardID: boardPickerRecommendedBoardID,
                     alternativeBoardIDs: boardPickerAlternativeBoardIDs,
                     onSelect: { board in
-                        BoardSuggestionMetadata.recordSelection(board, on: item)
+                        BoardSuggestionMetadata.clearPendingSuggestion(on: item)
                         let viewModel = ItemViewModel(modelContext: modelContext)
                         if boardPickerReplacesMembership {
                             viewModel.moveItemsToBoard([item], board: board)
@@ -334,8 +334,8 @@ struct InboxTriageView: View {
         if item.isFeedSuggestion {
             // Kept suggestions become regular items; clear the flag so they
             // leave the "From your subscriptions" grouping for good.
-            item.metadata["isSuggested"] = nil
-            item.metadata["suggestionDismissed"] = nil
+            item.isFeedSuggestion = false
+            item.isSuggestionDismissed = false
         }
 
         item.status = .active
@@ -344,7 +344,7 @@ struct InboxTriageView: View {
 
         if let board {
             // Explicit one-gesture filing — no auto-assign, no confirmation.
-            BoardSuggestionMetadata.recordSelection(board, on: item)
+            BoardSuggestionMetadata.clearPendingSuggestion(on: item)
             ItemViewModel(modelContext: modelContext).assignToBoard(item, board: board)
             clearFiledConfirmation()
         } else if item.boards.isEmpty {
@@ -353,7 +353,7 @@ struct InboxTriageView: View {
             if let decision = BoardSuggestionMetadata.decision(from: item),
                let matchedBoard = autoAssignBoard(from: decision) {
                 autoAssigned = matchedBoard
-            } else if let suggestedName = item.metadata["suggestedBoard"],
+            } else if let suggestedName = item.suggestedBoard,
                       let matchedBoard = boards.first(where: {
                           $0.title.localizedCaseInsensitiveCompare(suggestedName) == .orderedSame
                       }) {
@@ -362,7 +362,7 @@ struct InboxTriageView: View {
 
             if let autoAssigned {
                 item.boards.append(autoAssigned)
-                BoardSuggestionMetadata.recordSelection(autoAssigned, on: item)
+                BoardSuggestionMetadata.clearPendingSuggestion(on: item)
                 showFiledConfirmation(item: item, board: autoAssigned)
             }
         }
@@ -377,7 +377,7 @@ struct InboxTriageView: View {
     /// assignment that already happened, so it must replace, not append.
     private func presentBoardPicker(for item: Item, replacingMembership: Bool = false) {
         let decision = BoardSuggestionMetadata.decision(from: item)
-        boardPickerSuggestedName = decision?.suggestedName ?? (item.metadata["suggestedBoard"] ?? "")
+        boardPickerSuggestedName = decision?.suggestedName ?? (item.suggestedBoard ?? "")
         boardPickerRecommendedBoardID = decision?.recommendedBoardID
         boardPickerAlternativeBoardIDs = decision?.alternativeBoardIDs ?? []
         boardPickerReplacesMembership = replacingMembership
@@ -480,13 +480,13 @@ struct InboxTriageView: View {
         if let existingBoard = boards.first(where: {
             $0.title.localizedCaseInsensitiveCompare(title) == .orderedSame
         }) {
-            BoardSuggestionMetadata.recordSelection(existingBoard, on: item)
+            BoardSuggestionMetadata.clearPendingSuggestion(on: item)
             let viewModel = ItemViewModel(modelContext: modelContext)
             viewModel.assignToBoard(item, board: existingBoard)
         } else {
             let board = Board(title: title)
             modelContext.insert(board)
-            BoardSuggestionMetadata.recordSelection(board, on: item)
+            BoardSuggestionMetadata.clearPendingSuggestion(on: item)
             let viewModel = ItemViewModel(modelContext: modelContext)
             viewModel.assignToBoard(item, board: board)
         }

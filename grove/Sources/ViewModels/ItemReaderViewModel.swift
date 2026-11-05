@@ -133,7 +133,7 @@ final class ItemReaderViewModel {
     var articleURL: URL? {
         guard (item.type == .article || item.type == .codebase),
               !isPDFItem,
-              item.metadata["videoLocalFile"] != "true" else { return nil }
+              !item.isVideoLocalFile else { return nil }
 
         return resolvedSourceURL(from: item.sourceURL)
     }
@@ -143,7 +143,7 @@ final class ItemReaderViewModel {
     /// every item that has a local file to play or no web source at all.
     var remoteVideoEmbedURL: URL? {
         guard item.type == .video, localVideoURL == nil else { return nil }
-        return VideoEmbed.remoteURL(sourceURL: item.sourceURL, metadata: item.metadata)
+        return VideoEmbed.remoteURL(sourceURL: item.sourceURL, videoSource: item.videoSource, videoID: item.videoID)
     }
 
     /// True for every video item — whether the pane is showing an embed or a
@@ -177,7 +177,7 @@ final class ItemReaderViewModel {
     /// Resolve the local video file URL for this item
     var localVideoURL: URL? {
         guard item.type == .video else { return nil }
-        if let path = item.metadata["originalPath"] {
+        if let path = item.originalPath {
             let url = URL(fileURLWithPath: path)
             if FileManager.default.fileExists(atPath: path) {
                 return url
@@ -213,7 +213,7 @@ final class ItemReaderViewModel {
 
     /// Persisted 0–1 reading progress for this item.
     var readingProgress: Double {
-        Double(item.metadata["readingProgress"] ?? "") ?? 0
+        item.readingProgress
     }
 
     /// Loads a cached extraction if present, and opens straight into Reader
@@ -223,8 +223,8 @@ final class ItemReaderViewModel {
         guard let cached = ArticleReaderService.shared.cachedArticle(for: item.id) else { return }
         readerArticle = cached
         isReaderMode = true
-        if item.metadata["readTimeMinutes"] == nil {
-            item.metadata["readTimeMinutes"] = String(cached.readMinutes)
+        if item.readTimeMinutes == nil {
+            item.readTimeMinutes = cached.readMinutes
         }
     }
 
@@ -264,7 +264,7 @@ final class ItemReaderViewModel {
             ) else { return }
             ArticleReaderService.shared.saveArticle(article, for: itemID)
             readerArticle = article
-            item.metadata["readTimeMinutes"] = String(article.readMinutes)
+            item.readTimeMinutes = article.readMinutes
             try? modelContext.save()
             withAnimation(.easeOut(duration: 0.2)) { isReaderMode = true }
         }
@@ -352,7 +352,7 @@ final class ItemReaderViewModel {
         liveReadingProgress = clamped
         guard abs(clamped - lastSavedReadingProgress) >= 0.05 || clamped >= 0.995 else { return }
         lastSavedReadingProgress = clamped
-        item.metadata["readingProgress"] = String(format: "%.3f", clamped)
+        item.readingProgress = clamped
         try? modelContext.save()
     }
 
@@ -588,7 +588,7 @@ final class ItemReaderViewModel {
     func finishEditingSummary() {
         let trimmed = editableSummary.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
-            item.metadata["summary"] = String(trimmed.prefix(120))
+            item.summary = String(trimmed.prefix(120))
         }
         isEditingSummary = false
         try? modelContext.save()
@@ -597,24 +597,24 @@ final class ItemReaderViewModel {
     // MARK: - Review Banner
 
     func acceptReview() {
-        item.metadata["summaryReviewPending"] = nil
-        item.metadata["overviewReviewPending"] = nil
+        item.isSummaryReviewPending = false
+        item.isOverviewReviewPending = false
         try? modelContext.save()
     }
 
     func revertOverview() {
-        if let original = item.metadata["originalDescription"], !original.isEmpty {
+        if let original = item.originalDescription, !original.isEmpty {
             item.content = original
-            item.metadata["hasLLMOverview"] = nil
-            item.metadata["overviewReviewPending"] = nil
-            item.metadata["originalDescription"] = nil
+            item.hasLLMOverview = false
+            item.isOverviewReviewPending = false
+            item.originalDescription = nil
             try? modelContext.save()
         }
     }
 
     func dismissReview() {
-        item.metadata["summaryReviewPending"] = nil
-        item.metadata["overviewReviewPending"] = nil
+        item.isSummaryReviewPending = false
+        item.isOverviewReviewPending = false
         try? modelContext.save()
     }
 
@@ -624,8 +624,8 @@ final class ItemReaderViewModel {
         let wasEditing = isEditingContent
         isEditingContent.toggle()
         if wasEditing {
-            if item.metadata["isAIGenerated"] == "true" && item.metadata["isAIEdited"] != "true" {
-                item.metadata["isAIEdited"] = "true"
+            if item.isAIGenerated && !item.isAIEdited {
+                item.isAIEdited = true
             }
             WikiLinkSync.sync(item: item, modelContext: modelContext)
         }
@@ -648,7 +648,7 @@ final class ItemReaderViewModel {
     /// Downloads cover image for existing items that have a thumbnailURL but no stored thumbnail.
     func backfillThumbnailIfNeeded() {
         guard item.thumbnail == nil,
-              let thumbnailURL = item.metadata["thumbnailURL"],
+              let thumbnailURL = item.thumbnailURL,
               !thumbnailURL.isEmpty else { return }
         Task {
             if let imageData = await ImageDownloadService.shared.downloadAndCompress(urlString: thumbnailURL) {

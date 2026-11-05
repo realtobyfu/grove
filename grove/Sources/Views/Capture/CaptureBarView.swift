@@ -394,7 +394,7 @@ struct CaptureBarView: View {
         let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
         guard let item = try? modelContext.fetch(descriptor).first else { return }
 
-        BoardSuggestionMetadata.recordSelection(board, on: item)
+        BoardSuggestionMetadata.clearPendingSuggestion(on: item)
         let viewModel = ItemViewModel(modelContext: modelContext)
         viewModel.assignToBoard(item, board: board)
     }
@@ -686,7 +686,7 @@ struct CaptureBarOverlayView: View {
         let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
         guard let item = try? modelContext.fetch(descriptor).first else { return }
 
-        BoardSuggestionMetadata.recordSelection(board, on: item)
+        BoardSuggestionMetadata.clearPendingSuggestion(on: item)
         let viewModel = ItemViewModel(modelContext: modelContext)
         viewModel.assignToBoard(item, board: board)
     }

@@ -8,7 +8,7 @@ struct MobileInboxCard: View {
     var onDismissTag: ((Tag) -> Void)?
 
     private var isFetchingMetadata: Bool {
-        item.metadata["fetchingMetadata"] == "true"
+        item.isFetchingMetadata
     }
 
     var body: some View {
@@ -46,7 +46,7 @@ struct MobileInboxCard: View {
                             .font(.groveMeta)
                             .foregroundStyle(Color.textMuted)
                     }
-                } else if let summary = item.metadata["summary"], !summary.isEmpty {
+                } else if let summary = item.summary, !summary.isEmpty {
                     Text(summary)
                         .font(.groveBodySecondary)
                         .foregroundStyle(Color.textSecondary)

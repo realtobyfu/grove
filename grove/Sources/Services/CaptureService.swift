@@ -106,7 +106,7 @@ final class CaptureService: CaptureServiceProtocol {
             // so treating it as a duplicate would silently swallow a deliberate
             // re-capture with no way to surface the item.
             if candidate.status == .dismissed || candidate.status == .archived { return false }
-            if candidate.metadata["suggestionDismissed"] == "true" { return false }
+            if candidate.isSuggestionDismissed { return false }
             return true
         }
     }
@@ -128,9 +128,9 @@ final class CaptureService: CaptureServiceProtocol {
         item.sourceURL = storedURL
 
         if let arxivID {
-            item.metadata["arxivID"] = arxivID
+            item.arxivID = arxivID
         } else if let url, url.pathExtension.lowercased() == "pdf" {
-            item.metadata["format"] = "pdf"
+            item.isPDFFormat = true
         }
 
         let itemType: ItemType
@@ -144,8 +144,8 @@ final class CaptureService: CaptureServiceProtocol {
         item.type = itemType
 
         if itemType == .video, let url, let video = Self.videoSourceAndID(from: url) {
-            item.metadata["videoSource"] = video.source
-            item.metadata["videoID"] = video.id
+            item.videoSource = video.source
+            item.videoID = video.id
         }
     }
 
@@ -160,7 +160,7 @@ final class CaptureService: CaptureServiceProtocol {
         // the placeholder title and the enrichment both follow it.
         let storedURL = item.sourceURL ?? trimmed
         item.title = storedURL
-        item.metadata["fetchingMetadata"] = "true"
+        item.isFetchingMetadata = true
 
         modelContext.insert(item)
         try? modelContext.save()

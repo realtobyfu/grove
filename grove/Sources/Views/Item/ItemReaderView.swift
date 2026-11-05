@@ -333,7 +333,7 @@ struct ItemReaderView: View {
                     SelectableMarkdownView(markdown: content, onSelectText: { vm.webSelectedText = $0 })
                 }
             }
-        } else if vm.isEditingContent && (vm.item.type == .note || (vm.item.type == .article && vm.item.metadata["hasLLMOverview"] == "true")) {
+        } else if vm.isEditingContent && (vm.item.type == .note || (vm.item.type == .article && vm.item.hasLLMOverview)) {
             RichMarkdownEditor(
                 text: Binding(
                     get: { vm.item.content ?? "" },
@@ -346,7 +346,7 @@ struct ItemReaderView: View {
                 minHeight: 200
             )
         } else if let content = vm.item.content, !content.isEmpty {
-            if vm.item.metadata["hasLLMOverview"] == "true" {
+            if vm.item.hasLLMOverview {
                 AIOverviewHeaderRow(vm: vm)
                     .padding(.bottom, 4)
             }

@@ -331,7 +331,7 @@ struct MobileBoardDetailView: View {
         }
 
         if let urlString = item.sourceURL, let url = URL(string: urlString),
-           item.metadata["videoLocalFile"] != "true" {
+           !item.isVideoLocalFile {
             Button {
                 openItem(item)
             } label: {

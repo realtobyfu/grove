@@ -537,7 +537,7 @@ struct ItemReaderWebViewPanel: View {
                     recommendedBoardID: decision?.recommendedBoardID,
                     alternativeBoardIDs: decision?.alternativeBoardIDs ?? [],
                     onSelect: { board in
-                        BoardSuggestionMetadata.recordSelection(board, on: capturedItem)
+                        BoardSuggestionMetadata.clearPendingSuggestion(on: capturedItem)
                         ItemViewModel(modelContext: modelContext).assignToBoard(capturedItem, board: board)
                         finishFiling()
                     },
@@ -599,12 +599,12 @@ struct ItemReaderWebViewPanel: View {
         if let existing = boards.first(where: {
             $0.title.localizedCaseInsensitiveCompare(title) == .orderedSame
         }) {
-            BoardSuggestionMetadata.recordSelection(existing, on: item)
+            BoardSuggestionMetadata.clearPendingSuggestion(on: item)
             itemViewModel.assignToBoard(item, board: existing)
         } else {
             let board = Board(title: title)
             modelContext.insert(board)
-            BoardSuggestionMetadata.recordSelection(board, on: item)
+            BoardSuggestionMetadata.clearPendingSuggestion(on: item)
             itemViewModel.assignToBoard(item, board: board)
         }
     }

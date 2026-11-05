@@ -161,7 +161,7 @@ final class KnowledgeBaseTools {
             var line = "- \(item.title) (id: \(item.id.uuidString))"
             let tags = item.tags.map(\.name).joined(separator: ", ")
             if !tags.isEmpty { line += " [tags: \(tags)]" }
-            if let summary = item.metadata["summary"], !summary.isEmpty {
+            if let summary = item.summary, !summary.isEmpty {
                 line += " — \(String(summary.prefix(120)))"
             }
             return line

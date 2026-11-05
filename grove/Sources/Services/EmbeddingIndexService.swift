@@ -56,7 +56,7 @@ actor EmbeddingIndexService {
         var parts = [item.title]
         let tags = item.tags.map(\.name).joined(separator: ", ")
         if !tags.isEmpty { parts.append(tags) }
-        if let summary = item.metadata["summary"], !summary.isEmpty { parts.append(summary) }
+        if let summary = item.summary, !summary.isEmpty { parts.append(summary) }
         if let content = item.content, !content.isEmpty {
             parts.append(String(content.prefix(1000)))
         }

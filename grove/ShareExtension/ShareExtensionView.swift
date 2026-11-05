@@ -133,8 +133,8 @@ struct ShareExtensionView: View {
 
         // Mark as needing metadata fetch so the main app picks it up
         if isURL {
-            item.metadata["fetchingMetadata"] = "true"
-            item.metadata["pendingFromExtension"] = "true"
+            item.isFetchingMetadata = true
+            item.isPendingFromExtension = true
         }
 
         // Append note if provided

@@ -111,9 +111,9 @@ enum VideoEmbed {
     /// The URL a remote video plays at: the host's embed when the host is one
     /// we know, otherwise the page itself — a Twitch clip or an unrecognized
     /// host is still better served live than not at all.
-    static func playbackURL(for url: URL, metadata: [String: String]) -> URL {
-        if let source = metadata["videoSource"], let id = metadata["videoID"],
-           let embed = embedURL(source: source, id: id) {
+    static func playbackURL(for url: URL, videoSource: String?, videoID: String?) -> URL {
+        if let videoSource, let videoID,
+           let embed = embedURL(source: videoSource, id: videoID) {
             return embed
         }
         if let parsed = identify(url),
@@ -128,11 +128,11 @@ enum VideoEmbed {
     /// isn't http(s)). Callers add the "no local file" test themselves, since
     /// what counts as local differs between the desktop reader and the mobile
     /// one.
-    static func remoteURL(sourceURL: String?, metadata: [String: String]) -> URL? {
+    static func remoteURL(sourceURL: String?, videoSource: String?, videoID: String?) -> URL? {
         guard let url = resolvedSourceURL(from: sourceURL),
               let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https" else { return nil }
-        return playbackURL(for: url, metadata: metadata)
+        return playbackURL(for: url, videoSource: videoSource, videoID: videoID)
     }
 }
 

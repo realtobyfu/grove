@@ -17,7 +17,7 @@ struct InboxCard: View {
     var onMoreBoards: (() -> Void)?
 
     private var isFetchingMetadata: Bool {
-        item.metadata["fetchingMetadata"] != nil
+        item.isFetchingMetadata
     }
 
     var body: some View {
@@ -79,7 +79,7 @@ struct InboxCard: View {
             }
 
             // One-line summary if available
-            if let summary = item.metadata["summary"], !summary.isEmpty {
+            if let summary = item.summary, !summary.isEmpty {
                 Text(summary)
                     .font(.groveBodySecondary)
                     .foregroundStyle(Color.textSecondary)

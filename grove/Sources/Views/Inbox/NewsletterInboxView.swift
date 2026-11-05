@@ -23,7 +23,6 @@ struct NewsletterInboxView: View {
     // MARK: - Data
 
     /// Formatter creation is expensive; one instance for the whole view.
-    private static let isoDateFormatter = ISO8601DateFormatter()
 
     private struct DatedIssue: Identifiable {
         let item: Item
@@ -47,9 +46,8 @@ struct NewsletterInboxView: View {
     private var groups: [SourceGroup] {
         var bySource: [String: [DatedIssue]] = [:]
         for item in allItems where item.isNewsletterIssue && item.status != .dismissed {
-            let date = item.metadata["publishedAt"]
-                .flatMap { Self.isoDateFormatter.date(from: $0) } ?? item.createdAt
-            bySource[item.metadata["feedSourceID"] ?? "", default: []]
+            let date = item.publishedAt ?? item.createdAt
+            bySource[item.feedSourceID ?? "", default: []]
                 .append(DatedIssue(item: item, publishedAt: date))
         }
         guard !bySource.isEmpty else { return [] }
@@ -387,7 +385,7 @@ struct NewsletterInboxView: View {
     private func hide(_ item: Item) {
         withAnimation(.easeOut(duration: 0.25)) {
             item.status = .dismissed
-            item.metadata["suggestionDismissed"] = "true"
+            item.isSuggestionDismissed = true
             item.updatedAt = .now
             try? modelContext.save()
         }
