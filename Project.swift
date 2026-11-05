@@ -139,6 +139,7 @@ let project = Project(
                 "SWIFT_STRICT_CONCURRENCY": "complete",
                 "SWIFT_VERSION": "6.0",
                 "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "SHARE_EXTENSION",
+                "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
                 "CODE_SIGN_STYLE": "Automatic",
                 "DEVELOPMENT_TEAM": "679K683SQ5",
                 "MARKETING_VERSION": "1.0",

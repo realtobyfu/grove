@@ -169,7 +169,6 @@ struct SidebarView: View {
     private func boardRow(_ board: Board) -> some View {
         SidebarRow(
             icon: board.icon ?? "folder",
-            iconColor: board.color.map { Color(hex: $0) },
             title: board.title,
             tier: .board,
             isSelected: selection == .board(board.id)
@@ -279,7 +278,6 @@ private struct SidebarRow: View {
     }
 
     let icon: String
-    var iconColor: Color? = nil
     let title: String
     var count: Int = 0
     var tier: Tier = .primary
@@ -305,7 +303,7 @@ private struct SidebarRow: View {
             HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
                 Image(systemName: icon)
                     .font(.system(size: tier == .primary ? 13 : 12, weight: .medium))
-                    .foregroundStyle(iconColor ?? inkColor)
+                    .foregroundStyle(inkColor)
                     .frame(width: 20)
 
                 Text(title)

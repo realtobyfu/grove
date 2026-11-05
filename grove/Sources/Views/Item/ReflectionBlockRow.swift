@@ -14,10 +14,28 @@ struct ReflectionBlockRow: View {
 
     @State private var isHovered = false
 
+    /// Hover reveals delete on the Mac; a touch screen has no hover to reveal it.
+    private var deleteOpacity: Double {
+        #if os(iOS)
+        1
+        #else
+        isHovered ? 1 : 0
+        #endif
+    }
+
+    /// The 44pt targets sit edge to edge on iOS, where the header is tightest.
+    private var headerActionSpacing: CGFloat {
+        #if os(iOS)
+        0
+        #else
+        6
+        #endif
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Header: type label + actions
-            HStack(spacing: 6) {
+            HStack(spacing: headerActionSpacing) {
                 Text(block.blockType.displayName)
                     .font(.groveBadge)
                     .tracking(0.5)
@@ -28,53 +46,42 @@ struct ReflectionBlockRow: View {
                 Text(block.createdAt.formatted(date: .abbreviated, time: .shortened))
                     .font(.groveMeta)
                     .foregroundStyle(Color.textMuted)
+                    .lineLimit(1)
 
                 if let onRemember {
                     Button {
                         onRemember(block)
                     } label: {
-                        Image(systemName: "rectangle.on.rectangle")
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textSecondary)
+                        headerActionIcon("rectangle.on.rectangle", color: Color.textSecondary)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Make a flashcard from this reflection")
                     .help("Make a flashcard")
-                    #if os(iOS)
-                    .frame(minWidth: 44, minHeight: 44)
-                    #endif
                 }
 
                 // Type menu
                 Menu {
-                    ForEach(ReflectionBlockType.allCases, id: \.self) { type in
-                        Button {
-                            block.blockType = type
-                            try? modelContext.save()
-                        } label: {
-                            Label(type.displayName, systemImage: type.systemImage)
-                        }
-                    }
+                    typeOptions
                 } label: {
-                    Image(systemName: block.blockType.systemImage)
-                        .font(.groveMeta)
-                        .foregroundStyle(Color.textSecondary)
+                    headerActionIcon(block.blockType.systemImage, color: Color.textSecondary)
                 }
                 .menuStyle(.borderlessButton)
+                #if os(macOS)
                 .frame(width: 20)
+                #endif
+                .accessibilityLabel("Change type")
                 .help("Change type")
 
-                // Delete -- hover only
+                // Delete -- hover on the Mac, always visible on touch
                 Button {
                     onDelete(block)
                 } label: {
-                    Image(systemName: "trash")
-                        .font(.groveMeta)
-                        .foregroundStyle(Color.textMuted)
+                    headerActionIcon("trash", color: Color.textMuted)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Delete reflection")
                 .help("Delete")
-                .opacity(isHovered ? 1 : 0)
+                .opacity(deleteOpacity)
                 .animation(.easeInOut(duration: 0.15), value: isHovered)
             }
 
@@ -105,6 +112,16 @@ struct ReflectionBlockRow: View {
         // longer swallow the click.
         .contentShape(Rectangle())
         .onTapGesture { onEdit(block) }
+        .contextMenu {
+            Menu("Change Type") {
+                typeOptions
+            }
+            Button(role: .destructive) {
+                onDelete(block)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
         // Hover marks the row the way the rest of the app does: a left rule
         // in ink, not a filled card floating off the page.
         .overlay(alignment: .leading) {
@@ -124,5 +141,28 @@ struct ReflectionBlockRow: View {
             }
             #endif
         }
+    }
+
+    private var typeOptions: some View {
+        ForEach(ReflectionBlockType.allCases, id: \.self) { type in
+            Button {
+                block.blockType = type
+                try? modelContext.save()
+            } label: {
+                Label(type.displayName, systemImage: type.systemImage)
+            }
+        }
+    }
+
+    /// Header glyph. On iOS the 44pt frame and hit shape live inside the
+    /// control's label: a plain button only hit-tests what its label draws.
+    private func headerActionIcon(_ systemImage: String, color: Color) -> some View {
+        Image(systemName: systemImage)
+            .font(.groveMeta)
+            .foregroundStyle(color)
+            #if os(iOS)
+            .frame(width: LayoutDimensions.minTouchTarget, height: LayoutDimensions.minTouchTarget)
+            .contentShape(Rectangle())
+            #endif
     }
 }

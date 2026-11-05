@@ -28,6 +28,7 @@ struct BoardEditorSheet: View {
     }
 
     var body: some View {
+        #if os(macOS)
         VStack(spacing: 0) {
             header
             Divider()
@@ -49,8 +50,38 @@ struct BoardEditorSheet: View {
             footer
         }
         .frame(width: 420, height: 400)
+        #else
+        NavigationStack {
+            Form {
+                Section("Board Name") {
+                    TextField("Enter board name", text: $title)
+                        .font(.groveBody)
+                }
+
+                Section("Icon") {
+                    iconPicker
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(Color.bgPrimary)
+            .navigationTitle(isEditing ? "Edit Board" : "New Board")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    confirmButton
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        #endif
     }
 
+    #if os(macOS)
     private var header: some View {
         HStack {
             Text(isEditing ? "Edit Board" : "New Board")
@@ -70,15 +101,20 @@ struct BoardEditorSheet: View {
 
             Spacer()
 
-            Button(isEditing ? "Save" : "Create") {
-                let icon = selectedIcon.isEmpty ? nil : selectedIcon
-                onSave(title, icon)
-                dismiss()
-            }
-            .keyboardShortcut(.defaultAction)
-            .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
+            confirmButton
+                .keyboardShortcut(.defaultAction)
         }
         .padding()
+    }
+    #endif
+
+    private var confirmButton: some View {
+        Button(isEditing ? "Save" : "Create") {
+            let icon = selectedIcon.isEmpty ? nil : selectedIcon
+            onSave(title, icon)
+            dismiss()
+        }
+        .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
     }
 
     // MARK: - Icon Picker
@@ -94,11 +130,22 @@ struct BoardEditorSheet: View {
         "person.2", "map", "flag", "bookmark"
     ]
 
+    #if os(macOS)
+    private let iconCellSize: CGFloat = 32
+    private let iconGridSpacing: CGFloat = 8
+    private let iconColumns = Array(repeating: GridItem(.fixed(36), spacing: 8), count: 8)
+    #else
+    /// Fills whatever width the sheet gives it, at the 44pt touch minimum.
+    private let iconCellSize = LayoutDimensions.minTouchTarget
+    private let iconGridSpacing: CGFloat = 4
+    private let iconColumns = [GridItem(.adaptive(minimum: LayoutDimensions.minTouchTarget), spacing: 4)]
+    #endif
+
     /// Icons read in ink, never in color. The selected one steps up to full
     /// ink inside a 3pt-radius outline — the same weight-and-rule hierarchy
     /// the rest of the app uses instead of a tint.
     private var iconPicker: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.fixed(36), spacing: 8), count: 8), spacing: 8) {
+        LazyVGrid(columns: iconColumns, spacing: iconGridSpacing) {
             ForEach(Self.iconOptions, id: \.self) { icon in
                 let isSelected = selectedIcon == icon
                 Button {
@@ -107,7 +154,7 @@ struct BoardEditorSheet: View {
                     Image(systemName: icon)
                         .font(.system(size: 16, weight: isSelected ? .medium : .regular))
                         .foregroundStyle(isSelected ? Color.textPrimary : Color.textSecondary)
-                        .frame(width: 32, height: 32)
+                        .frame(width: iconCellSize, height: iconCellSize)
                         .overlay(
                             RoundedRectangle(cornerRadius: 3)
                                 .stroke(Color.textPrimary, lineWidth: isSelected ? 1 : 0)

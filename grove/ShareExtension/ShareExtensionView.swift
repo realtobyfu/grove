@@ -62,6 +62,7 @@ struct ShareExtensionView: View {
                 }
             }
         }
+        .tint(Color.textPrimary)
     }
 
     // MARK: - Sections

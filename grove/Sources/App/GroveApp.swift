@@ -81,6 +81,7 @@ struct GroveApp: App {
                 .environment(conversationStarterService)
                 .environment(coachMarkService)
                 .environment(feedFetchService)
+                .tint(Color.textPrimary)
         }
         .modelContainer(modelContainer)
         .defaultSize(width: 1200, height: 800)
@@ -116,6 +117,7 @@ struct GroveApp: App {
                     }
             }
             .frame(width: 640, height: 500)
+            .tint(Color.textPrimary)
             .environment(entitlementService)
             .environment(onboardingService)
             .environment(paywallCoordinator)
@@ -168,6 +170,7 @@ struct GroveApp: App {
                 .environment(conversationStarterService)
                 .environment(coachMarkService)
                 .environment(feedFetchService)
+                .tint(Color.textPrimary)
         }
         .modelContainer(modelContainer)
         #endif

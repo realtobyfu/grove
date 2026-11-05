@@ -41,13 +41,6 @@ struct MobileHomeView: View {
         Array(starterService.bubbles.prefix(Self.maxDiscussionCards))
     }
 
-    private var newConversationBubble: PromptBubble {
-        PromptBubble(
-            prompt: "New Conversation",
-            label: "CHAT"
-        )
-    }
-
     var body: some View {
         List {
             Section {
@@ -160,22 +153,18 @@ struct MobileHomeView: View {
 
     @ViewBuilder
     private var discussionSuggestionsSection: some View {
-        Section {
-            if let bubble = discussionBubbles.first {
+        if let bubble = discussionBubbles.first {
+            Section {
                 StarterCard(
                     bubble: bubble,
                     onOpenChat: { startConversation(with: bubble) },
                     onStartWriting: { startWriting(with: bubble.prompt) },
                     onDismiss: { starterService.dismiss(bubble, in: modelContext) }
                 )
-            } else {
-                MobileStarterCard(bubble: newConversationBubble) {
-                    startNewConversation()
-                }
+            } header: {
+                Text("Think Next")
+                    .sectionHeaderStyle()
             }
-        } header: {
-            Text("Think Next")
-                .sectionHeaderStyle()
         }
     }
 
@@ -294,10 +283,6 @@ struct MobileHomeView: View {
             with: bubble.prompt,
             seedItemIDs: bubble.clusterItemIDs
         )
-    }
-
-    private func startNewConversation() {
-        openConversation(with: "")
     }
 
     private func startWriting(with prompt: String?) {

@@ -7,6 +7,14 @@ struct MobileInboxCard: View {
     var onConfirmTag: ((Tag) -> Void)?
     var onDismissTag: ((Tag) -> Void)?
 
+    /// Width each tag action occupies inside the visual chip.
+    private static let tagActionSlot: CGFloat = 14
+    private static let tagChipTrailingPadding: CGFloat = 4
+    /// How far the dismiss target runs past the chip's edge. Chips keep this
+    /// clear so the target can't land on the next chip.
+    private static let tagTargetOverhang =
+        LayoutDimensions.minTouchTarget - tagActionSlot - tagChipTrailingPadding
+
     private var isFetchingMetadata: Bool {
         item.isFetchingMetadata
     }
@@ -60,7 +68,7 @@ struct MobileInboxCard: View {
 
                 // Auto-tag chips
                 if !autoTags.isEmpty {
-                    HStack(spacing: Spacing.xs) {
+                    FlowLayout(spacing: 0) {
                         ForEach(autoTags) { tag in
                             autoTagChip(tag)
                         }
@@ -89,37 +97,74 @@ struct MobileInboxCard: View {
     }
 
     private func autoTagChip(_ tag: Tag) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 0) {
             Text(tag.name)
                 .font(.groveTag)
-                .foregroundStyle(Color.textSecondary)
+                .foregroundStyle(Color.textPrimary)
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.trailing, Spacing.xs)
 
             if let onConfirmTag {
-                Button {
+                tagAction(
+                    "checkmark",
+                    label: "Confirm tag \(tag.name)",
+                    color: Color.textSecondary,
+                    alignment: .trailing
+                ) {
                     onConfirmTag(tag)
-                } label: {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(Color.textSecondary)
                 }
-                .buttonStyle(.plain)
             }
 
             if let onDismissTag {
-                Button {
+                tagAction(
+                    "xmark",
+                    label: "Dismiss tag \(tag.name)",
+                    color: Color.textMuted,
+                    alignment: .leading
+                ) {
                     onDismissTag(tag)
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(Color.textMuted)
                 }
-                .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 8)
+        .padding(.leading, 8)
+        .padding(.trailing, Self.tagChipTrailingPadding)
         .padding(.vertical, 4)
-        .background(Color.bgTagActive.opacity(0.5))
-        .clipShape(Capsule())
+        // A background rather than a clip, so the 44pt targets stay whole.
+        .background(Color.bgCard, in: RoundedRectangle(cornerRadius: 4))
+        .overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .stroke(Color.borderTag, lineWidth: 1)
+        )
+        .padding(.trailing, Self.tagTargetOverhang)
+        .frame(minHeight: LayoutDimensions.minTouchTarget)
+    }
+
+    /// A glyph-sized action with a 44pt target that overflows the chip.
+    /// `alignment` pins the glyph to one side of the target, so confirm reaches
+    /// left over the tag name, dismiss reaches right, and the two never overlap.
+    private func tagAction(
+        _ systemImage: String,
+        label: String,
+        color: Color,
+        alignment: Alignment,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(color)
+                .frame(width: Self.tagActionSlot)
+                .frame(
+                    width: LayoutDimensions.minTouchTarget,
+                    height: LayoutDimensions.minTouchTarget,
+                    alignment: alignment
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .frame(width: Self.tagActionSlot, height: Self.tagActionSlot, alignment: alignment)
+        .accessibilityLabel(label)
     }
 
     private func thumbnailImage(_ data: Data) -> Image {
