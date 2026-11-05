@@ -7,29 +7,22 @@ struct BoardEditorSheet: View {
     @State private var selectedIcon: String
 
     private let isEditing: Bool
-    /// The board's stored color, passed straight back through on save.
-    /// Boards are monochrome now, but existing colors are data — editing a
-    /// board must not quietly repaint it, and new boards get `nil`, which is
-    /// the neutral every board surface already falls back to.
-    private let preservedColorHex: String?
-    private let onSave: (String, String?, String?) -> Void
+    private let onSave: (String, String?) -> Void
 
     private static let defaultIcon = "folder"
 
     init(
         board: Board? = nil,
-        onSave: @escaping (String, String?, String?) -> Void
+        onSave: @escaping (String, String?) -> Void
     ) {
         if let board {
             self.isEditing = true
             _title = State(initialValue: board.title)
             _selectedIcon = State(initialValue: board.icon ?? Self.defaultIcon)
-            self.preservedColorHex = board.color
         } else {
             self.isEditing = false
             _title = State(initialValue: "")
             _selectedIcon = State(initialValue: Self.defaultIcon)
-            self.preservedColorHex = nil
         }
         self.onSave = onSave
     }
@@ -79,7 +72,7 @@ struct BoardEditorSheet: View {
 
             Button(isEditing ? "Save" : "Create") {
                 let icon = selectedIcon.isEmpty ? nil : selectedIcon
-                onSave(title, icon, preservedColorHex)
+                onSave(title, icon)
                 dismiss()
             }
             .keyboardShortcut(.defaultAction)

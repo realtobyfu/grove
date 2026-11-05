@@ -1,6 +1,9 @@
 import Foundation
 import SwiftData
 
+/// Raw values are persisted in `Item.type`, so every case stays even after it
+/// stops being produced. Nothing creates `.codebase` or `.courseLecture` any
+/// more; their icon and label arms exist for items that already hold them.
 enum ItemType: String, Codable {
     case article
     case codebase

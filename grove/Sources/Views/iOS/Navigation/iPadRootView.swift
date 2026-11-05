@@ -236,8 +236,8 @@ struct iPadRootView: View {
         }
         .sheet(isPresented: $showNewBoardSheet) {
             BoardEditorSheet(
-                onSave: { title, icon, color in
-                    boardViewModel.createBoard(title: title, icon: icon, color: color)
+                onSave: { title, icon in
+                    boardViewModel.createBoard(title: title, icon: icon)
                 }
             )
         }

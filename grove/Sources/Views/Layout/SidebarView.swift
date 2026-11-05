@@ -84,16 +84,16 @@ struct SidebarView: View {
         }
         .sheet(isPresented: $showNewBoardSheet) {
             BoardEditorSheet(
-                onSave: { title, icon, color in
-                    viewModel.createBoard(title: title, icon: icon, color: color)
+                onSave: { title, icon in
+                    viewModel.createBoard(title: title, icon: icon)
                 }
             )
         }
         .sheet(item: $boardToEdit) { board in
             BoardEditorSheet(
                 board: board,
-                onSave: { title, icon, color in
-                    viewModel.updateBoard(board, title: title, icon: icon, color: color)
+                onSave: { title, icon in
+                    viewModel.updateBoard(board, title: title, icon: icon)
                 }
             )
         }

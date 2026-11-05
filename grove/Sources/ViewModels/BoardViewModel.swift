@@ -11,16 +11,13 @@ final class BoardViewModel {
         self.modelContext = modelContext
     }
 
-    func createBoard(title: String, icon: String?, color: String?) {
+    func createBoard(title: String, icon: String?) {
         let cleanedTitle = BoardSuggestionEngine.cleanedBoardName(title)
         guard !cleanedTitle.isEmpty else { return }
 
         if let existingBoard = fetchBoard(withTitle: cleanedTitle) {
             if let icon, !icon.isEmpty {
                 existingBoard.icon = icon
-            }
-            if let color, !color.isEmpty {
-                existingBoard.color = color
             }
             existingBoard.isSmart = false
             existingBoard.smartRuleTags.removeAll()
@@ -29,19 +26,18 @@ final class BoardViewModel {
         }
 
         let maxSortOrder = fetchMaxSortOrder()
-        let board = Board(title: cleanedTitle, icon: icon, color: color)
+        let board = Board(title: cleanedTitle, icon: icon)
         board.sortOrder = maxSortOrder + 1
         modelContext.insert(board)
         try? modelContext.save()
     }
 
-    func updateBoard(_ board: Board, title: String, icon: String?, color: String?) {
+    func updateBoard(_ board: Board, title: String, icon: String?) {
         let cleanedTitle = BoardSuggestionEngine.cleanedBoardName(title)
         guard !cleanedTitle.isEmpty else { return }
 
         board.title = cleanedTitle
         board.icon = icon
-        board.color = color
         board.isSmart = false
         board.smartRuleTags.removeAll()
         try? modelContext.save()

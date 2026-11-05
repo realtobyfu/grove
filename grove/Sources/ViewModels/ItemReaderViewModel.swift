@@ -128,8 +128,9 @@ final class ItemReaderViewModel {
         return resolvedSourceURL(from: item.sourceURL)
     }
 
-    /// URL that can be loaded in the in-app WebView (article/codebase items,
-    /// not local video, not PDFs).
+    /// URL that can be loaded in the in-app WebView (articles, and the
+    /// `.codebase` items captured before GitHub links became articles; not
+    /// local video, not PDFs).
     var articleURL: URL? {
         guard (item.type == .article || item.type == .codebase),
               !isPDFItem,

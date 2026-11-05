@@ -133,14 +133,7 @@ final class CaptureService: CaptureServiceProtocol {
             item.isPDFFormat = true
         }
 
-        let itemType: ItemType
-        if Self.isGitHubURL(urlString) {
-            itemType = .codebase
-        } else if Self.isVideoURL(urlString) {
-            itemType = .video
-        } else {
-            itemType = .article
-        }
+        let itemType: ItemType = Self.isVideoURL(urlString) ? .video : .article
         item.type = itemType
 
         if itemType == .video, let url, let video = Self.videoSourceAndID(from: url) {
@@ -238,14 +231,6 @@ final class CaptureService: CaptureServiceProtocol {
             || lower.contains("youtu.be/")
             || lower.contains("vimeo.com/")
             || lower.contains("twitch.tv/")
-    }
-
-    private static func isGitHubURL(_ urlString: String) -> Bool {
-        guard let url = URL(string: urlString),
-              let host = url.host?.lowercased() else {
-            return false
-        }
-        return host == "github.com" || host == "www.github.com"
     }
 
     // MARK: - arXiv
