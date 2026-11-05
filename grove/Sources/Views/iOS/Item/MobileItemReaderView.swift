@@ -6,8 +6,9 @@ import WebKit
 /// Articles: Reader mode (Grove's own template over a Readability extraction)
 /// when the page extracts, the live page otherwise or on request.
 /// Notes: navigates to MobileNoteEditorView.
-/// Toolbar: back, Reader | Live, share, "Discuss", reflections button,
-/// find-in-page.
+/// Toolbar: back, Reader | Live, Reflections, and (iPhone) an overflow menu
+/// with Info, Discuss, Share, Find, Text size and Flashcards. iPad has room
+/// for every action directly.
 struct MobileItemReaderView: View {
     let item: Item
     var onCloseRequested: (() -> Void)? = nil
@@ -65,6 +66,16 @@ struct MobileItemReaderView: View {
     @State private var zoomLevel: CGFloat = 1.0
     @State private var sidePanelWidth: CGFloat? = LayoutSettings.width(for: .mobileReaderSidePanel)
     @FocusState private var findBarFocused: Bool
+
+    // MARK: - Info
+
+    /// Info is a sheet with detents on iPhone and a popover from its toolbar
+    /// button on iPad. Separate flags, so neither presentation can fire in
+    /// the other's layout.
+    @State private var showInfoSheet = false
+    @State private var showInfoPopover = false
+    /// A connected item opened from Info, pushed onto this stack.
+    @State private var navigateToLinkedItem: Item?
 
     // MARK: - In-reader browsing
 
@@ -239,8 +250,14 @@ struct MobileItemReaderView: View {
             .sheet(isPresented: $showFlashcards) {
                 NavigationStack { FlashcardLibraryView(itemID: readingItem.id) }
             }
+            .sheet(isPresented: $showInfoSheet) {
+                infoSheetContent
+            }
             .navigationDestination(item: $navigateToChat) { conversation in
                 MobileChatView(conversation: conversation)
+            }
+            .navigationDestination(item: $navigateToLinkedItem) { linkedItem in
+                MobileItemReaderView(item: linkedItem)
             }
             .animation(.easeInOut(duration: 0.25), value: rightPanel)
     }
@@ -859,6 +876,13 @@ struct MobileItemReaderView: View {
 
     // MARK: - Toolbar
 
+    /// iPad has room for every action. iPhone shows three besides Back —
+    /// Reader | Live, Reflections, and an overflow menu holding the rest —
+    /// instead of letting the system push an arbitrary few into its own "…".
+    private var showsFullToolbar: Bool {
+        horizontalSizeClass == .regular
+    }
+
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         if let onCloseRequested {
@@ -872,105 +896,161 @@ struct MobileItemReaderView: View {
         }
 
         ToolbarItemGroup(placement: .primaryAction) {
-            // Reader | Live (articles only). The glyph names what is on
-            // screen — the macOS rule: what is lit is what is shown.
-            if supportsReaderMode {
-                readerModeToggle
-            }
-
-            Menu {
-                Button("New flashcard", systemImage: "plus.rectangle.on.rectangle") {
-                    flashcardSession = LearningEditorSession(item: resolveWritingHost(), sourceQuote: trimmedSelection)
+            Group {
+                // Reader | Live (articles only). The glyph names what is on
+                // screen — the macOS rule: what is lit is what is shown.
+                if supportsReaderMode {
+                    readerModeToggle
                 }
-                Button("Manage flashcards", systemImage: "rectangle.on.rectangle") { showFlashcards = true }
-            } label: {
-                Label("Flashcards", systemImage: "rectangle.on.rectangle")
-            }
-            .accessibilityLabel("Flashcards")
-            // Text size in Reader, page zoom on the live page (articles only)
-            if showsWebPageControls && showsReaderContent {
-                readerTextSizeMenu
-            } else if showsWebPageControls {
-                Menu {
-                    Button { zoomLevel = min(zoomLevel + 0.1, 2.0) } label: {
-                        Label("Zoom In", systemImage: "plus.magnifyingglass")
+
+                if showsFullToolbar {
+                    flashcardsMenu
+                    // Text size in Reader, page zoom on the live page, and
+                    // find (web pages only)
+                    if showsWebPageControls {
+                        textSizeMenu
+                        findButton
                     }
-                    .disabled(zoomLevel >= 2.0)
-
-                    Button { zoomLevel = max(zoomLevel - 0.1, 0.5) } label: {
-                        Label("Zoom Out", systemImage: "minus.magnifyingglass")
-                    }
-                    .disabled(zoomLevel <= 0.5)
-
-                    Divider()
-
-                    Button { zoomLevel = 1.0 } label: {
-                        Label("Reset (\(Int(round(zoomLevel * 100)))%)", systemImage: "arrow.counterclockwise")
-                    }
-                    .disabled(zoomLevel == 1.0)
-                } label: {
-                    Image(systemName: "textformat.size")
-                }
-                .accessibilityLabel("Zoom")
-            }
-
-            // Find in page (articles only)
-            if showsWebPageControls {
-                Button {
-                    withAnimation { showFindBar.toggle() }
-                    if showFindBar { findBarFocused = true }
-                } label: {
-                    Image(systemName: "doc.text.magnifyingglass")
-                }
-                .accessibilityLabel("Find in page")
-            }
-
-            // Reflections button
-            Button {
-                if usesSidePanel {
-                    // iPad: toggle side panel
-                    withAnimation {
-                        rightPanel = isReflectionsPanelOpen ? .none : .reflections
-                    }
+                    reflectionsButton
+                    discussButton
+                    #if os(iOS)
+                    shareButton
+                    #endif
+                    infoButton
                 } else {
-                    // iPhone: open sheet
-                    if horizontalSizeClass == .regular {
-                        reflectionDetent = .large
-                    }
-                    showReflections = true
+                    reflectionsButton
+                    overflowMenu
                 }
-            } label: {
-                Image(systemName: isReflectionsPanelOpen ? "text.bubble.fill" : "text.bubble")
             }
-            .accessibilityLabel("Reflections")
-
-            // Chat button
-            Button {
-                if usesSidePanel {
-                    // iPad: toggle side panel
-                    if isChatPanelOpen {
-                        withAnimation { rightPanel = .none }
-                    } else {
-                        startDiscussionForPanel()
-                    }
-                } else {
-                    // iPhone: navigate push
-                    startDiscussion()
-                }
-            } label: {
-                Image(systemName: isChatPanelOpen ? "bubble.left.and.bubble.right.fill" : "bubble.left.and.bubble.right")
-            }
-            .accessibilityLabel("Discuss")
-
-            #if os(iOS)
-            // Share
-            ShareLink(item: shareURL) {
-                Image(systemName: "square.and.arrow.up")
-            }
-            .accessibilityLabel("Share")
-            #endif
+            .fontWeight(.medium)
+            .tint(Color.textPrimary)
         }
     }
+
+    /// iPhone's overflow, in a fixed order: Info, Discuss, Share, Find,
+    /// Text size, then Flashcards. Menus inside it open as submenus.
+    private var overflowMenu: some View {
+        Menu {
+            Button {
+                showInfoSheet = true
+            } label: {
+                Label("Info", systemImage: "info.circle")
+            }
+            discussButton
+            #if os(iOS)
+            shareButton
+            #endif
+            if showsWebPageControls {
+                findButton
+                textSizeMenu
+            }
+            flashcardsMenu
+        } label: {
+            Label("More", systemImage: "ellipsis")
+                .labelStyle(.iconOnly)
+                .frame(minWidth: LayoutDimensions.minTouchTarget, minHeight: LayoutDimensions.minTouchTarget)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("More")
+    }
+
+    /// iPad's Info button. The popover anchors to it, as inspectors do on
+    /// iPad; iPhone reaches Info through the overflow and gets a sheet.
+    private var infoButton: some View {
+        Button {
+            showInfoPopover = true
+        } label: {
+            Label("Info", systemImage: "info.circle")
+                .labelStyle(.iconOnly)
+                .frame(minWidth: LayoutDimensions.minTouchTarget, minHeight: LayoutDimensions.minTouchTarget)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("Info")
+        .popover(isPresented: $showInfoPopover, arrowEdge: .top) {
+            infoPanel
+                .frame(width: 380, height: 620)
+        }
+    }
+
+    private var flashcardsMenu: some View {
+        Menu {
+            Button("New flashcard", systemImage: "plus.rectangle.on.rectangle") {
+                flashcardSession = LearningEditorSession(item: resolveWritingHost(), sourceQuote: trimmedSelection)
+            }
+            Button("Manage flashcards", systemImage: "rectangle.on.rectangle") { showFlashcards = true }
+        } label: {
+            Label("Flashcards", systemImage: "rectangle.on.rectangle")
+        }
+        .accessibilityLabel("Flashcards")
+    }
+
+    /// Text size in Reader, page zoom on the live page.
+    @ViewBuilder
+    private var textSizeMenu: some View {
+        if showsReaderContent {
+            readerTextSizeMenu
+        } else {
+            pageZoomMenu
+        }
+    }
+
+    private var findButton: some View {
+        Button {
+            withAnimation { showFindBar.toggle() }
+            if showFindBar { findBarFocused = true }
+        } label: {
+            Label("Find in Page", systemImage: "doc.text.magnifyingglass")
+        }
+        .accessibilityLabel("Find in page")
+    }
+
+    private var reflectionsButton: some View {
+        Button {
+            if usesSidePanel {
+                // iPad: toggle side panel
+                withAnimation {
+                    rightPanel = isReflectionsPanelOpen ? .none : .reflections
+                }
+            } else {
+                // iPhone: open sheet
+                if horizontalSizeClass == .regular {
+                    reflectionDetent = .large
+                }
+                showReflections = true
+            }
+        } label: {
+            Label("Reflections", systemImage: isReflectionsPanelOpen ? "text.bubble.fill" : "text.bubble")
+        }
+        .accessibilityLabel("Reflections")
+    }
+
+    private var discussButton: some View {
+        Button {
+            if usesSidePanel {
+                // iPad: toggle side panel
+                if isChatPanelOpen {
+                    withAnimation { rightPanel = .none }
+                } else {
+                    startDiscussionForPanel()
+                }
+            } else {
+                // iPhone: navigate push
+                startDiscussion()
+            }
+        } label: {
+            Label("Discuss", systemImage: isChatPanelOpen ? "bubble.left.and.bubble.right.fill" : "bubble.left.and.bubble.right")
+        }
+        .accessibilityLabel("Discuss")
+    }
+
+    #if os(iOS)
+    private var shareButton: some View {
+        ShareLink(item: shareURL) {
+            Label("Share", systemImage: "square.and.arrow.up")
+        }
+        .accessibilityLabel("Share")
+    }
+    #endif
 
     /// One tap flips Reader and Live. Disabled (not hidden) while there is no
     /// Reader view of the page on screen — before extraction succeeds, after
@@ -1020,9 +1100,60 @@ struct MobileItemReaderView: View {
             }
             .disabled(readerSizeStep == ReaderTypographySettings.defaultSizeStep)
         } label: {
-            Image(systemName: "textformat.size")
+            Label("Text Size", systemImage: "textformat.size")
         }
         .accessibilityLabel("Text size")
+    }
+
+    /// The live page's zoom, under the same glyph as Reader's text size.
+    private var pageZoomMenu: some View {
+        Menu {
+            Button { zoomLevel = min(zoomLevel + 0.1, 2.0) } label: {
+                Label("Zoom In", systemImage: "plus.magnifyingglass")
+            }
+            .disabled(zoomLevel >= 2.0)
+
+            Button { zoomLevel = max(zoomLevel - 0.1, 0.5) } label: {
+                Label("Zoom Out", systemImage: "minus.magnifyingglass")
+            }
+            .disabled(zoomLevel <= 0.5)
+
+            Divider()
+
+            Button { zoomLevel = 1.0 } label: {
+                Label("Reset (\(Int(round(zoomLevel * 100)))%)", systemImage: "arrow.counterclockwise")
+            }
+            .disabled(zoomLevel == 1.0)
+        } label: {
+            Label("Zoom", systemImage: "textformat.size")
+        }
+        .accessibilityLabel("Zoom")
+    }
+
+    // MARK: - Info
+
+    /// The item's Info: connections and backlinks, boards, summary. A
+    /// connected item opens in this stack once Info is out of the way.
+    private var infoPanel: some View {
+        ItemInspectorPanel(item: item) { linkedItem in
+            openLinkedItem(linkedItem)
+        }
+    }
+
+    @ViewBuilder
+    private var infoSheetContent: some View {
+        infoPanel
+            #if os(iOS)
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            #endif
+    }
+
+    private func openLinkedItem(_ linkedItem: Item) {
+        showInfoSheet = false
+        showInfoPopover = false
+        guard linkedItem.id != item.id else { return }
+        navigateToLinkedItem = linkedItem
     }
 
     private var shareURL: URL {

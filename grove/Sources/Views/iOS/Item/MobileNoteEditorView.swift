@@ -78,8 +78,12 @@ struct MobileNoteEditorView: View {
                         Label("Add to Board", systemImage: "folder.badge.plus")
                     }
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    // Not an ellipsis: the reader hosting this editor already
+                    // has an overflow menu in the same toolbar.
+                    Image(systemName: "plus.circle")
+                        .fontWeight(.medium)
                 }
+                .accessibilityLabel("Add from this note")
             }
         }
         .sheet(isPresented: $showBoardPicker) {

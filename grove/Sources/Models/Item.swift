@@ -209,16 +209,6 @@ final class Item {
         updatedAt = .now
     }
 
-    // `isResurfacingEligible`, `nextResurfaceDate` and `isResurfacingOverdue`
-    // outlive spaced resurfacing only because the iOS ItemInspectorPanel's
-    // review section still reads them; delete all three with that section.
-
-    /// Whether this item is eligible for the resurfacing queue.
-    /// Requires at least one reflection or connection.
-    var isResurfacingEligible: Bool {
-        !reflections.isEmpty || !outgoingConnections.isEmpty || !incomingConnections.isEmpty
-    }
-
     /// Whether this item is deferred from inbox triage until a future date.
     var isQueuedForReadLater: Bool {
         guard status == .queued, let until = readLaterUntil else { return false }
@@ -236,19 +226,6 @@ final class Item {
             guard type == .article else { return }
             metadata["excludeFromDiscussionSuggestions"] = newValue ? nil : "true"
         }
-    }
-
-    /// Next resurfacing date based on lastResurfacedAt + interval, or lastEngagedAt + interval.
-    var nextResurfaceDate: Date? {
-        guard isResurfacingEligible, !isResurfacingPaused, status == .active else { return nil }
-        let referenceDate = lastResurfacedAt ?? lastEngagedAt ?? createdAt
-        return Calendar.current.date(byAdding: .day, value: resurfaceIntervalDays, to: referenceDate)
-    }
-
-    /// Whether this item is overdue for resurfacing.
-    var isResurfacingOverdue: Bool {
-        guard let nextDate = nextResurfaceDate else { return false }
-        return nextDate <= .now
     }
 
     init(title: String, type: ItemType) {
