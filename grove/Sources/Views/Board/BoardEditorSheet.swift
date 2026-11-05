@@ -5,7 +5,6 @@ struct BoardEditorSheet: View {
 
     @State private var title: String
     @State private var selectedIcon: String
-    @State private var nudgeFrequencyHours: Int
 
     private let isEditing: Bool
     private let wasSmartBoard: Bool
@@ -14,20 +13,13 @@ struct BoardEditorSheet: View {
     /// board must not quietly repaint it, and new boards get `nil`, which is
     /// the neutral every board surface already falls back to.
     private let preservedColorHex: String?
+    /// The board's stored `nudgeFrequencyHours`, passed back through on save
+    /// the same way. Nothing reads it since spaced resurfacing was retired;
+    /// the `onSave` slot stays so existing call sites keep compiling.
+    private let preservedNudgeFrequencyHours: Int
     private let onSave: (String, String?, String?, Int) -> Void
 
     private static let defaultIcon = "folder"
-
-    /// Nudge frequency options: 0 = global default, -1 = disabled, or custom hours
-    private static let nudgeFrequencyOptions: [(label: String, value: Int)] = [
-        ("Use Global Default", 0),
-        ("Every 2 Hours", 2),
-        ("Every 4 Hours", 4),
-        ("Every 8 Hours", 8),
-        ("Every 12 Hours", 12),
-        ("Once a Day", 24),
-        ("Disabled", -1)
-    ]
 
     init(
         board: Board? = nil,
@@ -39,14 +31,14 @@ struct BoardEditorSheet: View {
             _title = State(initialValue: board.title)
             _selectedIcon = State(initialValue: board.icon ?? Self.defaultIcon)
             self.preservedColorHex = board.color
-            _nudgeFrequencyHours = State(initialValue: board.nudgeFrequencyHours)
+            self.preservedNudgeFrequencyHours = board.nudgeFrequencyHours
         } else {
             self.isEditing = false
             self.wasSmartBoard = false
             _title = State(initialValue: "")
             _selectedIcon = State(initialValue: Self.defaultIcon)
             self.preservedColorHex = nil
-            _nudgeFrequencyHours = State(initialValue: 0)
+            self.preservedNudgeFrequencyHours = 0
         }
         self.onSave = onSave
     }
@@ -66,21 +58,6 @@ struct BoardEditorSheet: View {
                     iconPicker
                 }
 
-                Section("Nudges") {
-                    Picker("Nudge Frequency", selection: $nudgeFrequencyHours) {
-                        ForEach(Self.nudgeFrequencyOptions, id: \.value) { option in
-                            Text(option.label).tag(option.value)
-                        }
-                    }
-                    .help("How often nudges can be generated for items in this board")
-
-                    if nudgeFrequencyHours == -1 {
-                        Text("Nudges are disabled for this board. Items in this board won't trigger resurfacing or streak nudges.")
-                            .font(.groveBodySmall)
-                            .foregroundStyle(Color.textSecondary)
-                    }
-                }
-
                 if wasSmartBoard {
                     Section {
                         Text("This board was previously smart. Saving now converts it to a standard board.")
@@ -95,7 +72,7 @@ struct BoardEditorSheet: View {
             Divider()
             footer
         }
-        .frame(width: 420, height: 470)
+        .frame(width: 420, height: 400)
     }
 
     private var header: some View {
@@ -119,7 +96,7 @@ struct BoardEditorSheet: View {
 
             Button(isEditing ? "Save" : "Create") {
                 let icon = selectedIcon.isEmpty ? nil : selectedIcon
-                onSave(title, icon, preservedColorHex, nudgeFrequencyHours)
+                onSave(title, icon, preservedColorHex, preservedNudgeFrequencyHours)
                 dismiss()
             }
             .keyboardShortcut(.defaultAction)

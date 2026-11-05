@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Inline nudge banner with message, item title, and action buttons.
+/// Inline stale-inbox nudge banner with message and action buttons.
 /// Swipe-to-dismiss gesture supported via List swipe actions or manual dismissal.
 struct MobileNudgeBanner: View {
     let nudge: Nudge
@@ -9,24 +9,15 @@ struct MobileNudgeBanner: View {
 
     var body: some View {
         HStack(spacing: Spacing.md) {
-            Image(systemName: nudge.type == .resurface ? "arrow.counterclockwise" : "tray.full")
+            Image(systemName: "tray.full")
                 .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(Color.textSecondary)
                 .frame(width: 32)
 
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                Text(nudge.message)
-                    .font(.groveBodySecondary)
-                    .foregroundStyle(Color.textPrimary)
-                    .lineLimit(2)
-
-                if let item = nudge.targetItem {
-                    Text(item.title)
-                        .font(.groveMeta)
-                        .foregroundStyle(Color.textTertiary)
-                        .lineLimit(1)
-                }
-            }
+            Text(nudge.message)
+                .font(.groveBodySecondary)
+                .foregroundStyle(Color.textPrimary)
+                .lineLimit(2)
 
             Spacer(minLength: 0)
 

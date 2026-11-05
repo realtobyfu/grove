@@ -24,9 +24,8 @@ struct InspectorPanelView: View {
                 connectionsSection
                 Divider().padding(.horizontal)
                 backlinksSection
-                Divider().padding(.horizontal)
-                resurfacingSection
                 if item.type == .article {
+                    Divider().padding(.horizontal)
                     discussionSuggestionsSection
                 }
 
@@ -369,51 +368,6 @@ struct InspectorPanelView: View {
             .buttonStyle(.plain)
             .padding(.horizontal)
             .help("Include or exclude this article from discussion suggestions.")
-        }
-    }
-
-    // MARK: - Review Section
-
-    private var resurfacingSection: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            Text("Review")
-                .sectionHeaderStyle()
-                .padding(.horizontal)
-
-            if item.isResurfacingEligible {
-                Button {
-                    item.isResurfacingPaused.toggle()
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: item.isResurfacingPaused ? "circle" : "checkmark.circle.fill")
-                            .font(.system(size: 14))
-                            .foregroundStyle(item.isResurfacingPaused ? Color.textTertiary : Color.textPrimary)
-                        Text("Remind me to revisit")
-                            .font(.groveBodySmall)
-                            .foregroundStyle(item.isResurfacingPaused ? Color.textSecondary : Color.textPrimary)
-                    }
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal)
-
-                if let nextDate = item.nextResurfaceDate {
-                    HStack(spacing: 4) {
-                        Image(systemName: item.isResurfacingOverdue ? "exclamationmark.circle" : "calendar.badge.clock")
-                            .font(.groveBadge)
-                            .foregroundStyle(item.isResurfacingOverdue ? Color.textPrimary : Color.textSecondary)
-                        Text(item.isResurfacingOverdue ? "Due for review" : "Next review: \(nextDate.formatted(date: .abbreviated, time: .omitted))")
-                            .font(.groveMeta)
-                            .fontWeight(item.isResurfacingOverdue ? .semibold : .regular)
-                            .foregroundStyle(item.isResurfacingOverdue ? Color.textPrimary : Color.textSecondary)
-                    }
-                    .padding(.horizontal)
-                }
-            } else {
-                Text("Add notes or connections to enable review reminders.")
-                    .font(.groveBodySmall)
-                    .foregroundStyle(Color.textTertiary)
-                    .padding(.horizontal)
-            }
         }
     }
 }

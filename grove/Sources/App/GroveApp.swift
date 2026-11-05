@@ -104,11 +104,6 @@ struct GroveApp: App {
                         Label("AI", systemImage: "sparkles")
                     }
 
-                NudgeSettingsView()
-                    .tabItem {
-                        Label("Nudges", systemImage: "bell")
-                    }
-
                 SubscriptionsSettingsView()
                     .tabItem {
                         Label("Following", systemImage: "newspaper")

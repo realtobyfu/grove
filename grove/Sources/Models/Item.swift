@@ -44,7 +44,10 @@ final class Item {
     // Inbox defer queue ("Read Later")
     var readLaterUntil: Date?
 
-    // Spaced resurfacing fields
+    // Spaced resurfacing fields. Resurfacing is retired: `lastResurfacedAt`,
+    // `resurfaceIntervalDays`, `resurfaceCount` and `isResurfacingPaused` drive
+    // nothing any more and are kept for schema stability (SchemaMigrationTests
+    // pins the 2.0 entity hashes). `lastEngagedAt` is still read by the depth score.
     var lastResurfacedAt: Date?
     var resurfaceIntervalDays: Int = 7
     var resurfaceCount: Int = 0
@@ -205,6 +208,10 @@ final class Item {
         }
         updatedAt = .now
     }
+
+    // `isResurfacingEligible`, `nextResurfaceDate` and `isResurfacingOverdue`
+    // outlive spaced resurfacing only because the iOS ItemInspectorPanel's
+    // review section still reads them; delete all three with that section.
 
     /// Whether this item is eligible for the resurfacing queue.
     /// Requires at least one reflection or connection.

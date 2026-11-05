@@ -9,7 +9,9 @@ struct MobileHomeView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(EntitlementService.self) private var entitlement
     @Environment(PaywallCoordinator.self) private var paywallCoordinator
-    @Query(sort: \Item.lastEngagedAt, order: .reverse) private var allItems: [Item]
+    /// Recently touched items for starter generation. Sorted by `updatedAt`:
+    /// `lastEngagedAt` stopped being written when resurfacing was retired.
+    @Query(sort: \Item.updatedAt, order: .reverse) private var allItems: [Item]
     @Query(sort: \Item.createdAt, order: .reverse) private var allItemsByDate: [Item]
     @Query(sort: \Board.sortOrder) private var boards: [Board]
     @Query(sort: \Nudge.createdAt, order: .reverse) private var allNudges: [Nudge]
@@ -30,8 +32,10 @@ struct MobileHomeView: View {
         allItemsByDate.filter { $0.status == .inbox && !$0.isFeedSuggestion }
     }
 
+    /// Stale inbox is the only nudge type still generated; retired types left
+    /// in a store are swept to `.dismissed` by NudgeEngine and never shown.
     private var pendingNudges: [Nudge] {
-        allNudges.filter { $0.status == .pending || $0.status == .shown }
+        allNudges.filter { $0.type == .staleInbox && ($0.status == .pending || $0.status == .shown) }
     }
 
     private var discussionBubbles: [PromptBubble] {
@@ -195,13 +199,11 @@ struct MobileHomeView: View {
                         nudge: nudge,
                         onOpen: {
                             nudge.status = .actedOn
-                            NudgeSettings.recordAction(type: nudge.type, actedOn: true)
                             try? modelContext.save()
                         },
                         onDismiss: {
                             withAnimation {
                                 nudge.status = .dismissed
-                                NudgeSettings.recordAction(type: nudge.type, actedOn: false)
                                 try? modelContext.save()
                             }
                         }

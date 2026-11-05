@@ -1,23 +1,21 @@
 import Foundation
 import SwiftData
 
+/// Raw values are persisted in `Nudge.type`, so every case stays even after
+/// its generator is retired. Only `staleInbox` is still produced.
 enum NudgeType: String, Codable {
-    // Active engine categories.
-    case resurface
+    // Active engine category.
     case staleInbox
 
-    // Legacy categories retained for persisted-model compatibility.
+    // Retired categories, kept so persisted records still decode.
+    case resurface
     case connectionPrompt
     case streak
     case continueCourse
-
-    // Legacy smart (LLM-generated) nudge categories.
     case reflectionPrompt
     case contradiction
     case knowledgeGap
     case synthesisPrompt
-
-    // Legacy dialectical check-in nudge category.
     case dialecticalCheckIn
 }
 
@@ -48,21 +46,5 @@ final class Nudge {
         self.status = .pending
         self.scheduledFor = scheduledFor
         self.createdAt = .now
-    }
-}
-
-extension Nudge {
-    /// The user-facing message. For dialectical check-ins, extracts the portion before `|||`.
-    var displayMessage: String {
-        var text = message
-        if type == .dialecticalCheckIn, let range = text.range(of: "|||") {
-            text = String(text[text.startIndex..<range.lowerBound])
-        }
-        // Older resurface nudges persisted a "Connected to: <title>" suffix,
-        // which could be a raw URL or markdown. Hide it on display.
-        if let range = text.range(of: "Connected to:") {
-            text = String(text[text.startIndex..<range.lowerBound])
-        }
-        return text.trimmingCharacters(in: .whitespaces)
     }
 }

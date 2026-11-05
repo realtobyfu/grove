@@ -13,12 +13,10 @@ enum AppConstants {
     enum Days {
         /// Recent activity window (nudge engagement, weekly digest, etc.)
         static let recent: Int = 7
-        /// Stale/inactive threshold (resurface nudges, inbox staleness)
+        /// Stale/inactive threshold (inbox staleness)
         static let stale: Int = 14
-        /// Longer cooldown (dismissed nudge suppression, legacy resurface)
+        /// Longer cooldown (dismissed nudge suppression)
         static let cooldown: Int = 30
-        /// Deep inactivity (resurfacing interval reset)
-        static let deepInactivity: Int = 60
     }
 
     // MARK: - Connection Scoring
@@ -43,6 +41,10 @@ enum AppConstants {
         static let highEngagementThreshold: Int = 3
         /// Stale inbox nudge fires when inbox has N+ old items
         static let staleInboxMinCount: Int = 5
+        /// Nudges created per day before the cap applies (high engagement may exceed it)
+        static let maxPerDay: Int = 2
+        /// How often the nudge engine runs, in hours
+        static let scheduleIntervalHours: Int = 4
     }
 
     // MARK: - LLM Context Limits
@@ -53,8 +55,6 @@ enum AppConstants {
         static let defaultContentLimit: Int = 1000
         /// Summary character cap
         static let summaryMaxLength: Int = 120
-        /// Reason/explanation text cap
-        static let reasonMaxLength: Int = 80
         /// Reflection prompt text cap
         static let promptMaxLength: Int = 150
         /// JPEG compression quality for downloaded images

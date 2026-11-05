@@ -11,6 +11,7 @@ struct MobileSettingsView: View {
     @State private var paywallPresentation: PaywallPresentation?
     @State private var syncEnabled = SyncSettings.syncEnabled
     @State private var notificationsEnabled = NudgeSettings.notificationsEnabled
+    @State private var staleInboxEnabled = NudgeSettings.staleInboxEnabled
 
     var body: some View {
         List {
@@ -26,6 +27,7 @@ struct MobileSettingsView: View {
         .onAppear {
             syncEnabled = SyncSettings.syncEnabled
             notificationsEnabled = NudgeSettings.notificationsEnabled
+            staleInboxEnabled = NudgeSettings.staleInboxEnabled
         }
         .sheet(item: $paywallPresentation) { presentation in
             ProPaywallView(presentation: presentation)
@@ -52,6 +54,13 @@ struct MobileSettingsView: View {
             Text("When off, reminders appear only inside Today.")
                 .font(.groveBodySmall)
                 .foregroundStyle(Color.textSecondary)
+
+            Toggle(isOn: $staleInboxEnabled) {
+                Label("Stale inbox reminders", systemImage: "tray.full")
+            }
+            .onChange(of: staleInboxEnabled) { _, newValue in
+                NudgeSettings.staleInboxEnabled = newValue
+            }
         }
     }
 

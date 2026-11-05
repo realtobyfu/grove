@@ -182,21 +182,15 @@ struct ContentViewNotificationHandlers: ViewModifier {
         }
 
         nudge.status = .actedOn
-        NudgeSettings.recordAction(type: nudge.type, actedOn: true)
         NudgeNotificationService.shared.cancel(for: id)
         try? modelContext.save()
 
-        switch nudge.type {
-        case .staleInbox:
-            viewModel.openedItem = nil
-            viewModel.selectedItem = nil
-            viewModel.selection = .library
-        default:
-            // Resurface plus legacy types retained only for persisted records.
-            guard let item = nudge.targetItem else { return }
-            viewModel.selectedItem = item
-            viewModel.openedItem = item
-        }
+        // Stale inbox is the only nudge still delivered; it opens the Library.
+        // Retired types (persisted records only) have nowhere to go.
+        guard nudge.type == .staleInbox else { return }
+        viewModel.openedItem = nil
+        viewModel.selectedItem = nil
+        viewModel.selection = .library
     }
 
     private func dismissNudgeFromNotification(id: UUID) {
@@ -209,7 +203,6 @@ struct ContentViewNotificationHandlers: ViewModifier {
         }
 
         nudge.status = .dismissed
-        NudgeSettings.recordAction(type: nudge.type, actedOn: false)
         NudgeNotificationService.shared.cancel(for: id)
         try? modelContext.save()
     }

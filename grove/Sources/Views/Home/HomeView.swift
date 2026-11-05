@@ -41,7 +41,6 @@ struct HomeView: View {
     @Binding var openedItem: Item?
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Item.updatedAt, order: .reverse) private var allItems: [Item]
-    @Query(sort: \Nudge.createdAt, order: .reverse) private var allNudges: [Nudge]
 
     @State private var starterService = ConversationStarterService.shared
     @State private var isInboxCollapsed = false
@@ -57,15 +56,6 @@ struct HomeView: View {
 
     private var discussionBubbles: [PromptBubble] {
         Array(starterService.bubbles.prefix(Self.maxDiscussionCards))
-    }
-
-    /// The one active resurface nudge, surfaced as a Think Next card instead of
-    /// a standalone notice bar. Stale-inbox nudges are not shown on Home — the
-    /// Inbox section with its live count is already on screen.
-    private var resurfaceNudge: Nudge? {
-        allNudges.first {
-            $0.type == .resurface && ($0.status == .pending || $0.status == .shown) && $0.targetItem != nil
-        }
     }
 
     var body: some View {
@@ -96,12 +86,9 @@ struct HomeView: View {
                         .padding(.bottom, Spacing.xl)
 
                         HomeDiscussionSection(
-                            resurfaceNudge: resurfaceNudge,
                             discussionBubbles: discussionBubbles,
                             isCollapsed: $isDiscussionCollapsed,
                             onBubbleTap: { presentModePanel(for: $0) },
-                            onOpenNudge: { openNudgeItem($0) },
-                            onDismissNudge: { dismissNudge($0) },
                             onDismissBubble: { dismissBubble($0) }
                         )
                         .padding(.bottom, Spacing.xl)
@@ -136,39 +123,7 @@ struct HomeView: View {
         .task {
             await starterService.refresh(items: allItems)
         }
-        .onChange(of: resurfaceNudge?.id, initial: true) {
-            guard let nudge = resurfaceNudge else { return }
-            if nudge.status == .pending {
-                nudge.status = .shown
-                try? modelContext.save()
-            }
-            NudgeNotificationService.shared.cancel(for: nudge.id)
-        }
         .animation(.easeInOut(duration: 0.2), value: promptModeSelection != nil)
-    }
-
-    // MARK: - Resurface Nudge Actions
-
-    private func openNudgeItem(_ nudge: Nudge) {
-        guard let item = nudge.targetItem else { return }
-        ResurfacingService(modelContext: modelContext).recordEngagement(for: item)
-        withAnimation(.easeOut(duration: 0.15)) {
-            nudge.status = .actedOn
-            NudgeSettings.recordAction(type: nudge.type, actedOn: true)
-            try? modelContext.save()
-        }
-        NudgeNotificationService.shared.cancel(for: nudge.id)
-        selectedItem = item
-        openedItem = item
-    }
-
-    private func dismissNudge(_ nudge: Nudge) {
-        withAnimation(.easeOut(duration: 0.15)) {
-            nudge.status = .dismissed
-            NudgeSettings.recordAction(type: nudge.type, actedOn: false)
-            try? modelContext.save()
-        }
-        NudgeNotificationService.shared.cancel(for: nudge.id)
     }
 
     // MARK: - Starter Dismissal

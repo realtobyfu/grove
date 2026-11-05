@@ -558,42 +558,6 @@ struct GroveTests {
         #expect(router.consumeRouteIntent() == .search(query: "swiftui"))
     }
 
-    @Test func nudgeSettingsOnlyEnableActiveEngineCategories() {
-        let previousResurface = NudgeSettings.resurfaceEnabled
-        let previousStaleInbox = NudgeSettings.staleInboxEnabled
-
-        NudgeSettings.resurfaceEnabled = true
-        NudgeSettings.staleInboxEnabled = true
-
-        #expect(NudgeSettings.isEnabled(for: .resurface))
-        #expect(NudgeSettings.isEnabled(for: .staleInbox))
-        #expect(!NudgeSettings.isEnabled(for: .connectionPrompt))
-        #expect(!NudgeSettings.isEnabled(for: .streak))
-        #expect(!NudgeSettings.isEnabled(for: .continueCourse))
-        #expect(!NudgeSettings.isEnabled(for: .reflectionPrompt))
-        #expect(!NudgeSettings.isEnabled(for: .contradiction))
-        #expect(!NudgeSettings.isEnabled(for: .knowledgeGap))
-        #expect(!NudgeSettings.isEnabled(for: .synthesisPrompt))
-        #expect(!NudgeSettings.isEnabled(for: .dialecticalCheckIn))
-
-        NudgeSettings.resurfaceEnabled = previousResurface
-        NudgeSettings.staleInboxEnabled = previousStaleInbox
-    }
-
-    @Test func nudgeSettingsRespectActiveCategoryToggles() {
-        let previousResurface = NudgeSettings.resurfaceEnabled
-        let previousStaleInbox = NudgeSettings.staleInboxEnabled
-
-        NudgeSettings.resurfaceEnabled = false
-        NudgeSettings.staleInboxEnabled = false
-
-        #expect(!NudgeSettings.isEnabled(for: .resurface))
-        #expect(!NudgeSettings.isEnabled(for: .staleInbox))
-
-        NudgeSettings.resurfaceEnabled = previousResurface
-        NudgeSettings.staleInboxEnabled = previousStaleInbox
-    }
-
     @Test func systemNotificationsRequireExplicitOptIn() {
         let key = "nudge.notifications.enabled"
         let previousValue = UserDefaults.standard.object(forKey: key)
@@ -607,51 +571,6 @@ struct GroveTests {
 
         UserDefaults.standard.removeObject(forKey: key)
         #expect(!NudgeSettings.notificationsEnabled)
-    }
-
-    @MainActor
-    @Test func nudgeGenerationSweepsNudgesThatCanNoLongerReachTheUser() throws {
-        let key = "nudge.notifications.enabled"
-        let previousValue = UserDefaults.standard.object(forKey: key)
-        defer {
-            if let previousValue {
-                UserDefaults.standard.set(previousValue, forKey: key)
-            } else {
-                UserDefaults.standard.removeObject(forKey: key)
-            }
-        }
-        NudgeSettings.notificationsEnabled = false
-
-        let context = try makeInMemoryModelContext()
-
-        // No notification surface, and Home only lists resurface nudges.
-        let staleInbox = Nudge(type: .staleInbox, message: "8 items waiting")
-        context.insert(staleInbox)
-
-        // Home filters targetless resurface nudges out, but the pending guard
-        // in the generator still counted them.
-        let orphanResurface = Nudge(type: .resurface, message: "Revisit?")
-        context.insert(orphanResurface)
-
-        // Control: reachable, must survive untouched.
-        let target = Item(title: "Still here", type: .note)
-        context.insert(target)
-        let liveResurface = Nudge(type: .resurface, message: "Revisit?", targetItem: target)
-        context.insert(liveResurface)
-        try context.save()
-
-        let engine = NudgeEngine(modelContext: context)
-        engine.generateNudges()
-
-        #expect(staleInbox.status == .dismissed)
-        #expect(orphanResurface.status == .dismissed)
-        #expect(liveResurface.status == .pending)
-
-        // Idempotent: a second run leaves the swept nudges exactly as they are.
-        engine.generateNudges()
-        #expect(staleInbox.status == .dismissed)
-        #expect(orphanResurface.status == .dismissed)
-        #expect(liveResurface.status == .pending)
     }
 
     private func makeDate(

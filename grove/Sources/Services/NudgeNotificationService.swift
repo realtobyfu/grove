@@ -103,18 +103,10 @@ final class NudgeNotificationService: NSObject {
         return content
     }
 
+    /// Stale inbox is the only nudge the engine still schedules; anything
+    /// else falls back to a generic title.
     private func title(for type: NudgeType) -> String {
-        switch type {
-        case .resurface:
-            return "Review Reminder"
-        case .staleInbox:
-            return "Inbox Reminder"
-        case .dialecticalCheckIn:
-            return "Check-In"
-        case .connectionPrompt, .streak, .continueCourse,
-             .reflectionPrompt, .contradiction, .knowledgeGap, .synthesisPrompt:
-            return "Grove Reminder"
-        }
+        type == .staleInbox ? "Inbox Reminder" : "Grove Reminder"
     }
 
     private func registerNudgeCategory() {

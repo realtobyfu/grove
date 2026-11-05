@@ -55,7 +55,6 @@ struct LibraryView: View {
     @State private var searchTask: Task<Void, Never>? = nil
     @State private var filteredResults: [Item] = []
     @State private var isSearching = false
-    @State private var showingRevisitFilter = false
     @State private var showingArchived = false
     @State private var itemToDelete: Item?
 
@@ -74,16 +73,8 @@ struct LibraryView: View {
         allBoards.filter { !$0.isSmart }
     }
 
-    /// Items overdue for resurfacing (spaced repetition queue)
-    private var overdueItems: [Item] {
-        allItems.filter { $0.isResurfacingEligible && $0.isResurfacingOverdue }
-    }
-
     /// Items scoped to the board filter (if any), before text search
     private var boardFilteredItems: [Item] {
-        if showingRevisitFilter {
-            return overdueItems
-        }
         let base: [Item]
         if let boardID = selectedBoardID,
            let board = allBoards.first(where: { $0.id == boardID }) {
@@ -158,22 +149,11 @@ struct LibraryView: View {
                 }
             )
 
-            if !overdueItems.isEmpty {
-                LibraryRevisitBanner(
-                    overdueCount: overdueItems.count,
-                    showingRevisitFilter: $showingRevisitFilter,
-                    selectedBoardID: $selectedBoardID,
-                    searchQuery: $searchQuery
-                )
-            }
-
-            if !showingRevisitFilter {
-                LibraryBoardFilterBar(
-                    boards: allBoards,
-                    selectedBoardID: $selectedBoardID,
-                    showingArchived: $showingArchived
-                )
-            }
+            LibraryBoardFilterBar(
+                boards: allBoards,
+                selectedBoardID: $selectedBoardID,
+                showingArchived: $showingArchived
+            )
 
             Divider()
 

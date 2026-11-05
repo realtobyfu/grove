@@ -35,7 +35,10 @@ final class Board {
     // hashes, so changing these stored properties breaks synced-store migration.
     var isSmart: Bool = false
     var smartRuleLogic: SmartRuleLogic = SmartRuleLogic.or
-    /// Per-board nudge frequency in hours. 0 = use global default, -1 = disabled for this board.
+    /// Per-board nudge frequency in hours (0 = global default, -1 = disabled).
+    /// Unused since spaced resurfacing was retired; kept for schema stability
+    /// (SchemaMigrationTests pins the 2.0 entity hashes). The board editor
+    /// passes the stored value back through unchanged.
     var nudgeFrequencyHours: Int = 0
     /// JSON-encoded [UUID] array for manual item ordering. Authoritative source for .manual sort order.
     var itemOrderData: Data?
