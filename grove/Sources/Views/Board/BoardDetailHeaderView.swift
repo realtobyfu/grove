@@ -7,7 +7,8 @@ import SwiftUI
 @MainActor
 struct BoardDetailHeaderView {
     let board: Board
-    let effectiveItems: [Item]
+    /// The board's active items in the order they are currently displayed.
+    let displayedItems: [Item]
     let boardDiscussionSuggestions: [PromptBubble]
     let sortOption: BoardSortOption
 
@@ -23,34 +24,15 @@ struct BoardDetailHeaderView {
 
     var emptyState: some View {
         VStack(spacing: Spacing.md) {
-            Image(systemName: board.isSmart ? "sparkles.rectangle.stack" : (board.icon ?? "square.grid.2x2"))
+            Image(systemName: board.icon ?? "square.grid.2x2")
                 .font(.system(size: 48))
                 .foregroundStyle(Color.textTertiary)
             Text(board.title)
                 .font(.groveItemTitle)
                 .foregroundStyle(Color.textPrimary)
-            if board.isSmart {
-                Text("No items match these tags.")
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
-
-                if !board.smartRuleTags.isEmpty {
-                    HStack(spacing: 4) {
-                        Text("Rules:")
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                        Text(board.smartRuleTags.map(\.name).joined(separator: board.smartRuleLogic == .and ? " AND " : " OR "))
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textSecondary)
-                    }
-                }
-            } else {
-                Text("Add an item to this board.")
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textSecondary)
-            }
+            Text("Add an item to this board.")
+                .font(.groveBody)
+                .foregroundStyle(Color.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -60,15 +42,13 @@ struct BoardDetailHeaderView {
     var sortPicker: some View {
         Menu {
             ForEach(BoardSortOption.allCases, id: \.self) { option in
-                if option == .manual && board.isSmart { EmptyView() } else {
-                    Button {
-                        sortOptionBinding = option
-                    } label: {
-                        HStack {
-                            Text(option.rawValue)
-                            if sortOption == option {
-                                Image(systemName: "checkmark")
-                            }
+                Button {
+                    sortOptionBinding = option
+                } label: {
+                    HStack {
+                        Text(option.rawValue)
+                        if sortOption == option {
+                            Image(systemName: "checkmark")
                         }
                     }
                 }
@@ -90,15 +70,28 @@ struct BoardDetailHeaderView {
         .help(viewMode == .grid ? "Switch to list view" : "Switch to grid view")
     }
 
+    var copyMarkdownButton: some View {
+        Button {
+            let markdown = BoardExportService.markdownForBoard(
+                board,
+                items: displayedItems,
+                options: BoardExportOptions()
+            )
+            BoardExportService.copyToClipboard(markdown)
+        } label: {
+            Label("Copy as Markdown", systemImage: "doc.on.doc")
+        }
+        .buttonStyle(.bordered)
+        .disabled(displayedItems.isEmpty)
+        .help("Copy this board's items as Markdown")
+    }
+
     @ViewBuilder
     var toolbarCluster: some View {
         HStack(spacing: Spacing.sm) {
             sortPicker
             viewModeButton
-            if board.isSmart && !board.smartRuleTags.isEmpty {
-                Image(systemName: "gearshape.2")
-                    .help("Smart board rules: \(board.smartRuleTags.map(\.name).joined(separator: board.smartRuleLogic == .and ? " AND " : " OR "))")
-            }
+            copyMarkdownButton
         }
     }
 

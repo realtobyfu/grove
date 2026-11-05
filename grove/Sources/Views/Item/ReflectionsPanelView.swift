@@ -103,11 +103,6 @@ struct ReflectionsListPanel: View {
             }) {
                 ReflectionBlockRow(
                     block: block,
-                    isVideoItem: vm.isVideoItem,
-                    videoSeekTarget: Binding(
-                        get: { vm.videoSeekTarget },
-                        set: { vm.videoSeekTarget = $0 }
-                    ),
                     onEdit: { vm.openBlockForEditing($0, focusTrigger: focusTrigger) },
                     onDelete: { blk in
                         vm.blockToDelete = blk
@@ -213,11 +208,6 @@ struct InlineReflectionsSection: View {
                 }) {
                     ReflectionBlockRow(
                         block: block,
-                        isVideoItem: vm.isVideoItem,
-                        videoSeekTarget: Binding(
-                            get: { vm.videoSeekTarget },
-                            set: { vm.videoSeekTarget = $0 }
-                        ),
                         onEdit: { vm.openBlockForEditing($0, focusTrigger: focusTrigger) },
                         onDelete: { blk in
                             vm.blockToDelete = blk

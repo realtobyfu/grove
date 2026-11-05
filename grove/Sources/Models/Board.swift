@@ -29,6 +29,10 @@ final class Board {
     var color: String?
     var createdAt: Date = Date.now
     var sortOrder: Int = 0
+    // `isSmart`, `smartRuleLogic`, `smartRuleTagsStorage` and `SmartRuleLogic`:
+    // unused since smart boards were removed (nothing creates one any more);
+    // kept for schema stability. SchemaMigrationTests pins the 2.0 entity
+    // hashes, so changing these stored properties breaks synced-store migration.
     var isSmart: Bool = false
     var smartRuleLogic: SmartRuleLogic = SmartRuleLogic.or
     /// Per-board nudge frequency in hours. 0 = use global default, -1 = disabled for this board.

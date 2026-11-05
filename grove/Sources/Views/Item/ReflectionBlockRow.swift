@@ -3,8 +3,6 @@ import SwiftData
 
 struct ReflectionBlockRow: View {
     let block: ReflectionBlock
-    let isVideoItem: Bool
-    @Binding var videoSeekTarget: Double?
     var onEdit: (ReflectionBlock) -> Void
     var onDelete: (ReflectionBlock) -> Void
     var onNavigateToItemByTitle: (String) -> Void
@@ -18,30 +16,12 @@ struct ReflectionBlockRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Header: type label + video timestamp + actions
+            // Header: type label + actions
             HStack(spacing: 6) {
                 Text(block.blockType.displayName)
                     .font(.groveBadge)
                     .tracking(0.5)
                     .foregroundStyle(Color.textTertiary)
-
-                // Video timestamp seek button
-                if isVideoItem, let ts = block.videoTimestamp {
-                    Button {
-                        videoSeekTarget = Double(ts)
-                    } label: {
-                        HStack(spacing: 3) {
-                            Image(systemName: "play.circle.fill")
-                                .font(.caption2)
-                            Text(Double(ts).formattedTimestamp)
-                                .font(.groveMeta)
-                                .monospacedDigit()
-                        }
-                        .foregroundStyle(Color.textPrimary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Jump to \(Double(ts).formattedTimestamp) in video")
-                }
 
                 Spacer()
 

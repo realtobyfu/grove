@@ -31,10 +31,6 @@ struct ShortcutsSettingsView: View {
                 shortcutRow("Actual Size", shortcut: "⌘0")
             }
 
-            Section("Boards") {
-                shortcutRow("Copy Board Link", shortcut: "⌘⇧C")
-            }
-
             Section("Export") {
                 shortcutRow("Export Selected Item...", shortcut: "Menu only")
             }

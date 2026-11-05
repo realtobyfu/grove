@@ -37,13 +37,6 @@ final class BoardViewModel {
         try? modelContext.save()
     }
 
-    func createSmartBoard(title: String, icon: String?, color: String?, ruleTags: [Tag], logic: SmartRuleLogic, nudgeFrequencyHours: Int = 0) {
-        _ = ruleTags
-        _ = logic
-        // Smart board creation is deprecated; treat as standard board creation.
-        createBoard(title: title, icon: icon, color: color, nudgeFrequencyHours: nudgeFrequencyHours)
-    }
-
     func updateBoard(_ board: Board, title: String, icon: String?, color: String?, nudgeFrequencyHours: Int = 0) {
         let cleanedTitle = BoardSuggestionEngine.cleanedBoardName(title)
         guard !cleanedTitle.isEmpty else { return }
@@ -55,13 +48,6 @@ final class BoardViewModel {
         board.smartRuleTags.removeAll()
         board.nudgeFrequencyHours = nudgeFrequencyHours
         try? modelContext.save()
-    }
-
-    func updateSmartBoard(_ board: Board, title: String, icon: String?, color: String?, ruleTags: [Tag], logic: SmartRuleLogic, nudgeFrequencyHours: Int = 0) {
-        _ = ruleTags
-        _ = logic
-        // Smart board editing is deprecated; treat as standard board update.
-        updateBoard(board, title: title, icon: icon, color: color, nudgeFrequencyHours: nudgeFrequencyHours)
     }
 
     func deleteBoard(_ board: Board) {

@@ -37,12 +37,6 @@ final class ItemReaderViewModel {
     var flashcardSelection: FlashcardSelection?
     private var reflectionPanelWasCollapsedBeforeFlashcard = false
 
-    // MARK: - Video State
-
-    var videoCurrentTime: Double = 0
-    var videoDuration: Double = 0
-    var videoSeekTarget: Double? = nil
-
     // MARK: - Zoom State
 
     var webViewZoomLevel: CGFloat = 1.0
@@ -118,10 +112,6 @@ final class ItemReaderViewModel {
 
     var sortedReflections: [ReflectionBlock] {
         item.reflections.sorted { $0.position < $1.position }
-    }
-
-    var isVideoItem: Bool {
-        item.type == .video && localVideoURL != nil
     }
 
     /// True when this item's source is a PDF document. Such an item reads in
@@ -429,14 +419,12 @@ final class ItemReaderViewModel {
         guard !trimmed.isEmpty else { return }
         let host = reflectionHost()
         let nextPosition = (host.reflections.map(\.position).max() ?? -1) + 1
-        let timestamp: Int? = isVideoItem ? Int(videoCurrentTime) : nil
         let block = ReflectionBlock(
             item: host,
             blockType: .keyInsight,
             content: "",
             highlight: trimmed,
-            position: nextPosition,
-            videoTimestamp: timestamp
+            position: nextPosition
         )
         modelContext.insert(block)
         host.reflections.append(block)
@@ -505,14 +493,12 @@ final class ItemReaderViewModel {
         if isReflectionPanelCollapsed { isReflectionPanelCollapsed = false }
         let host = reflectionHost()
         let nextPosition = (host.reflections.map(\.position).max() ?? -1) + 1
-        let timestamp: Int? = isVideoItem ? Int(videoCurrentTime) : nil
         let block = ReflectionBlock(
             item: host,
             blockType: type,
             content: content,
             highlight: highlight,
-            position: nextPosition,
-            videoTimestamp: timestamp
+            position: nextPosition
         )
         modelContext.insert(block)
         host.reflections.append(block)

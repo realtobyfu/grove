@@ -434,51 +434,6 @@ struct SuggestedConversationCard: View {
     }
 }
 
-// MARK: - Prompt Bubble View (kept for backward compat)
-
-struct PromptBubbleView: View {
-    let bubble: PromptBubble
-    let onTap: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: onTap) {
-            HStack(alignment: .top, spacing: Spacing.md) {
-                VStack(alignment: .leading, spacing: Spacing.xs) {
-                    Text(bubble.label)
-                        .font(.groveBadge)
-                        .tracking(0.8)
-                        .foregroundStyle(Color.textMuted)
-
-                    Text(bubble.prompt)
-                        .font(.groveBody)
-                        .foregroundStyle(Color.textPrimary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .multilineTextAlignment(.leading)
-                }
-
-                Spacer(minLength: 0)
-
-                Image(systemName: "arrow.right.circle")
-                    .font(.system(size: 16))
-                    .foregroundStyle(isHovered ? Color.textSecondary : Color.textMuted)
-                    .animation(.easeOut(duration: 0.15), value: isHovered)
-            }
-            .padding(Spacing.md)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isHovered ? Color.bgCard.opacity(0.85) : Color.bgCard)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(isHovered ? Color.borderInput : Color.borderPrimary, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-    }
-}
-
 // MARK: - Section Header Style
 
 struct HomeSectionHeader: View {

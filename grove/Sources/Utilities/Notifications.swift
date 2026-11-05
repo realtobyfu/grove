@@ -9,7 +9,6 @@ extension Notification.Name {
     static let groveCaptureBar = Notification.Name("groveCaptureBar")
     static let groveGoToHome = Notification.Name("groveGoToHome")
     static let groveGoToBoard = Notification.Name("groveGoToBoard")
-    static let groveGoToTags = Notification.Name("groveGoToTags")
     static let groveExportItem = Notification.Name("groveExportItem")
     static let groveToggleChat = Notification.Name("groveToggleChat")
     static let groveOpenConversation = Notification.Name("groveOpenConversation")

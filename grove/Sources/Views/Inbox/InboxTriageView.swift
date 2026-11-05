@@ -104,9 +104,6 @@ struct InboxTriageView: View {
                 )
             }
         }
-        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-            handleVideoDrop(providers: providers)
-        }
         .onKeyPress(phases: [.down]) { keyPress in
             handleTriageKeyPress(keyPress)
         }
@@ -675,29 +672,5 @@ struct InboxTriageView: View {
 
     private func restoreDueQueuedItems() {
         _ = readLaterService.restoreDueItems()
-    }
-
-    // MARK: - Video Drag-and-Drop
-
-    private func handleVideoDrop(providers: [NSItemProvider]) -> Bool {
-        var handled = false
-        for provider in providers {
-            _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                guard let url = url else { return }
-                let path = url.path
-                guard CaptureService.isSupportedVideoFile(path) else { return }
-                Task { @MainActor in
-                    importDroppedVideo(at: path)
-                }
-            }
-            handled = true
-        }
-        return handled
-    }
-
-    @MainActor
-    private func importDroppedVideo(at path: String) {
-        let captureService = CaptureService(modelContext: modelContext)
-        _ = captureService.createVideoItem(filePath: path)
     }
 }

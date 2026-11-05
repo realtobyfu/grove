@@ -128,6 +128,17 @@ struct MobileBoardDetailView: View {
             ToolbarItem(placement: .secondaryAction) {
                 Button("Flashcards", systemImage: "rectangle.on.rectangle") { showFlashcards = true }
             }
+            ToolbarItem(placement: .secondaryAction) {
+                Button("Copy as Markdown", systemImage: "doc.on.doc") {
+                    let markdown = BoardExportService.markdownForBoard(
+                        board,
+                        items: sortedFilteredItems,
+                        options: BoardExportOptions()
+                    )
+                    BoardExportService.copyToClipboard(markdown)
+                }
+                .disabled(sortedFilteredItems.isEmpty)
+            }
         }
         .sheet(isPresented: $showFlashcards) {
             NavigationStack { FlashcardLibraryView(boardID: board.id) }

@@ -1,6 +1,8 @@
+#if os(macOS)
+import AppKit
+#endif
 import SwiftUI
 import SwiftData
-import AVKit
 
 struct ItemReaderView: View {
     @Bindable var item: Item
@@ -296,42 +298,28 @@ struct ItemReaderView: View {
     @ViewBuilder
     private func sourceContent(vm: ItemReaderViewModel) -> some View {
         if vm.item.type == .video, let videoURL = vm.localVideoURL {
-            VStack(spacing: 8) {
-                VideoPlayerView(
-                    url: videoURL,
-                    currentTime: Binding(get: { vm.videoCurrentTime }, set: { vm.videoCurrentTime = $0 }),
-                    duration: Binding(get: { vm.videoDuration }, set: { vm.videoDuration = $0 }),
-                    seekToTime: vm.videoSeekTarget
-                )
-                .frame(minHeight: 360)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                HStack {
-                    Text(vm.videoCurrentTime.formattedTimestamp)
-                        .font(.groveMeta)
-                        .monospacedDigit()
-                        .foregroundStyle(Color.textSecondary)
-                    Text("/")
-                        .font(.groveMeta)
-                        .foregroundStyle(Color.textTertiary)
-                    Text(vm.videoDuration.formattedTimestamp)
-                        .font(.groveMeta)
-                        .monospacedDigit()
-                        .foregroundStyle(Color.textSecondary)
-                    Spacer()
-                    if let path = vm.item.metadata["originalPath"] {
-                        Text(URL(fileURLWithPath: path).lastPathComponent)
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                            .lineLimit(1)
-                    }
+            // Local video files are no longer played in Grove. Items saved
+            // that way still open here and point back to the file on disk.
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                Text(vm.item.title)
+                    .font(.groveItemTitle)
+                    .foregroundStyle(Color.textPrimary)
+                Text(videoURL.path)
+                    .font(.groveMeta)
+                    .foregroundStyle(Color.textSecondary)
+                    .textSelection(.enabled)
+                #if os(macOS)
+                Button("Open in Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([videoURL])
                 }
+                #endif
 
                 if let content = vm.item.content, !content.isEmpty {
                     Divider()
                     SelectableMarkdownView(markdown: content, onSelectText: { vm.webSelectedText = $0 })
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         } else if vm.item.type == .video, vm.remoteVideoEmbedURL != nil {
             // A video that lives on someone else's site plays in the web pane,
             // not here. The overview keeps whatever description was captured,

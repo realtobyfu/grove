@@ -3,7 +3,6 @@ import AppKit
 #endif
 import SwiftUI
 import SwiftData
-import UniformTypeIdentifiers
 
 enum BoardViewMode: String, CaseIterable, Sendable {
     case grid
@@ -54,13 +53,9 @@ struct BoardDetailView: View {
     @State private var promptModePanelWidth: CGFloat = LayoutSettings.width(for: .boardPrompt) ?? 330
     @State private var paywallPresentation: PaywallPresentation?
 
-    /// The effective items for this board — smart boards compute from tag rules, regular boards use direct membership
+    /// The active items that belong to this board.
     private var effectiveItems: [Item] {
-        if board.isSmart {
-            return BoardViewModel.smartBoardItems(for: board, from: allItems)
-                .filter { $0.status == .active }
-        }
-        return board.items.filter { $0.status == .active }
+        board.items.filter { $0.status == .active }
     }
 
     private var sortedFilteredItems: [Item] {
@@ -81,7 +76,7 @@ struct BoardDetailView: View {
     private var headerView: BoardDetailHeaderView {
         BoardDetailHeaderView(
             board: board,
-            effectiveItems: effectiveItems,
+            displayedItems: sortedFilteredItems,
             boardDiscussionSuggestions: boardDiscussionSuggestions,
             sortOption: sortOption,
             viewMode: $viewMode,
@@ -110,9 +105,7 @@ struct BoardDetailView: View {
 
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
-                    if !board.isSmart {
-                        CaptureBarView(currentBoardID: board.id)
-                    }
+                    CaptureBarView(currentBoardID: board.id)
 
                     LearningInvitationView(boardID: board.id)
                         .padding(.horizontal, LayoutDimensions.contentPaddingH)
@@ -127,7 +120,7 @@ struct BoardDetailView: View {
                             board: board,
                             sortedFilteredItems: sortedFilteredItems,
                             weekSections: weekSections,
-                            canReorder: sortOption == .manual && !board.isSmart,
+                            canReorder: sortOption == .manual,
                             viewMode: viewMode,
                             selectedItem: $selectedItem,
                             openedItem: $openedItem,
@@ -167,9 +160,6 @@ struct BoardDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-            handleVideoDrop(providers: providers)
-        }
         .navigationTitle(board.title)
         .sheet(item: $paywallPresentation) { presentation in
             ProPaywallView(presentation: presentation)
@@ -323,26 +313,6 @@ struct BoardDetailView: View {
         openedItem = item
     }
 
-    // MARK: - Video Drag-and-Drop
-
-    private func handleVideoDrop(providers: [NSItemProvider]) -> Bool {
-        var handled = false
-        for provider in providers {
-            _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                guard let url = url else { return }
-                let path = url.path
-                guard CaptureService.isSupportedVideoFile(path) else { return }
-                Task { @MainActor in
-                    let captureService = CaptureService(modelContext: modelContext)
-                    let item = captureService.createVideoItem(filePath: path, board: board)
-                    selectedItem = item
-                }
-            }
-            handled = true
-        }
-        return handled
-    }
-
     // MARK: - Sort & Reorder
 
     private func sortItems(_ items: [Item]) -> [Item] {
@@ -363,7 +333,6 @@ struct BoardDetailView: View {
     }
 
     private func moveGridItem(fromID: UUID, toID: UUID) {
-        guard !board.isSmart else { return }
         var order = board.manualOrder()
         let allIDs = board.items.map(\.id)
         let known = Set(order)
@@ -378,7 +347,6 @@ struct BoardDetailView: View {
     }
 
     private func moveListItems(from source: IndexSet, to destination: Int) {
-        guard !board.isSmart else { return }
         var order = board.manualOrder()
         let allIDs = board.items.map(\.id)
         let known = Set(order)
@@ -412,68 +380,5 @@ struct BoardGridDropDelegate: DropDelegate {
               let from = draggingItemID,
               from != targetItemID else { return }
         onReorder(from, targetItemID)
-    }
-}
-
-// MARK: - New Note Sheet
-
-struct NewNoteSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var title = ""
-    @State private var content = ""
-
-    let onCreate: (String, String?) -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("New Note")
-                    .font(.groveItemTitle)
-                    .foregroundStyle(Color.textPrimary)
-                Spacer()
-            }
-            .padding()
-
-            Divider()
-
-            Form {
-                Section("Title") {
-                    TextField("Note title", text: $title)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.groveBody)
-                }
-
-                Section("Content") {
-                    TextEditor(text: $content)
-                        .font(.groveBody)
-                        .frame(minHeight: 150)
-                }
-            }
-            .formStyle(.grouped)
-            .scrollContentBackground(.hidden)
-
-            Divider()
-
-            HStack {
-                Button("Cancel") {
-                    dismiss()
-                }
-                .keyboardShortcut(.cancelAction)
-
-                Spacer()
-
-                Button("Create") {
-                    let noteTitle = title.trimmingCharacters(in: .whitespaces).isEmpty
-                        ? "Untitled Note"
-                        : title
-                    let noteContent = content.isEmpty ? nil : content
-                    onCreate(noteTitle, noteContent)
-                    dismiss()
-                }
-                .keyboardShortcut(.defaultAction)
-            }
-            .padding()
-        }
-        .frame(width: 440, height: 400)
     }
 }

@@ -6,11 +6,14 @@ import Combine
 
 /// User-selectable sort order for the library list.
 /// Search-result ranking (fuzzy score) is unaffected.
+///
+/// Persisted by raw value through `@AppStorage("librarySortOption")`. A stored
+/// value with no matching case (e.g. "depth", from the removed Depth sort)
+/// fails to decode and `@AppStorage` falls back to the default sort.
 enum LibrarySortOption: String, CaseIterable, Identifiable {
     case recentlyUpdated
     case dateAdded
     case titleAZ
-    case depth
 
     var id: String { rawValue }
 
@@ -19,7 +22,6 @@ enum LibrarySortOption: String, CaseIterable, Identifiable {
         case .recentlyUpdated: "Recently updated"
         case .dateAdded: "Date added"
         case .titleAZ: "Title A\u{2013}Z"
-        case .depth: "Depth"
         }
     }
 
@@ -31,8 +33,6 @@ enum LibrarySortOption: String, CaseIterable, Identifiable {
             items.sorted { $0.createdAt > $1.createdAt }
         case .titleAZ:
             items.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        case .depth:
-            items.sorted { $0.depthScore > $1.depthScore }
         }
     }
 }
