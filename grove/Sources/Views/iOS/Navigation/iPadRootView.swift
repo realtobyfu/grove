@@ -236,13 +236,8 @@ struct iPadRootView: View {
         }
         .sheet(isPresented: $showNewBoardSheet) {
             BoardEditorSheet(
-                onSave: { title, icon, color, nudgeFreq in
-                    boardViewModel.createBoard(
-                        title: title,
-                        icon: icon,
-                        color: color,
-                        nudgeFrequencyHours: nudgeFreq
-                    )
+                onSave: { title, icon, color in
+                    boardViewModel.createBoard(title: title, icon: icon, color: color)
                 }
             )
         }
@@ -407,7 +402,12 @@ struct iPadRootView: View {
         switch route {
         case .item(let itemID):
             if let item = fetchItem(id: itemID) {
-                IPadItemReaderHostView(item: item)
+                // Keyed by item: a connection swaps the route in place, and the
+                // next item must not inherit this one's reader state.
+                IPadItemReaderHostView(item: item) { linkedItem in
+                    openItemInPreferredContext(linkedItem)
+                }
+                .id(item.id)
             } else {
                 ContentUnavailableView("Item not found", systemImage: "doc.text")
             }

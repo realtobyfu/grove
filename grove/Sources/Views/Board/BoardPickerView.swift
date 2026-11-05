@@ -83,26 +83,19 @@ struct BoardPickerView: View {
 
     private var exactExistingBoard: Board? {
         guard !boardNameCandidate.isEmpty else { return nil }
-        // Match against selectable boards only: a smart board's name would
-        // suppress the Create row while offering no row to click instead.
-        return selectableBoards.first { $0.title.localizedCaseInsensitiveCompare(boardNameCandidate) == .orderedSame }
+        return boards.first { $0.title.localizedCaseInsensitiveCompare(boardNameCandidate) == .orderedSame }
     }
 
     private var canCreateBoard: Bool {
         onCreate != nil && !boardNameCandidate.isEmpty && exactExistingBoard == nil
     }
 
-    /// Non-smart boards only — smart boards are rule-driven, nothing to file into.
-    private var selectableBoards: [Board] {
-        boards.filter { !$0.isSmart }
-    }
-
     private var rankedBoards: [Board] {
         let filtered: [Board]
         if normalizedQuery.isEmpty {
-            filtered = selectableBoards
+            filtered = boards
         } else {
-            filtered = selectableBoards.filter { board in
+            filtered = boards.filter { board in
                 board.title.localizedStandardContains(normalizedQuery)
                     || (board.boardDescription?.localizedStandardContains(normalizedQuery) ?? false)
             }
@@ -521,15 +514,11 @@ enum BoardRanking {
 
         score += min(Double(board.items.count), 20)
 
-        if board.isSmart {
-            score -= 5
-        }
-
         return score
     }
 
     /// Boards worth offering as one-click chips for an item: the recommended
-    /// board first, then the engine's alternates. Smart boards excluded.
+    /// board first, then the engine's alternates.
     static func suggestedBoards(
         for item: Item,
         from boards: [Board],
@@ -545,7 +534,7 @@ enum BoardRanking {
         }
 
         var result: [Board] = orderedIDs.compactMap { id in
-            boards.first { $0.id == id && !$0.isSmart }
+            boards.first { $0.id == id }
         }
 
         // Fall back to the plain name suggestion when the engine only left a title.
@@ -553,7 +542,7 @@ enum BoardRanking {
             let name = decision?.suggestedName ?? item.metadata["suggestedBoard"] ?? ""
             if !name.isEmpty,
                let matched = boards.first(where: {
-                   !$0.isSmart && $0.title.localizedCaseInsensitiveCompare(name) == .orderedSame
+                   $0.title.localizedCaseInsensitiveCompare(name) == .orderedSame
                }) {
                 result = [matched]
             }

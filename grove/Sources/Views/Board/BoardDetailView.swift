@@ -20,7 +20,6 @@ enum BoardSortOption: String, CaseIterable, Sendable {
     case manual = "Manual"
     case dateAdded = "Date Added"
     case title = "Title"
-    case depthScore = "Depth"
 }
 
 struct BoardDetailView: View {
@@ -263,8 +262,6 @@ struct BoardDetailView: View {
             return items.sorted { $0.createdAt > $1.createdAt }
         case .title:
             return items.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
-        case .depthScore:
-            return items.sorted { $0.depthScore > $1.depthScore }
         }
     }
 

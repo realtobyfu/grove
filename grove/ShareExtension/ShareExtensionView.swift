@@ -95,7 +95,7 @@ struct ShareExtensionView: View {
             Picker("Board", selection: $selectedBoardID) {
                 Text("None (Inbox)")
                     .tag(UUID?.none)
-                ForEach(boards.filter { !$0.isSmart }) { board in
+                ForEach(boards) { board in
                     Label(board.title, systemImage: board.icon ?? "folder")
                         .tag(Optional(board.id))
                 }

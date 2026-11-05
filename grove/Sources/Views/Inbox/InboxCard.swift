@@ -15,12 +15,6 @@ struct InboxCard: View {
     var onFileToBoard: ((Board) -> Void)?
     /// Open the full board picker for this item.
     var onMoreBoards: (() -> Void)?
-    /// Display domain of a site that publishes a feed the user isn't following
-    /// yet. Set only when following is actually offerable — the chip renders
-    /// whenever this and `onFollowSite` are both present.
-    var followableSite: String? = nil
-    /// Subscribe to `followableSite`'s feed.
-    var onFollowSite: (() -> Void)?
 
     private var isFetchingMetadata: Bool {
         item.metadata["fetchingMetadata"] != nil
@@ -73,10 +67,6 @@ struct InboxCard: View {
                                 .font(.groveMeta)
                                 .foregroundStyle(Color.textSecondary)
                                 .lineLimit(1)
-                        }
-
-                        if let followableSite, let onFollowSite {
-                            FollowSiteButton(site: followableSite, action: onFollowSite)
                         }
 
                         Text(item.createdAt.formatted(.relative(presentation: .named)))
@@ -224,42 +214,6 @@ struct InboxCard: View {
               decision.mode == .create,
               !decision.suggestedName.isEmpty else { return nil }
         return decision.suggestedName
-    }
-}
-
-// MARK: - Follow Site Button
-
-/// Quiet inline "+ Follow" that sits in the meta row and reads as meta text:
-/// no fill, no border, secondary ink that darkens on hover. Following happens
-/// where the user is already looking at the site's work, not in Settings.
-private struct FollowSiteButton: View {
-    let site: String
-    let action: () -> Void
-
-    @State private var isHovering = false
-
-    /// The label is small by design, so iOS pads the hit region out to the
-    /// 44pt minimum without changing how the text looks.
-    #if os(iOS)
-    private static let minTapTarget: CGFloat = 44
-    #else
-    private static let minTapTarget: CGFloat = 0
-    #endif
-
-    var body: some View {
-        Button(action: action) {
-            Text("+ Follow")
-                .font(.groveMeta)
-                .foregroundStyle(isHovering ? Color.textPrimary : Color.textSecondary)
-                .lineLimit(1)
-                .fixedSize()
-                .frame(minWidth: Self.minTapTarget, minHeight: Self.minTapTarget)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .help("Follow \(site) \u{2014} new posts appear in Following")
-        .accessibilityLabel("Follow \(site)")
     }
 }
 

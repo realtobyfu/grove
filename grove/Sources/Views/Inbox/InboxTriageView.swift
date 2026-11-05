@@ -14,9 +14,6 @@ struct InboxTriageView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Item.createdAt, order: .reverse) private var allItems: [Item]
     @Query(sort: \Board.sortOrder) private var boards: [Board]
-    /// Queried (not fetched on demand) so subscribing re-evaluates the cards
-    /// and the "+ Follow" affordance disappears on its own.
-    @Query private var feedSources: [FeedSource]
     @State private var focusedIndex: Int = 0
     @State private var showQueuedSection = false
     @State private var showBoardPicker = false
@@ -150,9 +147,7 @@ struct InboxTriageView: View {
                                 onConfirmTag: { tag in confirmTag(tag) },
                                 onDismissTag: { tag in dismissTag(tag, from: item) },
                                 onFileToBoard: { board in keepItem(item, filingTo: board) },
-                                onMoreBoards: { presentBoardPicker(for: item) },
-                                followableSite: followableSite(for: item),
-                                onFollowSite: { followSite(for: item) }
+                                onMoreBoards: { presentBoardPicker(for: item) }
                             )
                             .id(item.id)
                             .transition(.asymmetric(
@@ -211,9 +206,7 @@ struct InboxTriageView: View {
                         onConfirmTag: { tag in confirmTag(tag) },
                         onDismissTag: { tag in dismissTag(tag, from: item) },
                         onFileToBoard: { board in keepItem(item, filingTo: board) },
-                        onMoreBoards: { presentBoardPicker(for: item) },
-                        followableSite: followableSite(for: item),
-                        onFollowSite: { followSite(for: item) }
+                        onMoreBoards: { presentBoardPicker(for: item) }
                     )
                     .id(item.id)
                     .transition(.asymmetric(
@@ -397,41 +390,6 @@ struct InboxTriageView: View {
         BoardRanking.suggestedBoards(for: item, from: boards)
     }
 
-    // MARK: - Follow the Site
-
-    /// Host of an item's source, normalized to match `FeedSource.domain`.
-    /// Nil for anything that isn't a plain http(s) page — local files, notes,
-    /// and custom schemes have no site to follow.
-    private func followHost(for item: Item) -> String? {
-        guard let urlString = item.sourceURL, !urlString.isEmpty,
-              let url = resolvedSourceURL(from: urlString),
-              let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https",
-              let host = url.host, !host.isEmpty else { return nil }
-        let normalized = normalizedDomain(host)
-        return normalized.isEmpty ? nil : normalized
-    }
-
-    private func feedSource(for item: Item) -> FeedSource? {
-        guard let host = followHost(for: item) else { return nil }
-        return feedSources.first { normalizedDomain($0.domain) == host }
-    }
-
-    /// Display domain for the card's "+ Follow" chip, or nil to show nothing.
-    /// Only sites Grove already knows a feed for are offerable; a site with no
-    /// FeedSource stays silent.
-    private func followableSite(for item: Item) -> String? {
-        guard let host = followHost(for: item),
-              let source = feedSource(for: item),
-              !source.isUserSubscribed else { return nil }
-        return host
-    }
-
-    private func followSite(for item: Item) {
-        guard let source = feedSource(for: item), !source.isUserSubscribed else { return }
-        FeedSubscriptionService.subscribe(source, in: modelContext)
-    }
-
     // MARK: - Auto-assign Confirmation
 
     private func showFiledConfirmation(item: Item, board: Board) {
@@ -505,15 +463,13 @@ struct InboxTriageView: View {
         guard decision.mode == .existing else { return nil }
         guard decision.confidence >= 0.78 else { return nil }
 
-        // Smart boards are rule-driven; membership must never be written into
-        // them, so they are not auto-assign targets.
         if let recommendedBoardID = decision.recommendedBoardID,
-           let recommended = boards.first(where: { $0.id == recommendedBoardID && !$0.isSmart }) {
+           let recommended = boards.first(where: { $0.id == recommendedBoardID }) {
             return recommended
         }
 
         return boards.first(where: {
-            !$0.isSmart && $0.title.localizedCaseInsensitiveCompare(decision.suggestedName) == .orderedSame
+            $0.title.localizedCaseInsensitiveCompare(decision.suggestedName) == .orderedSame
         })
     }
 

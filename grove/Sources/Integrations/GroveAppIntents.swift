@@ -308,9 +308,6 @@ enum GroveIntentModelStore {
             guard let resolvedBoard = try fetchBoard(id: boardID, in: context) else {
                 throw GroveIntentError.boardNotFound
             }
-            guard !resolvedBoard.isSmart else {
-                throw GroveIntentError.smartBoardCannotAcceptItems
-            }
             board = resolvedBoard
         } else {
             board = nil
@@ -331,9 +328,6 @@ enum GroveIntentModelStore {
         }
         guard let board = try fetchBoard(id: boardID, in: context) else {
             throw GroveIntentError.boardNotFound
-        }
-        guard !board.isSmart else {
-            throw GroveIntentError.smartBoardCannotAcceptItems
         }
 
         if !item.boards.contains(where: { $0.id == board.id }) {
@@ -440,7 +434,6 @@ private enum GroveIntentError: LocalizedError {
     case emptyCapture
     case itemNotFound
     case boardNotFound
-    case smartBoardCannotAcceptItems
 
     var errorDescription: String? {
         switch self {
@@ -450,8 +443,6 @@ private enum GroveIntentError: LocalizedError {
             "The Grove item no longer exists."
         case .boardNotFound:
             "The Grove board no longer exists."
-        case .smartBoardCannotAcceptItems:
-            "Smart boards collect items by rules and cannot accept manual assignments."
         }
     }
 }

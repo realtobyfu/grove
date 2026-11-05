@@ -518,31 +518,31 @@ struct GroveTests {
     }
 
     @MainActor
-    @Test func mobileBoardDetailEffectiveItemsFiltersSmartBoardAndStatus() {
-        let board = Board(title: "Smart")
+    @Test func mobileBoardDetailEffectiveItemsShowsAssignedActiveItems() {
+        // A leftover smart board's flag and tag rules no longer do anything:
+        // it shows what is assigned to it, like every other board.
+        let board = Board(title: "Formerly Smart")
         board.isSmart = true
         board.smartRuleLogic = .or
 
         let topic = Tag(name: "swift", category: .technology)
         board.smartRuleTags.append(topic)
 
-        let activeMatching = Item(title: "Active Match", type: .article)
-        activeMatching.status = .active
-        activeMatching.tags.append(topic)
+        let assignedActive = Item(title: "Assigned Active", type: .article)
+        assignedActive.status = .active
+        board.items.append(assignedActive)
 
-        let dismissedMatching = Item(title: "Dismissed Match", type: .article)
-        dismissedMatching.status = .dismissed
-        dismissedMatching.tags.append(topic)
+        let assignedDismissed = Item(title: "Assigned Dismissed", type: .article)
+        assignedDismissed.status = .dismissed
+        board.items.append(assignedDismissed)
 
-        let unrelatedActive = Item(title: "Unrelated", type: .article)
-        unrelatedActive.status = .active
+        let matchingTagOnly = Item(title: "Tag Match, Unassigned", type: .article)
+        matchingTagOnly.status = .active
+        matchingTagOnly.tags.append(topic)
 
-        let effective = MobileBoardDetailView.effectiveItems(
-            for: board,
-            allItems: [activeMatching, dismissedMatching, unrelatedActive]
-        )
+        let effective = MobileBoardDetailView.effectiveItems(for: board)
 
-        #expect(effective.map(\.id) == [activeMatching.id])
+        #expect(effective.map(\.id) == [assignedActive.id])
     }
 
     @MainActor

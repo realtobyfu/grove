@@ -20,8 +20,7 @@ final class ItemViewModel {
     }
 
     func assignToBoard(_ item: Item, board: Board) {
-        if !board.isSmart,
-           !item.boards.contains(where: { $0.id == board.id }) {
+        if !item.boards.contains(where: { $0.id == board.id }) {
             item.boards.append(board)
         }
         item.promoteFromFeedSuggestionIfNeeded()
@@ -40,9 +39,7 @@ final class ItemViewModel {
         for item in items {
             item.boards.removeAll()
             if let board {
-                if !board.isSmart {
-                    item.boards.append(board)
-                }
+                item.boards.append(board)
                 item.status = .active
             }
             item.updatedAt = .now

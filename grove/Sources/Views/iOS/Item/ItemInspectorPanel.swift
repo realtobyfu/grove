@@ -384,7 +384,7 @@ struct ItemInspectorPanel: View {
 
         let itemViewModel = ItemViewModel(modelContext: modelContext)
         if let existing = allBoards.first(where: {
-            !$0.isSmart && $0.title.localizedCaseInsensitiveCompare(title) == .orderedSame
+            $0.title.localizedCaseInsensitiveCompare(title) == .orderedSame
         }) {
             BoardSuggestionMetadata.recordSelection(existing, on: item)
             itemViewModel.assignToBoard(item, board: existing)

@@ -40,9 +40,6 @@ struct MobileLibraryView: View {
                 ($0.status == .active || $0.status == .inbox) && !$0.isFeedSuggestion
             }
         }
-        if board.isSmart {
-            return BoardViewModel.smartBoardItems(for: board, from: allItems)
-        }
         return board.items.sorted { $0.updatedAt > $1.updatedAt }
     }
 
@@ -81,9 +78,9 @@ struct MobileLibraryView: View {
         }
         .sheet(isPresented: $showNewBoardSheet) {
             BoardEditorSheet(
-                onSave: { title, icon, color, nudgeFreq in
+                onSave: { title, icon, color in
                     let viewModel = BoardViewModel(modelContext: modelContext)
-                    viewModel.createBoard(title: title, icon: icon, color: color, nudgeFrequencyHours: nudgeFreq)
+                    viewModel.createBoard(title: title, icon: icon, color: color)
                 }
             )
         }

@@ -11,7 +11,7 @@ final class BoardViewModel {
         self.modelContext = modelContext
     }
 
-    func createBoard(title: String, icon: String?, color: String?, nudgeFrequencyHours: Int = 0) {
+    func createBoard(title: String, icon: String?, color: String?) {
         let cleanedTitle = BoardSuggestionEngine.cleanedBoardName(title)
         guard !cleanedTitle.isEmpty else { return }
 
@@ -24,7 +24,6 @@ final class BoardViewModel {
             }
             existingBoard.isSmart = false
             existingBoard.smartRuleTags.removeAll()
-            existingBoard.nudgeFrequencyHours = nudgeFrequencyHours
             try? modelContext.save()
             return
         }
@@ -32,12 +31,11 @@ final class BoardViewModel {
         let maxSortOrder = fetchMaxSortOrder()
         let board = Board(title: cleanedTitle, icon: icon, color: color)
         board.sortOrder = maxSortOrder + 1
-        board.nudgeFrequencyHours = nudgeFrequencyHours
         modelContext.insert(board)
         try? modelContext.save()
     }
 
-    func updateBoard(_ board: Board, title: String, icon: String?, color: String?, nudgeFrequencyHours: Int = 0) {
+    func updateBoard(_ board: Board, title: String, icon: String?, color: String?) {
         let cleanedTitle = BoardSuggestionEngine.cleanedBoardName(title)
         guard !cleanedTitle.isEmpty else { return }
 
@@ -46,7 +44,6 @@ final class BoardViewModel {
         board.color = color
         board.isSmart = false
         board.smartRuleTags.removeAll()
-        board.nudgeFrequencyHours = nudgeFrequencyHours
         try? modelContext.save()
     }
 
@@ -69,23 +66,6 @@ final class BoardViewModel {
             board.sortOrder = index
         }
         try? modelContext.save()
-    }
-
-    /// Returns items matching the smart board's tag rules
-    nonisolated static func smartBoardItems(for board: Board, from allItems: [Item]) -> [Item] {
-        guard board.isSmart, !board.smartRuleTags.isEmpty else { return [] }
-
-        let ruleTagIDs = Set(board.smartRuleTags.map(\.id))
-
-        return allItems.filter { item in
-            let itemTagIDs = Set(item.tags.map(\.id))
-            switch board.smartRuleLogic {
-            case .and:
-                return ruleTagIDs.isSubset(of: itemTagIDs)
-            case .or:
-                return !ruleTagIDs.isDisjoint(with: itemTagIDs)
-            }
-        }
     }
 
     private func fetchMaxSortOrder() -> Int {

@@ -7,38 +7,29 @@ struct BoardEditorSheet: View {
     @State private var selectedIcon: String
 
     private let isEditing: Bool
-    private let wasSmartBoard: Bool
     /// The board's stored color, passed straight back through on save.
     /// Boards are monochrome now, but existing colors are data — editing a
     /// board must not quietly repaint it, and new boards get `nil`, which is
     /// the neutral every board surface already falls back to.
     private let preservedColorHex: String?
-    /// The board's stored `nudgeFrequencyHours`, passed back through on save
-    /// the same way. Nothing reads it since spaced resurfacing was retired;
-    /// the `onSave` slot stays so existing call sites keep compiling.
-    private let preservedNudgeFrequencyHours: Int
-    private let onSave: (String, String?, String?, Int) -> Void
+    private let onSave: (String, String?, String?) -> Void
 
     private static let defaultIcon = "folder"
 
     init(
         board: Board? = nil,
-        onSave: @escaping (String, String?, String?, Int) -> Void
+        onSave: @escaping (String, String?, String?) -> Void
     ) {
         if let board {
             self.isEditing = true
-            self.wasSmartBoard = board.isSmart
             _title = State(initialValue: board.title)
             _selectedIcon = State(initialValue: board.icon ?? Self.defaultIcon)
             self.preservedColorHex = board.color
-            self.preservedNudgeFrequencyHours = board.nudgeFrequencyHours
         } else {
             self.isEditing = false
-            self.wasSmartBoard = false
             _title = State(initialValue: "")
             _selectedIcon = State(initialValue: Self.defaultIcon)
             self.preservedColorHex = nil
-            self.preservedNudgeFrequencyHours = 0
         }
         self.onSave = onSave
     }
@@ -56,14 +47,6 @@ struct BoardEditorSheet: View {
 
                 Section("Icon") {
                     iconPicker
-                }
-
-                if wasSmartBoard {
-                    Section {
-                        Text("This board was previously smart. Saving now converts it to a standard board.")
-                            .font(.groveBodySmall)
-                            .foregroundStyle(Color.textSecondary)
-                    }
                 }
             }
             .formStyle(.grouped)
@@ -96,7 +79,7 @@ struct BoardEditorSheet: View {
 
             Button(isEditing ? "Save" : "Create") {
                 let icon = selectedIcon.isEmpty ? nil : selectedIcon
-                onSave(title, icon, preservedColorHex, preservedNudgeFrequencyHours)
+                onSave(title, icon, preservedColorHex)
                 dismiss()
             }
             .keyboardShortcut(.defaultAction)

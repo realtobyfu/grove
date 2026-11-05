@@ -37,8 +37,8 @@ final class Board {
     var smartRuleLogic: SmartRuleLogic = SmartRuleLogic.or
     /// Per-board nudge frequency in hours (0 = global default, -1 = disabled).
     /// Unused since spaced resurfacing was retired; kept for schema stability
-    /// (SchemaMigrationTests pins the 2.0 entity hashes). The board editor
-    /// passes the stored value back through unchanged.
+    /// (SchemaMigrationTests pins the 2.0 entity hashes). Nothing writes it,
+    /// so existing values are simply preserved.
     var nudgeFrequencyHours: Int = 0
     /// JSON-encoded [UUID] array for manual item ordering. Authoritative source for .manual sort order.
     var itemOrderData: Data?

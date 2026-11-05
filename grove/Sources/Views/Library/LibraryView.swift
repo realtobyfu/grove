@@ -68,19 +68,12 @@ struct LibraryView: View {
 
     // MARK: - Computed
 
-    /// Non-smart boards available as move targets
-    private var moveTargetBoards: [Board] {
-        allBoards.filter { !$0.isSmart }
-    }
-
     /// Items scoped to the board filter (if any), before text search
     private var boardFilteredItems: [Item] {
         let base: [Item]
         if let boardID = selectedBoardID,
            let board = allBoards.first(where: { $0.id == boardID }) {
-            base = board.isSmart
-                ? BoardViewModel.smartBoardItems(for: board, from: allItems)
-                : board.items
+            base = board.items
         } else {
             base = allItems
         }
@@ -340,7 +333,7 @@ struct LibraryView: View {
     /// `moveItemsToBoard`) and offers Unfiled as an explicit target.
     private var boardPickerSheet: some View {
         BoardPickerView(
-            boards: moveTargetBoards,
+            boards: allBoards,
             mode: .move,
             onSelect: { board in
                 showBoardPicker = false

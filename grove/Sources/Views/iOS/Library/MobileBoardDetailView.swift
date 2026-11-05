@@ -72,7 +72,7 @@ struct MobileBoardDetailView: View {
     }
 
     private var effectiveItems: [Item] {
-        Self.effectiveItems(for: board, allItems: allItems)
+        Self.effectiveItems(for: board)
     }
 
     private var sortedFilteredItems: [Item] {
@@ -217,7 +217,7 @@ struct MobileBoardDetailView: View {
                     BoardGridView(
                         items: sortedFilteredItems,
                         sections: weekSections,
-                        canReorder: sortOption == .manual && !board.isSmart,
+                        canReorder: sortOption == .manual,
                         selectedItem: selectedItemBinding,
                         openedItem: openedItemBinding,
                         draggingItemID: $draggingItemID,
@@ -229,7 +229,7 @@ struct MobileBoardDetailView: View {
                     BoardListView(
                         items: sortedFilteredItems,
                         sections: weekSections,
-                        canReorder: sortOption == .manual && !board.isSmart,
+                        canReorder: sortOption == .manual,
                         selectedItem: selectedItemBinding,
                         openedItem: openedItemBinding,
                         onOpenItem: onOpenItem,
@@ -278,9 +278,7 @@ struct MobileBoardDetailView: View {
         ContentUnavailableView {
             Label(board.title, systemImage: board.icon ?? "tray")
         } description: {
-            Text(board.isSmart
-                ? "No items match this smart board yet."
-                : "Items added to this board will appear here.")
+            Text("Items added to this board will appear here.")
         }
     }
 
@@ -291,15 +289,13 @@ struct MobileBoardDetailView: View {
         ToolbarItemGroup(placement: .primaryAction) {
             Menu {
                 ForEach(BoardSortOption.allCases, id: \.self) { option in
-                    if !(option == .manual && board.isSmart) {
-                        Button {
-                            sortOption = option
-                        } label: {
-                            HStack {
-                                Text(option.rawValue)
-                                if sortOption == option {
-                                    Image(systemName: "checkmark")
-                                }
+                    Button {
+                        sortOption = option
+                    } label: {
+                        HStack {
+                            Text(option.rawValue)
+                            if sortOption == option {
+                                Image(systemName: "checkmark")
                             }
                         }
                     }
@@ -316,7 +312,7 @@ struct MobileBoardDetailView: View {
                 }
             }
 
-            if isRegularSplitMode && sortOption == .manual && viewMode == .list && !board.isSmart {
+            if isRegularSplitMode && sortOption == .manual && viewMode == .list {
 #if os(iOS)
                 EditButton()
 #endif
@@ -350,13 +346,11 @@ struct MobileBoardDetailView: View {
 
         Divider()
 
-        if !board.isSmart {
-            Button {
-                let viewModel = ItemViewModel(modelContext: modelContext)
-                viewModel.removeFromBoard(item, board: board)
-            } label: {
-                Label("Remove from Board", systemImage: "folder.badge.minus")
-            }
+        Button {
+            let viewModel = ItemViewModel(modelContext: modelContext)
+            viewModel.removeFromBoard(item, board: board)
+        } label: {
+            Label("Remove from Board", systemImage: "folder.badge.minus")
         }
 
         Button(role: .destructive) {
@@ -416,7 +410,6 @@ struct MobileBoardDetailView: View {
     // MARK: - Reorder
 
     private func moveGridItem(fromID: UUID, toID: UUID) {
-        guard !board.isSmart else { return }
         var order = board.manualOrder()
         let allIDs = board.items.map(\.id)
         let known = Set(order)
@@ -431,7 +424,6 @@ struct MobileBoardDetailView: View {
     }
 
     private func moveListItems(from source: IndexSet, to destination: Int) {
-        guard !board.isSmart else { return }
         var order = board.manualOrder()
         let allIDs = board.items.map(\.id)
         let known = Set(order)
@@ -443,12 +435,8 @@ struct MobileBoardDetailView: View {
 
     // MARK: - Testable Data Helpers
 
-    static func effectiveItems(for board: Board, allItems: [Item]) -> [Item] {
-        if board.isSmart {
-            return BoardViewModel.smartBoardItems(for: board, from: allItems)
-                .filter { $0.status == .active }
-        }
-        return board.items.filter { $0.status == .active }
+    static func effectiveItems(for board: Board) -> [Item] {
+        board.items.filter { $0.status == .active }
     }
 
     static func sortedItems(_ items: [Item], for board: Board, sortOption: BoardSortOption) -> [Item] {
@@ -463,8 +451,6 @@ struct MobileBoardDetailView: View {
             return items.sorted { $0.createdAt > $1.createdAt }
         case .title:
             return items.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        case .depthScore:
-            return items.sorted { $0.depthScore > $1.depthScore }
         }
     }
 }
