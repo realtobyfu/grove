@@ -17,6 +17,7 @@ struct TabRootView: View {
     private struct LibraryBoardRoute: Hashable { let id: UUID }
     @State private var selectedTab: Tab = .home
     @State private var libraryPath = NavigationPath()
+    @State private var readerPresence = ReaderPresence()
     @State private var libraryBoardID: UUID?
     @State private var libraryFilterBoardID: UUID?
     @State private var showCaptureSheet = false
@@ -44,11 +45,10 @@ struct TabRootView: View {
         allItems.filter { $0.status == .inbox && !$0.isFeedSuggestion }.count
     }
 
+    /// One capture control per screen: Today has its inline bar and the reader
+    /// has its own button, so this covers Library and its boards only.
     private var showFloatingCapture: Bool {
-        switch selectedTab {
-        case .home, .library: return true
-        default: return false
-        }
+        selectedTab == .library && !readerPresence.isActive
     }
 
     private var currentBoardID: UUID? {
@@ -101,10 +101,10 @@ struct TabRootView: View {
             }
 
         }
+        .environment(readerPresence)
         // No ⌘-number shortcuts here: ⌘1–9 mean boards (macOS, regular-width
         // iPad), and this compact layout keeps boards inside Library.
         .overlay(alignment: .bottomTrailing) {
-            // Show floating capture button on content tabs (Today and Library)
             if showFloatingCapture {
                 FloatingCaptureButton()
                     .padding(.trailing, Spacing.lg)
