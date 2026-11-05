@@ -6,9 +6,14 @@ import SwiftData
 @MainActor
 final class KnowledgeBaseTools {
     private let modelContext: ModelContext
+    private let conversationID: UUID
 
-    init(modelContext: ModelContext) {
+    /// The board `create_board` proposed during this turn, if any.
+    private(set) var boardProposal: BoardProposal?
+
+    init(modelContext: ModelContext, conversationID: UUID) {
         self.modelContext = modelContext
+        self.conversationID = conversationID
     }
 
     /// Dispatch a tool call by name. Returns the result string or nil if unknown tool.
@@ -27,13 +32,23 @@ final class KnowledgeBaseTools {
         case "get_board_items":
             return getBoardItems(boardName: args["board_name"] ?? "")
         case "create_board":
-            return createBoard(
+            return proposeBoard(
                 boardName: args["board_name"] ?? "",
-                itemTitles: (args["item_titles"] ?? "").components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                itemReferences: (args["item_titles"] ?? "").components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
             )
         default:
             return nil
         }
+    }
+
+    /// Opening words of `toolDescriptions`, in every version a conversation may have stored.
+    private static let toolDescriptionsMarker = "You have access to the user's knowledge base."
+
+    /// Conversations keep the system prompt they started with, so older ones
+    /// carry retired tool wording. The tool section is always the prompt's tail.
+    static func withCurrentToolDescriptions(_ prompt: String) -> String {
+        guard let marker = prompt.range(of: toolDescriptionsMarker) else { return prompt }
+        return prompt[..<marker.lowerBound] + toolDescriptions
     }
 
     /// Available tool descriptions for the system prompt.
@@ -61,10 +76,11 @@ final class KnowledgeBaseTools {
     List all items in a specific board/collection.
 
     {"tool_call": {"name": "create_board", "args": {"board_name": "New Board Name", "item_titles": "Title 1, Title 2, Title 3"}}}
-    Create a new board and assign the listed items to it. item_titles is a comma-separated list of exact item titles. \
-    Use this when the user confirms they want to organize a group of items into a new board.
+    Propose a new board containing the listed items. item_titles is a comma-separated list of exact item titles. \
+    This does not create the board: the user confirms it in the app and nothing is written until they do, so never \
+    say the board exists. Use this when the user wants to organize a group of items into a new board.
 
-    Only use tool calls when you need to look up specific information or perform a write action. Most of the time, \
+    Only use tool calls when you need to look up specific information or propose a new board. Most of the time, \
     respond directly in conversational markdown.
     """
 
@@ -103,7 +119,7 @@ final class KnowledgeBaseTools {
         ),
         LLMToolSpec(
             name: "create_board",
-            description: "Create a new board and assign the listed items to it. Use when the user confirms they want to organize items into a new board.",
+            description: "Propose a new board containing the listed items. This does not create the board: the user confirms it in the app and nothing is written until they do, so never say the board exists. Use when the user wants to organize items into a new board.",
             parametersJSON: #"{"type":"object","properties":{"board_name":{"type":"string"},"item_titles":{"type":"string","description":"Comma-separated item ids or exact titles"}},"required":["board_name","item_titles"]}"#
         ),
     ]
@@ -254,38 +270,49 @@ final class KnowledgeBaseTools {
         }.joined(separator: "\n")
     }
 
-    private func createBoard(boardName: String, itemTitles: [String]) -> String {
-        guard !boardName.isEmpty else {
+    /// Records a proposal for the user to confirm. Writes nothing.
+    private func proposeBoard(boardName: String, itemReferences: [String]) -> String {
+        let name = boardName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
             return "Error: board_name is required."
         }
 
         let allBoards: [Board] = modelContext.fetchAll()
         // Avoid creating duplicate boards
-        if allBoards.contains(where: { $0.title.lowercased() == boardName.lowercased() }) {
-            return "Board \"\(boardName)\" already exists. Items were not reassigned."
+        if allBoards.contains(where: { $0.title.lowercased() == name.lowercased() }) {
+            return "Board \"\(name)\" already exists. Items were not reassigned."
         }
 
-        let board = Board(title: boardName)
-        modelContext.insert(board)
-
-        // Assign listed items to the new board
         let allItems = fetchAllItems()
-        var assignedTitles: [String] = []
-        for title in itemTitles {
-            if let item = ItemResolver.resolve(title, in: allItems) {
-                item.boards.append(board)
-                board.items.append(item)
-                assignedTitles.append(item.title)
+        var matchedItems: [Item] = []
+        var unmatchedTitles: [String] = []
+        for reference in itemReferences {
+            guard let item = ItemResolver.resolve(reference, in: allItems) else {
+                unmatchedTitles.append(reference)
+                continue
+            }
+            if !matchedItems.contains(where: { $0.id == item.id }) {
+                matchedItems.append(item)
             }
         }
 
-        try? modelContext.save()
+        boardProposal = BoardProposal(
+            boardName: name,
+            itemIDs: matchedItems.map(\.id),
+            itemTitles: matchedItems.map(\.title),
+            unmatchedTitles: unmatchedTitles,
+            conversationID: conversationID
+        )
 
-        if assignedTitles.isEmpty {
-            return "Board \"\(boardName)\" created with no items (none of the specified titles matched)."
+        var result = "Board \"\(name)\" has NOT been created. It is waiting for the user's confirmation in the app. "
+            + "Do not claim it exists; tell the user they can confirm it below."
+        if !matchedItems.isEmpty {
+            result += " Items it would contain: \(matchedItems.map(\.title).joined(separator: ", "))."
         }
-
-        return "Board \"\(boardName)\" created and \(assignedTitles.count) item(s) assigned: \(assignedTitles.joined(separator: ", "))."
+        if !unmatchedTitles.isEmpty {
+            result += " Not found: \(unmatchedTitles.joined(separator: ", "))."
+        }
+        return result
     }
 
     // MARK: - Helpers

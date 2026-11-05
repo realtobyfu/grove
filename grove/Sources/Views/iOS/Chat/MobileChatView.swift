@@ -16,6 +16,10 @@ struct MobileChatView: View {
         allItemsForContext.filter { conversation.seedItemIDs.contains($0.id) }
     }
 
+    private var boardProposal: BoardProposal? {
+        dialecticsService.pendingBoardProposal(for: conversation)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Messages
@@ -39,6 +43,19 @@ struct MobileChatView: View {
                         if dialecticsService.isGenerating {
                             streamingIndicator
                         }
+
+                        if let boardProposal {
+                            BoardProposalCard(
+                                proposal: boardProposal,
+                                onCreate: {
+                                    dialecticsService.confirmBoardProposal(for: conversation, context: modelContext)
+                                },
+                                onDecline: {
+                                    dialecticsService.declineBoardProposal(for: conversation, context: modelContext)
+                                }
+                            )
+                            .id(BoardProposalCard.scrollID)
+                        }
                     }
                     .padding(.horizontal, LayoutDimensions.contentPaddingH)
                     .padding(.vertical, Spacing.md)
@@ -48,6 +65,9 @@ struct MobileChatView: View {
                     scrollToBottom(proxy: proxy)
                 }
                 .onChange(of: conversation.messages.count) { _, _ in
+                    scrollToBottom(proxy: proxy)
+                }
+                .onChange(of: boardProposal?.id) { _, _ in
                     scrollToBottom(proxy: proxy)
                 }
             }
@@ -177,7 +197,11 @@ struct MobileChatView: View {
     }
 
     private func scrollToBottom(proxy: ScrollViewProxy) {
-        if let lastMessage = conversation.visibleMessages.last {
+        if boardProposal != nil {
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo(BoardProposalCard.scrollID, anchor: .bottom)
+            }
+        } else if let lastMessage = conversation.visibleMessages.last {
             withAnimation(.easeOut(duration: 0.2)) {
                 proxy.scrollTo(lastMessage.id, anchor: .bottom)
             }

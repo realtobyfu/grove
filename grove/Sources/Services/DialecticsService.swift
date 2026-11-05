@@ -28,6 +28,10 @@ final class DialecticsService: DialecticsServiceProtocol {
     var streamingText = ""
     var lastError: String?
 
+    /// Shared because a conversation's turn can run on a different service
+    /// instance from the one its chat view holds, and views come and go.
+    private static let boardProposals = BoardProposalStore()
+
     private static let maxToolRounds = 3
     private static let contextSummaryThreshold = 20
     private static let keepRecentMessages = 10
@@ -129,7 +133,7 @@ final class DialecticsService: DialecticsServiceProtocol {
 
         // Run agentic loop — native tool calling when the provider supports it,
         // prompt-based JSON tool calls otherwise.
-        let tools = KnowledgeBaseTools(modelContext: context)
+        let tools = KnowledgeBaseTools(modelContext: context, conversationID: conversation.id)
         var currentTurns = turns
         var assistantContent: String?
 
@@ -147,6 +151,11 @@ final class DialecticsService: DialecticsServiceProtocol {
                 conversation: conversation,
                 context: context
             )
+        }
+
+        // Published after the loop so the card arrives with the reply, not above it.
+        if let proposal = tools.boardProposal {
+            Self.boardProposals.set(proposal)
         }
 
         guard let finalContent = assistantContent, !finalContent.isEmpty else {
@@ -187,7 +196,7 @@ final class DialecticsService: DialecticsServiceProtocol {
     // MARK: - Native Tool Loop
 
     private static let maxNativeToolRounds = 5
-    private static let nativeToolNote = "Use the provided tools to search or modify the knowledge base when needed."
+    private static let nativeToolNote = "Use the provided tools to search the knowledge base or propose a new board when needed."
 
     private func runNativeToolLoop(
         turns: inout [ChatTurn],
@@ -395,6 +404,10 @@ final class DialecticsService: DialecticsServiceProtocol {
         }
 
         return messages.map { msg in
+            if msg.role == .system {
+                return ChatTurn(role: "system", content: KnowledgeBaseTools.withCurrentToolDescriptions(msg.content))
+            }
+
             // Map tool results to user role for API compatibility
             let role: String
             switch msg.role {
@@ -624,6 +637,69 @@ final class DialecticsService: DialecticsServiceProtocol {
 
         try? context.save()
         return item
+    }
+
+    // MARK: - Board Proposals
+
+    /// The board waiting for the user's decision. Nil during a reply, so the
+    /// user cannot act on it while the model is mid-turn.
+    func pendingBoardProposal(for conversation: Conversation) -> BoardProposal? {
+        guard !isGenerating else { return nil }
+        return Self.boardProposals.proposal(for: conversation.id)
+    }
+
+    /// Performs the write the user approved. Does not call the model.
+    @discardableResult
+    func confirmBoardProposal(for conversation: Conversation, context: ModelContext) -> Board? {
+        guard let proposal = Self.boardProposals.take(for: conversation.id) else { return nil }
+
+        // A board with this name may have appeared while the card was waiting.
+        let allBoards: [Board] = context.fetchAll()
+        if allBoards.contains(where: { $0.title.lowercased() == proposal.boardName.lowercased() }) {
+            appendAssistantNote(
+                "Board “\(proposal.boardName)” already exists, so nothing was created.",
+                to: conversation,
+                context: context
+            )
+            return nil
+        }
+
+        let board = Board(title: proposal.boardName)
+        context.insert(board)
+
+        let proposedIDs = Set(proposal.itemIDs)
+        let allItems: [Item] = context.fetchAll()
+        let items = allItems.filter { proposedIDs.contains($0.id) }
+        let itemViewModel = ItemViewModel(modelContext: context)
+        for item in items {
+            itemViewModel.assignToBoard(item, board: board)
+        }
+
+        appendAssistantNote(
+            "Created board “\(proposal.boardName)” with \(BoardProposal.itemCountLabel(items.count)).",
+            to: conversation,
+            context: context
+        )
+        return board
+    }
+
+    /// Drops the proposal. Does not call the model.
+    func declineBoardProposal(for conversation: Conversation, context: ModelContext) {
+        guard Self.boardProposals.take(for: conversation.id) != nil else { return }
+        appendAssistantNote("Board not created.", to: conversation, context: context)
+    }
+
+    private func appendAssistantNote(_ content: String, to conversation: Conversation, context: ModelContext) {
+        let message = ChatMessage(
+            role: .assistant,
+            content: content,
+            position: conversation.nextPosition
+        )
+        message.conversation = conversation
+        conversation.messages.append(message)
+        context.insert(message)
+        conversation.updatedAt = .now
+        try? context.save()
     }
 
     // MARK: - Connection Creation

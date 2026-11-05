@@ -380,17 +380,41 @@ struct DialecticalChatPanel: View {
                         if let error = vm.dialecticsService.lastError {
                             ChatErrorBubble(message: error)
                         }
+
+                        if let proposal = vm.dialecticsService.pendingBoardProposal(for: conversation) {
+                            BoardProposalCard(
+                                proposal: proposal,
+                                onCreate: {
+                                    vm.dialecticsService.confirmBoardProposal(for: conversation, context: modelContext)
+                                },
+                                onDecline: {
+                                    vm.dialecticsService.declineBoardProposal(for: conversation, context: modelContext)
+                                }
+                            )
+                            .id(BoardProposalCard.scrollID)
+                        }
                     }
                 }
                 .padding(.horizontal, Spacing.md)
                 .padding(.vertical, Spacing.sm)
             }
             .onChange(of: conversation.messages.count) {
-                if let lastID = conversation.visibleMessages.last?.id {
-                    withAnimation {
-                        proxy.scrollTo(lastID, anchor: .bottom)
-                    }
-                }
+                scrollToEnd(of: conversation, proxy: proxy)
+            }
+            .onChange(of: viewModel?.dialecticsService.pendingBoardProposal(for: conversation)?.id) {
+                scrollToEnd(of: conversation, proxy: proxy)
+            }
+        }
+    }
+
+    private func scrollToEnd(of conversation: Conversation, proxy: ScrollViewProxy) {
+        if viewModel?.dialecticsService.pendingBoardProposal(for: conversation) != nil {
+            withAnimation {
+                proxy.scrollTo(BoardProposalCard.scrollID, anchor: .bottom)
+            }
+        } else if let lastID = conversation.visibleMessages.last?.id {
+            withAnimation {
+                proxy.scrollTo(lastID, anchor: .bottom)
             }
         }
     }
