@@ -16,15 +16,39 @@ struct SearchOverlayView: View {
     var onSelectBoard: ((Board) -> Void)?
     var onSelectTag: ((Tag) -> Void)?
 
+    /// Every row in display order — exact-match sections, then "Related by
+    /// meaning". Keyboard selection indexes into this.
     private var flatResults: [SearchResult] {
         guard let vm = viewModel else { return [] }
-        var flat: [SearchResult] = []
-        for section in vm.orderedSections {
-            if let sectionResults = vm.results[section] {
-                flat.append(contentsOf: sectionResults)
-            }
+        return resultSections(vm: vm).flatMap(\.results)
+    }
+
+    /// Display sections with each one's first global row index, computed up
+    /// front so row indices match `flatResults` regardless of view evaluation order.
+    private func resultSections(vm: SearchViewModel) -> [SearchResultSection] {
+        var sections: [SearchResultSection] = []
+        var startIndex = 0
+        for type in vm.orderedSections {
+            guard let sectionResults = vm.results[type], !sectionResults.isEmpty else { continue }
+            sections.append(SearchResultSection(
+                id: type.rawValue,
+                title: type.rawValue,
+                iconName: type.iconName,
+                startIndex: startIndex,
+                results: sectionResults
+            ))
+            startIndex += sectionResults.count
         }
-        return flat
+        if !vm.semanticResults.isEmpty {
+            sections.append(SearchResultSection(
+                id: "semantic",
+                title: "Related by meaning",
+                iconName: "point.3.connected.trianglepath.dotted",
+                startIndex: startIndex,
+                results: vm.semanticResults
+            ))
+        }
+        return sections
     }
 
     private var queryPlaceholder: String {
@@ -247,7 +271,7 @@ struct SearchOverlayView: View {
         if let vm = viewModel {
             if vm.query.isEmpty {
                 landingState
-            } else if vm.totalResultCount == 0 {
+            } else if !vm.hasAnyResults {
                 if vm.isSearching {
                     searchingState
                 } else {
@@ -274,28 +298,24 @@ struct SearchOverlayView: View {
     // MARK: - Results List
 
     private func resultsList(vm: SearchViewModel) -> some View {
-        ScrollViewReader { proxy in
+        let sections = resultSections(vm: vm)
+        return ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    var runningIndex = 0
-                    ForEach(vm.orderedSections, id: \.self) { section in
-                        if let sectionResults = vm.results[section] {
-                            sectionHeader(section: section, count: sectionResults.count)
+                    ForEach(sections) { section in
+                        sectionHeader(title: section.title, iconName: section.iconName, count: section.results.count)
 
-                            ForEach(Array(sectionResults.enumerated()), id: \.element.id) { offset, result in
-                                let globalIndex = runningIndex + offset
-                                Button {
-                                    selectedIndex = globalIndex
-                                    navigateTo(result: result)
-                                } label: {
-                                    resultRow(result: result, isSelected: globalIndex == selectedIndex)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                                .buttonStyle(.plain)
-                                .id(globalIndex)
+                        ForEach(Array(section.results.enumerated()), id: \.element.id) { offset, result in
+                            let globalIndex = section.startIndex + offset
+                            Button {
+                                selectedIndex = globalIndex
+                                navigateTo(result: result)
+                            } label: {
+                                resultRow(result: result, isSelected: globalIndex == selectedIndex)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                             }
-
-                            let _ = (runningIndex += sectionResults.count)
+                            .buttonStyle(.plain)
+                            .id(globalIndex)
                         }
                     }
                 }
@@ -311,13 +331,13 @@ struct SearchOverlayView: View {
         }
     }
 
-    private func sectionHeader(section: SearchResultType, count: Int) -> some View {
+    private func sectionHeader(title: String, iconName: String, count: Int) -> some View {
         HStack(spacing: Spacing.sm) {
-            Image(systemName: section.iconName)
+            Image(systemName: iconName)
                 .font(.groveMeta)
                 .foregroundStyle(Color.textMuted)
 
-            Text(section.rawValue)
+            Text(title)
                 .sectionHeaderStyle()
 
             Text("\(count)")
@@ -660,6 +680,15 @@ struct SearchOverlayView: View {
             }
         }
     }
+}
+
+private struct SearchResultSection: Identifiable {
+    let id: String
+    let title: String
+    let iconName: String
+    /// Global index of this section's first row in the overlay's flat result list.
+    let startIndex: Int
+    let results: [SearchResult]
 }
 
 private struct SearchLandingCard: Identifiable {

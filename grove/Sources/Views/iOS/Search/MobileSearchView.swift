@@ -26,7 +26,7 @@ struct MobileSearchView: View {
                         emptyPrompt
                     } else if searchVM.isSearching {
                         ProgressView("Searching…")
-                    } else if searchVM.totalResultCount == 0 {
+                    } else if !searchVM.hasAnyResults {
                         ContentUnavailableView.search(text: searchText)
                     } else {
                         resultsList(searchVM)
@@ -160,6 +160,17 @@ struct MobileSearchView: View {
                         }
                     }
                 }
+
+                if showsSemanticSection(vm) {
+                    Section {
+                        ForEach(vm.semanticResults) { result in
+                            resultRow(result)
+                        }
+                    } header: {
+                        Text("Related by meaning")
+                            .sectionHeaderStyle()
+                    }
+                }
             }
             .listStyle(.plain)
         }
@@ -170,6 +181,12 @@ struct MobileSearchView: View {
             return vm.orderedSections.filter { $0 == filterType }
         }
         return vm.orderedSections
+    }
+
+    /// Semantic rows are items, so they belong under "All" and "Items" only.
+    private func showsSemanticSection(_ vm: SearchViewModel) -> Bool {
+        guard !vm.semanticResults.isEmpty else { return false }
+        return filterType == nil || filterType == .item
     }
 
     private func resultRow(_ result: SearchResult) -> some View {
