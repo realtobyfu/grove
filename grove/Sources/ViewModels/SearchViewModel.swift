@@ -356,9 +356,10 @@ final class SearchViewModel {
 
         for item in items {
             let titleScore = FuzzySearchScorer.score(normalizedQuery: queryLower, in: item.title.lowercased())
-            let contentScore = item.content.map {
-                FuzzySearchScorer.score(normalizedQuery: queryLower, in: $0.lowercased()) * 0.7
-            } ?? 0
+            let contentScore = FuzzySearchScorer.score(
+                normalizedQuery: queryLower,
+                in: item.retrievalText.lowercased()
+            ) * 0.7
 
             let bestScore = max(titleScore, contentScore)
             guard bestScore > 0 else { continue }
@@ -381,8 +382,8 @@ final class SearchViewModel {
     private static func subtitle(for item: Item) -> String? {
         if let url = item.sourceURL, !url.isEmpty {
             return url
-        } else if let content = item.content, !content.isEmpty {
-            return String(content.prefix(80))
+        } else if let preview = item.previewText {
+            return String(preview.prefix(80))
         } else {
             return item.type.rawValue.capitalized
         }

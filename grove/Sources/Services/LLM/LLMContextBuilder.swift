@@ -50,6 +50,10 @@ enum LLMContextBuilder {
             desc += "\nContent excerpt: \(String(content.prefix(contentLimit)))"
         }
 
+        if includeContent, let overview = item.overview, !overview.isEmpty {
+            desc += "\nAI overview: \(String(overview.prefix(contentLimit)))"
+        }
+
         if includeReflections && !item.reflections.isEmpty {
             let reflectionTexts = item.reflections
                 .sorted { $0.position < $1.position }

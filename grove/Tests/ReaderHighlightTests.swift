@@ -154,11 +154,42 @@ struct ReaderHighlightTests {
     @Test func duplicateQuotesShareOneMark() throws {
         // Two reflections quoting the same passage.
         let harness = try markHarness("<p>The same words, then the same words.</p>")
-        try apply(["same words", "same words"], in: harness)
-        let markCount = try harness.run("document.querySelectorAll('mark.grove-highlight').length").toInt32()
-        withKnownIssue("Each duplicate re-wraps the first occurrence, nesting marks and doubling the wash") {
-            #expect(markCount == 1)
-        }
+        #expect(try apply(["same words", "same words"], in: harness) == 1)
+        #expect(try harness.bodyHTML == "<p>The \(mark)same words</mark>, then the same words.</p>")
+    }
+
+    @Test func quotesDifferingOnlyInCaseAndWhitespaceShareOneMark() throws {
+        let harness = try markHarness("<p>The quick brown fox.</p>")
+        #expect(try apply(["quick brown", "QUICK \n brown"], in: harness) == 1)
+        #expect(try harness.bodyHTML == "<p>The \(mark)quick brown</mark> fox.</p>")
+    }
+
+    @Test func aDuplicateOfTheNewQuoteStillInksIn() throws {
+        // The older reflection comes first in the list; the new one matches it.
+        let harness = try markHarness("<p>The quick brown fox.</p>")
+        try apply(["Quick Brown", "quick brown"], animated: ["quick brown"], in: harness)
+        #expect(try harness.bodyHTML ==
+            #"<p>The <mark class="grove-highlight grove-highlight--new">quick brown</mark> fox.</p>"#)
+    }
+
+    @Test func aQuoteNamedAfterAnObjectPropertyIsNotMistakenForADuplicate() throws {
+        let harness = try markHarness("<p>Call the constructor here.</p>")
+        #expect(try apply(["constructor"], in: harness) == 1)
+        #expect(try harness.bodyHTML == "<p>Call the \(mark)constructor</mark> here.</p>")
+    }
+
+    @Test func overlappingQuotesNeverNestAMark() throws {
+        let harness = try markHarness("<p>The quick brown fox jumps.</p>")
+        let textBefore = try harness.bodyText
+        #expect(try apply(["quick brown", "brown fox"], in: harness) == 2)
+        #expect(try harness.bodyHTML == "<p>The \(mark)quick brown</mark>\(mark) fox</mark> jumps.</p>")
+        #expect(try harness.bodyText == textBefore)
+    }
+
+    @Test func aQuoteInsideAnotherAddsNoMarkButStillCounts() throws {
+        let harness = try markHarness("<p>The quick brown fox.</p>")
+        #expect(try apply(["quick brown fox", "brown"], in: harness) == 2)
+        #expect(try harness.bodyHTML == "<p>The \(mark)quick brown fox</mark>.</p>")
     }
 
     // MARK: - Marking after syntax highlighting
@@ -298,10 +329,38 @@ struct ReaderHighlightTests {
         // jumpToHighlight sends the stored quote, which keeps the "\n\n" the
         // selection carried; the marks script tolerates that, this one does not.
         let harness = try scrollHarness("<p>End of one.</p><p>Start of two.</p>")
-        let found = try scroll(to: "of one.\n\nStart", in: harness)
-        withKnownIssue("scrollToTextJS matches exactly, so a multi-paragraph highlight can be marked but not jumped to") {
-            #expect(found)
-        }
+        #expect(try scroll(to: "of one.\n\nStart", in: harness))
+        #expect(try harness.run("window.__lastRange.toString()").toString() == "of one.Start")
+        #expect(try harness.run("window.__lastRange.startContainer.data").toString() == "End of one.")
+        #expect(try harness.run("window.__lastRange.endContainer.data").toString() == "Start of two.")
+    }
+
+    @Test func scrollToTextSurvivesWhitespaceTheDocumentAndQuoteDisagreeOn() throws {
+        let harness = try scrollHarness("<p>The   quick\n    brown fox</p>")
+        #expect(try scroll(to: "quick \t brown", in: harness))
+        #expect(try harness.run("window.__lastRange.toString()").toString() == "quick\n    brown")
+    }
+
+    @Test func scrollToTextStartingAtABlockStartsInThatBlock() throws {
+        // Anchoring the range to the end of the previous block would scroll to it.
+        let harness = try scrollHarness("<p>End of one.</p><p>Start of two.</p>")
+        #expect(try scroll(to: "Start of", in: harness))
+        #expect(try harness.run("window.__lastRange.startContainer.data").toString() == "Start of two.")
+        #expect(try harness.run("window.__lastRange.startOffset").toInt32() == 0)
+    }
+
+    @Test func scrollToTextFindsAQuoteThatIsAlreadyMarked() throws {
+        let harness = try ReaderJSHarness(body: "<p>End of one.</p><p>Start of two.</p>")
+        try harness.run(ReaderTemplate.highlightMarksJS)
+        try harness.run(ReaderTemplate.scrollToTextJS)
+        let quote = "of one.\n\nStart"
+        #expect(try apply([quote], in: harness) == 1)
+        #expect(try scroll(to: quote, in: harness))
+    }
+
+    @Test func aWhitespaceOnlyScrollQueryIsAMiss() throws {
+        let harness = try scrollHarness("<p>Alpha beta gamma</p>")
+        #expect(try !scroll(to: " \n\t ", in: harness))
     }
 
     // MARK: - Highlight passes (ReaderModeSupport)
@@ -358,6 +417,21 @@ struct ReaderHighlightTests {
 
         #expect(ItemReaderWebViewPanel.highlightQuotes(from: blocks) == ["first quote", "third quote"])
         #expect(ItemReaderWebViewPanel.highlightQuotes(from: []) == [])
+    }
+
+    @MainActor
+    @Test func pageQuotesKeepOnlyTheFirstOfQuotesThatMatchTheSameText() throws {
+        let context = try makeInMemoryModelContext()
+        let item = Item(title: "Moss", type: .article)
+        context.insert(item)
+        let blocks = [
+            ReflectionBlock(item: item, blockType: .keyInsight, highlight: "the same\n\nwords", position: 0),
+            ReflectionBlock(item: item, blockType: .keyInsight, highlight: "other words", position: 1),
+            ReflectionBlock(item: item, blockType: .keyInsight, highlight: "The same words", position: 2),
+        ]
+        for block in blocks { context.insert(block) }
+
+        #expect(ItemReaderWebViewPanel.highlightQuotes(from: blocks) == ["the same\n\nwords", "other words"])
     }
 
     @MainActor

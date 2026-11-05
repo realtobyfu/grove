@@ -509,6 +509,9 @@ struct MobileItemReaderView: View {
                             .foregroundStyle(Color.textSecondary)
                             .italic()
                     }
+                    if let overview = item.overview, !overview.isEmpty {
+                        ItemCollapsibleTextBlock(label: "AI Overview", text: overview)
+                    }
                     Text(content)
                         .font(.groveBody)
                         .foregroundStyle(Color.textPrimary)

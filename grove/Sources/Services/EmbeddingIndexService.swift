@@ -60,6 +60,9 @@ actor EmbeddingIndexService {
         if let content = item.content, !content.isEmpty {
             parts.append(String(content.prefix(1000)))
         }
+        if let overview = item.overview, !overview.isEmpty {
+            parts.append(String(overview.prefix(1000)))
+        }
         for reflection in item.reflections.prefix(3) {
             parts.append(String(reflection.content.prefix(300)))
         }

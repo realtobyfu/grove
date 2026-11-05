@@ -285,7 +285,7 @@ enum GroveIntentModelStore {
             .filter { item in
                 guard let normalizedSearch, !normalizedSearch.isEmpty else { return true }
                 return item.title.localizedStandardContains(normalizedSearch)
-                    || item.content?.localizedStandardContains(normalizedSearch) == true
+                    || item.retrievalText.localizedStandardContains(normalizedSearch)
                     || item.boards.contains { $0.title.localizedStandardContains(normalizedSearch) }
             }
             .map(GroveItemEntity.init)

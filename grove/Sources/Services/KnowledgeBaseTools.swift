@@ -132,7 +132,7 @@ final class KnowledgeBaseTools {
 
         let keywordMatches = allItems.filter { item in
             item.title.lowercased().contains(queryLower) ||
-            (item.content ?? "").lowercased().contains(queryLower) ||
+            item.retrievalText.lowercased().contains(queryLower) ||
             item.tags.contains(where: { $0.name.lowercased().contains(queryLower) })
         }
 
@@ -179,6 +179,9 @@ final class KnowledgeBaseTools {
         if let url = item.sourceURL { result += "\nSource: \(url)" }
         if let content = item.content {
             result += "\nContent excerpt: \(String(content.prefix(800)))"
+        }
+        if let overview = item.overview, !overview.isEmpty {
+            result += "\nAI overview: \(String(overview.prefix(800)))"
         }
 
         if !item.reflections.isEmpty {

@@ -214,8 +214,8 @@ enum StarterLLMGenerator {
 
         // Short scraps of content are usually boilerplate ("Sign in to
         // continue"), not something to build a question on.
-        let content = item.content?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let content, content.count >= 80 {
+        let content = item.retrievalText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if content.count >= 80 {
             return excerpt(content)
         }
 

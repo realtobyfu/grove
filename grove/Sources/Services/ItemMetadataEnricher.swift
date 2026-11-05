@@ -322,7 +322,7 @@ final class ItemMetadataEnricher {
     }
 
     /// Generates a multi-paragraph overview/summary for an article using the LLM.
-    /// Stores the result in item.content, replacing the short OG description.
+    /// Stores the result in `item.overview`; `item.content` stays as it was.
     func generateOverview(
         itemID: UUID,
         context: ModelContext,
@@ -362,11 +362,7 @@ final class ItemMetadataEnricher {
         let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
         guard let item = try? context.fetch(descriptor).first else { return }
 
-        if let original = item.content, !original.isEmpty {
-            item.originalDescription = original
-        }
-        item.content = overview
-        item.hasLLMOverview = true
+        item.recordOverview(overview)
         item.updatedAt = .now
         try? context.save()
     }
@@ -379,9 +375,10 @@ final class ItemMetadataEnricher {
         let desc = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
         guard let item = try? context.fetch(desc).first,
               item.summary == nil,
-              let overviewContent = item.content, !overviewContent.isEmpty else { return }
+              let sourceText = [item.overview, item.content].compactMap({ $0 }).first(where: { !$0.isEmpty })
+        else { return }
 
-        let firstSentence = overviewContent
+        let firstSentence = sourceText
             .components(separatedBy: CharacterSet(charactersIn: ".!?"))
             .first?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

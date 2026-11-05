@@ -133,61 +133,102 @@ enum ReaderTemplate {
 
     // MARK: Shared JavaScript
 
-    /// Scroll-to-text helper shared by Reader mode and live pages.
-    /// `window.__groveScrollToText(query)` finds the first case-insensitive
-    /// occurrence of `query` in the page text, smooth-scrolls it into view,
-    /// and flashes a monochrome overlay marker. Returns true when found.
-    static let scrollToTextJS = """
-    window.__groveScrollToText = function(query) {
-        if (!query) { return false; }
-        // Concatenate all visible text nodes so a match can span inline markup
-        // (links, <em>/<strong>/<code>) instead of only matching within a
-        // single text node.
+    /// Text lookup shared by `scrollToTextJS` and `highlightMarksJS`, so any
+    /// quote that can be marked can also be jumped to. Declares `collectText`,
+    /// `strip` and `findText` in the enclosing function scope.
+    ///
+    /// Text nodes are concatenated so a match can span inline markup, and the
+    /// compare ignores case and all whitespace: a quote selected across a
+    /// paragraph break carries newlines the concatenated DOM text does not,
+    /// so an exact compare would miss most multi-block highlights.
+    private static let textLookupJS = """
+    function collectText() {
         var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
         var nodes = [];
         var full = '';
         while (walker.nextNode()) {
             var node = walker.currentNode;
             var p = node.parentElement;
-            if (p && (p.tagName === 'SCRIPT' || p.tagName === 'STYLE' || p.tagName === 'NOSCRIPT')) { continue; }
+            if (!p) { continue; }
+            var tag = p.tagName;
+            if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') { continue; }
+            if (!node.textContent.length) { continue; }
             nodes.push({ node: node, start: full.length });
             full += node.textContent;
         }
-        if (nodes.length === 0) { return false; }
-        var idx = full.toLowerCase().indexOf(query.toLowerCase());
-        if (idx === -1) { return false; }
-        var endIdx = idx + query.length;
-        function locate(offset) {
-            for (var i = 0; i < nodes.length; i++) {
-                var n = nodes[i];
-                var len = n.node.textContent.length;
-                if (offset <= n.start + len) {
-                    return { node: n.node, offset: Math.max(0, Math.min(offset - n.start, len)) };
+        return { nodes: nodes, full: full };
+    }
+
+    function strip(text) {
+        var out = '';
+        var map = [];
+        for (var i = 0; i < text.length; i++) {
+            var ch = text[i];
+            if (/\\s/.test(ch)) { continue; }
+            // Lowercasing can lengthen a character, so map every unit it yields.
+            var lowered = ch.toLowerCase();
+            out += lowered;
+            for (var k = 0; k < lowered.length; k++) { map.push(i); }
+        }
+        return { text: out, map: map };
+    }
+
+    // The half-open span of the first match in `collected.full`, or null.
+    function findText(collected, query) {
+        if (!collected.nodes.length) { return null; }
+        var needle = strip(query).text;
+        if (!needle) { return null; }
+        var haystack = strip(collected.full);
+        var at = haystack.text.indexOf(needle);
+        if (at === -1) { return null; }
+        return { start: haystack.map[at], end: haystack.map[at + needle.length - 1] + 1 };
+    }
+    """
+
+    /// Scroll-to-text helper shared by Reader mode and live pages.
+    /// `window.__groveScrollToText(query)` finds the first occurrence of
+    /// `query` in the page text (see `textLookupJS`), smooth-scrolls it into
+    /// view, and flashes a monochrome overlay marker. Returns true when found.
+    static let scrollToTextJS = """
+    (function() {
+        \(textLookupJS)
+
+        // The text node holding character `index` of the concatenated text.
+        function nodeAt(nodes, index) {
+            for (var i = nodes.length - 1; i >= 0; i--) {
+                if (nodes[i].start <= index) {
+                    return { node: nodes[i].node, offset: index - nodes[i].start };
                 }
             }
-            var last = nodes[nodes.length - 1];
-            return { node: last.node, offset: last.node.textContent.length };
+            return null;
         }
-        var startLoc = locate(idx);
-        var endLoc = locate(endIdx);
-        var range = document.createRange();
-        try {
-            range.setStart(startLoc.node, startLoc.offset);
-            range.setEnd(endLoc.node, endLoc.offset);
-        } catch (e) { return false; }
-        var rect = range.getBoundingClientRect();
-        window.scrollTo({ top: window.scrollY + rect.top - window.innerHeight * 0.3, behavior: 'smooth' });
-        var mark = document.createElement('div');
-        mark.style.cssText = 'position:absolute;pointer-events:none;background:rgba(128,128,128,0.35);border-radius:2px;transition:opacity 0.6s ease 0.9s;opacity:1;z-index:2147483647;';
-        mark.style.left = (window.scrollX + rect.left - 2) + 'px';
-        mark.style.top = (window.scrollY + rect.top - 1) + 'px';
-        mark.style.width = (rect.width + 4) + 'px';
-        mark.style.height = (rect.height + 2) + 'px';
-        document.body.appendChild(mark);
-        requestAnimationFrame(function() { mark.style.opacity = '0'; });
-        setTimeout(function() { mark.remove(); }, 1800);
-        return true;
-    };
+
+        window.__groveScrollToText = function(query) {
+            if (!query) { return false; }
+            var collected = collectText();
+            var match = findText(collected, query);
+            if (!match) { return false; }
+            var first = nodeAt(collected.nodes, match.start);
+            var last = nodeAt(collected.nodes, match.end - 1);
+            var range = document.createRange();
+            try {
+                range.setStart(first.node, first.offset);
+                range.setEnd(last.node, last.offset + 1);
+            } catch (e) { return false; }
+            var rect = range.getBoundingClientRect();
+            window.scrollTo({ top: window.scrollY + rect.top - window.innerHeight * 0.3, behavior: 'smooth' });
+            var mark = document.createElement('div');
+            mark.style.cssText = 'position:absolute;pointer-events:none;background:rgba(128,128,128,0.35);border-radius:2px;transition:opacity 0.6s ease 0.9s;opacity:1;z-index:2147483647;';
+            mark.style.left = (window.scrollX + rect.left - 2) + 'px';
+            mark.style.top = (window.scrollY + rect.top - 1) + 'px';
+            mark.style.width = (rect.width + 4) + 'px';
+            mark.style.height = (rect.height + 2) + 'px';
+            document.body.appendChild(mark);
+            requestAnimationFrame(function() { mark.style.opacity = '0'; });
+            setTimeout(function() { mark.remove(); }, 1800);
+            return true;
+        };
+    })();
     """
 
     /// Debounced selection reporter, shared verbatim by every web surface so
@@ -259,62 +300,38 @@ enum ReaderTemplate {
     /// Persistent highlight marks for Reader mode.
     /// `window.__groveApplyHighlights(list, animated)` clears every existing
     /// `mark.grove-highlight` and re-wraps the first match of each string in
-    /// `list`; strings in `animated` additionally get the one-shot ink-in
-    /// class. Strings that no longer match (content drift) are skipped
-    /// silently. Returns the number of strings that were marked.
+    /// `list` (see `textLookupJS`); strings in `animated` additionally get the
+    /// one-shot ink-in class. Strings that no longer match (content drift) are
+    /// skipped silently. Returns the number of distinct strings that matched.
     ///
-    /// Matching ignores whitespace entirely: a quote selected across a
-    /// paragraph break carries newlines the concatenated DOM text does not,
-    /// so an exact compare would miss most multi-block highlights.
+    /// The wash is translucent, so text must never sit inside two marks: quotes
+    /// equal under the lookup's compare collapse to one, and where quotes
+    /// overlap only the part not yet marked is wrapped.
     static let highlightMarksJS = """
     (function() {
-        function collect() {
-            var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
-            var nodes = [];
-            var full = '';
-            while (walker.nextNode()) {
-                var node = walker.currentNode;
-                var p = node.parentElement;
-                if (!p) { continue; }
-                var tag = p.tagName;
-                if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') { continue; }
-                if (!node.textContent.length) { continue; }
-                nodes.push({ node: node, start: full.length });
-                full += node.textContent;
-            }
-            return { nodes: nodes, full: full };
-        }
+        \(textLookupJS)
 
-        function strip(text) {
-            var out = '';
-            var map = [];
-            for (var i = 0; i < text.length; i++) {
-                var ch = text[i];
-                if (/\\s/.test(ch)) { continue; }
-                out += ch.toLowerCase();
-                map.push(i);
+        function isInsideMark(node) {
+            for (var p = node.parentElement; p; p = p.parentElement) {
+                if (p.tagName === 'MARK' && p.classList.contains('grove-highlight')) { return true; }
             }
-            return { text: out, map: map };
+            return false;
         }
 
         function wrapFirstMatch(query, animate) {
-            var collected = collect();
-            if (!collected.nodes.length) { return 0; }
-            var haystack = strip(collected.full);
-            var needle = strip(query).text;
-            if (!needle) { return 0; }
-            var at = haystack.text.indexOf(needle);
-            if (at === -1) { return 0; }
-            var startIdx = haystack.map[at];
-            var endIdx = haystack.map[at + needle.length - 1] + 1;
+            var collected = collectText();
+            var match = findText(collected, query);
+            if (!match) { return false; }
+            var startIdx = match.start;
+            var endIdx = match.end;
             var cls = animate ? 'grove-highlight grove-highlight--new' : 'grove-highlight';
-            var created = 0;
             var nodes = collected.nodes;
             for (var i = 0; i < nodes.length; i++) {
                 var entry = nodes[i];
                 var len = entry.node.textContent.length;
                 var nodeStart = entry.start;
                 if (nodeStart + len <= startIdx || nodeStart >= endIdx) { continue; }
+                if (isInsideMark(entry.node)) { continue; }
                 var s = Math.max(0, startIdx - nodeStart);
                 var e = Math.min(len, endIdx - nodeStart);
                 if (e <= s) { continue; }
@@ -327,9 +344,8 @@ enum ReaderTemplate {
                 mark.className = cls;
                 parent.replaceChild(mark, target);
                 mark.appendChild(target);
-                created++;
             }
-            return created;
+            return true;
         }
 
         window.__groveApplyHighlights = function(list, animated) {
@@ -344,15 +360,20 @@ enum ReaderTemplate {
                     parent.normalize();
                 }
                 if (!list || !list.length) { return 0; }
-                var fresh = {};
-                for (var a = 0; a < (animated || []).length; a++) { fresh[animated[a]] = true; }
+                // No prototype: a quote can be any word, "constructor" included.
+                var fresh = Object.create(null);
+                for (var a = 0; a < (animated || []).length; a++) { fresh[strip(animated[a]).text] = true; }
+                var seen = Object.create(null);
                 var applied = 0;
                 var didAnimate = false;
                 for (var j = 0; j < list.length; j++) {
                     var query = list[j];
                     if (!query) { continue; }
-                    var animate = fresh[query] === true;
-                    if (wrapFirstMatch(query, animate) > 0) {
+                    var key = strip(query).text;
+                    if (seen[key]) { continue; }
+                    seen[key] = true;
+                    var animate = fresh[key] === true;
+                    if (wrapFirstMatch(query, animate)) {
                         applied++;
                         if (animate) { didAnimate = true; }
                     }

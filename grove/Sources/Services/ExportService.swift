@@ -68,6 +68,11 @@ final class ExportService: ExportServiceProtocol {
             md += content + "\n\n"
         }
 
+        if let overview = item.overview, !overview.isEmpty {
+            md += "## AI Overview\n\n"
+            md += overview + "\n\n"
+        }
+
         // Reflections
         if !item.reflections.isEmpty {
             md += "## Reflections\n\n"

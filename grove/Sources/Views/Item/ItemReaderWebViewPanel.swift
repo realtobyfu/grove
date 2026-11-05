@@ -502,14 +502,19 @@ struct ItemReaderWebViewPanel: View {
     }
 
     /// The quotes Reader mode marks for a set of reflections: in reflection
-    /// order, trimmed, with reflections that quote nothing left out.
+    /// order, trimmed, with reflections that quote nothing left out. Quotes
+    /// that differ only in case or whitespace match the same page text, so
+    /// only the first of them is kept.
     static func highlightQuotes(from reflections: [ReflectionBlock]) -> [String] {
-        reflections
+        var seen = Set<String>()
+        return reflections
             .sorted { $0.position < $1.position }
             .compactMap { block in
                 let quote = (block.highlight ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                return quote.isEmpty ? nil : quote
+                guard !quote.isEmpty else { return nil }
+                let key = quote.lowercased().filter { !$0.isWhitespace }
+                return seen.insert(key).inserted ? quote : nil
             }
     }
 

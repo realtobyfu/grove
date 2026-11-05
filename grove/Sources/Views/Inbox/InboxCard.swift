@@ -84,9 +84,9 @@ struct InboxCard: View {
                     .font(.groveBodySecondary)
                     .foregroundStyle(Color.textSecondary)
                     .lineLimit(3)
-            } else if let content = item.content, !content.isEmpty {
+            } else if let preview = item.previewText {
                 // Fall back to content preview
-                Text(content)
+                Text(preview)
                     .font(.groveBodySecondary)
                     .foregroundStyle(Color.textSecondary)
                     .lineLimit(3)

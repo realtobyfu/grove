@@ -68,6 +68,7 @@ struct ItemReaderView: View {
             value: !vm.showArticleWebView && !vm.showPDFReader && vm.highlightableSelection != nil
         )
         .onAppear {
+            vm.migrateLegacyOverviewIfNeeded()
             vm.backfillThumbnailIfNeeded()
             openWebViewIfPageIsTheContent(vm)
         }
@@ -78,6 +79,7 @@ struct ItemReaderView: View {
             // Reset first, then decide: the reset closes the web pane, so an
             // auto-open registered ahead of it would be undone by it.
             vm.resetOnItemChange()
+            vm.migrateLegacyOverviewIfNeeded()
             openWebViewIfPageIsTheContent(vm)
         }
         .onChange(of: vm.showArticleWebView) {
@@ -333,7 +335,7 @@ struct ItemReaderView: View {
                     SelectableMarkdownView(markdown: content, onSelectText: { vm.webSelectedText = $0 })
                 }
             }
-        } else if vm.isEditingContent && (vm.item.type == .note || (vm.item.type == .article && vm.item.hasLLMOverview)) {
+        } else if vm.isEditingContent && vm.canEditContent {
             RichMarkdownEditor(
                 text: Binding(
                     get: { vm.item.content ?? "" },
@@ -347,12 +349,12 @@ struct ItemReaderView: View {
             )
         } else if let content = vm.item.content, !content.isEmpty {
             if vm.item.hasLLMOverview {
-                AIOverviewHeaderRow(vm: vm)
+                AIMetaLabel(text: "AI Overview")
                     .padding(.bottom, 4)
             }
 
             SelectableMarkdownView(markdown: content, onSelectText: { vm.webSelectedText = $0 })
-        } else {
+        } else if (vm.item.overview ?? "").isEmpty {
             Text("No content available.")
                 .font(.groveBody)
                 .foregroundStyle(Color.textTertiary)
@@ -513,7 +515,7 @@ struct ItemReaderView: View {
             return
         }
         guard item.isNewsletterIssue,
-              (item.content ?? "").isEmpty,
+              item.previewText == nil,
               vm.articleURL != nil else { return }
         vm.showArticleWebView = true
     }

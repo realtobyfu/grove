@@ -389,10 +389,8 @@ struct LibraryView: View {
             score = max(score, titleScore)
 
             // Content match
-            if let content = item.content {
-                let contentScore = FuzzySearchScorer.score(normalizedQuery: lower, in: content.lowercased()) * 0.7
-                score = max(score, contentScore)
-            }
+            let contentScore = FuzzySearchScorer.score(normalizedQuery: lower, in: item.retrievalText.lowercased()) * 0.7
+            score = max(score, contentScore)
 
             // Tag match
             for tag in item.tags {

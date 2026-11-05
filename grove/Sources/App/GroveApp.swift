@@ -58,6 +58,7 @@ struct GroveApp: App {
                     guard !LearningDemo.isEnabled else { return }
                     LearningWidgetSnapshotStore.refresh(modelContext: context)
                     AnnotationMigrationService.migrateIfNeeded(context: context)
+                    OverviewMigrationService.migrateItems(context: context)
                     storeKitService.start()
                     #if !SHARE_EXTENSION
                     await GroveSpotlightIndexer.refreshAll(using: modelContainer)
@@ -139,6 +140,7 @@ struct GroveApp: App {
                     guard !LearningDemo.isEnabled else { return }
                     LearningWidgetSnapshotStore.refresh(modelContext: context)
                     AnnotationMigrationService.migrateIfNeeded(context: context)
+                    OverviewMigrationService.migrateItems(context: context)
                     ExtensionItemProcessor.processIfNeeded(context: context)
                     storeKitService.start()
                     #if !SHARE_EXTENSION

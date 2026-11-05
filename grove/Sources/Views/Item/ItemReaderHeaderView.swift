@@ -34,7 +34,7 @@ struct ItemReaderHeaderView: View {
                 .controlSize(.small)
                 #endif
 
-                if vm.item.type == .note || (vm.item.type == .article && vm.item.hasLLMOverview) {
+                if vm.canEditContent {
                     Button {
                         vm.toggleContentEditing()
                     } label: {
@@ -59,7 +59,6 @@ struct ItemReaderHeaderView: View {
                     systemImage: isEdited ? "pencil" : "sparkles"
                 )
             } else if vm.item.hasLLMOverview || vm.item.isSummaryGeneratedByAI {
-                // Revert lives on the overview paragraph it actually reverts.
                 AIMetaLabel(text: "AI-assisted")
             }
 
@@ -87,6 +86,28 @@ struct ItemReaderHeaderView: View {
                 }
 
                 Spacer()
+            }
+
+            if let overview = vm.item.overview, !overview.isEmpty {
+                ItemCollapsibleTextBlock(
+                    label: "AI Overview",
+                    text: overview,
+                    onSelectText: { vm.webSelectedText = $0 }
+                )
+                .id(vm.item.id)
+            }
+
+            // Only on an item whose edited content kept the overview's place;
+            // this is what that content replaced.
+            if vm.item.hasLLMOverview, let original = vm.item.originalDescription, !original.isEmpty {
+                ItemCollapsibleTextBlock(
+                    label: "Original Description",
+                    systemImage: nil,
+                    text: original,
+                    startsExpanded: false,
+                    onSelectText: { vm.webSelectedText = $0 }
+                )
+                .id(vm.item.id)
             }
         }
         .padding()
@@ -182,56 +203,65 @@ struct AIMetaLabel: View {
     }
 }
 
-// MARK: - Overview Header
+// MARK: - Collapsible Text Block
 
-/// Kicker above the AI overview paragraph, plus the ghost "Revert to original"
-/// link for the text it actually reverts. The link fades in on row hover.
-struct AIOverviewHeaderRow: View {
-    @Bindable var vm: ItemReaderViewModel
+/// Text that sits beside an item's content rather than in it, under a meta
+/// label that collapses it. Whether it is open lives here and nowhere else.
+struct ItemCollapsibleTextBlock: View {
+    let label: String
+    let systemImage: String?
+    let text: String
+    let onSelectText: ((String?) -> Void)?
 
-    @State private var isHovered = false
-    @State private var isLinkHovered = false
+    @State private var isExpanded: Bool
 
-    private var canRevert: Bool {
-        vm.item.hasLLMOverview
-            && !(vm.item.originalDescription ?? "").isEmpty
+    init(
+        label: String,
+        systemImage: String? = "sparkles",
+        text: String,
+        startsExpanded: Bool = true,
+        onSelectText: ((String?) -> Void)? = nil
+    ) {
+        self.label = label
+        self.systemImage = systemImage
+        self.text = text
+        self.onSelectText = onSelectText
+        _isExpanded = State(initialValue: startsExpanded)
     }
 
     var body: some View {
-        HStack(spacing: 10) {
-            AIMetaLabel(text: "AI Overview")
-
-            if canRevert {
-                Button {
-                    vm.revertOverview()
-                } label: {
-                    Text("Revert to original")
-                        .font(.groveMeta)
-                        .foregroundStyle(isLinkHovered ? Color.textPrimary : Color.textTertiary)
-                        .underline(isLinkHovered)
-                        .contentShape(Rectangle())
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Button {
+                withAnimation(.easeOut(duration: 0.2)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: Spacing.sm) {
+                    AIMetaLabel(text: label, systemImage: systemImage)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(Color.textTertiary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    Spacer(minLength: 0)
                 }
-                .buttonStyle(.plain)
-                .help("Replace the AI overview with the original text")
-                .opacity(isHovered || isLinkHovered ? 1 : restingOpacity)
-                .onHover { isLinkHovered = $0 }
+                .frame(minHeight: minimumRowHeight)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel(label)
+            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
 
-            Spacer(minLength: 0)
+            if isExpanded {
+                SelectableMarkdownView(markdown: text, onSelectText: onSelectText)
+            }
         }
-        .animation(.easeInOut(duration: 0.15), value: isHovered || isLinkHovered)
-        .contentShape(Rectangle())
-        .onHover { isHovered = $0 }
+        .padding(.top, Spacing.xs)
     }
 
-    /// Pointer platforms reveal the link on hover; touch keeps it visible.
-    private var restingOpacity: Double {
-        #if os(macOS)
-        // Faint but present: a fully invisible control is undiscoverable to
-        // mouse users who never happen to hover the paragraph.
-        return 0.35
+    /// Touch needs the full target; a pointer doesn't.
+    private var minimumRowHeight: CGFloat {
+        #if os(iOS)
+        LayoutDimensions.minTouchTarget
         #else
-        return 1
+        0
         #endif
     }
 }

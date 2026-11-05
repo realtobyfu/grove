@@ -73,7 +73,7 @@ final class AutoTagService: AutoTagServiceProtocol {
         Return 3-7 tags. Only return valid JSON, no extra text.
         """
 
-        let contentExcerpt = String((item.content ?? "").prefix(1500))
+        let contentExcerpt = String(item.retrievalText.prefix(1500))
         let userPrompt = """
         Title: \(item.title)
         Source URL: \(item.sourceURL ?? "none")

@@ -6,8 +6,10 @@ private enum Key {
     // AI provenance
     static let isAIGenerated = "isAIGenerated"
     static let isAIEdited = "isAIEdited"
+    static let overview = "overview"
     static let hasLLMOverview = "hasLLMOverview"
     static let originalDescription = "originalDescription"
+    static let overviewEditKept = "overviewEditKept"
     static let summaryGeneratedByAI = "summaryGeneratedByAI"
     static let summaryReviewPending = "summaryReviewPending"
     static let overviewReviewPending = "overviewReviewPending"
@@ -82,15 +84,33 @@ extension Item {
         set { setFlag(Key.isAIEdited, newValue) }
     }
 
+    /// The AI overview of this item. It sits beside `content` and never
+    /// replaces it; regenerating replaces only the previous overview.
+    var overview: String? {
+        get { metadata[Key.overview] }
+        set { metadata[Key.overview] = newValue }
+    }
+
+    /// True while `content` itself holds AI text: an item overviewed before
+    /// `overview` existed that `migrateLegacyOverviewIfNeeded` left in place.
+    /// Nothing sets this any more.
     var hasLLMOverview: Bool {
         get { flag(Key.hasLLMOverview) }
         set { setFlag(Key.hasLLMOverview, newValue) }
     }
 
-    /// The text an AI overview replaced, kept so the overview can be reverted.
+    /// The text a pre-`overview` AI overview replaced. Survives migration only
+    /// on an item whose edited `content` had to stay where it was.
     var originalDescription: String? {
         get { metadata[Key.originalDescription] }
         set { metadata[Key.originalDescription] = newValue }
+    }
+
+    /// Migration looked at this item and left its edited `content` alone. The
+    /// decision is final, so later edits can't re-open it.
+    private var isOverviewEditKept: Bool {
+        get { flag(Key.overviewEditKept) }
+        set { setFlag(Key.overviewEditKept, newValue) }
     }
 
     var isSummaryGeneratedByAI: Bool {
@@ -109,6 +129,21 @@ extension Item {
     }
 
     // MARK: - Reading
+
+    /// `content` and `overview` together, for anything that searches or reasons
+    /// over an item. Empty when the item has neither.
+    var retrievalText: String {
+        [content, overview]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
+    }
+
+    /// What a card shows when there is no summary: `content`, or the overview
+    /// for an item that has nothing else.
+    var previewText: String? {
+        [content, overview].compactMap { $0 }.first { !$0.isEmpty }
+    }
 
     /// One-line preview text. Callers trim to their own length before writing.
     var summary: String? {
@@ -326,5 +361,66 @@ extension Item {
                 ? nil
                 : newValue.map(\.uuidString).joined(separator: ",")
         }
+    }
+}
+
+// MARK: - Overview storage
+
+extension Item {
+    /// Stores a freshly generated overview. `content` is not touched, though an
+    /// old-shape item is first brought up to date so its text isn't stranded.
+    func recordOverview(_ text: String) {
+        migrateLegacyOverviewIfNeeded()
+        overview = text
+    }
+
+    /// Overviews used to replace `content`, with the replaced text kept in
+    /// `originalDescription`. This moves such an item to the current shape:
+    /// the overview into `overview`, the original back into `content`.
+    ///
+    /// Idempotent, and leaves `updatedAt` alone because nothing the user did
+    /// changed. Returns true when it changed the item, so a caller knows to save.
+    ///
+    /// An item with no `originalDescription` had nothing replaced, so it stays
+    /// as it is, with `hasLLMOverview` still labelling `content` as AI text.
+    @discardableResult
+    func migrateLegacyOverviewIfNeeded() -> Bool {
+        guard hasLLMOverview, !isOverviewEditKept, overview == nil,
+              let original = originalDescription, !original.isEmpty else { return false }
+
+        if Self.trimmed(content) == Self.trimmed(original) {
+            hasLLMOverview = false
+            originalDescription = nil
+            return true
+        }
+        guard !legacyOverviewShowsEdits else {
+            isOverviewEditKept = true
+            return true
+        }
+        overview = content
+        content = original
+        hasLLMOverview = false
+        originalDescription = nil
+        return true
+    }
+
+    /// Whether `content` carries evidence that someone edited the overview.
+    ///
+    /// The generated text was never stored, so an edit can only be inferred.
+    /// An emptied `content`, a wiki link, or the headings, lists and quotes the
+    /// overview prompt forbids all count; a plain-prose edit is
+    /// indistinguishable from the original overview and migrates as one.
+    private var legacyOverviewShowsEdits: Bool {
+        let text = Self.trimmed(content)
+        if text.isEmpty || text.contains("[[") { return true }
+        return text.split(whereSeparator: \.isNewline).contains { line in
+            let start = line.drop { $0.isWhitespace }
+            return ["#", "- ", "* ", "+ ", "> "].contains { start.hasPrefix($0) }
+                || start.prefixMatch(of: #/\d+[.)] /#) != nil
+        }
+    }
+
+    private static func trimmed(_ text: String?) -> String {
+        (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

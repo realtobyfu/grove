@@ -51,8 +51,8 @@ struct MobileInboxCard: View {
                         .font(.groveBodySecondary)
                         .foregroundStyle(Color.textSecondary)
                         .lineLimit(2)
-                } else if let content = item.content, !content.isEmpty {
-                    Text(content)
+                } else if let preview = item.previewText {
+                    Text(preview)
                         .font(.groveBodySecondary)
                         .foregroundStyle(Color.textSecondary)
                         .lineLimit(2)

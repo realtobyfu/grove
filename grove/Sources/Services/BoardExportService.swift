@@ -52,6 +52,11 @@ final class BoardExportService {
                 md += content + "\n\n"
             }
 
+            if options.includeContent, let overview = item.overview, !overview.isEmpty {
+                md += "### AI Overview\n\n"
+                md += overview + "\n\n"
+            }
+
             if options.includeReflections && !item.reflections.isEmpty {
                 md += "### Reflections\n\n"
                 for block in item.reflections.sorted(by: { $0.position < $1.position }) {

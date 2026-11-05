@@ -603,23 +603,29 @@ final class ItemReaderViewModel {
         try? modelContext.save()
     }
 
-    func revertOverview() {
-        if let original = item.originalDescription, !original.isEmpty {
-            item.content = original
-            item.hasLLMOverview = false
-            item.isOverviewReviewPending = false
-            item.originalDescription = nil
-            try? modelContext.save()
-        }
-    }
-
     func dismissReview() {
         item.isSummaryReviewPending = false
         item.isOverviewReviewPending = false
         try? modelContext.save()
     }
 
+    // MARK: - Overview
+
+    /// Catches an old-shape item that synced in after the launch pass.
+    func migrateLegacyOverviewIfNeeded() {
+        if item.migrateLegacyOverviewIfNeeded() {
+            try? modelContext.save()
+        }
+    }
+
     // MARK: - Content Editing
+
+    /// Notes, and articles that have an AI overview. Editing always targets
+    /// `content`; the overview itself is regenerated, not edited.
+    var canEditContent: Bool {
+        item.type == .note
+            || (item.type == .article && (item.hasLLMOverview || item.overview != nil))
+    }
 
     func toggleContentEditing() {
         let wasEditing = isEditingContent
