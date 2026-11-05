@@ -1,17 +1,17 @@
 import Foundation
 import SwiftData
 
+/// Fetches new issues from the feeds the user explicitly follows into the
+/// Following inbox. Only enabled, explicitly subscribed sources are fetched;
+/// Grove never subscribes to or fetches a feed on the user's behalf.
 @MainActor
 @Observable
 final class FeedFetchService {
     static let shared = FeedFetchService()
 
     private static let refreshIntervalSeconds: TimeInterval = 4 * 60 * 60 // 4 hours
-    private static let maxNewSuggestionsPerFeed = 3
-    private static let maxNewItemsPerSubscribedFeed = 20
-    private static let maxNewSuggestionsPerCycle = 20
+    private static let maxNewItemsPerFeed = 20
     private static let maxErrorCount = 5
-    private static let suggestionExpiryDays = 14
 
     private(set) var isRefreshing = false
     private var lastRefreshAt: Date?
@@ -26,7 +26,6 @@ final class FeedFetchService {
         isRefreshing = true
         defer { isRefreshing = false }
 
-        expireOldSuggestions(in: context)
         await fetchAllFeeds(in: context)
         lastRefreshAt = .now
     }
@@ -35,8 +34,9 @@ final class FeedFetchService {
     /// throttle. Used right after the user subscribes so the feed's first
     /// posts appear without waiting for the next background cycle.
     func fetchNow(_ source: FeedSource, in context: ModelContext) async {
-        var existingURLs = existingSuggestedURLs(in: context)
-        _ = await fetchFeed(source, existingURLs: &existingURLs, in: context)
+        guard source.isEnabled, source.isExplicitSubscription else { return }
+        var existingURLs = existingItemURLs(in: context)
+        await fetchFeed(source, existingURLs: &existingURLs, in: context)
         try? context.save()
     }
 
@@ -47,16 +47,16 @@ final class FeedFetchService {
         descriptor.predicate = #Predicate<FeedSource> { source in
             source.isEnabled == true
         }
-        guard let sources = try? context.fetch(descriptor) else { return }
+        guard let enabledSources = try? context.fetch(descriptor) else { return }
+        // Enabled alone is not enough: early builds created auto-discovered
+        // sources enabled by default. Those were never subscribed to and must
+        // not be fetched.
+        let sources = enabledSources.filter(\.isExplicitSubscription)
 
-        var existingURLs = existingSuggestedURLs(in: context)
-        var totalCreated = 0
+        var existingURLs = existingItemURLs(in: context)
 
         for source in sources {
             guard source.errorCount < Self.maxErrorCount else { continue }
-            // The per-cycle cap only throttles auto-discovered suggestion
-            // sources; user subscriptions always fetch.
-            if !source.isUserSubscribed, totalCreated >= Self.maxNewSuggestionsPerCycle { continue }
             // lastFetchedAt syncs via CloudKit, so this also skips sources
             // another device fetched recently — fewer duplicate-item races.
             if let lastFetched = source.lastFetchedAt,
@@ -64,10 +64,7 @@ final class FeedFetchService {
                 continue
             }
 
-            let created = await fetchFeed(source, existingURLs: &existingURLs, in: context)
-            if !source.isUserSubscribed {
-                totalCreated += created
-            }
+            await fetchFeed(source, existingURLs: &existingURLs, in: context)
         }
 
         try? context.save()
@@ -77,10 +74,10 @@ final class FeedFetchService {
         _ source: FeedSource,
         existingURLs: inout Set<String>,
         in context: ModelContext
-    ) async -> Int {
+    ) async {
         guard let url = URL(string: source.feedURL) else {
             source.errorCount += 1
-            return 0
+            return
         }
 
         var request = URLRequest(url: url)
@@ -91,7 +88,7 @@ final class FeedFetchService {
               let httpResponse = response as? HTTPURLResponse,
               (200..<300).contains(httpResponse.statusCode) else {
             source.errorCount += 1
-            return 0
+            return
         }
 
         // Reset error count on success
@@ -106,19 +103,8 @@ final class FeedFetchService {
         let articles = FeedParserService.parse(data: data)
         var created = 0
 
-        // Subscribed feeds keep their full recent history; auto-discovered
-        // sources stay capped, and ones the user consistently dismisses
-        // (and never keeps) are throttled to a single new suggestion per cycle.
-        let perFeedCap = if source.isUserSubscribed {
-            Self.maxNewItemsPerSubscribedFeed
-        } else if FeedPreferencesStore.isThrottled(sourceID: source.id) {
-            1
-        } else {
-            Self.maxNewSuggestionsPerFeed
-        }
-
         for article in articles {
-            guard created < perFeedCap else { break }
+            guard created < Self.maxNewItemsPerFeed else { break }
             // Match CaptureService's normalized dedupe so feed variants of an
             // already-saved article (e.g. ?utm_source=rss) don't slip through.
             guard !existingURLs.contains(CaptureService.normalizedURLString(article.url)) else { continue }
@@ -133,6 +119,9 @@ final class FeedFetchService {
             if let description = article.description, !description.isEmpty {
                 item.metadata["summary"] = String(description.prefix(200))
             }
+            // Unkept issues live in Following, not inbox triage: every inbox
+            // surface filters on this flag (`Item.isFeedSuggestion`), and
+            // Keep clears it.
             item.metadata["isSuggested"] = "true"
             item.metadata["suggestionSource"] = "rss"
             item.metadata["feedSourceID"] = source.id.uuidString
@@ -148,47 +137,16 @@ final class FeedFetchService {
             existingURLs.insert(CaptureService.normalizedURLString(article.url))
             created += 1
         }
-
-        return created
     }
 
     // MARK: - Deduplication
 
     /// All source URLs already in the library. Built once per refresh cycle;
     /// URLs created during the cycle are appended by the caller.
-    private func existingSuggestedURLs(in context: ModelContext) -> Set<String> {
+    private func existingItemURLs(in context: ModelContext) -> Set<String> {
         let descriptor = FetchDescriptor<Item>()
         guard let items = try? context.fetch(descriptor) else { return [] }
         return Set(items.compactMap(\.sourceURL).map(CaptureService.normalizedURLString))
-    }
-
-    // MARK: - Expiration
-
-    private func expireOldSuggestions(in context: ModelContext) {
-        let descriptor = FetchDescriptor<Item>()
-        guard let items = try? context.fetch(descriptor) else { return }
-
-        let cutoff = Calendar.current.date(byAdding: .day, value: -Self.suggestionExpiryDays, to: .now) ?? .now
-
-        for item in items {
-            guard item.isFeedSuggestion,
-                  item.createdAt < cutoff else { continue }
-            if item.isNewsletterIssue {
-                // Newsletter issues stay browsable as history in the
-                // Newsletters section; expiry just clears their unread state.
-                guard !item.isFeedIssueRead else { continue }
-                item.isFeedIssueRead = true
-            } else if item.metadata["suggestionDismissed"] != "true" {
-                item.metadata["suggestionDismissed"] = "true"
-                if item.status == .inbox {
-                    // Archive rather than dismiss. Nothing in the app surfaces
-                    // `.dismissed`, so dismissing here stranded expired items
-                    // permanently out of reach; `.archived` keeps them
-                    // browsable under Library's archived filter.
-                    item.status = .archived
-                }
-            }
-        }
     }
 
     // MARK: - Feed Title Extraction

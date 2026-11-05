@@ -367,7 +367,6 @@ struct NewsletterInboxView: View {
     /// Kept issues get real content backfilled — page metadata plus an
     /// overview from the configured LLM (Apple Intelligence by default).
     private func keep(_ item: Item) {
-        recordSignal(for: item, kept: true)
         item.promoteFromFeedSuggestionIfNeeded()
         try? modelContext.save()
 
@@ -384,26 +383,13 @@ struct NewsletterInboxView: View {
         }
     }
 
-    /// Hide an issue from newsletter history (and count a dismissal signal
-    /// toward the source's auto-throttle).
+    /// Hide an issue from newsletter history.
     private func hide(_ item: Item) {
-        recordSignal(for: item, kept: false)
         withAnimation(.easeOut(duration: 0.25)) {
             item.status = .dismissed
             item.metadata["suggestionDismissed"] = "true"
             item.updatedAt = .now
             try? modelContext.save()
-        }
-    }
-
-    private func recordSignal(for item: Item, kept: Bool) {
-        guard item.isFeedSuggestion,
-              let idString = item.metadata["feedSourceID"],
-              let id = UUID(uuidString: idString) else { return }
-        if kept {
-            FeedPreferencesStore.recordKeep(sourceID: id)
-        } else {
-            FeedPreferencesStore.recordDismissal(sourceID: id)
         }
     }
 }

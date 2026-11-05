@@ -156,7 +156,7 @@ struct NewsletterDirectoryView: View {
     // MARK: - Subscription State
 
     private func isSubscribed(_ entry: NewsletterCatalogEntry) -> Bool {
-        sources.contains { $0.feedURL == entry.feedURL && $0.isEnabled }
+        sources.contains { $0.feedURL == entry.feedURL && $0.isEnabled && $0.isExplicitSubscription }
     }
 
     private func subscribe(_ entry: NewsletterCatalogEntry) {

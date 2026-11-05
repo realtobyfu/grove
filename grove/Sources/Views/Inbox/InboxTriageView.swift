@@ -129,10 +129,6 @@ struct InboxTriageView: View {
                 restoreDueQueuedItems()
             }
         }
-        .task(id: pendingDiscoveryDomain) {
-            guard let domain = pendingDiscoveryDomain else { return }
-            await FeedDiscoveryService.shared.discoverFeed(forDomain: domain, in: modelContext)
-        }
     }
 
     // MARK: - Inbox List
@@ -346,7 +342,6 @@ struct InboxTriageView: View {
     /// now announces itself through the inline confirmation row.
     private func keepItem(_ item: Item, filingTo board: Board? = nil) {
         if item.isFeedSuggestion {
-            recordSuggestionSignal(for: item, kept: true)
             // Kept suggestions become regular items; clear the flag so they
             // leave the "From your subscriptions" grouping for good.
             item.metadata["isSuggested"] = nil
@@ -427,7 +422,7 @@ struct InboxTriageView: View {
 
     /// Display domain for the card's "+ Follow" chip, or nil to show nothing.
     /// Only sites Grove already knows a feed for are offerable; a site with no
-    /// FeedSource yet stays silent until on-demand discovery lands one.
+    /// FeedSource stays silent.
     private func followableSite(for item: Item) -> String? {
         guard let host = followHost(for: item),
               let source = feedSource(for: item),
@@ -438,20 +433,6 @@ struct InboxTriageView: View {
     private func followSite(for item: Item) {
         guard let source = feedSource(for: item), !source.isUserSubscribed else { return }
         FeedSubscriptionService.subscribe(source, in: modelContext)
-    }
-
-    /// Domain of the focused card when Grove has no FeedSource for it yet.
-    /// Drives a single `.task(id:)` rather than per-card work, so scrolling a
-    /// long inbox doesn't fan out into a burst of homepage fetches.
-    private var pendingDiscoveryDomain: String? {
-        let items = inboxItems
-        guard focusedIndex >= 0, focusedIndex < items.count else { return nil }
-        let item = items[focusedIndex]
-        // Newsletter issues already arrive from a subscription — there is
-        // nothing left to follow.
-        guard !item.isNewsletterIssue else { return nil }
-        guard let host = followHost(for: item), feedSource(for: item) == nil else { return nil }
-        return host
     }
 
     // MARK: - Auto-assign Confirmation
@@ -507,8 +488,6 @@ struct InboxTriageView: View {
     }
 
     private func dropItem(_ item: Item) {
-        recordSuggestionSignal(for: item, kept: false)
-
         withAnimation(.easeOut(duration: 0.3)) {
             item.status = .dismissed
             item.updatedAt = .now
@@ -677,19 +656,6 @@ struct InboxTriageView: View {
                 onReturnToInbox: returnQueuedItemToInbox
             )
             .padding(.vertical, Spacing.xs)
-        }
-    }
-
-    /// Per-source keep/dismiss counters feeding the auto-throttle in
-    /// FeedFetchService. No-op for non-suggested items.
-    private func recordSuggestionSignal(for item: Item, kept: Bool) {
-        guard item.isFeedSuggestion,
-              let idString = item.metadata["feedSourceID"],
-              let id = UUID(uuidString: idString) else { return }
-        if kept {
-            FeedPreferencesStore.recordKeep(sourceID: id)
-        } else {
-            FeedPreferencesStore.recordDismissal(sourceID: id)
         }
     }
 

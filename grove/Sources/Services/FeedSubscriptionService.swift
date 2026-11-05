@@ -1,6 +1,17 @@
 import Foundation
 import SwiftData
 
+extension FeedSource {
+    /// Whether the user chose to follow this feed: subscribed through the
+    /// Follow bar, the directory, or a pasted URL. Legacy manual sources
+    /// predate `isUserSubscribed` and count too. Auto-discovered sources the
+    /// user never subscribed to do not, even if an early build left them
+    /// enabled, so they are never fetched.
+    var isExplicitSubscription: Bool {
+        isUserSubscribed || !isAutoDiscovered
+    }
+}
+
 /// Centralizes newsletter/RSS subscription mutations so the two entry points
 /// (SubscriptionsSettingsView and NewsletterDirectoryView) share one dedupe and
 /// subscribe rule instead of hand-rolling it each. Feed URLs are matched with
@@ -21,7 +32,7 @@ enum FeedSubscriptionService {
         }
     }
 
-    /// Subscribes to an existing discovered/known source: enables it, marks it
+    /// Subscribes to an existing known source: enables it, marks it
     /// user-subscribed, and clears any prior error count.
     static func subscribe(_ source: FeedSource, in context: ModelContext) {
         source.isEnabled = true

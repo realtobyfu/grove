@@ -15,7 +15,6 @@ struct GroveApp: App {
     @State private var storeKitService = StoreKitService.shared
     @State private var conversationStarterService = ConversationStarterService.shared
     @State private var coachMarkService = CoachMarkService.shared
-    @State private var feedDiscoveryService = FeedDiscoveryService.shared
     @State private var feedFetchService = FeedFetchService.shared
     #if os(iOS)
     @State private var deepLinkRouter = DeepLinkRouter()
@@ -35,14 +34,11 @@ struct GroveApp: App {
         #endif
     }
 
-    /// Newsletter pipeline: fetch new issues from enabled feeds (4h interval
-    /// enforced inside the service) and discover feeds on domains the user
-    /// saves from (24h cooldown, creates disabled suggestion sources only).
+    /// Following pipeline: fetch new issues from the feeds the user follows
+    /// (4h interval enforced inside the service).
     private func refreshFeedPipeline() async {
         guard !LearningDemo.isEnabled else { return }
-        let context = modelContainer.mainContext
-        await feedFetchService.refreshIfNeeded(in: context)
-        await feedDiscoveryService.discoverFeeds(in: context)
+        await feedFetchService.refreshIfNeeded(in: modelContainer.mainContext)
     }
 
     var body: some Scene {
@@ -62,7 +58,6 @@ struct GroveApp: App {
                     guard !LearningDemo.isEnabled else { return }
                     LearningWidgetSnapshotStore.refresh(modelContext: context)
                     AnnotationMigrationService.migrateIfNeeded(context: context)
-                    FeedSuggestionMigrationService.migrateIfNeeded(context: context)
                     storeKitService.start()
                     #if !SHARE_EXTENSION
                     await GroveSpotlightIndexer.refreshAll(using: modelContainer)
@@ -84,7 +79,6 @@ struct GroveApp: App {
                 .environment(storeKitService)
                 .environment(conversationStarterService)
                 .environment(coachMarkService)
-                .environment(feedDiscoveryService)
                 .environment(feedFetchService)
         }
         .modelContainer(modelContainer)
@@ -132,7 +126,6 @@ struct GroveApp: App {
             .environment(storeKitService)
             .environment(conversationStarterService)
             .environment(coachMarkService)
-            .environment(feedDiscoveryService)
             .environment(feedFetchService)
             .environment(syncService)
         }
@@ -151,7 +144,6 @@ struct GroveApp: App {
                     guard !LearningDemo.isEnabled else { return }
                     LearningWidgetSnapshotStore.refresh(modelContext: context)
                     AnnotationMigrationService.migrateIfNeeded(context: context)
-                    FeedSuggestionMigrationService.migrateIfNeeded(context: context)
                     ExtensionItemProcessor.processIfNeeded(context: context)
                     storeKitService.start()
                     #if !SHARE_EXTENSION
@@ -178,7 +170,6 @@ struct GroveApp: App {
                 .environment(storeKitService)
                 .environment(conversationStarterService)
                 .environment(coachMarkService)
-                .environment(feedDiscoveryService)
                 .environment(feedFetchService)
         }
         .modelContainer(modelContainer)

@@ -186,8 +186,7 @@ final class Item {
         metadata["isSuggested"] == "true"
     }
 
-    /// Read state for newsletter issues. Opening an issue marks it read;
-    /// expiry also marks it read so history stays browsable.
+    /// Read state for newsletter issues. Opening an issue marks it read.
     var isFeedIssueRead: Bool {
         get { metadata["feedRead"] == "true" }
         set { metadata["feedRead"] = newValue ? "true" : nil }
