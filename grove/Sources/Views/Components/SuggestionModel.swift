@@ -17,6 +17,13 @@ struct PromptBubble: Identifiable {
     /// records which context signal produced this bubble.
     let contextID: String?
 
+    /// What a card shows. `label` stays the stored vocabulary that
+    /// `StarterLLMGenerator` validates and the disk cache round-trips.
+    var displayLabel: String {
+        let stored = label.uppercased()
+        return stored == "RESOLVE" ? "These two disagree" : stored
+    }
+
     init(
         prompt: String,
         label: String,

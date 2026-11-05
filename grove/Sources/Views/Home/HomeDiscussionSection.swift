@@ -7,7 +7,8 @@ import SwiftUI
 struct HomeDiscussionSection: View {
     let discussionBubbles: [PromptBubble]
     @Binding var isCollapsed: Bool
-    let onBubbleTap: (PromptBubble) -> Void
+    let onOpenChat: (PromptBubble) -> Void
+    let onStartWriting: (PromptBubble) -> Void
     let onDismissBubble: (PromptBubble) -> Void
 
     var body: some View {
@@ -24,13 +25,12 @@ struct HomeDiscussionSection: View {
                 }
 
                 if !isCollapsed {
-                    SuggestedConversationCard(
-                        label: bubble.label,
-                        title: bubble.prompt,
+                    StarterCard(
+                        bubble: bubble,
+                        onOpenChat: { onOpenChat(bubble) },
+                        onStartWriting: { onStartWriting(bubble) },
                         onDismiss: { onDismissBubble(bubble) }
-                    ) {
-                        onBubbleTap(bubble)
-                    }
+                    )
                 }
             }
         }

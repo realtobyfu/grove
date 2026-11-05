@@ -3,7 +3,8 @@ import SwiftUI
 struct BoardSuggestionsView: View {
     let suggestions: [PromptBubble]
     @Binding var isSuggestionsCollapsed: Bool
-    let onSelectSuggestion: (PromptBubble) -> Void
+    let onOpenChat: (PromptBubble) -> Void
+    let onStartWriting: (PromptBubble) -> Void
     var onRefresh: (() -> Void)? = nil
 
     var body: some View {
@@ -45,16 +46,15 @@ struct BoardSuggestionsView: View {
 
             if !isSuggestionsCollapsed {
                 LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 320, maximum: 400), spacing: Spacing.md)],
+                    columns: [GridItem(.adaptive(minimum: 320, maximum: 400), spacing: Spacing.md, alignment: .top)],
                     spacing: Spacing.md
                 ) {
                     ForEach(suggestions) { bubble in
-                        SuggestedConversationCard(
-                            label: bubble.label,
-                            title: bubble.prompt
-                        ) {
-                            onSelectSuggestion(bubble)
-                        }
+                        StarterCard(
+                            bubble: bubble,
+                            onOpenChat: { onOpenChat(bubble) },
+                            onStartWriting: { onStartWriting(bubble) }
+                        )
                     }
                 }
             }

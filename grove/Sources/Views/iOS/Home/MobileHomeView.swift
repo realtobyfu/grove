@@ -1,12 +1,12 @@
 import SwiftUI
 import SwiftData
 
-/// iOS Home screen — inbox triage, discussion suggestions, recent items, and nudge banners.
+/// iOS Today screen — capture, flashcards when due, the stale-inbox banner, the
+/// inbox, then the one Think Next card.
 struct MobileHomeView: View {
-    private static let maxDiscussionCards = 3
+    private static let maxDiscussionCards = 1
 
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(EntitlementService.self) private var entitlement
     @Environment(PaywallCoordinator.self) private var paywallCoordinator
     /// Recently touched items for starter generation. Sorted by `updatedAt`:
@@ -21,7 +21,6 @@ struct MobileHomeView: View {
     @State private var showSearch = false
     @State private var showBoardPicker = false
     @State private var itemToAssign: Item?
-    @State private var selectedSuggestion: PromptBubble?
     @State private var paywallPresentation: PaywallPresentation?
 
     var onOpenItem: ((Item) -> Void)? = nil
@@ -39,8 +38,7 @@ struct MobileHomeView: View {
     }
 
     private var discussionBubbles: [PromptBubble] {
-        let dynamicSlotCount = max(0, Self.maxDiscussionCards - 1)
-        return Array(starterService.bubbles.prefix(dynamicSlotCount))
+        Array(starterService.bubbles.prefix(Self.maxDiscussionCards))
     }
 
     private var newConversationBubble: PromptBubble {
@@ -53,20 +51,29 @@ struct MobileHomeView: View {
     var body: some View {
         List {
             Section {
-                InlineCaptureBar()
+                // One row, so the flashcards view stays mounted when it hides:
+                // a List row can't collapse to nothing, and removing the view
+                // would stop its due-date refresh and close its review sheet.
+                VStack(spacing: 0) {
+                    InlineCaptureBar()
+                    LearningInvitationView(
+                        showsOnlyWhenDue: true,
+                        rowInsets: EdgeInsets(top: Spacing.sm, leading: 0, bottom: 0, trailing: 0)
+                    )
+                }
+                .listRowInsets(EdgeInsets(
+                    top: Spacing.sm,
+                    leading: LayoutDimensions.contentPaddingH,
+                    bottom: Spacing.sm,
+                    trailing: LayoutDimensions.contentPaddingH
+                ))
             }
             .listRowSeparator(.hidden)
             .listSectionSeparator(.hidden)
 
-            Section {
-                LearningInvitationView()
-            }
-            .listRowSeparator(.hidden)
-            .listSectionSeparator(.hidden)
-
+            nudgesSection
             inboxSection
             discussionSuggestionsSection
-            nudgesSection
         }
         .listStyle(.plain)
         .navigationTitle("Today")
@@ -92,18 +99,6 @@ struct MobileHomeView: View {
         }
         .sheet(item: $paywallPresentation) { presentation in
             ProPaywallView(presentation: presentation)
-        }
-        .sheet(item: $selectedSuggestion) { suggestion in
-            MobilePromptActionSheet(
-                contextTitle: "Today",
-                suggestion: suggestion,
-                onOpenDialectics: {
-                    startConversation(with: suggestion)
-                },
-                onStartWriting: {
-                    startWriting(with: suggestion.prompt)
-                }
-            )
         }
         .task {
             await starterService.refresh(items: allItems)
@@ -167,16 +162,12 @@ struct MobileHomeView: View {
     private var discussionSuggestionsSection: some View {
         Section {
             if let bubble = discussionBubbles.first {
-                MobileStarterCard(
+                StarterCard(
                     bubble: bubble,
-                    showsDisclosureIndicator: horizontalSizeClass == .regular
-                ) {
-                    if horizontalSizeClass == .regular {
-                        selectedSuggestion = bubble
-                    } else {
-                        startConversation(with: bubble)
-                    }
-                }
+                    onOpenChat: { startConversation(with: bubble) },
+                    onStartWriting: { startWriting(with: bubble.prompt) },
+                    onDismiss: { starterService.dismiss(bubble, in: modelContext) }
+                )
             } else {
                 MobileStarterCard(bubble: newConversationBubble) {
                     startNewConversation()

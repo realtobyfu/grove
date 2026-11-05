@@ -3,7 +3,7 @@ import AppKit
 #endif
 import SwiftUI
 
-/// Extracted from BoardDetailView — toolbar cluster, empty state, and prompt mode panel.
+/// Extracted from BoardDetailView — toolbar cluster, empty state, and suggestions bar.
 @MainActor
 struct BoardDetailHeaderView {
     let board: Board
@@ -16,7 +16,8 @@ struct BoardDetailHeaderView {
     @Binding var sortOptionBinding: BoardSortOption
     @Binding var isSuggestionsCollapsed: Bool
 
-    let onSelectSuggestion: (PromptBubble) -> Void
+    let onOpenChat: (PromptBubble) -> Void
+    let onStartWriting: (PromptBubble) -> Void
     let onRefreshSuggestions: () -> Void
 
 
@@ -103,113 +104,10 @@ struct BoardDetailHeaderView {
             BoardSuggestionsView(
                 suggestions: boardDiscussionSuggestions,
                 isSuggestionsCollapsed: $isSuggestionsCollapsed,
-                onSelectSuggestion: onSelectSuggestion,
+                onOpenChat: onOpenChat,
+                onStartWriting: onStartWriting,
                 onRefresh: onRefreshSuggestions
             )
         }
-    }
-}
-
-// MARK: - Prompt Mode Panel
-
-struct BoardPromptModePanel: View {
-    let label: String
-    let prompt: String
-    let onClose: () -> Void
-    let onDialectic: () -> Void
-    let onWrite: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.lg) {
-            HStack(spacing: Spacing.sm) {
-                Text("PROMPT ACTIONS")
-                    .sectionHeaderStyle()
-
-                Spacer()
-
-                Button {
-                    onClose()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.textSecondary)
-                        .padding(8)
-                        .background(Color.bgCard)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color.borderPrimary, lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close prompt actions")
-                .accessibilityHint("Return to board without opening an action.")
-            }
-            .padding(.horizontal, Spacing.md)
-            .padding(.top, Spacing.md)
-
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                Text(label.uppercased())
-                    .font(.groveBadge)
-                    .tracking(0.8)
-                    .foregroundStyle(Color.textSecondary)
-
-                Text(prompt)
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(Spacing.md)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.bgCard)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.borderPrimary, lineWidth: 1)
-            )
-            .padding(.horizontal, Spacing.md)
-
-            VStack(spacing: Spacing.sm) {
-                Button {
-                    onDialectic()
-                } label: {
-                    Label("Open Chat", systemImage: "bubble.left.and.bubble.right")
-                        .font(.groveBody)
-                        .foregroundStyle(Color.textPrimary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, Spacing.md)
-                        .padding(.vertical, Spacing.sm)
-                        .background(Color.bgCard)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.borderPrimary, lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    onWrite()
-                } label: {
-                    Label("Start Writing", systemImage: "square.and.pencil")
-                        .font(.groveBody)
-                        .foregroundStyle(Color.textPrimary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, Spacing.md)
-                        .padding(.vertical, Spacing.sm)
-                        .background(Color.bgCard)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.borderPrimary, lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, Spacing.md)
-
-            Spacer(minLength: 0)
-        }
-        .background(Color.bgInspector)
     }
 }

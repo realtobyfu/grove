@@ -1,10 +1,9 @@
 import SwiftUI
 
-/// Tappable card showing a conversation starter prompt.
-/// The tap action is supplied by the parent so the card can open chat directly or present a chooser.
+/// Tappable card for Today's "New Conversation" fallback, shown when there is
+/// no starter. Real starters use `StarterCard`.
 struct MobileStarterCard: View {
     let bubble: PromptBubble
-    var showsDisclosureIndicator = false
     var onTap: () -> Void
 
     var body: some View {
@@ -21,16 +20,6 @@ struct MobileStarterCard: View {
                     .foregroundStyle(Color.textPrimary)
                     .lineLimit(3)
                     .multilineTextAlignment(.leading)
-
-                if showsDisclosureIndicator {
-                    HStack {
-                        Spacer()
-                        Image(systemName: "arrow.right")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(Color.textMuted)
-                    }
-                    .padding(.top, Spacing.xs)
-                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(minHeight: LayoutDimensions.minTouchTarget, alignment: .leading)

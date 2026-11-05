@@ -26,18 +26,6 @@ enum BoardSortOption: String, CaseIterable, Sendable {
 struct BoardDetailView: View {
     private static let maxDiscussionSuggestions = 2
 
-    private struct PromptModeSelection {
-        let prompt: String
-        let label: String
-        let scopedSeedItemIDs: [UUID]
-
-        init(bubble: PromptBubble, scopedSeedItemIDs: [UUID]) {
-            self.prompt = bubble.prompt
-            self.label = bubble.label
-            self.scopedSeedItemIDs = scopedSeedItemIDs
-        }
-    }
-
     let board: Board
     @Binding var selectedItem: Item?
     @Binding var openedItem: Item?
@@ -49,8 +37,6 @@ struct BoardDetailView: View {
     @State private var itemToDelete: Item?
     @State private var isSuggestionsCollapsed = false
     @State private var starterService = ConversationStarterService.shared
-    @State private var promptModeSelection: PromptModeSelection?
-    @State private var promptModePanelWidth: CGFloat = LayoutSettings.width(for: .boardPrompt) ?? 330
     @State private var paywallPresentation: PaywallPresentation?
 
     /// The active items that belong to this board.
@@ -82,7 +68,8 @@ struct BoardDetailView: View {
             viewMode: $viewMode,
             sortOptionBinding: $sortOption,
             isSuggestionsCollapsed: $isSuggestionsCollapsed,
-            onSelectSuggestion: presentPromptActions(for:),
+            onOpenChat: { startDialectic(with: $0) },
+            onStartWriting: { startWriting(with: $0.prompt) },
             onRefreshSuggestions: {
                 Task {
                     await starterService.forceRefreshBoard(board.id, items: allItems)
@@ -94,72 +81,34 @@ struct BoardDetailView: View {
     // MARK: - Body
 
     var body: some View {
-        GeometryReader { geo in
-            let minPanelWidth: CGFloat = 280
-            let maxPanelWidth = max(minPanelWidth, min(560, geo.size.width * 0.55))
-            let clampedPanelWidth = min(max(promptModePanelWidth, minPanelWidth), maxPanelWidth)
-            let panelWidthBinding = Binding(
-                get: { clampedPanelWidth },
-                set: { promptModePanelWidth = $0 }
-            )
+        VStack(spacing: 0) {
+            CaptureBarView(currentBoardID: board.id)
 
-            HStack(spacing: 0) {
-                VStack(spacing: 0) {
-                    CaptureBarView(currentBoardID: board.id)
+            LearningInvitationView(boardID: board.id)
+                .padding(.horizontal, LayoutDimensions.contentPaddingH)
+                .padding(.vertical, Spacing.md)
 
-                    LearningInvitationView(boardID: board.id)
-                        .padding(.horizontal, LayoutDimensions.contentPaddingH)
-                        .padding(.vertical, Spacing.md)
+            if effectiveItems.isEmpty {
+                headerView.emptyState
+            } else {
+                headerView.suggestionsBar
 
-                    if effectiveItems.isEmpty {
-                        headerView.emptyState
-                    } else {
-                        headerView.suggestionsBar
-
-                        BoardItemListView(
-                            board: board,
-                            sortedFilteredItems: sortedFilteredItems,
-                            weekSections: weekSections,
-                            canReorder: sortOption == .manual,
-                            viewMode: viewMode,
-                            selectedItem: $selectedItem,
-                            openedItem: $openedItem,
-                            draggingItemID: $draggingItemID,
-                            itemToDelete: $itemToDelete,
-                            onMoveGrid: moveGridItem,
-                            onMoveList: moveListItems
-                        )
-                    }
-                }
-
-                if let selection = promptModeSelection {
-                    ResizableTrailingDivider(
-                        width: panelWidthBinding,
-                        minWidth: minPanelWidth,
-                        maxWidth: maxPanelWidth,
-                        onCollapse: { promptModeSelection = nil }
-                    ) { width in
-                        LayoutSettings.setWidth(width, for: .boardPrompt)
-                    }
-
-                    BoardPromptModePanel(
-                        label: selection.label,
-                        prompt: selection.prompt,
-                        onClose: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                promptModeSelection = nil
-                            }
-                        },
-                        onDialectic: { startDialectic(with: selection) },
-                        onWrite: { startWriting(with: selection.prompt) }
-                    )
-                    .frame(width: panelWidthBinding.wrappedValue)
-                    .frame(maxHeight: .infinity)
-                    .transition(.move(edge: .trailing))
-                }
+                BoardItemListView(
+                    board: board,
+                    sortedFilteredItems: sortedFilteredItems,
+                    weekSections: weekSections,
+                    canReorder: sortOption == .manual,
+                    viewMode: viewMode,
+                    selectedItem: $selectedItem,
+                    openedItem: $openedItem,
+                    draggingItemID: $draggingItemID,
+                    itemToDelete: $itemToDelete,
+                    onMoveGrid: moveGridItem,
+                    onMoveList: moveListItems
+                )
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .navigationTitle(board.title)
         .sheet(item: $paywallPresentation) { presentation in
             ProPaywallView(presentation: presentation)
@@ -188,9 +137,7 @@ struct BoardDetailView: View {
         }
         .onChange(of: board.id, initial: true) {
             sortOption = .dateAdded
-            promptModeSelection = nil
         }
-        .animation(.easeInOut(duration: 0.2), value: promptModeSelection != nil)
         .alert(
             "Delete Item",
             isPresented: Binding(
@@ -218,27 +165,16 @@ struct BoardDetailView: View {
 
     // MARK: - Suggestions
 
-    private func presentPromptActions(for bubble: PromptBubble) {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            promptModeSelection = PromptModeSelection(
-                bubble: bubble,
-                scopedSeedItemIDs: scopedSeedItemIDs(for: bubble)
-            )
-        }
-    }
-
-    private func startDialectic(with selection: PromptModeSelection) {
-        defer { promptModeSelection = nil }
-        let prompt = selection.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func startDialectic(with bubble: PromptBubble) {
+        let prompt = bubble.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty else {
             openConversation(with: "")
             return
         }
-        openConversation(with: prompt, seedItemIDs: selection.scopedSeedItemIDs)
+        openConversation(with: prompt, seedItemIDs: scopedSeedItemIDs(for: bubble))
     }
 
     private func startWriting(with prompt: String?) {
-        defer { promptModeSelection = nil }
         guard let prompt, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             NotificationCenter.default.post(name: .groveNewNote, object: nil)
             return

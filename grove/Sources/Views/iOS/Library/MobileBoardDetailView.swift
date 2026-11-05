@@ -38,7 +38,6 @@ struct MobileBoardDetailView: View {
     @State private var itemToDelete: Item?
     @State private var isSuggestionsCollapsed = false
     @State private var starterService = ConversationStarterService.shared
-    @State private var selectedSuggestion: PromptBubble?
     @State private var paywallPresentation: PaywallPresentation?
     @State private var showFlashcards = false
 
@@ -155,19 +154,6 @@ struct MobileBoardDetailView: View {
         .onChange(of: board.id, initial: true) {
             sortOption = .dateAdded
             viewMode = .grid
-            selectedSuggestion = nil
-        }
-        .sheet(item: $selectedSuggestion) { suggestion in
-            MobilePromptActionSheet(
-                contextTitle: board.title,
-                suggestion: suggestion,
-                onOpenDialectics: {
-                    startDialectic(with: suggestion)
-                },
-                onStartWriting: {
-                    startWriting(with: suggestion.prompt)
-                }
-            )
         }
         .sheet(item: $paywallPresentation) { presentation in
             ProPaywallView(presentation: presentation)
@@ -216,9 +202,8 @@ struct MobileBoardDetailView: View {
                     BoardSuggestionsView(
                         suggestions: boardDiscussionSuggestions,
                         isSuggestionsCollapsed: $isSuggestionsCollapsed,
-                        onSelectSuggestion: { bubble in
-                            selectedSuggestion = bubble
-                        },
+                        onOpenChat: { startDialectic(with: $0) },
+                        onStartWriting: { startWriting(with: $0.prompt) },
                         onRefresh: {
                             Task {
                                 await starterService.forceRefreshBoard(board.id, items: allItems)

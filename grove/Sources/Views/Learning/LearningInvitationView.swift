@@ -5,6 +5,10 @@ import SwiftData
 struct LearningInvitationView: View {
     var boardID: UUID? = nil
     var onReview: (() -> Void)? = nil
+    /// Today shows the row only while cards are due; board pages always show it.
+    var showsOnlyWhenDue = false
+    /// Spacing that belongs to the row, so a hidden row leaves no gap behind.
+    var rowInsets = EdgeInsets()
 
     private enum Presentation: String, Identifiable {
         case review, focus, library
@@ -26,7 +30,41 @@ struct LearningInvitationView: View {
         }.count
     }
 
+    /// An open sheet keeps the row: finishing the last due card must not pull
+    /// the review out from under the session.
+    private var isRowVisible: Bool {
+        !showsOnlyWhenDue || readyCount > 0 || presentation != nil
+    }
+
     var body: some View {
+        VStack(spacing: 0) {
+            if isRowVisible {
+                row.padding(rowInsets)
+            }
+            // A leaf that survives a hidden row, so the task below still runs:
+            // it is what brings imported reviews into `dueAt`.
+            Color.clear.frame(height: 0)
+        }
+        .task(id: reviews.map(\.id)) {
+            // Imported events, rather than a remote cached due date, determine
+            // whether the row offers a review.
+            _ = LearningService(modelContext: modelContext).dueCards(boardID: boardID)
+        }
+        .sheet(item: $presentation) { value in
+            NavigationStack {
+                switch value {
+                case .review: LearningReviewView(boardID: boardID)
+                case .focus: LearningFocusView()
+                case .library: FlashcardLibraryView(boardID: boardID)
+                }
+            }
+            #if os(macOS)
+            .frame(width: value == .review ? 680 : 520, height: value == .review ? 500 : 520)
+            #endif
+        }
+    }
+
+    private var row: some View {
         HStack(spacing: Spacing.sm) {
             Image(systemName: "rectangle.on.rectangle")
                 .font(.system(size: 16))
@@ -63,22 +101,5 @@ struct LearningInvitationView: View {
         .foregroundStyle(Color.textPrimary)
         .padding(.vertical, Spacing.xs)
         .overlay(alignment: .bottom) { Divider() }
-        .task(id: reviews.map(\.id)) {
-            // Imported events, rather than a remote cached due date, determine
-            // whether the row offers a review.
-            _ = LearningService(modelContext: modelContext).dueCards(boardID: boardID)
-        }
-        .sheet(item: $presentation) { value in
-            NavigationStack {
-                switch value {
-                case .review: LearningReviewView(boardID: boardID)
-                case .focus: LearningFocusView()
-                case .library: FlashcardLibraryView(boardID: boardID)
-                }
-            }
-            #if os(macOS)
-            .frame(width: value == .review ? 680 : 520, height: value == .review ? 500 : 520)
-            #endif
-        }
     }
 }

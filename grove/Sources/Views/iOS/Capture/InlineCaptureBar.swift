@@ -34,9 +34,11 @@ struct InlineCaptureBar: View {
                         Image(systemName: "return")
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(Color.textPrimary)
+                            .frame(minWidth: LayoutDimensions.minTouchTarget,
+                                   minHeight: LayoutDimensions.minTouchTarget)
+                            .contentShape(.rect)
                     }
-                    .frame(minWidth: LayoutDimensions.minTouchTarget,
-                           minHeight: LayoutDimensions.minTouchTarget)
+                    .buttonStyle(.plain)
                 } else {
                     Button {
                         pasteFromClipboard()
@@ -44,9 +46,11 @@ struct InlineCaptureBar: View {
                         Image(systemName: "doc.on.clipboard")
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(Color.textMuted)
+                            .frame(minWidth: LayoutDimensions.minTouchTarget,
+                                   minHeight: LayoutDimensions.minTouchTarget)
+                            .contentShape(.rect)
                     }
-                    .frame(minWidth: LayoutDimensions.minTouchTarget,
-                           minHeight: LayoutDimensions.minTouchTarget)
+                    .buttonStyle(.plain)
                     .accessibilityLabel("Paste from clipboard")
                 }
             }
@@ -59,8 +63,6 @@ struct InlineCaptureBar: View {
                     .stroke(Color.borderInput, lineWidth: 1)
             }
         }
-        .listRowInsets(EdgeInsets(top: Spacing.sm, leading: LayoutDimensions.contentPaddingH, bottom: Spacing.sm, trailing: LayoutDimensions.contentPaddingH))
-        .listRowSeparator(.hidden)
     }
 
     private func pasteFromClipboard() {
