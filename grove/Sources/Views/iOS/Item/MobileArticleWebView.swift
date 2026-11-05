@@ -28,12 +28,16 @@ struct MobileArticleWebView: UIViewRepresentable {
     var navigateToken: Int = 0
     /// Reports (canGoBack, canGoForward, currentURL) as the user browses.
     var onNavigationChanged: ((Bool, Bool, URL?) -> Void)?
+    /// Fires when a main-frame navigation finishes, with the web view that
+    /// finished — Reader mode runs its Readability extraction from here.
+    var onPageFinished: ((WKWebView) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
             onTextSelected: onTextSelected,
             onSelectionGeometry: onSelectionGeometry,
-            onNavigationChanged: onNavigationChanged
+            onNavigationChanged: onNavigationChanged,
+            onPageFinished: onPageFinished
         )
     }
 
@@ -86,6 +90,7 @@ struct MobileArticleWebView: UIViewRepresentable {
         coordinator.onTextSelected = onTextSelected
         coordinator.onSelectionGeometry = onSelectionGeometry
         coordinator.onNavigationChanged = onNavigationChanged
+        coordinator.onPageFinished = onPageFinished
 
         // Handle scroll-to-text requests. Defer to didFinish while the page is
         // still loading (e.g. a highlight tap that just opened the panel) so the
@@ -193,6 +198,7 @@ struct MobileArticleWebView: UIViewRepresentable {
         var onTextSelected: ((String?) -> Void)?
         var onSelectionGeometry: ((WebSelectionGeometry?) -> Void)?
         var onNavigationChanged: ((Bool, Bool, URL?) -> Void)?
+        var onPageFinished: ((WKWebView) -> Void)?
         var lastFindQuery = ""
         var lastForwardToken = 0
         var lastBackwardToken = 0
@@ -208,11 +214,13 @@ struct MobileArticleWebView: UIViewRepresentable {
         init(
             onTextSelected: ((String?) -> Void)?,
             onSelectionGeometry: ((WebSelectionGeometry?) -> Void)?,
-            onNavigationChanged: ((Bool, Bool, URL?) -> Void)?
+            onNavigationChanged: ((Bool, Bool, URL?) -> Void)?,
+            onPageFinished: ((WKWebView) -> Void)?
         ) {
             self.onTextSelected = onTextSelected
             self.onSelectionGeometry = onSelectionGeometry
             self.onNavigationChanged = onNavigationChanged
+            self.onPageFinished = onPageFinished
         }
 
         func startObserving(_ webView: WKWebView) {
@@ -260,6 +268,7 @@ struct MobileArticleWebView: UIViewRepresentable {
                 let escaped = ReaderTemplate.escapeForJSString(query)
                 webView.evaluateJavaScript("window.__groveScrollToText('\(escaped)');", completionHandler: nil)
             }
+            onPageFinished?(webView)
         }
 
         // Receive text selection from JavaScript

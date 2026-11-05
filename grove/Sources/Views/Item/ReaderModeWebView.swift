@@ -1155,6 +1155,16 @@ struct ReaderModeWebView: UIViewRepresentable {
     /// Saved highlight strings for the item backing this page, rendered as
     /// persistent `<mark>` washes in the article.
     var highlights: [String] = []
+    /// Find-in-page, same contract as `MobileArticleWebView`: a query change
+    /// re-runs the search, the tokens step through matches, and results come
+    /// back as (current, total).
+    var findQuery: String = ""
+    var findForwardToken: Int = 0
+    var findBackwardToken: Int = 0
+    var onFindResult: ((Int, Int) -> Void)?
+    /// Bump to drop the page's text selection once it has become a highlight,
+    /// so the action bar can't re-anchor to a selection already acted on.
+    var clearSelectionToken: Int = 0
     var onTextSelected: ((String?) -> Void)?
     var onSelectionGeometry: ((WebSelectionGeometry?) -> Void)?
     var onScrollProgress: ((Double) -> Void)?
@@ -1170,18 +1180,39 @@ struct ReaderModeWebView: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> WKWebView {
-        let webView = ReaderModeSupport.makeWebView(coordinator: context.coordinator)
+        let coordinator = context.coordinator
+        let webView = ReaderModeSupport.makeWebView(coordinator: coordinator)
+        // The content controller is shared with the configuration the web view
+        // was built from, so a script added before the first load is injected
+        // into the reader page alongside the shared ones.
+        webView.configuration.userContentController.addUserScript(WKUserScript(
+            source: Self.findJS,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        ))
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
-        ReaderModeSupport.load(article, typography: typography, isDark: isDark, initialProgress: initialProgress, into: webView, coordinator: context.coordinator)
+        // Selection handles and the selection wash take the view's tint; the
+        // reader is monochrome, so they are ink rather than system blue.
+        webView.tintColor = .label
+        // A fresh mount must not replay find steps or a selection clear that
+        // belonged to an earlier web view; only a live query carries over.
+        coordinator.findState = ReaderModeCoordinator.FindState(
+            forwardToken: findForwardToken,
+            backwardToken: findBackwardToken
+        )
+        coordinator.lastClearSelectionToken = clearSelectionToken
+        ReaderModeSupport.load(article, typography: typography, isDark: isDark, initialProgress: initialProgress, into: webView, coordinator: coordinator)
         return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
+        let coordinator = context.coordinator
+        let loadedKey = coordinator.loadedArticleKey
         ReaderModeSupport.update(
             webView,
-            coordinator: context.coordinator,
+            coordinator: coordinator,
             article: article,
             typography: typography,
             isDark: isDark,
@@ -1194,6 +1225,195 @@ struct ReaderModeWebView: UIViewRepresentable {
             onScrollProgress: onScrollProgress,
             onOpenExternalLink: onOpenExternalLink
         )
+        coordinator.onFindResult = onFindResult
+        if coordinator.loadedArticleKey != loadedKey {
+            // A different article was just loaded: its document carries no
+            // find marks, so a live query runs again (and reports) once the
+            // new document is ready.
+            coordinator.findState = ReaderModeCoordinator.FindState(
+                forwardToken: findForwardToken,
+                backwardToken: findBackwardToken
+            )
+        }
+
+        if clearSelectionToken != coordinator.lastClearSelectionToken {
+            coordinator.lastClearSelectionToken = clearSelectionToken
+            webView.evaluateJavaScript(
+                "window.getSelection && window.getSelection().removeAllRanges();",
+                completionHandler: nil
+            )
+        }
+
+        coordinator.updateFind(
+            in: webView,
+            query: findQuery,
+            forwardToken: findForwardToken,
+            backwardToken: findBackwardToken
+        )
+    }
+
+    /// Find-in-page for the reader page. The live-page helper paints matches
+    /// yellow and orange; the reader is monochrome, so matches here are an ink
+    /// wash and the current one a darker wash. Unwrapping moves the original
+    /// text nodes back (no `outerHTML` round trip), so saved highlight marks
+    /// and the article's markup survive a search.
+    static let findJS = """
+    (function() {
+        var MATCH = 'rgba(128, 128, 128, 0.26)';
+        var CURRENT = 'rgba(128, 128, 128, 0.58)';
+        window.__groveMatches = [];
+        window.__groveMatchIndex = -1;
+
+        function unwrap(mark) {
+            var parent = mark.parentNode;
+            if (!parent) { return; }
+            while (mark.firstChild) { parent.insertBefore(mark.firstChild, mark); }
+            parent.removeChild(mark);
+            parent.normalize();
+        }
+        function paint(index, isCurrent) {
+            var mark = window.__groveMatches[index];
+            if (mark) { mark.style.backgroundColor = isCurrent ? CURRENT : MATCH; }
+        }
+        function focus(index) {
+            paint(index, true);
+            var mark = window.__groveMatches[index];
+            if (mark) { mark.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+        }
+        function step(delta) {
+            var count = window.__groveMatches.length;
+            if (!count) { return [0, 0]; }
+            paint(window.__groveMatchIndex, false);
+            window.__groveMatchIndex = (window.__groveMatchIndex + delta + count) % count;
+            focus(window.__groveMatchIndex);
+            return [window.__groveMatchIndex + 1, count];
+        }
+
+        window.__groveClearFind = function() {
+            var marks = document.querySelectorAll('mark.grove-find');
+            for (var i = 0; i < marks.length; i++) { unwrap(marks[i]); }
+            window.__groveMatches = [];
+            window.__groveMatchIndex = -1;
+        };
+
+        window.__groveFindAll = function(query) {
+            window.__groveClearFind();
+            if (!query) { return 0; }
+            var needle = query.toLowerCase();
+            var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+            var hits = [];
+            while (walker.nextNode()) {
+                var node = walker.currentNode;
+                var p = node.parentElement;
+                if (!p || p.tagName === 'SCRIPT' || p.tagName === 'STYLE' || p.tagName === 'NOSCRIPT') { continue; }
+                var text = node.textContent.toLowerCase();
+                var at = text.indexOf(needle);
+                while (at !== -1) {
+                    hits.push({ node: node, start: at });
+                    at = text.indexOf(needle, at + needle.length);
+                }
+            }
+            // Back to front, so wrapping a later hit never shifts the offsets
+            // of an earlier one in the same text node.
+            for (var h = hits.length - 1; h >= 0; h--) {
+                var hit = hits[h];
+                try {
+                    var range = document.createRange();
+                    range.setStart(hit.node, hit.start);
+                    range.setEnd(hit.node, hit.start + needle.length);
+                    var mark = document.createElement('mark');
+                    mark.className = 'grove-find';
+                    mark.style.cssText = 'color: inherit; border-radius: 2px; background-color: ' + MATCH + ';';
+                    range.surroundContents(mark);
+                } catch (e) { /* skip a hit the DOM won't wrap */ }
+            }
+            window.__groveMatches = document.querySelectorAll('mark.grove-find');
+            if (!window.__groveMatches.length) { return 0; }
+            window.__groveMatchIndex = 0;
+            focus(0);
+            return window.__groveMatches.length;
+        };
+
+        window.__groveFindNext = function() { return step(1); };
+        window.__groveFindPrev = function() { return step(-1); };
+    })();
+    """
+}
+
+/// Find-in-page driving for the iOS reader. The coordinator only stores the
+/// bookkeeping (`findState`); the behavior lives here beside the
+/// representable that uses it.
+extension ReaderModeCoordinator {
+    struct FindState {
+        /// The query the document currently reflects ("" = no marks).
+        var query = ""
+        var forwardToken = 0
+        var backwardToken = 0
+        /// A query that arrived before the document was ready; runs on didFinish.
+        var pendingQuery: String? = nil
+        /// False from load until didFinish. `isLoading` is not yet true in the
+        /// same turn as `loadHTMLString`, so it can't gate the find script.
+        var documentReady = false
+
+        init(forwardToken: Int = 0, backwardToken: Int = 0) {
+            self.forwardToken = forwardToken
+            self.backwardToken = backwardToken
+        }
+    }
+
+    func updateFind(in webView: WKWebView, query: String, forwardToken: Int, backwardToken: Int) {
+        if query != findState.query {
+            findState.query = query
+            findState.forwardToken = forwardToken
+            findState.backwardToken = backwardToken
+            guard findState.documentReady else {
+                findState.pendingQuery = query
+                return
+            }
+            runFindAll(query, in: webView)
+            return
+        }
+        guard findState.documentReady else { return }
+        if forwardToken != findState.forwardToken {
+            findState.forwardToken = forwardToken
+            stepFind("window.__groveFindNext && window.__groveFindNext();", in: webView)
+        }
+        if backwardToken != findState.backwardToken {
+            findState.backwardToken = backwardToken
+            stepFind("window.__groveFindPrev && window.__groveFindPrev();", in: webView)
+        }
+    }
+
+    /// Called from didFinish: the reader document and its find helper exist.
+    func readerDocumentDidFinish(_ webView: WKWebView) {
+        findState.documentReady = true
+        guard let query = findState.pendingQuery else { return }
+        runFindAll(query, in: webView)
+    }
+
+    private func runFindAll(_ query: String, in webView: WKWebView) {
+        findState.pendingQuery = nil
+        guard !query.isEmpty else {
+            // Reported from the completion, never synchronously: this runs
+            // inside updateUIView, where writing view state is not allowed.
+            webView.evaluateJavaScript("window.__groveClearFind && window.__groveClearFind(); 0;") { [weak self] _, _ in
+                self?.onFindResult?(0, 0)
+            }
+            return
+        }
+        let escaped = ReaderTemplate.escapeForJSString(query)
+        webView.evaluateJavaScript("window.__groveFindAll('\(escaped)');") { [weak self] result, _ in
+            let count = (result as? Int) ?? 0
+            self?.onFindResult?(count > 0 ? 1 : 0, count)
+        }
+    }
+
+    private func stepFind(_ script: String, in webView: WKWebView) {
+        webView.evaluateJavaScript(script) { [weak self] result, _ in
+            if let pair = result as? [Int], pair.count == 2 {
+                self?.onFindResult?(pair[0], pair[1])
+            }
+        }
     }
 }
 #endif
@@ -1402,6 +1622,13 @@ final class ReaderModeCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate,
     /// freshly loaded document, which is what keeps old highlights from
     /// animating in on arrival.
     var lastAppliedHighlights: [String]? = nil
+    #if os(iOS)
+    /// Find-in-page bookkeeping for the iOS reader (driven from the iOS
+    /// `ReaderModeWebView`); macOS Reader mode has no find of its own.
+    var findState = FindState()
+    var onFindResult: ((Int, Int) -> Void)? = nil
+    var lastClearSelectionToken = 0
+    #endif
 
     init(
         onTextSelected: ((String?) -> Void)?,
@@ -1473,6 +1700,9 @@ final class ReaderModeCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate,
             webView.evaluateJavaScript("window.__groveScrollToText('\(escaped)');", completionHandler: nil)
         }
         ReaderModeSupport.applyHighlights(webView, coordinator: self, documentIsReady: true)
+        #if os(iOS)
+        readerDocumentDidFinish(webView)
+        #endif
     }
 
     func userContentController(

@@ -471,6 +471,9 @@ struct ItemReaderWebViewPanel: View {
                 if onArticlePage {
                     vm.pendingNavigationURL = nil
                 }
+            },
+            onPageFinished: { webView in
+                vm.handleArticlePageDidFinish(webView)
             }
         )
         .ignoresSafeArea(edges: .bottom)
