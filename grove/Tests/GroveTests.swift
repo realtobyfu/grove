@@ -88,6 +88,112 @@ struct GroveTests {
     }
 
     @MainActor
+    @Test func acceptingExistingBoardSuggestionFilesItemOnRecommendedBoard() throws {
+        let context = try makeInMemoryModelContext()
+        let item = try insertSuggestedItem(in: context)
+        let board = Board(title: "Research")
+        context.insert(board)
+        let decision = boardDecision(named: "Renamed Since", mode: .existing, recommendedBoardID: board.id)
+        BoardSuggestionMetadata.apply(decision, to: item)
+
+        ItemViewModel(modelContext: context).assignPendingItem(item.id, accepting: decision)
+
+        let store = ModelContext(context.container)
+        let saved = try savedItem(item.id, in: store)
+        #expect(saved.status == .active)
+        #expect(saved.boards.map(\.id) == [board.id])
+        #expect(saved.metadata["pendingBoardSuggestion"] == nil)
+        #expect(saved.metadata["boardSuggestionMatchedRecommendation"] == "true")
+    }
+
+    @MainActor
+    @Test func acceptingCreateBoardSuggestionSavesNewBoardWithItem() throws {
+        let context = try makeInMemoryModelContext()
+        let item = try insertSuggestedItem(in: context)
+        let decision = boardDecision(named: "Field Notes", mode: .create)
+
+        ItemViewModel(modelContext: context).assignPendingItem(item.id, accepting: decision)
+
+        let store = ModelContext(context.container)
+        let saved = try savedItem(item.id, in: store)
+        #expect(saved.status == .active)
+        #expect(saved.boards.map(\.title) == ["Field Notes"])
+        #expect(!context.hasChanges)
+    }
+
+    @MainActor
+    @Test func acceptingBoardSuggestionFallsBackToTitleWhenRecommendedBoardIsGone() throws {
+        let context = try makeInMemoryModelContext()
+        let item = try insertSuggestedItem(in: context)
+        let board = Board(title: "Research")
+        context.insert(board)
+        let decision = boardDecision(named: "research", mode: .existing, recommendedBoardID: UUID())
+
+        ItemViewModel(modelContext: context).assignPendingItem(item.id, accepting: decision)
+
+        let store = ModelContext(context.container)
+        let saved = try savedItem(item.id, in: store)
+        #expect(saved.boards.map(\.id) == [board.id])
+        #expect(try context.fetchCount(FetchDescriptor<Board>()) == 1)
+    }
+
+    @MainActor
+    @Test func pickingBoardForSuggestionFilesItem() throws {
+        let context = try makeInMemoryModelContext()
+        let item = try insertSuggestedItem(in: context)
+        let board = Board(title: "Research")
+        context.insert(board)
+
+        ItemViewModel(modelContext: context).assignPendingItem(item.id, to: board)
+
+        let store = ModelContext(context.container)
+        let saved = try savedItem(item.id, in: store)
+        #expect(saved.status == .active)
+        #expect(saved.boards.map(\.id) == [board.id])
+        #expect(saved.metadata["boardSuggestionOutcome"] == "selected")
+    }
+
+    @MainActor
+    @Test func creatingBoardForSuggestionSavesCleanedBoardWithItem() throws {
+        let context = try makeInMemoryModelContext()
+        let item = try insertSuggestedItem(in: context)
+
+        ItemViewModel(modelContext: context).assignPendingItem(item.id, toBoardNamed: "  Field   Notes ")
+
+        let store = ModelContext(context.container)
+        let saved = try savedItem(item.id, in: store)
+        #expect(saved.status == .active)
+        #expect(saved.boards.map(\.title) == ["Field Notes"])
+        #expect(!context.hasChanges)
+    }
+
+    @MainActor
+    @Test func creatingBoardForSuggestionReusesBoardWithSameTitle() throws {
+        let context = try makeInMemoryModelContext()
+        let item = try insertSuggestedItem(in: context)
+        let board = Board(title: "Research")
+        context.insert(board)
+
+        ItemViewModel(modelContext: context).assignPendingItem(item.id, toBoardNamed: "RESEARCH")
+
+        let store = ModelContext(context.container)
+        let saved = try savedItem(item.id, in: store)
+        #expect(saved.boards.map(\.id) == [board.id])
+        #expect(try context.fetchCount(FetchDescriptor<Board>()) == 1)
+    }
+
+    @MainActor
+    @Test func boardSuggestionForMissingItemCreatesNoBoard() throws {
+        let context = try makeInMemoryModelContext()
+        let viewModel = ItemViewModel(modelContext: context)
+
+        viewModel.assignPendingItem(UUID(), toBoardNamed: "Field Notes")
+        viewModel.assignPendingItem(UUID(), accepting: boardDecision(named: "Field Notes", mode: .create))
+
+        #expect(try context.fetchCount(FetchDescriptor<Board>()) == 0)
+    }
+
+    @MainActor
     @Test func entitlementServiceDefaultsToFreeTier() {
         let defaults = testDefaults()
         let service = EntitlementService(defaults: defaults)
@@ -684,6 +790,39 @@ struct GroveTests {
         )
         let container = try ModelContainer(for: schema, configurations: [config])
         return ModelContext(container)
+    }
+
+    /// A saved inbox capture, as the auto-tagger leaves it when it posts a suggestion.
+    @MainActor
+    private func insertSuggestedItem(in context: ModelContext) throws -> Item {
+        let item = Item(title: "Pending", type: .note)
+        item.status = .inbox
+        context.insert(item)
+        try context.save()
+        return item
+    }
+
+    private func boardDecision(
+        named name: String,
+        mode: BoardSuggestionMode,
+        recommendedBoardID: UUID? = nil
+    ) -> BoardSuggestionDecision {
+        BoardSuggestionDecision(
+            suggestedName: name,
+            mode: mode,
+            recommendedBoardID: recommendedBoardID,
+            confidence: 0.9,
+            reason: "",
+            alternativeBoardIDs: []
+        )
+    }
+
+    /// Reads through a second context, so only what reached the store counts.
+    /// The caller keeps `store` alive for as long as it uses the returned item.
+    @MainActor
+    private func savedItem(_ itemID: UUID, in store: ModelContext) throws -> Item {
+        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
+        return try #require(try store.fetch(descriptor).first)
     }
 
     private func testDefaults() -> UserDefaults {

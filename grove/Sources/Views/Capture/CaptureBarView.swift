@@ -326,41 +326,25 @@ struct CaptureBarView: View {
     // MARK: - Board Suggestion Actions
 
     private func acceptBoardSuggestion() {
-        guard let pendingSuggestion else {
+        guard let pendingSuggestion, let itemID = pendingSuggestionItemID else {
             dismissBoardSuggestion()
             return
         }
 
-        let suggestedName = BoardSuggestionEngine.cleanedBoardName(pendingSuggestion.suggestedName)
-
+        let viewModel = ItemViewModel(modelContext: modelContext)
         Task { @MainActor in
-            let boardDescriptor = FetchDescriptor<Board>()
-            let allBoards = (try? modelContext.fetch(boardDescriptor)) ?? []
-
-            let board: Board
-            if pendingSuggestion.mode == .existing,
-               let recommendedBoardID = pendingSuggestion.recommendedBoardID,
-               let recommended = allBoards.first(where: { $0.id == recommendedBoardID }) {
-                board = recommended
-            } else if let existing = allBoards.first(where: {
-                $0.title.localizedCaseInsensitiveCompare(suggestedName) == .orderedSame
-            }) {
-                board = existing
-            } else {
-                let newBoard = Board(title: suggestedName.isEmpty ? "General" : suggestedName)
-                modelContext.insert(newBoard)
-                board = newBoard
-            }
-
-            assignPendingItem(to: board)
+            viewModel.assignPendingItem(itemID, accepting: pendingSuggestion)
         }
 
         dismissBoardSuggestion()
     }
 
     private func selectBoardFromPicker(_ board: Board) {
-        Task { @MainActor in
-            assignPendingItem(to: board)
+        if let itemID = pendingSuggestionItemID {
+            let viewModel = ItemViewModel(modelContext: modelContext)
+            Task { @MainActor in
+                viewModel.assignPendingItem(itemID, to: board)
+            }
         }
 
         dismissBoardSuggestion()
@@ -370,33 +354,14 @@ struct CaptureBarView: View {
         let normalizedName = BoardSuggestionEngine.cleanedBoardName(boardName)
         guard !normalizedName.isEmpty else { return }
 
-        Task { @MainActor in
-            let boardDescriptor = FetchDescriptor<Board>()
-            let allBoards = (try? modelContext.fetch(boardDescriptor)) ?? []
-
-            if let existing = allBoards.first(where: {
-                $0.title.localizedCaseInsensitiveCompare(normalizedName) == .orderedSame
-            }) {
-                assignPendingItem(to: existing)
-            } else {
-                let newBoard = Board(title: normalizedName)
-                modelContext.insert(newBoard)
-                assignPendingItem(to: newBoard)
+        if let itemID = pendingSuggestionItemID {
+            let viewModel = ItemViewModel(modelContext: modelContext)
+            Task { @MainActor in
+                viewModel.assignPendingItem(itemID, toBoardNamed: normalizedName)
             }
         }
 
         dismissBoardSuggestion()
-    }
-
-    private func assignPendingItem(to board: Board) {
-        guard let itemID = pendingSuggestionItemID else { return }
-
-        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-        guard let item = try? modelContext.fetch(descriptor).first else { return }
-
-        BoardSuggestionMetadata.recordSelection(board, on: item)
-        let viewModel = ItemViewModel(modelContext: modelContext)
-        viewModel.assignToBoard(item, board: board)
     }
 
     private func dismissBoardSuggestion() {
@@ -615,33 +580,14 @@ struct CaptureBarOverlayView: View {
     // MARK: - Board Suggestion Actions
 
     private func acceptBoardSuggestion() {
-        guard let pendingSuggestion else {
+        guard let pendingSuggestion, let itemID = pendingSuggestionItemID else {
             dismissBoardSuggestion()
             return
         }
 
-        let suggestedName = BoardSuggestionEngine.cleanedBoardName(pendingSuggestion.suggestedName)
-
+        let viewModel = ItemViewModel(modelContext: modelContext)
         Task { @MainActor in
-            let boardDescriptor = FetchDescriptor<Board>()
-            let allBoards = (try? modelContext.fetch(boardDescriptor)) ?? []
-
-            let board: Board
-            if pendingSuggestion.mode == .existing,
-               let recommendedBoardID = pendingSuggestion.recommendedBoardID,
-               let recommended = allBoards.first(where: { $0.id == recommendedBoardID }) {
-                board = recommended
-            } else if let existing = allBoards.first(where: {
-                $0.title.localizedCaseInsensitiveCompare(suggestedName) == .orderedSame
-            }) {
-                board = existing
-            } else {
-                let newBoard = Board(title: suggestedName.isEmpty ? "General" : suggestedName)
-                modelContext.insert(newBoard)
-                board = newBoard
-            }
-
-            assignPendingItem(to: board)
+            viewModel.assignPendingItem(itemID, accepting: pendingSuggestion)
         }
 
         dismissBoardSuggestion()
@@ -649,8 +595,11 @@ struct CaptureBarOverlayView: View {
     }
 
     private func selectBoardFromPicker(_ board: Board) {
-        Task { @MainActor in
-            assignPendingItem(to: board)
+        if let itemID = pendingSuggestionItemID {
+            let viewModel = ItemViewModel(modelContext: modelContext)
+            Task { @MainActor in
+                viewModel.assignPendingItem(itemID, to: board)
+            }
         }
 
         dismissBoardSuggestion()
@@ -661,34 +610,15 @@ struct CaptureBarOverlayView: View {
         let normalizedName = BoardSuggestionEngine.cleanedBoardName(boardName)
         guard !normalizedName.isEmpty else { return }
 
-        Task { @MainActor in
-            let boardDescriptor = FetchDescriptor<Board>()
-            let allBoards = (try? modelContext.fetch(boardDescriptor)) ?? []
-
-            if let existing = allBoards.first(where: {
-                $0.title.localizedCaseInsensitiveCompare(normalizedName) == .orderedSame
-            }) {
-                assignPendingItem(to: existing)
-            } else {
-                let newBoard = Board(title: normalizedName)
-                modelContext.insert(newBoard)
-                assignPendingItem(to: newBoard)
+        if let itemID = pendingSuggestionItemID {
+            let viewModel = ItemViewModel(modelContext: modelContext)
+            Task { @MainActor in
+                viewModel.assignPendingItem(itemID, toBoardNamed: normalizedName)
             }
         }
 
         dismissBoardSuggestion()
         dismiss()
-    }
-
-    private func assignPendingItem(to board: Board) {
-        guard let itemID = pendingSuggestionItemID else { return }
-
-        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-        guard let item = try? modelContext.fetch(descriptor).first else { return }
-
-        BoardSuggestionMetadata.recordSelection(board, on: item)
-        let viewModel = ItemViewModel(modelContext: modelContext)
-        viewModel.assignToBoard(item, board: board)
     }
 
     private func dismissBoardSuggestion() {

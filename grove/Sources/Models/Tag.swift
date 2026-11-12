@@ -55,10 +55,10 @@ final class Tag {
     /// Parent tag for informational hierarchy (e.g., "Swift" is parent of "SwiftUI")
     @Relationship(inverse: \Tag.childTagsStorage) var parentTag: Tag?
     /// Child tags in the hierarchy
-    @Relationship(originalName: "childTags") var childTagsStorage: [Tag]? = []
+    var childTagsStorage: [Tag]? = []
 
-    @Relationship(originalName: "items") var itemsStorage: [Item]? = []
-    @Relationship(originalName: "smartRuleBoards", inverse: \Board.smartRuleTagsStorage)
+    var itemsStorage: [Item]? = []
+    @Relationship(inverse: \Board.smartRuleTagsStorage)
     var smartRuleBoardsStorage: [Board]? = []
 
     var childTags: [Tag] {
