@@ -1,6 +1,9 @@
 import Foundation
 import SwiftData
 
+/// Raw values are persisted in `Conversation.trigger`, so every case stays.
+/// Only `userInitiated` is still produced; the rest exist so old conversations
+/// decode, and nothing branches on them.
 enum ConversationTrigger: String, Codable {
     case userInitiated
     case contradictionDetected
@@ -21,9 +24,9 @@ final class Conversation {
     // See the note in `Board` — CloudKit requires optional relationships with
     // inverses; the computed accessors keep call sites on plain `[T]`.
 
-    @Relationship(deleteRule: .cascade, originalName: "messages", inverse: \ChatMessage.conversation)
+    @Relationship(deleteRule: .cascade, inverse: \ChatMessage.conversation)
     var messagesStorage: [ChatMessage]? = []
-    @Relationship(originalName: "createdReflections", inverse: \ReflectionBlock.conversation)
+    @Relationship(inverse: \ReflectionBlock.conversation)
     var createdReflectionsStorage: [ReflectionBlock]? = []
 
     var messages: [ChatMessage] {
@@ -80,18 +83,40 @@ final class Conversation {
         (messages.map(\.position).max() ?? -1) + 1
     }
 
+    /// Longest first-message title before it is cut with an ellipsis.
+    static let derivedTitleLimit = 48
+
+    /// The stored title once someone has named it; until then the board's
+    /// discussion, else the opening line the user wrote, else a plain label.
     var displayTitle: String {
         guard title == "New Conversation" else { return title }
         if let boardName = board?.title { return "\(boardName) Discussion" }
-        switch trigger {
-        case .contradictionDetected: return "Exploring a Contradiction"
-        case .knowledgeGap:          return "Exploring a Knowledge Gap"
-        case .staleItems:            return "Revisiting Old Items"
-        case .periodicReflection:    return "Periodic Reflection"
-        case .userInitiated:         break
+        let firstUserText = sortedMessages
+            .first { $0.role == .user && !$0.isHidden }?
+            .content
+        guard let derived = firstUserText.flatMap(Self.oneLineTitle(from:)) else {
+            return "New conversation"
         }
-        let f = DateFormatter()
-        f.dateFormat = "MMM d, h:mm a"
-        return "Conversation – \(f.string(from: createdAt))"
+        return derived
+    }
+
+    /// First non-empty line, whitespace collapsed, cut at a word boundary
+    /// near `derivedTitleLimit` with an ellipsis. Nil when nothing is left.
+    static func oneLineTitle(from text: String) -> String? {
+        guard let line = text
+            .split(whereSeparator: \.isNewline)
+            .lazy
+            .map({ $0.split(whereSeparator: \.isWhitespace).joined(separator: " ") })
+            .first(where: { !$0.isEmpty })
+        else { return nil }
+
+        guard line.count > derivedTitleLimit else { return line }
+        let cut = line.prefix(derivedTitleLimit)
+        // Prefer ending on a whole word, unless that throws away most of it.
+        if let space = cut.lastIndex(of: " "),
+           cut.distance(from: cut.startIndex, to: space) >= derivedTitleLimit / 2 {
+            return String(cut[..<space]) + "…"
+        }
+        return String(cut) + "…"
     }
 }

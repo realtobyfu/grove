@@ -8,14 +8,16 @@ struct MobileOnboardingView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Spacer()
-
-            welcomeContent
-
-            Spacer()
+            // Get Started is the only way out of the cover, so at large
+            // Dynamic Type the welcome scrolls rather than pushing it off screen.
+            ViewThatFits(in: .vertical) {
+                welcomeContent
+                ScrollView { welcomeContent }
+            }
+            .frame(maxHeight: .infinity)
 
             VStack(spacing: Spacing.md) {
-                Text("Start by capturing something — a link, a note, or an idea.")
+                Text("Start on Today: paste a link or type a note.")
                     .font(.groveMeta)
                     .foregroundStyle(Color.textTertiary)
                     .multilineTextAlignment(.center)
@@ -25,20 +27,16 @@ struct MobileOnboardingView: View {
                     onboarding.complete()
                 } label: {
                     Text("Get Started")
-                        .font(.groveBody)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(Color.textInverse)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, Spacing.md)
-                        .background(Color.textPrimary)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.grove(.primary))
                 .padding(.horizontal, Spacing.xl)
             }
             .padding(.bottom, Spacing.xl)
         }
+        .frame(maxWidth: 520)
         .padding(.top, Spacing.xl)
+        .frame(maxWidth: .infinity)
         .background(Color.bgPrimary)
     }
 
@@ -47,7 +45,7 @@ struct MobileOnboardingView: View {
     private var welcomeContent: some View {
         VStack(spacing: Spacing.xl) {
             Image(systemName: "leaf")
-                .font(.system(size: 60, weight: .light))
+                .font(.system(size: 60, weight: .medium))
                 .foregroundStyle(Color.textPrimary)
 
             VStack(spacing: Spacing.md) {
@@ -62,11 +60,11 @@ struct MobileOnboardingView: View {
             }
 
             VStack(alignment: .leading, spacing: Spacing.md) {
-                featureRow(icon: "square.and.arrow.down", text: "Capture links and notes from anywhere")
-                featureRow(icon: "envelope", text: "Follow newsletters and feeds in a quiet inbox")
-                featureRow(icon: "tray.2", text: "Triage with a swipe — queue, file, or archive")
-                featureRow(icon: "square.grid.2x2", text: "Group ideas into boards by project or topic")
-                featureRow(icon: "bubble.left.and.bubble.right", text: "Think it through in chat with Grove")
+                featureRow(icon: "square.and.arrow.down", text: "Capture on Today, or share from any app")
+                featureRow(icon: "tray.2", text: "Swipe inbox items left to keep or file, right to drop")
+                featureRow(icon: "square.grid.2x2", text: "Group what you keep into boards by project or topic")
+                featureRow(icon: "rectangle.on.rectangle", text: "Turn a highlight into a reflection, then a flashcard")
+                featureRow(icon: "bubble.left.and.bubble.right", text: "Think it through in Chat with Grove")
             }
             .padding(.horizontal, Spacing.xl)
         }

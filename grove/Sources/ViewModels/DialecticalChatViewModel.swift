@@ -30,11 +30,6 @@ final class DialecticalChatViewModel {
         self.modelContext = modelContext
     }
 
-    /// Update the model context (e.g. when Environment changes).
-    func updateModelContext(_ context: ModelContext) {
-        self.modelContext = context
-    }
-
     // MARK: - Computed Properties
 
     func activeConversations(from conversations: [Conversation]) -> [Conversation] {
@@ -75,13 +70,6 @@ final class DialecticalChatViewModel {
         return visible.filter { conversationMatchesSearch($0, query: query) }
     }
 
-    func filteredConversationIDs(
-        from conversations: [Conversation],
-        entitlement: EntitlementService
-    ) -> [UUID] {
-        filteredConversations(from: conversations, entitlement: entitlement).map(\.id)
-    }
-
     // MARK: - Conversation CRUD
 
     func startNewConversation(
@@ -97,7 +85,6 @@ final class DialecticalChatViewModel {
             )
             return
         }
-        entitlement.recordUse(.dialectics)
 
         let seedItems: [Item]
         if let board = currentBoard {
@@ -122,6 +109,12 @@ final class DialecticalChatViewModel {
     func sendMessage(to conversation: Conversation) {
         let text = inputText.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return }
+        // Out of free cloud conversations: keep the draft and show the
+        // paywall (DialecticalChatPanel listens for this).
+        guard dialecticsService.canSendMessage(in: conversation) else {
+            NotificationCenter.default.post(name: .groveDialecticsLimitReached, object: nil)
+            return
+        }
         inputText = ""
 
         Task {
@@ -143,6 +136,7 @@ final class DialecticalChatViewModel {
         if selectedConversation.wrappedValue?.id == conversation.id {
             selectedConversation.wrappedValue = nextConversation
         }
+        DialecticsService.discardBoardProposal(forConversationID: conversation.id)
         modelContext.delete(conversation)
         try? modelContext.save()
         conversationToDelete = nil
@@ -238,39 +232,11 @@ final class DialecticalChatViewModel {
         conversationListSelectionID = conversations.first?.id
     }
 
-    func moveConversationListSelection(
-        offset: Int,
-        filteredIDs: [UUID]
-    ) {
-        guard !filteredIDs.isEmpty else {
-            conversationListSelectionID = nil
-            return
-        }
-
-        guard let currentID = conversationListSelectionID,
-              let currentIndex = filteredIDs.firstIndex(of: currentID) else {
-            conversationListSelectionID = filteredIDs.first
-            return
-        }
-
-        let nextIndex = min(max(currentIndex + offset, 0), filteredIDs.count - 1)
-        conversationListSelectionID = filteredIDs[nextIndex]
-    }
-
     func openConversationFromList(
         _ conversation: Conversation,
         selectedConversation: Binding<Conversation?>
     ) {
         selectedConversation.wrappedValue = conversation
         showConversationList = false
-    }
-
-    func openSelectedConversationFromList(
-        filteredConversations: [Conversation],
-        selectedConversation: Binding<Conversation?>
-    ) {
-        guard let selectedID = conversationListSelectionID,
-              let conversation = filteredConversations.first(where: { $0.id == selectedID }) else { return }
-        openConversationFromList(conversation, selectedConversation: selectedConversation)
     }
 }

@@ -32,8 +32,7 @@ final class TensionDetectionService {
     }
 
     func run(maxPairs: Int = TensionDetectionService.maxPairsPerRun) async {
-        guard LLMServiceConfig.isConfigured,
-              EntitlementService.shared.canUse(.connectionSuggestions) else { return }
+        guard LLMServiceConfig.isConfigured else { return }
 
         let allItems: [Item] = modelContext.fetchAll()
         let items = allItems.filter { $0.status != .archived && $0.status != .dismissed }

@@ -3,7 +3,8 @@ import SwiftUI
 struct BoardSuggestionsView: View {
     let suggestions: [PromptBubble]
     @Binding var isSuggestionsCollapsed: Bool
-    let onSelectSuggestion: (PromptBubble) -> Void
+    let onOpenChat: (PromptBubble) -> Void
+    let onStartWriting: (PromptBubble) -> Void
     var onRefresh: (() -> Void)? = nil
 
     var body: some View {
@@ -22,18 +23,18 @@ struct BoardSuggestionsView: View {
                     Button {
                         onRefresh()
                     } label: {
-                        HStack(spacing: 4) {
+                        HStack(spacing: Spacing.xs) {
                             Image(systemName: "arrow.clockwise")
                             Text("Refresh")
                         }
                         .font(.groveMeta)
                         .foregroundStyle(Color.textTertiary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, Spacing.sm)
+                        .padding(.vertical, Spacing.xs)
                         .background(Color.bgCard)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 4)
+                            RoundedRectangle(cornerRadius: Radius.control)
                                 .strokeBorder(Color.borderPrimary, lineWidth: 1)
                         )
                     }
@@ -45,16 +46,15 @@ struct BoardSuggestionsView: View {
 
             if !isSuggestionsCollapsed {
                 LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 320, maximum: 400), spacing: Spacing.md)],
+                    columns: [GridItem(.adaptive(minimum: 320, maximum: 400), spacing: Spacing.md, alignment: .top)],
                     spacing: Spacing.md
                 ) {
                     ForEach(suggestions) { bubble in
-                        SuggestedConversationCard(
-                            label: bubble.label,
-                            title: bubble.prompt
-                        ) {
-                            onSelectSuggestion(bubble)
-                        }
+                        StarterCard(
+                            bubble: bubble,
+                            onOpenChat: { onOpenChat(bubble) },
+                            onStartWriting: { onStartWriting(bubble) }
+                        )
                     }
                 }
             }

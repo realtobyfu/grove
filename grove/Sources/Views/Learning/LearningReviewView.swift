@@ -123,20 +123,30 @@ struct LearningReviewView: View {
         } else if isFinished {
             completion
         } else if cardIDs.isEmpty {
-            ContentUnavailableView("Nothing ready to review", systemImage: "checkmark.circle", description: Text("No flashcards are due in your selected focus."))
+            GroveEmptyState(
+                title: "Nothing to review right now.",
+                detail: "No cards are due here. Come back when one is."
+            )
+            .frame(maxWidth: 420)
+            .padding(.horizontal, Spacing.xxl)
         } else if let card = currentCard {
             questionContent(card)
         } else {
             VStack(spacing: Spacing.lg) {
                 unavailable
                 Button("Skip") { advance(recorded: false) }
-                    .buttonStyle(LearningSecondaryButtonStyle())
+                    .buttonStyle(.grove(.secondary))
             }
         }
     }
 
     private var unavailable: some View {
-        ContentUnavailableView("Question unavailable", systemImage: "doc.questionmark", description: Text("This flashcard was paused or removed."))
+        GroveEmptyState(
+            title: "This card is no longer available.",
+            detail: "It was paused or removed."
+        )
+        .frame(maxWidth: 420)
+        .padding(.horizontal, Spacing.xxl)
     }
 
     private func questionContent(_ card: Flashcard) -> some View {
@@ -201,8 +211,11 @@ struct LearningReviewView: View {
                         }
                     }
                 } else {
-                    Button("Show answer") { revealed = true; showSourcePane = false }
-                        .buttonStyle(LearningPrimaryButtonStyle())
+                    Button { revealed = true; showSourcePane = false } label: {
+                        Text("Show answer")
+                            .frame(maxWidth: .infinity)
+                    }
+                        .buttonStyle(.grove(.primary))
                         .modifier(LearningReviewShortcut(key: .space, enabled: reviewShortcutsEnabled))
                 }
                 Group {
@@ -260,7 +273,7 @@ struct LearningReviewView: View {
 
     private func ratingButton(_ rating: RecallRating, number: Int, card: Flashcard) -> some View {
         Button(rating.displayName) { record(card, rating: rating) }
-            .buttonStyle(LearningSecondaryButtonStyle())
+            .buttonStyle(.grove(.secondary))
             .frame(maxWidth: .infinity)
             .modifier(LearningReviewShortcut(key: KeyEquivalent(Character(String(number))), enabled: reviewShortcutsEnabled))
     }

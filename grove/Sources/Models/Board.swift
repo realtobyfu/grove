@@ -29,9 +29,16 @@ final class Board {
     var color: String?
     var createdAt: Date = Date.now
     var sortOrder: Int = 0
+    // `isSmart`, `smartRuleLogic`, `smartRuleTagsStorage` and `SmartRuleLogic`:
+    // unused since smart boards were removed (nothing creates one any more);
+    // kept for schema stability. SchemaMigrationTests pins the 2.0 entity
+    // hashes, so changing these stored properties breaks synced-store migration.
     var isSmart: Bool = false
     var smartRuleLogic: SmartRuleLogic = SmartRuleLogic.or
-    /// Per-board nudge frequency in hours. 0 = use global default, -1 = disabled for this board.
+    /// Per-board nudge frequency in hours (0 = global default, -1 = disabled).
+    /// Unused since spaced resurfacing was retired; kept for schema stability
+    /// (SchemaMigrationTests pins the 2.0 entity hashes). Nothing writes it,
+    /// so existing values are simply preserved.
     var nudgeFrequencyHours: Int = 0
     /// JSON-encoded [UUID] array for manual item ordering. Authoritative source for .manual sort order.
     var itemOrderData: Data?
@@ -44,12 +51,13 @@ final class Board {
     // optional arrays, and each is fronted by a non-optional computed accessor
     // so call sites can keep treating them as plain `[T]`.
     //
-    // `originalName` maps each renamed property back onto the pre-existing store
-    // so local data survives the migration.
+    // Pre-2.0 stores used the plain names (`items`, ...). Don't map them with
+    // `originalName`: a rename in the model blocks every migration of a synced
+    // store. `LegacyStoreMigration` carries pre-2.0 stores across instead.
 
-    @Relationship(originalName: "items") var itemsStorage: [Item]? = []
-    @Relationship(originalName: "smartRuleTags") var smartRuleTagsStorage: [Tag]? = []
-    /// Inverse of `Conversation.board`. New in 2.0, so it has no `originalName`.
+    var itemsStorage: [Item]? = []
+    var smartRuleTagsStorage: [Tag]? = []
+    /// Inverse of `Conversation.board`.
     @Relationship(inverse: \Conversation.board) var conversationsStorage: [Conversation]? = []
 
     var items: [Item] {

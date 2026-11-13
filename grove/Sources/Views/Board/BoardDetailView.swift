@@ -3,7 +3,6 @@ import AppKit
 #endif
 import SwiftUI
 import SwiftData
-import UniformTypeIdentifiers
 
 enum BoardViewMode: String, CaseIterable, Sendable {
     case grid
@@ -21,23 +20,10 @@ enum BoardSortOption: String, CaseIterable, Sendable {
     case manual = "Manual"
     case dateAdded = "Date Added"
     case title = "Title"
-    case depthScore = "Depth"
 }
 
 struct BoardDetailView: View {
     private static let maxDiscussionSuggestions = 2
-
-    private struct PromptModeSelection {
-        let prompt: String
-        let label: String
-        let scopedSeedItemIDs: [UUID]
-
-        init(bubble: PromptBubble, scopedSeedItemIDs: [UUID]) {
-            self.prompt = bubble.prompt
-            self.label = bubble.label
-            self.scopedSeedItemIDs = scopedSeedItemIDs
-        }
-    }
 
     let board: Board
     @Binding var selectedItem: Item?
@@ -50,17 +36,11 @@ struct BoardDetailView: View {
     @State private var itemToDelete: Item?
     @State private var isSuggestionsCollapsed = false
     @State private var starterService = ConversationStarterService.shared
-    @State private var promptModeSelection: PromptModeSelection?
-    @State private var promptModePanelWidth: CGFloat = LayoutSettings.width(for: .boardPrompt) ?? 330
     @State private var paywallPresentation: PaywallPresentation?
 
-    /// The effective items for this board — smart boards compute from tag rules, regular boards use direct membership
+    /// The active items that belong to this board.
     private var effectiveItems: [Item] {
-        if board.isSmart {
-            return BoardViewModel.smartBoardItems(for: board, from: allItems)
-                .filter { $0.status == .active }
-        }
-        return board.items.filter { $0.status == .active }
+        board.items.filter { $0.status == .active }
     }
 
     private var sortedFilteredItems: [Item] {
@@ -81,13 +61,14 @@ struct BoardDetailView: View {
     private var headerView: BoardDetailHeaderView {
         BoardDetailHeaderView(
             board: board,
-            effectiveItems: effectiveItems,
+            displayedItems: sortedFilteredItems,
             boardDiscussionSuggestions: boardDiscussionSuggestions,
             sortOption: sortOption,
             viewMode: $viewMode,
             sortOptionBinding: $sortOption,
             isSuggestionsCollapsed: $isSuggestionsCollapsed,
-            onSelectSuggestion: presentPromptActions(for:),
+            onOpenChat: { startDialectic(with: $0) },
+            onStartWriting: { startWriting(with: $0.prompt) },
             onRefreshSuggestions: {
                 Task {
                     await starterService.forceRefreshBoard(board.id, items: allItems)
@@ -99,77 +80,34 @@ struct BoardDetailView: View {
     // MARK: - Body
 
     var body: some View {
-        GeometryReader { geo in
-            let minPanelWidth: CGFloat = 280
-            let maxPanelWidth = max(minPanelWidth, min(560, geo.size.width * 0.55))
-            let clampedPanelWidth = min(max(promptModePanelWidth, minPanelWidth), maxPanelWidth)
-            let panelWidthBinding = Binding(
-                get: { clampedPanelWidth },
-                set: { promptModePanelWidth = $0 }
-            )
+        VStack(spacing: 0) {
+            CaptureBarView(currentBoardID: board.id)
 
-            HStack(spacing: 0) {
-                VStack(spacing: 0) {
-                    if !board.isSmart {
-                        CaptureBarView(currentBoardID: board.id)
-                    }
+            LearningInvitationView(boardID: board.id)
+                .padding(.horizontal, LayoutDimensions.contentPaddingH)
+                .padding(.vertical, Spacing.md)
 
-                    LearningInvitationView(boardID: board.id)
-                        .padding(.horizontal, LayoutDimensions.contentPaddingH)
-                        .padding(.vertical, Spacing.md)
+            if effectiveItems.isEmpty {
+                headerView.emptyState
+            } else {
+                headerView.suggestionsBar
 
-                    if effectiveItems.isEmpty {
-                        headerView.emptyState
-                    } else {
-                        headerView.suggestionsBar
-
-                        BoardItemListView(
-                            board: board,
-                            sortedFilteredItems: sortedFilteredItems,
-                            weekSections: weekSections,
-                            canReorder: sortOption == .manual && !board.isSmart,
-                            viewMode: viewMode,
-                            selectedItem: $selectedItem,
-                            openedItem: $openedItem,
-                            draggingItemID: $draggingItemID,
-                            itemToDelete: $itemToDelete,
-                            onMoveGrid: moveGridItem,
-                            onMoveList: moveListItems
-                        )
-                    }
-                }
-
-                if let selection = promptModeSelection {
-                    ResizableTrailingDivider(
-                        width: panelWidthBinding,
-                        minWidth: minPanelWidth,
-                        maxWidth: maxPanelWidth,
-                        onCollapse: { promptModeSelection = nil }
-                    ) { width in
-                        LayoutSettings.setWidth(width, for: .boardPrompt)
-                    }
-
-                    BoardPromptModePanel(
-                        label: selection.label,
-                        prompt: selection.prompt,
-                        onClose: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                promptModeSelection = nil
-                            }
-                        },
-                        onDialectic: { startDialectic(with: selection) },
-                        onWrite: { startWriting(with: selection.prompt) }
-                    )
-                    .frame(width: panelWidthBinding.wrappedValue)
-                    .frame(maxHeight: .infinity)
-                    .transition(.move(edge: .trailing))
-                }
+                BoardItemListView(
+                    board: board,
+                    sortedFilteredItems: sortedFilteredItems,
+                    weekSections: weekSections,
+                    canReorder: sortOption == .manual,
+                    viewMode: viewMode,
+                    selectedItem: $selectedItem,
+                    openedItem: $openedItem,
+                    draggingItemID: $draggingItemID,
+                    itemToDelete: $itemToDelete,
+                    onMoveGrid: moveGridItem,
+                    onMoveList: moveListItems
+                )
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-            handleVideoDrop(providers: providers)
-        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .navigationTitle(board.title)
         .sheet(item: $paywallPresentation) { presentation in
             ProPaywallView(presentation: presentation)
@@ -198,9 +136,7 @@ struct BoardDetailView: View {
         }
         .onChange(of: board.id, initial: true) {
             sortOption = .dateAdded
-            promptModeSelection = nil
         }
-        .animation(.easeInOut(duration: 0.2), value: promptModeSelection != nil)
         .alert(
             "Delete Item",
             isPresented: Binding(
@@ -228,27 +164,16 @@ struct BoardDetailView: View {
 
     // MARK: - Suggestions
 
-    private func presentPromptActions(for bubble: PromptBubble) {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            promptModeSelection = PromptModeSelection(
-                bubble: bubble,
-                scopedSeedItemIDs: scopedSeedItemIDs(for: bubble)
-            )
-        }
-    }
-
-    private func startDialectic(with selection: PromptModeSelection) {
-        defer { promptModeSelection = nil }
-        let prompt = selection.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func startDialectic(with bubble: PromptBubble) {
+        let prompt = bubble.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty else {
             openConversation(with: "")
             return
         }
-        openConversation(with: prompt, seedItemIDs: selection.scopedSeedItemIDs)
+        openConversation(with: prompt, seedItemIDs: scopedSeedItemIDs(for: bubble))
     }
 
     private func startWriting(with prompt: String?) {
-        defer { promptModeSelection = nil }
         guard let prompt, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             NotificationCenter.default.post(name: .groveNewNote, object: nil)
             return
@@ -323,26 +248,6 @@ struct BoardDetailView: View {
         openedItem = item
     }
 
-    // MARK: - Video Drag-and-Drop
-
-    private func handleVideoDrop(providers: [NSItemProvider]) -> Bool {
-        var handled = false
-        for provider in providers {
-            _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                guard let url = url else { return }
-                let path = url.path
-                guard CaptureService.isSupportedVideoFile(path) else { return }
-                Task { @MainActor in
-                    let captureService = CaptureService(modelContext: modelContext)
-                    let item = captureService.createVideoItem(filePath: path, board: board)
-                    selectedItem = item
-                }
-            }
-            handled = true
-        }
-        return handled
-    }
-
     // MARK: - Sort & Reorder
 
     private func sortItems(_ items: [Item]) -> [Item] {
@@ -357,13 +262,10 @@ struct BoardDetailView: View {
             return items.sorted { $0.createdAt > $1.createdAt }
         case .title:
             return items.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
-        case .depthScore:
-            return items.sorted { $0.depthScore > $1.depthScore }
         }
     }
 
     private func moveGridItem(fromID: UUID, toID: UUID) {
-        guard !board.isSmart else { return }
         var order = board.manualOrder()
         let allIDs = board.items.map(\.id)
         let known = Set(order)
@@ -378,7 +280,6 @@ struct BoardDetailView: View {
     }
 
     private func moveListItems(from source: IndexSet, to destination: Int) {
-        guard !board.isSmart else { return }
         var order = board.manualOrder()
         let allIDs = board.items.map(\.id)
         let known = Set(order)
@@ -412,68 +313,5 @@ struct BoardGridDropDelegate: DropDelegate {
               let from = draggingItemID,
               from != targetItemID else { return }
         onReorder(from, targetItemID)
-    }
-}
-
-// MARK: - New Note Sheet
-
-struct NewNoteSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var title = ""
-    @State private var content = ""
-
-    let onCreate: (String, String?) -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("New Note")
-                    .font(.groveItemTitle)
-                    .foregroundStyle(Color.textPrimary)
-                Spacer()
-            }
-            .padding()
-
-            Divider()
-
-            Form {
-                Section("Title") {
-                    TextField("Note title", text: $title)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.groveBody)
-                }
-
-                Section("Content") {
-                    TextEditor(text: $content)
-                        .font(.groveBody)
-                        .frame(minHeight: 150)
-                }
-            }
-            .formStyle(.grouped)
-            .scrollContentBackground(.hidden)
-
-            Divider()
-
-            HStack {
-                Button("Cancel") {
-                    dismiss()
-                }
-                .keyboardShortcut(.cancelAction)
-
-                Spacer()
-
-                Button("Create") {
-                    let noteTitle = title.trimmingCharacters(in: .whitespaces).isEmpty
-                        ? "Untitled Note"
-                        : title
-                    let noteContent = content.isEmpty ? nil : content
-                    onCreate(noteTitle, noteContent)
-                    dismiss()
-                }
-                .keyboardShortcut(.defaultAction)
-            }
-            .padding()
-        }
-        .frame(width: 440, height: 400)
     }
 }

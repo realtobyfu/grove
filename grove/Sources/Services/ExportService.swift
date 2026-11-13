@@ -41,7 +41,7 @@ final class ExportService: ExportServiceProtocol {
         var md = "# \(item.title)\n\n"
 
         // Metadata
-        md += "**Type:** \(item.type.rawValue.capitalized)  \n"
+        md += "**Type:** \(item.type.displayName)  \n"
         md += "**Status:** \(item.status.rawValue.capitalized)  \n"
         md += "**Created:** \(item.createdAt.formatted(date: .long, time: .shortened))  \n"
         md += "**Updated:** \(item.updatedAt.formatted(date: .long, time: .shortened))  \n"
@@ -66,6 +66,11 @@ final class ExportService: ExportServiceProtocol {
         if let content = item.content, !content.isEmpty {
             md += "## Content\n\n"
             md += content + "\n\n"
+        }
+
+        if let overview = item.overview, !overview.isEmpty {
+            md += "## AI Overview\n\n"
+            md += overview + "\n\n"
         }
 
         // Reflections

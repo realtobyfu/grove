@@ -107,45 +107,32 @@ struct ItemReaderWebViewPanel: View {
     private static let historySlotWidth: CGFloat = 55
     #endif
 
-    /// How much of the strip the reading pane can actually seat. Narrow panes
-    /// hand controls to the `…` menu rather than letting the labels crush each
-    /// other into vertical stacks of single letters.
-    private enum StripTier {
-        /// Everything on the strip.
-        case full
-        /// Reflect, Open in Browser and Full Screen move into the menu.
-        case compact
-        /// Text size, zoom and Reader|Original move into the menu too, and
-        /// Overview keeps only its chevron. What is left is the way out,
-        /// where you are, and `…`.
-        case minimal
+    /// How much of the strip the reading pane can actually seat. The width
+    /// ladder and what each rung seats live in `ReaderStripLayout`.
+    private var stripTier: ReaderStripLayout.Tier {
+        ReaderStripLayout.tier(forWidth: stripWidth)
     }
 
-    /// Measured before the tier can be known, so the first pass renders `.full`
-    /// and settles within a frame. Thresholds are the widths at which the next
-    /// cluster stops fitting alongside a truncated domain.
-    ///
-    /// Text size and zoom sit near the top of the ladder rather than in the
-    /// middle of it: they are what gets adjusted *while* reading, so Reflect,
-    /// Open in Browser, Full Screen and finally Reader│Original all give way
-    /// before they do.
-    private var stripTier: StripTier {
-        guard stripWidth > 0 else { return .full }
-        if stripWidth < 480 { return .minimal }
-        if stripWidth < 620 { return .compact }
-        return .full
+    /// Whether `control` keeps its own slot on the strip at the current width.
+    private func onStrip(_ control: ReaderStripLayout.Control) -> Bool {
+        ReaderStripLayout.isOnStrip(control, in: stripTier)
+    }
+
+    /// Whether `control` has folded into the `…` menu at the current width.
+    private func inMenu(_ control: ReaderStripLayout.Control) -> Bool {
+        ReaderStripLayout.isFoldedIntoMenu(control, in: stripTier)
     }
 
     /// Non-empty trimmed selection from either web mode, or nil.
     var body: some View {
         VStack(spacing: 0) {
             // Slim navigation bar
-            HStack(spacing: 10) {
+            HStack(spacing: Spacing.sm) {
                 // Where-am-I cluster: the single root affordance, the page
                 // history when there is any, then the current host.
                 HStack(spacing: 0) {
                     overviewButton
-                        .padding(.trailing, 10)
+                        .padding(.trailing, Spacing.md)
 
                     // The history chevrons exist only once this reading
                     // session has actually navigated somewhere. The slot
@@ -172,7 +159,7 @@ struct ItemReaderWebViewPanel: View {
                 // on the thing most likely to be adjusted mid-article, so they
                 // outrank every other trailing control and only fold away when
                 // the strip has nothing left to give.
-                if stripTier != .minimal {
+                if onStrip(.sizeControls) {
                     if showsReaderContent {
                         typographyControls
                     } else {
@@ -187,20 +174,20 @@ struct ItemReaderWebViewPanel: View {
                 // reading setting, so it keeps its own target rather than
                 // hiding a level down in the menu — until the strip can no
                 // longer seat it.
-                if stripTier == .full {
+                if onStrip(.fullScreen) {
                     fullScreenButton
                 }
                 #endif
 
                 readerSettingsMenu
 
-                if stripTier != .minimal, showsReaderModeControl {
+                if onStrip(.readerMode), showsReaderModeControl {
                     Divider().frame(height: 12)
 
                     readerModeControl
                 }
 
-                if stripTier == .full {
+                if onStrip(.reflect) {
                     Divider().frame(height: 12)
 
                     reflectButton
@@ -216,12 +203,12 @@ struct ItemReaderWebViewPanel: View {
                         .transition(.opacity)
                 }
 
-                if stripTier == .full {
+                if onStrip(.openInBrowser) {
                     openInBrowserButton
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.xsm)
             .background(Color.bgCard)
             .background {
                 // What the strip can seat depends on how wide the reading pane
@@ -484,6 +471,9 @@ struct ItemReaderWebViewPanel: View {
                 if onArticlePage {
                     vm.pendingNavigationURL = nil
                 }
+            },
+            onPageFinished: { webView in
+                vm.handleArticlePageDidFinish(webView)
             }
         )
         .ignoresSafeArea(edges: .bottom)
@@ -508,12 +498,23 @@ struct ItemReaderWebViewPanel: View {
     /// shows none, because it has none.
     private var pageHighlights: [String] {
         guard let capturedItem else { return [] }
-        return capturedItem.reflections
+        return Self.highlightQuotes(from: capturedItem.reflections)
+    }
+
+    /// The quotes Reader mode marks for a set of reflections: in reflection
+    /// order, trimmed, with reflections that quote nothing left out. Quotes
+    /// that differ only in case or whitespace match the same page text, so
+    /// only the first of them is kept.
+    static func highlightQuotes(from reflections: [ReflectionBlock]) -> [String] {
+        var seen = Set<String>()
+        return reflections
             .sorted { $0.position < $1.position }
             .compactMap { block in
                 let quote = (block.highlight ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                return quote.isEmpty ? nil : quote
+                guard !quote.isEmpty else { return nil }
+                let key = quote.lowercased().filter { !$0.isWhitespace }
+                return seen.insert(key).inserted ? quote : nil
             }
     }
 
@@ -527,7 +528,7 @@ struct ItemReaderWebViewPanel: View {
             }
             showCapturePicker = true
         }
-        .padding(20)
+        .padding(Spacing.xl)
         // Arrow on the top edge — the FAB sits at the bottom of the pane, so
         // the picker opens upward into the content it files.
         .popover(isPresented: $showCapturePicker, arrowEdge: .top) {
@@ -541,7 +542,7 @@ struct ItemReaderWebViewPanel: View {
                     recommendedBoardID: decision?.recommendedBoardID,
                     alternativeBoardIDs: decision?.alternativeBoardIDs ?? [],
                     onSelect: { board in
-                        BoardSuggestionMetadata.recordSelection(board, on: capturedItem)
+                        BoardSuggestionMetadata.clearPendingSuggestion(on: capturedItem)
                         ItemViewModel(modelContext: modelContext).assignToBoard(capturedItem, board: board)
                         finishFiling()
                     },
@@ -603,12 +604,12 @@ struct ItemReaderWebViewPanel: View {
         if let existing = boards.first(where: {
             $0.title.localizedCaseInsensitiveCompare(title) == .orderedSame
         }) {
-            BoardSuggestionMetadata.recordSelection(existing, on: item)
+            BoardSuggestionMetadata.clearPendingSuggestion(on: item)
             itemViewModel.assignToBoard(item, board: existing)
         } else {
             let board = Board(title: title)
             modelContext.insert(board)
-            BoardSuggestionMetadata.recordSelection(board, on: item)
+            BoardSuggestionMetadata.clearPendingSuggestion(on: item)
             itemViewModel.assignToBoard(item, board: board)
         }
     }
@@ -626,12 +627,12 @@ struct ItemReaderWebViewPanel: View {
             vm.webSelectionGeometry = nil
             withAnimation(.easeOut(duration: 0.2)) { vm.showArticleWebView = false }
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 11, weight: .medium))
                 // At the narrowest the chevron carries the meaning alone; the
                 // word is the first thing worth trading for the domain.
-                if stripTier != .minimal {
+                if onStrip(.overviewLabel) {
                     Text("Overview")
                         .font(.groveMeta)
                         .lineLimit(1)
@@ -651,7 +652,7 @@ struct ItemReaderWebViewPanel: View {
 
     /// Reader-mode typography: size down, size up, serif toggle, column width.
     private var typographyControls: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.xsm) {
             Button { stepTextSize(-1) } label: {
                 Image(systemName: "textformat.size.smaller")
                     .font(.system(size: 11, weight: .medium))
@@ -698,7 +699,7 @@ struct ItemReaderWebViewPanel: View {
 
     /// Live-page zoom. The percentage doubles as the reset target.
     private var zoomControls: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
             Button { vm.zoomOut() } label: {
                 Image(systemName: "minus.magnifyingglass")
                     .font(.system(size: 11, weight: .medium))
@@ -780,7 +781,7 @@ struct ItemReaderWebViewPanel: View {
     /// Web history for the page on screen. Works in Reader mode too: the live
     /// page stays mounted underneath, so its history is still the pane's.
     private var webHistoryControls: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Spacing.sm) {
             Divider().frame(width: 1, height: 12)
 
             Button { goBackToken += 1 } label: {
@@ -815,7 +816,7 @@ struct ItemReaderWebViewPanel: View {
             .help("Page forward")
             .accessibilityLabel("Page forward")
         }
-        .padding(.trailing, 10)
+        .padding(.trailing, Spacing.md)
     }
 
     /// Whether the pane is showing the item's own page rather than something
@@ -871,7 +872,7 @@ struct ItemReaderWebViewPanel: View {
     /// ORIGINAL is the honest state even though Reader mode is still the
     /// standing preference and will resume the moment the parse lands.
     private var readerModeControl: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Spacing.sm) {
             ReaderModeSegment(
                 title: "READER",
                 isActive: showsReaderContent,
@@ -905,7 +906,7 @@ struct ItemReaderWebViewPanel: View {
         Menu {
             // Whatever the strip could not seat comes back here, above the
             // reading settings — these are actions, not preferences.
-            if stripTier == .minimal, showsReaderModeControl {
+            if inMenu(.readerMode), showsReaderModeControl {
                 Picker("View", selection: Binding(
                     get: { showsReaderContent },
                     set: { setReaderMode($0) }
@@ -916,28 +917,34 @@ struct ItemReaderWebViewPanel: View {
                 .pickerStyle(.inline)
             }
 
-            if stripTier != .full {
+            if inMenu(.reflect) || inMenu(.openInBrowser) || inMenu(.fullScreen) {
                 Section {
-                    Button("Reflect", systemImage: "square.and.pencil") {
-                        vm.openReflectionEditor(type: .keyInsight, content: "", highlight: nil, focusTrigger: focusTrigger)
+                    if inMenu(.reflect) {
+                        Button("Reflect", systemImage: "square.and.pencil") {
+                            vm.openReflectionEditor(type: .keyInsight, content: "", highlight: nil, focusTrigger: focusTrigger)
+                        }
                     }
 
-                    Button("Open in Browser", systemImage: "arrow.up.right.square") {
-                        #if os(macOS)
-                        NSWorkspace.shared.open(currentWebURL ?? url)
-                        #else
-                        openURL(currentWebURL ?? url)
-                        #endif
+                    if inMenu(.openInBrowser) {
+                        Button("Open in Browser", systemImage: "arrow.up.right.square") {
+                            #if os(macOS)
+                            NSWorkspace.shared.open(currentWebURL ?? url)
+                            #else
+                            openURL(currentWebURL ?? url)
+                            #endif
+                        }
                     }
 
                     #if os(macOS)
-                    Button(
-                        isFullScreen ? "Exit Full Screen" : "Enter Full Screen",
-                        systemImage: isFullScreen
-                            ? "arrow.down.right.and.arrow.up.left"
-                            : "arrow.up.left.and.arrow.down.right"
-                    ) {
-                        toggleFullScreen()
+                    if inMenu(.fullScreen) {
+                        Button(
+                            isFullScreen ? "Exit Full Screen" : "Enter Full Screen",
+                            systemImage: isFullScreen
+                                ? "arrow.down.right.and.arrow.up.left"
+                                : "arrow.up.left.and.arrow.down.right"
+                        ) {
+                            toggleFullScreen()
+                        }
                     }
                     #endif
                 }
@@ -1046,7 +1053,7 @@ private struct ReaderViaChip: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
                 Image(systemName: "arrow.left")
                     .font(.system(size: 9, weight: .medium))
                 Text("via \(displayTitle)")
@@ -1085,7 +1092,7 @@ private struct ReaderModeSegment: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 5) {
+            HStack(spacing: Spacing.xs) {
                 Rectangle()
                     .fill(Color.textPrimary)
                     .frame(width: 2, height: 11)
@@ -1131,6 +1138,7 @@ private struct ReaderModeSegment: View {
 /// placement.
 struct HighlightActionBarOverlay: View {
     let vm: ItemReaderViewModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let selection: String
     var selectionGeometry: WebSelectionGeometry? = nil
     /// Fired after the highlight is written. Writing on a page reached by
@@ -1147,8 +1155,8 @@ struct HighlightActionBarOverlay: View {
             .transition(.opacity)
         } else {
             bar
-                .padding(.bottom, 20)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .padding(.bottom, Spacing.xl)
+                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
         }
     }
 
@@ -1246,9 +1254,9 @@ struct HighlightActionBar: View {
             }
         }
         .background(Color.bgCard)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
         .overlay(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: Radius.control)
                 .stroke(Color.borderPrimary, lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
@@ -1256,15 +1264,15 @@ struct HighlightActionBar: View {
 
     private func barButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 5) {
+            HStack(spacing: Spacing.xs) {
                 Image(systemName: systemImage)
                     .font(.system(size: 11, weight: .medium))
                 Text(title)
                     .font(.groveMeta)
             }
             .foregroundStyle(Color.textSecondary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm)
             .frame(minWidth: Self.minTargetSize, minHeight: Self.minTargetSize)
             .contentShape(Rectangle())
         }
@@ -1278,8 +1286,8 @@ struct ItemReaderFindBar: View {
     @Bindable var vm: ItemReaderViewModel
 
     var body: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 4) {
+        HStack(spacing: Spacing.sm) {
+            HStack(spacing: Spacing.xs) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 11))
                     .foregroundStyle(Color.textTertiary)
@@ -1300,12 +1308,12 @@ struct ItemReaderFindBar: View {
                         .monospacedDigit()
                 }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xsm)
             .background(Color.bgCard)
-            .clipShape(.rect(cornerRadius: 6))
+            .clipShape(.rect(cornerRadius: Radius.control))
             .overlay(
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: Radius.control)
                     .stroke(Color.borderPrimary, lineWidth: 1)
             )
 
@@ -1341,8 +1349,8 @@ struct ItemReaderFindBar: View {
             .buttonStyle(.plain)
             .help("Close find bar (Esc)")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.xsm)
         .background(Color.bgCard)
 
         Divider()

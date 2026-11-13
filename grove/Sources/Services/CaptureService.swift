@@ -1,14 +1,11 @@
 import Foundation
 import SwiftData
 import SwiftUI
-import AVFoundation
-import UniformTypeIdentifiers
 
 @MainActor
 protocol CaptureServiceProtocol {
     func captureItem(input: String, board: Board?) -> Item
     func captureItemDetailed(input: String, board: Board?) -> (item: Item, isDuplicate: Bool)
-    func createVideoItem(filePath: String, board: Board?) -> Item
 }
 
 @MainActor
@@ -109,7 +106,7 @@ final class CaptureService: CaptureServiceProtocol {
             // so treating it as a duplicate would silently swallow a deliberate
             // re-capture with no way to surface the item.
             if candidate.status == .dismissed || candidate.status == .archived { return false }
-            if candidate.metadata["suggestionDismissed"] == "true" { return false }
+            if candidate.isSuggestionDismissed { return false }
             return true
         }
     }
@@ -131,24 +128,17 @@ final class CaptureService: CaptureServiceProtocol {
         item.sourceURL = storedURL
 
         if let arxivID {
-            item.metadata["arxivID"] = arxivID
+            item.arxivID = arxivID
         } else if let url, url.pathExtension.lowercased() == "pdf" {
-            item.metadata["format"] = "pdf"
+            item.isPDFFormat = true
         }
 
-        let itemType: ItemType
-        if Self.isGitHubURL(urlString) {
-            itemType = .codebase
-        } else if Self.isVideoURL(urlString) {
-            itemType = .video
-        } else {
-            itemType = .article
-        }
+        let itemType: ItemType = Self.isVideoURL(urlString) ? .video : .article
         item.type = itemType
 
         if itemType == .video, let url, let video = Self.videoSourceAndID(from: url) {
-            item.metadata["videoSource"] = video.source
-            item.metadata["videoID"] = video.id
+            item.videoSource = video.source
+            item.videoID = video.id
         }
     }
 
@@ -163,7 +153,7 @@ final class CaptureService: CaptureServiceProtocol {
         // the placeholder title and the enrichment both follow it.
         let storedURL = item.sourceURL ?? trimmed
         item.title = storedURL
-        item.metadata["fetchingMetadata"] = "true"
+        item.isFetchingMetadata = true
 
         modelContext.insert(item)
         try? modelContext.save()
@@ -211,55 +201,6 @@ final class CaptureService: CaptureServiceProtocol {
         return item
     }
 
-    // MARK: - Local Video Import
-
-    /// Supported video file extensions
-    nonisolated static let supportedVideoExtensions: Set<String> = ["mp4", "mov", "mkv", "m4v", "avi"]
-
-    /// Supported UTTypes for video drag-and-drop
-    static var supportedVideoUTTypes: [UTType] {
-        [.mpeg4Movie, .quickTimeMovie, .movie, .video, .avi]
-    }
-
-    /// Create a video item from a local file path. The file is referenced, not copied.
-    func createVideoItem(filePath: String, board: Board? = nil) -> Item {
-        let url = URL(fileURLWithPath: filePath)
-        let filename = url.deletingPathExtension().lastPathComponent
-        let item = Item(title: filename, type: .video)
-        prepare(item, for: board)
-        item.sourceURL = url.absoluteString
-        item.metadata["videoLocalFile"] = "true"
-        item.metadata["originalPath"] = filePath
-        modelContext.insert(item)
-        try? modelContext.save()
-
-        let itemID = item.id
-        let context = self.modelContext
-        let tagger = self.tagger
-
-        Task {
-            let fileURL = URL(fileURLWithPath: filePath)
-            let meta = await VideoThumbnailGenerator.extractMetadata(for: fileURL)
-            let thumbnailData = await VideoThumbnailGenerator.generateThumbnail(for: fileURL)
-
-            let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-            guard let fetchedItem = try? context.fetch(descriptor).first else { return }
-
-            for (key, value) in meta {
-                fetchedItem.metadata[key] = value
-            }
-            if let thumbnailData = thumbnailData {
-                fetchedItem.thumbnail = thumbnailData
-            }
-            fetchedItem.updatedAt = .now
-            try? context.save()
-
-            await tagger.autoTagItem(itemID: itemID, context: context)
-        }
-
-        return item
-    }
-
     /// A destination selected by the user is an approval decision. Captures without
     /// a destination remain in the inbox, including items with passive AI suggestions.
     private func prepare(_ item: Item, for board: Board?) {
@@ -269,15 +210,7 @@ final class CaptureService: CaptureServiceProtocol {
         }
 
         item.status = .active
-        if !board.isSmart {
-            item.boards.append(board)
-        }
-    }
-
-    /// Check if a file path points to a supported video file
-    nonisolated static func isSupportedVideoFile(_ path: String) -> Bool {
-        let ext = URL(fileURLWithPath: path).pathExtension.lowercased()
-        return supportedVideoExtensions.contains(ext)
+        item.boards.append(board)
     }
 
     // MARK: - URL Detection Helpers
@@ -298,14 +231,6 @@ final class CaptureService: CaptureServiceProtocol {
             || lower.contains("youtu.be/")
             || lower.contains("vimeo.com/")
             || lower.contains("twitch.tv/")
-    }
-
-    private static func isGitHubURL(_ urlString: String) -> Bool {
-        guard let url = URL(string: urlString),
-              let host = url.host?.lowercased() else {
-            return false
-        }
-        return host == "github.com" || host == "www.github.com"
     }
 
     // MARK: - arXiv

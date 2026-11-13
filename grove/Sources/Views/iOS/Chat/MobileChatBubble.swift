@@ -29,10 +29,10 @@ struct MobileChatBubble: View {
             .padding(.horizontal, Spacing.md)
             .padding(.vertical, Spacing.sm)
             .background(message.role == .user ? Color.textPrimary : Color.bgCard)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.card))
             .overlay {
                 if message.role == .assistant {
-                    RoundedRectangle(cornerRadius: 16)
+                    RoundedRectangle(cornerRadius: Radius.card)
                         .stroke(Color.borderPrimary, lineWidth: 1)
                 }
             }

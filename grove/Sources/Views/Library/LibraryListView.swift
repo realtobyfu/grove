@@ -4,6 +4,7 @@ import SwiftData
 /// The main list of items in the library with multi-select support.
 struct LibraryListView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let displayedItems: [Item]
     let searchQuery: String
     let isMultiSelectMode: Bool
@@ -47,7 +48,7 @@ struct LibraryListView: View {
                     .foregroundStyle(isItemSelected ? Color.textPrimary : Color.textMuted)
                     .frame(width: 28)
                     .padding(.leading, Spacing.sm)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
+                    .transition(reduceMotion ? .opacity : .move(edge: .leading).combined(with: .opacity))
             }
             LibraryRowView(item: item)
         }
@@ -153,7 +154,7 @@ struct LibraryRowView: View {
     @State private var isHovered = false
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Spacing.sm) {
             Image(systemName: item.type.iconName)
                 .font(.groveMeta)
                 .foregroundStyle(Color.textMuted)
@@ -165,7 +166,7 @@ struct LibraryRowView: View {
                     .foregroundStyle(Color.textPrimary)
                     .lineLimit(1)
 
-                HStack(spacing: 4) {
+                HStack(spacing: Spacing.xs) {
                     if let firstBoard = item.boards.first {
                         Text(firstBoard.title)
                             .font(.groveMeta)
@@ -203,12 +204,12 @@ struct LibraryRowView: View {
                     Label("Discuss", systemImage: "bubble.left.and.bubble.right")
                         .font(.groveBadge)
                         .foregroundStyle(Color.textSecondary)
-                        .padding(.horizontal, 8)
+                        .padding(.horizontal, Spacing.sm)
                         .padding(.vertical, 3)
                         .background(Color.bgCard)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 4)
+                            RoundedRectangle(cornerRadius: Radius.control)
                                 .stroke(Color.borderPrimary, lineWidth: 1)
                         )
                 }
@@ -233,7 +234,7 @@ struct LibraryRowView: View {
             }
         }
         .padding(.horizontal, Spacing.md)
-        .padding(.vertical, 8)
+        .padding(.vertical, Spacing.sm)
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.1)) {
                 isHovered = hovering

@@ -19,6 +19,7 @@ struct iPadRootView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(DeepLinkRouter.self) private var deepLinkRouter
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Query(sort: \Board.sortOrder) private var boards: [Board]
     @Query private var allItems: [Item]
 
@@ -65,6 +66,11 @@ struct iPadRootView: View {
     @State private var capturePrefillURL: String?
     @State private var showSearchSheet = false
     @State private var searchInitialQuery: String?
+    /// A search result waiting for the search sheet to close before it opens.
+    @State private var pendingSearchResultItem: Item?
+    /// A board result waiting for the search sheet to close; it becomes the
+    /// sidebar selection rather than a pushed view inside the sheet.
+    @State private var pendingSearchResultBoardID: UUID?
     @State private var deepLinkedConversationID: UUID?
     @State private var readerCoordinator = iPadReaderCoordinator()
     @State private var detailPath = NavigationPath()
@@ -117,6 +123,11 @@ struct iPadRootView: View {
         } detail: {
             NavigationStack(path: $detailPath) {
                 primaryContent
+                    // Today's toolbar search posts this; the search sheet lives here.
+                    .onReceive(NotificationCenter.default.publisher(for: .groveToggleSearch)) { _ in
+                        searchInitialQuery = nil
+                        showSearchSheet = true
+                    }
             }
             .environment(readerCoordinator)
             .navigationDestination(for: DetailRoute.self) { route in
@@ -124,6 +135,7 @@ struct iPadRootView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
+        .background { navigationShortcuts }
         // The iOS roots own the reader bindings, so they — not the macOS-only
         // ContentViewHandlers — must drop a deleted item before the next
         // body pass reads its properties.
@@ -149,7 +161,7 @@ struct iPadRootView: View {
                 .padding(.top, Spacing.md)
             }
         }
-        .animation(.easeOut(duration: 0.2), value: showBoardSuggestion)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: showBoardSuggestion)
         .onAppear {
             consumeDeepLinkIntentIfNeeded()
         }
@@ -189,7 +201,7 @@ struct iPadRootView: View {
             pendingSuggestionItemID = result.itemID
             pendingSuggestion = result.decision
 
-            withAnimation(.easeOut(duration: 0.2)) {
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
                 showBoardSuggestion = true
             }
 
@@ -235,21 +247,26 @@ struct iPadRootView: View {
         }
         .sheet(isPresented: $showNewBoardSheet) {
             BoardEditorSheet(
-                onSave: { title, icon, color, nudgeFreq in
-                    boardViewModel.createBoard(
-                        title: title,
-                        icon: icon,
-                        color: color,
-                        nudgeFrequencyHours: nudgeFreq
-                    )
+                onSave: { title, icon in
+                    boardViewModel.createBoard(title: title, icon: icon)
                 }
             )
         }
         .sheet(isPresented: $showCaptureSheet) {
             CaptureSheetView(prefillURL: capturePrefillURL)
         }
-        .sheet(isPresented: $showSearchSheet) {
-            MobileSearchView(initialQuery: searchInitialQuery)
+        .sheet(isPresented: $showSearchSheet, onDismiss: openPendingSearchResult) {
+            // A result opens in the detail column, the one reader at regular
+            // width, once the sheet has gone.
+            MobileSearchView(
+                initialQuery: searchInitialQuery,
+                onOpenItem: { item in
+                    pendingSearchResultItem = item
+                },
+                onOpenBoard: { board in
+                    pendingSearchResultBoardID = board.id
+                }
+            )
         }
         .sheet(item: $reviewSession) { session in
             NavigationStack { LearningReviewView(boardID: session.boardID) }
@@ -279,8 +296,15 @@ struct iPadRootView: View {
     private var sidebar: some View {
         List(selection: $sidebarSelection) {
             Section {
-                Label("Home", systemImage: "envelope")
-                    .badge(inboxCount)
+                Label("Today", systemImage: "sun.max")
+                    // Mono ink page-number count, never a tinted system badge.
+                    .badge(
+                        inboxCount > 0
+                            ? Text("\(inboxCount)")
+                                .font(.groveMeta)
+                                .foregroundStyle(Color.textSecondary)
+                            : nil
+                    )
                     .tag(SidebarSelection.home)
 
                 Label("Library", systemImage: "books.vertical")
@@ -309,9 +333,13 @@ struct iPadRootView: View {
                         showNewBoardSheet = true
                     } label: {
                         Image(systemName: "plus")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(Color.textMuted)
-                            .frame(width: 16, height: 16)
+                            .frame(
+                                width: LayoutDimensions.minTouchTarget,
+                                height: LayoutDimensions.minTouchTarget
+                            )
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("New board")
@@ -346,6 +374,26 @@ struct iPadRootView: View {
         }
     }
 
+    // MARK: - Keyboard
+
+    /// The Mac's Navigate map: ⌘0 opens Today, ⌘1–9 open boards 1–9 in
+    /// sidebar order. Only this regular-width root registers them; the
+    /// compact TabView fallback has no number shortcuts.
+    private var navigationShortcuts: some View {
+        VStack {
+            Button("Go to Today") { sidebarSelection = .home }
+                .keyboardShortcut("0", modifiers: .command)
+
+            ForEach(Array(boards.prefix(9).enumerated()), id: \.element.id) { index, board in
+                Button("Go to \(board.title)") { sidebarSelection = .board(board.id) }
+                    .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
+            }
+        }
+        .frame(width: 0, height: 0)
+        .opacity(0)
+        .allowsHitTesting(false)
+    }
+
     // MARK: - Primary Content
 
     @ViewBuilder
@@ -360,9 +408,12 @@ struct iPadRootView: View {
                 openItemInPreferredContext(item)
             })
         case .newsletters:
+            // The view lives outside Views/iOS; the paper is laid down here.
             NewsletterInboxView(onOpenItem: { item in
                 openItemInPreferredContext(item)
             })
+            .scrollContentBackground(.hidden)
+            .background(Color.bgPrimary)
         case .board(let boardID):
             if let board = boards.first(where: { $0.id == boardID }) {
                 MobileBoardDetailView(
@@ -374,7 +425,13 @@ struct iPadRootView: View {
                     openedItem: openedItemBinding
                 )
             } else {
-                ContentUnavailableView("Board not found", systemImage: "folder")
+                GroveEmptyState(
+                    title: "This board is gone.",
+                    detail: "It may have been deleted on another device."
+                )
+                .padding(.horizontal, LayoutDimensions.contentPaddingH)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .background(Color.bgPrimary)
             }
         case .chat:
             MobileConversationListView(initialConversationID: deepLinkedConversationID)
@@ -386,9 +443,20 @@ struct iPadRootView: View {
         switch route {
         case .item(let itemID):
             if let item = fetchItem(id: itemID) {
-                IPadItemReaderHostView(item: item)
+                // Keyed by item: a connection swaps the route in place, and the
+                // next item must not inherit this one's reader state.
+                IPadItemReaderHostView(item: item) { linkedItem in
+                    openItemInPreferredContext(linkedItem)
+                }
+                .id(item.id)
             } else {
-                ContentUnavailableView("Item not found", systemImage: "doc.text")
+                GroveEmptyState(
+                    title: "This item is gone.",
+                    detail: "It may have been deleted on another device."
+                )
+                .padding(.horizontal, LayoutDimensions.contentPaddingH)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .background(Color.bgPrimary)
             }
         }
     }
@@ -423,6 +491,19 @@ struct iPadRootView: View {
             searchInitialQuery = query
             showSearchSheet = true
         }
+    }
+
+    /// The sidebar lists' path: the coordinator opens it in the detail column.
+    private func openPendingSearchResult() {
+        if let boardID = pendingSearchResultBoardID {
+            pendingSearchResultBoardID = nil
+            sidebarSelection = .board(boardID)
+            return
+        }
+        guard let item = pendingSearchResultItem else { return }
+        pendingSearchResultItem = nil
+        readerCoordinator.selectedItem = item
+        readerCoordinator.openedItem = item
     }
 
     private func openItemInPreferredContext(_ item: Item) {
@@ -590,7 +671,7 @@ struct iPadRootView: View {
         let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
         guard let item = try? modelContext.fetch(descriptor).first else { return }
 
-        BoardSuggestionMetadata.recordSelection(board, on: item)
+        BoardSuggestionMetadata.clearPendingSuggestion(on: item)
         let viewModel = ItemViewModel(modelContext: modelContext)
         viewModel.assignToBoard(item, board: board)
     }
@@ -600,7 +681,7 @@ struct iPadRootView: View {
         suggestionDismissTask = nil
         showBoardPicker = false
 
-        withAnimation(.easeOut(duration: 0.2)) {
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
             showBoardSuggestion = false
         }
 

@@ -1,57 +1,55 @@
+import SwiftData
 import SwiftUI
 
 /// iOS Settings screen — List-based with sections for AI, Sync, Appearance,
 /// Subscription, and About. Wired into the "More" tab.
 struct MobileSettingsView: View {
+    /// Sheets, as on Today's flashcards row: both views bring their own
+    /// dismiss button, which reads wrong on a pushed screen.
+    private enum LearningPresentation: String, Identifiable {
+        case library, focus
+        var id: String { rawValue }
+    }
+
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openURL) private var openURL
     @Environment(EntitlementService.self) private var entitlement
     @Environment(PaywallCoordinator.self) private var paywallCoordinator
     @Environment(OnboardingService.self) private var onboarding
     @State private var paywallPresentation: PaywallPresentation?
+    @State private var learningPresentation: LearningPresentation?
     @State private var syncEnabled = SyncSettings.syncEnabled
-    @State private var notificationsEnabled = NudgeSettings.notificationsEnabled
 
     var body: some View {
         List {
-            aiSection
-            notificationsSection
-            newslettersSection
-            syncSection
-            appearanceSection
-            subscriptionSection
-            aboutSection
+            // Grouped rows read as cards on the paper page.
+            Group {
+                aiSection
+                newslettersSection
+                learningSection
+                syncSection
+                appearanceSection
+                subscriptionSection
+                aboutSection
+            }
+            .listRowBackground(Color.bgCard)
         }
+        .scrollContentBackground(.hidden)
+        .background(Color.bgPrimary)
         .navigationTitle("Settings")
         .onAppear {
             syncEnabled = SyncSettings.syncEnabled
-            notificationsEnabled = NudgeSettings.notificationsEnabled
         }
         .sheet(item: $paywallPresentation) { presentation in
             ProPaywallView(presentation: presentation)
         }
-    }
-
-    // MARK: - Notifications
-
-    private var notificationsSection: some View {
-        Section("Reminders") {
-            Toggle(isOn: $notificationsEnabled) {
-                Label("System Notifications", systemImage: "bell")
-            }
-            .onChange(of: notificationsEnabled) { _, newValue in
-                Task {
-                    let effectiveValue = await NudgeNotificationService.shared
-                        .setNotificationsEnabled(newValue)
-                    if notificationsEnabled != effectiveValue {
-                        notificationsEnabled = effectiveValue
-                    }
+        .sheet(item: $learningPresentation) { presentation in
+            NavigationStack {
+                switch presentation {
+                case .library: FlashcardLibraryView()
+                case .focus: LearningFocusView()
                 }
             }
-
-            Text("When off, reminders appear only inside Today.")
-                .font(.groveBodySmall)
-                .foregroundStyle(Color.textSecondary)
         }
     }
 
@@ -63,6 +61,25 @@ struct MobileSettingsView: View {
                 SubscriptionsSettingsView()
             } label: {
                 Label("Subscriptions", systemImage: "newspaper")
+            }
+        }
+    }
+
+    // MARK: - Learning
+
+    /// Always here: Today's flashcards row hides when nothing is due.
+    private var learningSection: some View {
+        Section("Learning") {
+            Button {
+                learningPresentation = .library
+            } label: {
+                Label("Flashcards", systemImage: "rectangle.on.rectangle")
+            }
+
+            Button {
+                learningPresentation = .focus
+            } label: {
+                Label("Focus & session length", systemImage: "scope")
             }
         }
     }

@@ -6,7 +6,7 @@ import SwiftData
 /// Source references are identifiers rather than cascading relationships: a
 /// deleted article must not erase the passage a person learned from.
 @Model
-final class Flashcard {
+final class UserFlashcard {
     var id: UUID = UUID()
     var question: String = ""
     var answer: String = ""
@@ -68,3 +68,7 @@ final class Flashcard {
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }
+
+/// The stored entity is named `UserFlashcard` so it sorts after every 2.0 entity.
+/// Read "Migration Limits" in SharedModelContainer.swift before adding a model.
+typealias Flashcard = UserFlashcard

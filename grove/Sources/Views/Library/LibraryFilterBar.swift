@@ -9,7 +9,7 @@ struct LibrarySearchBar: View {
     let onToggleMultiSelect: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
             Image(systemName: isSearching ? "hourglass" : "magnifyingglass")
                 .font(.groveBody)
                 .foregroundStyle(Color.textSecondary)
@@ -60,7 +60,7 @@ struct LibrarySearchBar: View {
             .buttonStyle(.plain)
         }
         .padding(.horizontal, Spacing.md)
-        .padding(.vertical, 10)
+        .padding(.vertical, Spacing.md)
         .background(Color.bgPrimary)
     }
 }
@@ -94,90 +94,17 @@ struct LibraryBoardFilterBar: View {
 
     /// Toggle chip that switches the list to archived items.
     private var archivedChip: some View {
-        Button {
+        FilterChip(label: "Archived", systemImage: "archivebox", isActive: showingArchived) {
             withAnimation(.easeInOut(duration: 0.15)) {
                 showingArchived.toggle()
             }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "archivebox")
-                    .font(.groveMeta)
-                Text("Archived")
-                    .font(.groveTag)
-            }
-            .foregroundStyle(showingArchived ? Color.textInverse : Color.textSecondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(showingArchived ? Color.bgTagActive : Color.bgCard)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-            .overlay(
-                RoundedRectangle(cornerRadius: 4)
-                    .stroke(showingArchived ? Color.clear : Color.borderTag, lineWidth: 1)
-            )
         }
-        .buttonStyle(.plain)
         .help(showingArchived ? "Show active items" : "Show archived items")
     }
 
     private func boardChip(title: String, boardID: UUID?) -> some View {
-        let isActive = selectedBoardID == boardID
-        return Button {
+        FilterChip(label: title, isActive: selectedBoardID == boardID) {
             selectedBoardID = boardID
-        } label: {
-            Text(title)
-                .font(.groveTag)
-                .foregroundStyle(isActive ? Color.textInverse : Color.textPrimary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(isActive ? Color.bgTagActive : Color.bgCard)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(isActive ? Color.clear : Color.borderTag, lineWidth: 1)
-                )
         }
-        .buttonStyle(.plain)
-    }
-}
-
-/// Revisit banner shown when spaced-repetition items are overdue.
-struct LibraryRevisitBanner: View {
-    let overdueCount: Int
-    @Binding var showingRevisitFilter: Bool
-    @Binding var selectedBoardID: UUID?
-    @Binding var searchQuery: String
-
-    var body: some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                showingRevisitFilter.toggle()
-                if showingRevisitFilter {
-                    selectedBoardID = nil
-                    searchQuery = ""
-                }
-            }
-        } label: {
-            HStack(spacing: Spacing.sm) {
-                Image(systemName: "clock.arrow.circlepath")
-                    .font(.groveMeta)
-                    .foregroundStyle(Color.textSecondary)
-                Text("\(overdueCount) item\(overdueCount == 1 ? "" : "s") to revisit")
-                    .font(.groveBodySmall)
-                    .foregroundStyle(Color.textSecondary)
-                Spacer()
-                if showingRevisitFilter {
-                    Text("Show all")
-                        .font(.groveMeta)
-                        .foregroundStyle(Color.textTertiary)
-                }
-                Image(systemName: showingRevisitFilter ? "xmark" : "chevron.right")
-                    .font(.groveMeta)
-                    .foregroundStyle(Color.textTertiary)
-            }
-            .padding(.horizontal, Spacing.md)
-            .padding(.vertical, Spacing.xs)
-            .background(showingRevisitFilter ? Color.bgCard : Color.bgPrimary)
-        }
-        .buttonStyle(.plain)
     }
 }

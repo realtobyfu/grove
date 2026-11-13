@@ -35,17 +35,16 @@ struct MobileNoteEditorView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: Spacing.sm) {
                         ForEach(item.boards) { board in
-                            HStack(spacing: 4) {
+                            HStack(spacing: Spacing.xs) {
                                 Image(systemName: board.icon ?? "folder")
-                                    .font(.system(size: 10))
+                                    .font(.groveMeta)
                                 Text(board.title)
                                     .font(.groveMeta)
                             }
                             .foregroundStyle(Color.textTertiary)
                             .padding(.horizontal, Spacing.sm)
-                            .padding(.vertical, 4)
-                            .background(Color.bgCard)
-                            .clipShape(Capsule())
+                            .padding(.vertical, Spacing.xs)
+                            .background(Color.bgCard, in: RoundedRectangle(cornerRadius: Radius.control))
                         }
                     }
                     .padding(.horizontal, LayoutDimensions.contentPaddingH)
@@ -78,8 +77,12 @@ struct MobileNoteEditorView: View {
                         Label("Add to Board", systemImage: "folder.badge.plus")
                     }
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    // Not an ellipsis: the reader hosting this editor already
+                    // has an overflow menu in the same toolbar.
+                    Image(systemName: "plus.circle")
+                        .fontWeight(.medium)
                 }
+                .accessibilityLabel("Add from this note")
             }
         }
         .sheet(isPresented: $showBoardPicker) {
@@ -95,34 +98,71 @@ struct MobileNoteEditorView: View {
 
     // MARK: - Board picker
 
+    /// Multi-select membership toggles. Not BoardPickerView: that picker
+    /// picks one board and dismisses, and cannot take a note off a board.
     @ViewBuilder
     private var boardPickerSheet: some View {
         NavigationStack {
             List {
-                ForEach(boards) { board in
-                    let isAssigned = item.boards.contains(where: { $0.id == board.id })
-                    Button {
-                        toggleBoard(board)
-                    } label: {
-                        HStack {
-                            Label(board.title, systemImage: board.icon ?? "folder")
-                                .foregroundStyle(Color.textPrimary)
-                            Spacer()
-                            if isAssigned {
+                Section {
+                    ForEach(boards) { board in
+                        let isAssigned = item.boards.contains(where: { $0.id == board.id })
+                        Button {
+                            toggleBoard(board)
+                        } label: {
+                            HStack(spacing: Spacing.sm) {
+                                Image(systemName: board.icon ?? "folder")
+                                    .font(.groveBodySecondary)
+                                    .fontWeight(.medium)
+                                    .foregroundStyle(Color.textTertiary)
+                                Text(board.title)
+                                    .font(.groveListTitle)
+                                    .foregroundStyle(Color.textPrimary)
+                                    .lineLimit(1)
+                                Spacer(minLength: Spacing.sm)
+                                Text("\(board.items.count)")
+                                    .font(.groveMeta)
+                                    .foregroundStyle(Color.textTertiary)
+                                    .monospacedDigit()
                                 Image(systemName: "checkmark")
-                                    .foregroundStyle(Color.textSecondary)
+                                    .font(.groveMeta)
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(Color.textPrimary)
+                                    .opacity(isAssigned ? 1 : 0)
                             }
+                            .frame(minHeight: LayoutDimensions.minTouchTarget)
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(isAssigned ? .isSelected : [])
+                        .listRowBackground(Color.bgPrimary)
                     }
+                } footer: {
+                    Text("Tap a board to add this note to it, or tap again to take it off.")
+                        .font(.groveMeta)
+                        .foregroundStyle(Color.textTertiary)
                 }
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Color.bgPrimary)
             .navigationTitle("Boards")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { showBoardPicker = false }
+                ToolbarItem(placement: .principal) {
+                    Text("Boards")
+                        .font(.groveListTitle)
+                        .foregroundStyle(Color.textPrimary)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        showBoardPicker = false
+                    } label: {
+                        Text("Done")
+                            .font(.groveBodyMedium)
+                    }
                 }
             }
         }

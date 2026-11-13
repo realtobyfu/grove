@@ -7,9 +7,6 @@ import Foundation
 /// heuristic path — its starters are LLM-or-nothing.
 enum StarterHeuristicGenerator {
 
-    /// Maximum bubble count for Pro users (used to cap output).
-    private static let maxBubbleCountPro = 3
-
     // MARK: - Board-Scoped Heuristics
 
     /// Board-scoped heuristics — uses the same StarterContext but skips unboarded-cluster logic.
@@ -73,6 +70,6 @@ enum StarterHeuristicGenerator {
             ))
         }
 
-        return Array(bubbles.prefix(maxBubbleCountPro))
+        return bubbles
     }
 }

@@ -93,7 +93,7 @@ struct StarterLLMGeneratorTests {
     @Test func groundingPrefersTheStoredSummaryOverRawContent() {
         let item = Item(title: "AI Broke Code Review", type: .article)
         item.content = String(repeating: "boilerplate nav chrome ", count: 10)
-        item.metadata["summary"] = "Argues that LLM-authored diffs make reviewer attention the bottleneck."
+        item.summary = "Argues that LLM-authored diffs make reviewer attention the bottleneck."
 
         let grounding = StarterLLMGenerator.grounding(for: item)
         #expect(grounding == "Argues that LLM-authored diffs make reviewer attention the bottleneck.")
@@ -102,7 +102,7 @@ struct StarterLLMGeneratorTests {
     @MainActor
     @Test func groundingPrefersTheUsersOwnNote() {
         let item = Item(title: "AI Broke Code Review", type: .article)
-        item.metadata["summary"] = "A summary."
+        item.summary = "A summary."
         let reflection = ReflectionBlock(item: item, blockType: .disagreement, content: "I disagree — review was already broken.", position: 0)
         item.reflections.append(reflection)
 
@@ -129,7 +129,7 @@ struct StarterLLMGeneratorTests {
         let item = Item(title: "AI Broke Code Review ‣ Swift and Memes", type: .article)
         item.status = .active
         item.createdAt = .now
-        item.metadata["summary"] = "Argues reviewer attention is now the bottleneck."
+        item.summary = "Argues reviewer attention is now the bottleneck."
 
         let context = StarterContextBuilder.buildContext(from: [item])
         let candidates = StarterLLMGenerator.buildCandidates(from: context, didShowClusterBubble: false)

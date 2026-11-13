@@ -1,12 +1,15 @@
 import SwiftUI
 import SwiftData
 
-/// Bottom sheet for viewing and editing reflections on an item.
-/// iPhone: presented as sheet with .medium/.large detents.
-/// iPad: presented as inspector trailing column (caller uses .inspector modifier).
+/// Sheet for viewing and editing reflections on an item, drawn in the Mac
+/// reflections rail's grammar: ink-ruled rows, a mono type label, the quoted
+/// highlight in serif italic above the reflection, the date in mono meta.
+///
+/// Only ever presented as a sheet (iPhone, and iPad in compact width), so it
+/// owns its NavigationStack. A regular-width iPad keeps reflections in the
+/// shared reader's right rail instead.
 struct MobileReflectionSheet: View {
     let item: Item
-    var onDismiss: (() -> Void)? = nil
     /// Set by the caller to open a specific block for editing. Consumed
     /// (reset to nil) once handled.
     var requestedEditBlock: Binding<ReflectionBlock?>? = nil
@@ -23,6 +26,14 @@ struct MobileReflectionSheet: View {
     @State private var flashcardSession: LearningEditorSession?
     @FocusState private var isEditorFocused: Bool
 
+    /// The Mac rail's ghost prompts, in its order: each starts a reflection
+    /// of its type.
+    private static let ghostPrompts: [(label: String, type: ReflectionBlockType)] = [
+        ("Key claim?", .keyInsight),
+        ("Connections?", .connection),
+        ("Challenge?", .disagreement)
+    ]
+
     private var sortedReflections: [ReflectionBlock] {
         item.reflections.sorted { $0.position < $1.position }
     }
@@ -36,28 +47,28 @@ struct MobileReflectionSheet: View {
                     reflectionList
                 }
             }
+            .background(Color.bgPrimary)
             .navigationTitle("Reflections")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Reflections")
+                        .font(.groveListTitle)
+                        .foregroundStyle(Color.textPrimary)
+                }
                 ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        isAddingNew = true
-                        isEditorFocused = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .accessibilityLabel("Add reflection")
+                    addMenu
                 }
                 ToolbarItem(placement: .cancellationAction) {
                     Button {
                         commitPendingEdits()
-                        if let onDismiss { onDismiss() } else { dismiss() }
+                        dismiss()
                     } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(Color.textSecondary)
+                        Text("Done")
+                            .font(.groveBodyMedium)
+                            .foregroundStyle(Color.textPrimary)
                     }
                     .accessibilityLabel("Close")
                 }
@@ -82,183 +93,326 @@ struct MobileReflectionSheet: View {
         binding.wrappedValue = nil
     }
 
+    /// "+" in the toolbar: pick the type up front, as on the Mac.
+    private var addMenu: some View {
+        Menu {
+            ForEach(ReflectionBlockType.allCases, id: \.self) { type in
+                Button {
+                    startNewReflection(type: type)
+                } label: {
+                    Label(type.displayName, systemImage: type.systemImage)
+                }
+            }
+        } label: {
+            Image(systemName: "plus")
+                .fontWeight(.medium)
+                .foregroundStyle(Color.textPrimary)
+                .frame(minWidth: LayoutDimensions.minTouchTarget, minHeight: LayoutDimensions.minTouchTarget)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("Add reflection")
+    }
+
     // MARK: - Empty state
 
+    /// The Mac rail's empty idiom: a serif line, the ghost prompts, and one
+    /// way to start a blank reflection.
     private var emptyState: some View {
-        ContentUnavailableView {
-            Label("No Reflections", systemImage: "text.bubble")
-        } description: {
-            Text("Add reflections to deepen your understanding of this item.")
-        } actions: {
-            Button("Add Reflection") {
-                isAddingNew = true
-                isEditorFocused = true
+        ScrollView {
+            VStack(alignment: .leading, spacing: Spacing.lg) {
+                VStack(alignment: .leading, spacing: Spacing.xs) {
+                    Text("No reflections yet.")
+                        .font(.groveListTitle)
+                        .foregroundStyle(Color.textPrimary)
+                    Text("Start with a question.")
+                        .font(.groveBodySecondary)
+                        .foregroundStyle(Color.textMuted)
+                }
+
+                VStack(alignment: .leading, spacing: Spacing.sm) {
+                    ForEach(Self.ghostPrompts, id: \.label) { prompt in
+                        ghostPromptButton(label: prompt.label, type: prompt.type)
+                    }
+                }
+
+                Button("Add reflection") {
+                    startNewReflection(type: .keyInsight)
+                }
+                .buttonStyle(.grove(.primary))
             }
+            .padding(.horizontal, LayoutDimensions.contentPaddingH)
+            .padding(.vertical, Spacing.xl)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    private func ghostPromptButton(label: String, type: ReflectionBlockType) -> some View {
+        Button {
+            startNewReflection(type: type)
+        } label: {
+            HStack(spacing: Spacing.sm) {
+                Image(systemName: type.systemImage)
+                    .font(.groveMeta)
+                Text(label)
+                    .font(.groveBodySecondary)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(Color.textTertiary)
+            .padding(.horizontal, Spacing.md)
+            .frame(maxWidth: .infinity, minHeight: LayoutDimensions.minTouchTarget, alignment: .leading)
+            .contentShape(Rectangle())
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.control)
+                    .strokeBorder(Color.borderPrimary, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(label) Start a \(type.displayName) reflection")
     }
 
     // MARK: - Reflection list
 
     private var reflectionList: some View {
         List {
-            if isAddingNew {
-                newReflectionEditor
-            }
+            Section {
+                if isAddingNew {
+                    newReflectionEditor
+                        .listRowBackground(Color.bgPrimary)
+                }
 
-            ForEach(sortedReflections) { block in
-                if editingBlock?.id == block.id {
-                    editBlockView(block)
-                } else {
-                    reflectionRow(block)
+                ForEach(sortedReflections) { block in
+                    Group {
+                        if editingBlock?.id == block.id {
+                            editBlockView(block)
+                        } else {
+                            reflectionRow(block)
+                        }
+                    }
+                    .listRowBackground(Color.bgPrimary)
+                    .listRowSeparatorTint(Color.borderPrimary)
+                }
+                .onDelete(perform: deleteBlocks)
+            } header: {
+                HStack(spacing: Spacing.sm) {
+                    Text("Reflections")
+                        .sectionHeaderStyle()
+                    Text("\(sortedReflections.count)")
+                        .font(.groveMeta)
+                        .foregroundStyle(Color.textMuted)
                 }
             }
-            .onDelete(perform: deleteBlocks)
         }
         .listStyle(.plain)
+        .scrollContentBackground(.hidden)
     }
 
     // MARK: - Reflection row
 
     private func reflectionRow(_ block: ReflectionBlock) -> some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
             HStack(spacing: Spacing.sm) {
-                Image(systemName: block.blockType.systemImage)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color.textTertiary)
                 Text(block.blockType.displayName)
-                    .font(.groveMeta)
-                    .foregroundStyle(Color.textTertiary)
-                Spacer()
-                Text(block.createdAt, style: .relative)
+                    .sectionHeaderStyle()
+                Spacer(minLength: Spacing.sm)
+                Text(block.createdAt.formatted(date: .abbreviated, time: .omitted))
                     .font(.groveMeta)
                     .foregroundStyle(Color.textMuted)
+                    .lineLimit(1)
             }
 
             if let highlight = block.highlight, !highlight.isEmpty {
-                let quote = Text(highlight)
-                    .font(.groveBodySecondary)
-                    .foregroundStyle(Color.textSecondary)
-                    .italic()
-                    .lineLimit(3)
-                    .padding(.leading, Spacing.sm)
-                    .overlay(alignment: .leading) {
-                        Rectangle()
-                            .fill(Color.textMuted.opacity(0.3))
-                            .frame(width: 2)
-                    }
-
-                if let onHighlightTap {
-                    Button {
-                        onHighlightTap(highlight)
-                    } label: {
-                        quote
-                            .frame(maxWidth: .infinity,
-                                   minHeight: LayoutDimensions.minTouchTarget,
-                                   alignment: .leading)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Show highlight in article")
-                } else {
-                    quote
-                }
+                highlightQuote(highlight)
             }
 
-            Text(block.content)
-                .font(.groveBody)
-                .foregroundStyle(Color.textPrimary)
+            if block.content.isEmpty {
+                Text("Tap to add your reflection…")
+                    .font(.groveGhostText)
+                    .foregroundStyle(Color.textTertiary)
+            } else {
+                Text(block.content)
+                    .font(.groveBody)
+                    .foregroundStyle(Color.textPrimary)
+            }
+
             Button {
-                flashcardSession = LearningEditorSession(item: item, reflection: block, sourceQuote: block.highlight ?? block.content)
+                makeFlashcard(from: block)
             } label: {
                 Label("Make a flashcard", systemImage: "rectangle.on.rectangle")
                     .font(.groveBodySmall)
                     .foregroundStyle(Color.textSecondary)
                     .frame(minHeight: LayoutDimensions.minTouchTarget)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
-        .frame(minHeight: LayoutDimensions.minTouchTarget)
+        .padding(.leading, Spacing.md)
         .padding(.vertical, Spacing.xs)
+        .frame(maxWidth: .infinity, minHeight: LayoutDimensions.minTouchTarget, alignment: .leading)
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(Color.textPrimary)
+                .frame(width: 2)
+        }
         .contentShape(Rectangle())
         .onTapGesture {
             editingBlock = block
         }
         .contextMenu {
-            Button("Make a flashcard", systemImage: "rectangle.on.rectangle") {
-                flashcardSession = LearningEditorSession(item: item, reflection: block, sourceQuote: block.highlight ?? block.content)
+            Button("Edit", systemImage: "pencil") {
+                editingBlock = block
             }
+            Menu("Change Type") {
+                typeOptions(for: block)
+            }
+            Button("Make a flashcard", systemImage: "rectangle.on.rectangle") {
+                makeFlashcard(from: block)
+            }
+            if let highlight = block.highlight, !highlight.isEmpty, let onHighlightTap {
+                Button("Show in article", systemImage: "text.magnifyingglass") {
+                    onHighlightTap(highlight)
+                }
+            }
+            Divider()
+            Button(role: .destructive) {
+                delete(block)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+    }
+
+    /// The quoted passage in serif italic. Tapping it jumps to the passage
+    /// when the source can be scrolled.
+    @ViewBuilder
+    private func highlightQuote(_ highlight: String) -> some View {
+        let quote = Text(highlight)
+            .font(.groveGhostText)
+            .foregroundStyle(Color.textSecondary)
+            .lineLimit(4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+        if let onHighlightTap {
+            Button {
+                onHighlightTap(highlight)
+            } label: {
+                quote
+                    .frame(minHeight: LayoutDimensions.minTouchTarget, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Show highlight in article")
+            .accessibilityValue(highlight)
+        } else {
+            quote
+        }
+    }
+
+    private func typeOptions(for block: ReflectionBlock) -> some View {
+        ForEach(ReflectionBlockType.allCases, id: \.self) { type in
+            Button {
+                block.blockType = type
+                try? modelContext.save()
+            } label: {
+                Label(type.displayName, systemImage: type.systemImage)
+            }
+        }
+    }
+
+    // MARK: - Type picker (editors)
+
+    /// Mono type label that opens the type list — the row's own header,
+    /// made editable.
+    private func typeMenu(selection: Binding<ReflectionBlockType>) -> some View {
+        Menu {
+            Picker("Type", selection: selection) {
+                ForEach(ReflectionBlockType.allCases, id: \.self) { type in
+                    Label(type.displayName, systemImage: type.systemImage)
+                        .tag(type)
+                }
+            }
+        } label: {
+            HStack(spacing: Spacing.xs) {
+                Text(selection.wrappedValue.displayName)
+                    .sectionHeaderStyle()
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.groveMeta)
+                    .foregroundStyle(Color.textMuted)
+            }
+            .frame(minHeight: LayoutDimensions.minTouchTarget)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel("Reflection type")
+        .accessibilityValue(selection.wrappedValue.displayName)
+    }
+
+    private func editorChrome<Content: View>(
+        type: Binding<ReflectionBlockType>,
+        closeLabel: String,
+        onClose: @escaping () -> Void,
+        @ViewBuilder editor: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            HStack {
+                typeMenu(selection: type)
+                Spacer()
+                Button(closeLabel, action: onClose)
+                    .font(.groveBodyMedium)
+                    .foregroundStyle(Color.textPrimary)
+                    .frame(minWidth: LayoutDimensions.minTouchTarget,
+                           minHeight: LayoutDimensions.minTouchTarget)
+                    .buttonStyle(.plain)
+            }
+            editor()
+        }
+        .padding(.leading, Spacing.md)
+        .padding(.vertical, Spacing.xs)
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(Color.textPrimary)
+                .frame(width: 2)
         }
     }
 
     // MARK: - New reflection editor
 
     private var newReflectionEditor: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            HStack {
-                Picker("Type", selection: $newBlockType) {
-                    ForEach(ReflectionBlockType.allCases, id: \.self) { type in
-                        Label(type.displayName, systemImage: type.systemImage)
-                            .tag(type)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                Button {
-                    discardNewReflection()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 18))
-                        .foregroundStyle(Color.textMuted)
-                }
-                .frame(minWidth: LayoutDimensions.minTouchTarget,
-                       minHeight: LayoutDimensions.minTouchTarget)
-                .accessibilityLabel("Discard")
-            }
-
+        editorChrome(
+            type: $newBlockType,
+            closeLabel: "Discard",
+            onClose: { discardNewReflection() }
+        ) {
             TextEditor(text: $newBlockContent)
                 .font(.groveBody)
-                .frame(minHeight: 80)
+                .scrollContentBackground(.hidden)
+                .frame(minHeight: LayoutDimensions.minTouchTarget * 2)
                 .focused($isEditorFocused)
                 .onChange(of: isEditorFocused) { _, focused in
                     if !focused { autoSaveNewReflection() }
                 }
         }
-        .padding(.vertical, Spacing.xs)
     }
 
     // MARK: - Edit existing block
 
     private func editBlockView(_ block: ReflectionBlock) -> some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            HStack {
-                Picker("Type", selection: Binding(
-                    get: { block.blockType },
-                    set: { newType in
-                        block.blockType = newType
-                        try? modelContext.save()
-                    }
-                )) {
-                    ForEach(ReflectionBlockType.allCases, id: \.self) { type in
-                        Label(type.displayName, systemImage: type.systemImage)
-                            .tag(type)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                Button {
+        editorChrome(
+            type: Binding(
+                get: { block.blockType },
+                set: { newType in
+                    block.blockType = newType
                     try? modelContext.save()
-                    WikiLinkSync.sync(item: item, content: block.content, modelContext: modelContext)
-                    editingBlock = nil
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 18))
-                        .foregroundStyle(Color.textMuted)
                 }
-                .frame(minWidth: LayoutDimensions.minTouchTarget,
-                       minHeight: LayoutDimensions.minTouchTarget)
-                .accessibilityLabel("Done editing")
+            ),
+            closeLabel: "Done",
+            onClose: {
+                try? modelContext.save()
+                WikiLinkSync.sync(item: item, content: block.content, modelContext: modelContext)
+                editingBlock = nil
             }
-
+        ) {
+            if let highlight = block.highlight, !highlight.isEmpty {
+                highlightQuote(highlight)
+            }
             TextEditor(text: Binding(
                 get: { block.content },
                 set: { newValue in
@@ -267,12 +421,25 @@ struct MobileReflectionSheet: View {
                 }
             ))
             .font(.groveBody)
-            .frame(minHeight: 80)
+            .scrollContentBackground(.hidden)
+            .frame(minHeight: LayoutDimensions.minTouchTarget * 2)
         }
-        .padding(.vertical, Spacing.xs)
     }
 
     // MARK: - Actions
+
+    private func startNewReflection(type: ReflectionBlockType) {
+        // A reflection already being written keeps its text; only its type
+        // follows the new choice.
+        newBlockType = type
+        editingBlock = nil
+        isAddingNew = true
+        isEditorFocused = true
+    }
+
+    private func makeFlashcard(from block: ReflectionBlock) {
+        flashcardSession = LearningEditorSession(item: item, reflection: block, sourceQuote: block.highlight ?? block.content)
+    }
 
     /// Autosave: creates the reflection when the editor loses focus (if non-empty).
     private func autoSaveNewReflection() {
@@ -312,9 +479,16 @@ struct MobileReflectionSheet: View {
         }
     }
 
+    private func delete(_ block: ReflectionBlock) {
+        if editingBlock?.id == block.id { editingBlock = nil }
+        modelContext.delete(block)
+        try? modelContext.save()
+    }
+
     private func deleteBlocks(at offsets: IndexSet) {
         let blocks = sortedReflections
         for index in offsets {
+            if editingBlock?.id == blocks[index].id { editingBlock = nil }
             modelContext.delete(blocks[index])
         }
         try? modelContext.save()

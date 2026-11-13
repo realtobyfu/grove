@@ -66,7 +66,7 @@ struct GroveTests {
     }
 
     @MainActor
-    @Test func boardSuggestionSelectionRecordsLocalEvaluationSignal() {
+    @Test func boardSuggestionSelectionClearsPendingSuggestion() {
         let item = Item(title: "Pending", type: .note)
         let board = Board(title: "Research")
         let decision = BoardSuggestionDecision(
@@ -79,12 +79,114 @@ struct GroveTests {
         )
         BoardSuggestionMetadata.apply(decision, to: item)
 
-        BoardSuggestionMetadata.recordSelection(board, on: item)
+        BoardSuggestionMetadata.clearPendingSuggestion(on: item)
 
-        #expect(item.metadata["pendingBoardSuggestion"] == nil)
-        #expect(item.metadata["boardSuggestionOutcome"] == "selected")
-        #expect(item.metadata["boardSuggestionSelectedBoardID"] == board.id.uuidString)
-        #expect(item.metadata["boardSuggestionMatchedRecommendation"] == "true")
+        #expect(item.pendingBoardSuggestion == nil)
+    }
+
+    @MainActor
+    @Test func acceptingExistingBoardSuggestionFilesItemOnRecommendedBoard() throws {
+        let context = try makeInMemoryModelContext()
+        let item = try insertSuggestedItem(in: context)
+        let board = Board(title: "Research")
+        context.insert(board)
+        let decision = boardDecision(named: "Renamed Since", mode: .existing, recommendedBoardID: board.id)
+        BoardSuggestionMetadata.apply(decision, to: item)
+
+        ItemViewModel(modelContext: context).assignPendingItem(item.id, accepting: decision)
+
+        let store = ModelContext(context.container)
+        let saved = try savedItem(item.id, in: store)
+        #expect(saved.status == .active)
+        #expect(saved.boards.map(\.id) == [board.id])
+        #expect(saved.pendingBoardSuggestion == nil)
+    }
+
+    @MainActor
+    @Test func acceptingCreateBoardSuggestionSavesNewBoardWithItem() throws {
+        let context = try makeInMemoryModelContext()
+        let item = try insertSuggestedItem(in: context)
+        let decision = boardDecision(named: "Field Notes", mode: .create)
+
+        ItemViewModel(modelContext: context).assignPendingItem(item.id, accepting: decision)
+
+        let store = ModelContext(context.container)
+        let saved = try savedItem(item.id, in: store)
+        #expect(saved.status == .active)
+        #expect(saved.boards.map(\.title) == ["Field Notes"])
+        #expect(!context.hasChanges)
+    }
+
+    @MainActor
+    @Test func acceptingBoardSuggestionFallsBackToTitleWhenRecommendedBoardIsGone() throws {
+        let context = try makeInMemoryModelContext()
+        let item = try insertSuggestedItem(in: context)
+        let board = Board(title: "Research")
+        context.insert(board)
+        let decision = boardDecision(named: "research", mode: .existing, recommendedBoardID: UUID())
+
+        ItemViewModel(modelContext: context).assignPendingItem(item.id, accepting: decision)
+
+        let store = ModelContext(context.container)
+        let saved = try savedItem(item.id, in: store)
+        #expect(saved.boards.map(\.id) == [board.id])
+        #expect(try context.fetchCount(FetchDescriptor<Board>()) == 1)
+    }
+
+    @MainActor
+    @Test func pickingBoardForSuggestionFilesItem() throws {
+        let context = try makeInMemoryModelContext()
+        let item = try insertSuggestedItem(in: context)
+        let board = Board(title: "Research")
+        context.insert(board)
+
+        ItemViewModel(modelContext: context).assignPendingItem(item.id, to: board)
+
+        let store = ModelContext(context.container)
+        let saved = try savedItem(item.id, in: store)
+        #expect(saved.status == .active)
+        #expect(saved.boards.map(\.id) == [board.id])
+        #expect(saved.pendingBoardSuggestion == nil)
+    }
+
+    @MainActor
+    @Test func creatingBoardForSuggestionSavesCleanedBoardWithItem() throws {
+        let context = try makeInMemoryModelContext()
+        let item = try insertSuggestedItem(in: context)
+
+        ItemViewModel(modelContext: context).assignPendingItem(item.id, toBoardNamed: "  Field   Notes ")
+
+        let store = ModelContext(context.container)
+        let saved = try savedItem(item.id, in: store)
+        #expect(saved.status == .active)
+        #expect(saved.boards.map(\.title) == ["Field Notes"])
+        #expect(!context.hasChanges)
+    }
+
+    @MainActor
+    @Test func creatingBoardForSuggestionReusesBoardWithSameTitle() throws {
+        let context = try makeInMemoryModelContext()
+        let item = try insertSuggestedItem(in: context)
+        let board = Board(title: "Research")
+        context.insert(board)
+
+        ItemViewModel(modelContext: context).assignPendingItem(item.id, toBoardNamed: "RESEARCH")
+
+        let store = ModelContext(context.container)
+        let saved = try savedItem(item.id, in: store)
+        #expect(saved.boards.map(\.id) == [board.id])
+        #expect(try context.fetchCount(FetchDescriptor<Board>()) == 1)
+    }
+
+    @MainActor
+    @Test func boardSuggestionForMissingItemCreatesNoBoard() throws {
+        let context = try makeInMemoryModelContext()
+        let viewModel = ItemViewModel(modelContext: context)
+
+        viewModel.assignPendingItem(UUID(), toBoardNamed: "Field Notes")
+        viewModel.assignPendingItem(UUID(), accepting: boardDecision(named: "Field Notes", mode: .create))
+
+        #expect(try context.fetchCount(FetchDescriptor<Board>()) == 0)
     }
 
     @MainActor
@@ -200,11 +302,12 @@ struct GroveTests {
         recent.status = .active
         recent.createdAt = .now
         recent.updatedAt = .now
-        recent.metadata["summary"] = "A recent thought with enough substance to ground a starter."
+        recent.summary = "A recent thought with enough substance to ground a starter."
 
         await service.refresh(items: [recent])
 
-        #expect(service.bubbles.count == ConversationStarterService.maxBubbleCountFree)
+        #expect(ConversationStarterService.maxBubbleCount == 2)
+        #expect(service.bubbles.count == ConversationStarterService.maxBubbleCount)
     }
 
     @MainActor
@@ -238,7 +341,7 @@ struct GroveTests {
         recent.status = .active
         recent.createdAt = .now
         recent.updatedAt = .now
-        recent.metadata["summary"] = "A recent thought with enough substance to ground a starter."
+        recent.summary = "A recent thought with enough substance to ground a starter."
 
         await service.refresh(items: [recent])
         let originalCount = service.bubbles.count
@@ -248,6 +351,43 @@ struct GroveTests {
 
         #expect(service.bubbles.count == originalCount - 1)
         #expect(service.bubbles.first?.prompt == "P2")
+    }
+
+    @MainActor
+    @Test func conversationStarterServiceDismissRetiresDetectedTension() throws {
+        let context = try makeInMemoryModelContext()
+        let a = Item(title: "A", type: .note)
+        let b = Item(title: "B", type: .note)
+        context.insert(a)
+        context.insert(b)
+        let connection = Connection(sourceItem: a, targetItem: b, type: .contradicts)
+        connection.isAutoGenerated = true
+        context.insert(connection)
+        a.outgoingConnections.append(connection)
+        b.incomingConnections.append(connection)
+        try context.save()
+
+        let service = ConversationStarterService(provider: MockLLMProvider())
+        service.dismiss(
+            PromptBubble(
+                prompt: "P",
+                label: "RESOLVE",
+                clusterItemIDs: [a.id, b.id],
+                contextID: "contradiction"
+            ),
+            in: context
+        )
+
+        let remaining: [Connection] = context.fetchAll()
+        #expect(remaining.isEmpty)
+        #expect(a.outgoingConnections.isEmpty)
+    }
+
+    @Test func promptBubbleDisplayLabelRewordsOnlyTheContradictionLabel() {
+        #expect(PromptBubble(prompt: "P", label: "RESOLVE").displayLabel == "These two disagree")
+        #expect(PromptBubble(prompt: "P", label: "REVISIT").displayLabel == "REVISIT")
+        // The stored label is what validation and the cache depend on.
+        #expect(PromptBubble(prompt: "P", label: "RESOLVE").label == "RESOLVE")
     }
 
     @MainActor
@@ -268,7 +408,7 @@ struct GroveTests {
         item.status = .active
         item.createdAt = .now
         item.updatedAt = .now
-        item.metadata["summary"] = "A recent thought with enough substance to ground a starter."
+        item.summary = "A recent thought with enough substance to ground a starter."
         item.boards.append(board)
 
         await service.refresh(items: [item])
@@ -480,31 +620,143 @@ struct GroveTests {
     }
 
     @MainActor
-    @Test func mobileBoardDetailEffectiveItemsFiltersSmartBoardAndStatus() {
-        let board = Board(title: "Smart")
+    @Test func mobileBoardDetailEffectiveItemsShowsAssignedActiveItems() {
+        // A board shows what is assigned to it; tag rules on a leftover smart
+        // board are not evaluated at display time.
+        let board = Board(title: "Formerly Smart")
         board.isSmart = true
         board.smartRuleLogic = .or
 
         let topic = Tag(name: "swift", category: .technology)
         board.smartRuleTags.append(topic)
 
-        let activeMatching = Item(title: "Active Match", type: .article)
-        activeMatching.status = .active
-        activeMatching.tags.append(topic)
+        let assignedActive = Item(title: "Assigned Active", type: .article)
+        assignedActive.status = .active
+        board.items.append(assignedActive)
 
-        let dismissedMatching = Item(title: "Dismissed Match", type: .article)
-        dismissedMatching.status = .dismissed
-        dismissedMatching.tags.append(topic)
+        let assignedDismissed = Item(title: "Assigned Dismissed", type: .article)
+        assignedDismissed.status = .dismissed
+        board.items.append(assignedDismissed)
 
-        let unrelatedActive = Item(title: "Unrelated", type: .article)
-        unrelatedActive.status = .active
+        let matchingTagOnly = Item(title: "Tag Match, Unassigned", type: .article)
+        matchingTagOnly.status = .active
+        matchingTagOnly.tags.append(topic)
 
-        let effective = MobileBoardDetailView.effectiveItems(
-            for: board,
-            allItems: [activeMatching, dismissedMatching, unrelatedActive]
-        )
+        let effective = MobileBoardDetailView.effectiveItems(for: board)
 
-        #expect(effective.map(\.id) == [activeMatching.id])
+        #expect(effective.map(\.id) == [assignedActive.id])
+    }
+
+    // MARK: - Smart board migration
+
+    @MainActor
+    private func insertTaggedItem(_ title: String, tags: [grove.Tag], in context: ModelContext) -> Item {
+        let item = Item(title: title, type: .article)
+        item.status = .active
+        item.tags = tags
+        context.insert(item)
+        return item
+    }
+
+    @MainActor
+    @Test func smartBoardMigrationStoresWhatTheRuleMatched() throws {
+        let context = try makeInMemoryModelContext()
+        let swift = Tag(name: "swift", category: .technology)
+        let ui = Tag(name: "ui", category: .technology)
+        context.insert(swift)
+        context.insert(ui)
+        let both = insertTaggedItem("Both", tags: [swift, ui], in: context)
+        let swiftOnly = insertTaggedItem("Swift only", tags: [swift], in: context)
+        let neither = insertTaggedItem("Neither", tags: [], in: context)
+
+        let anyBoard = Board(title: "Any")
+        anyBoard.isSmart = true
+        anyBoard.smartRuleLogic = .or
+        anyBoard.smartRuleTags = [swift, ui]
+        let allBoard = Board(title: "All")
+        allBoard.isSmart = true
+        allBoard.smartRuleLogic = .and
+        allBoard.smartRuleTags = [swift, ui]
+        let emptyRule = Board(title: "No rule")
+        emptyRule.isSmart = true
+        let plain = Board(title: "Plain")
+        plain.smartRuleTags = [swift]
+        for board in [anyBoard, allBoard, emptyRule, plain] { context.insert(board) }
+        try context.save()
+
+        SmartBoardMigrationService.migrateBoards(context: context)
+
+        #expect(Set(anyBoard.items.map(\.id)) == [both.id, swiftOnly.id])
+        #expect(allBoard.items.map(\.id) == [both.id])
+        #expect(emptyRule.items.isEmpty)
+        #expect(plain.items.isEmpty)
+        #expect(!neither.boards.contains { $0.id == anyBoard.id })
+        for board in [anyBoard, allBoard, emptyRule] {
+            #expect(!board.isSmart)
+        }
+        // The rule fields stay, inert.
+        #expect(anyBoard.smartRuleTags.count == 2)
+        #expect(allBoard.smartRuleLogic == .and)
+        #expect(!context.hasChanges)
+    }
+
+    @MainActor
+    @Test func smartBoardMigrationIsIdempotentAndKeepsExistingItems() throws {
+        let context = try makeInMemoryModelContext()
+        let swift = Tag(name: "swift", category: .technology)
+        context.insert(swift)
+        let matched = insertTaggedItem("Matched", tags: [swift], in: context)
+        let assigned = insertTaggedItem("Assigned by hand", tags: [], in: context)
+
+        let board = Board(title: "Formerly Smart")
+        board.isSmart = true
+        board.smartRuleTags = [swift]
+        context.insert(board)
+        // Already there, as after another synced device migrated it.
+        board.items = [assigned, matched]
+        try context.save()
+
+        SmartBoardMigrationService.migrateBoards(context: context)
+        #expect(board.items.count == 2)
+
+        // A smart flag synced back in from an old device: running again adds nothing twice.
+        board.isSmart = true
+        SmartBoardMigrationService.migrateBoards(context: context)
+        SmartBoardMigrationService.migrateBoards(context: context)
+        let boardItemIDs: [UUID] = board.items.map(\.id)
+        #expect(boardItemIDs.count == 2)
+        #expect(Set(boardItemIDs) == Set([assigned.id, matched.id]))
+        #expect(!board.isSmart)
+    }
+
+    @MainActor
+    @Test func editingANotYetMigratedSmartBoardKeepsItsItems() throws {
+        let context = try makeInMemoryModelContext()
+        let swift = Tag(name: "swift", category: .technology)
+        context.insert(swift)
+        let matched = insertTaggedItem("Matched", tags: [swift], in: context)
+        let board = Board(title: "Swift")
+        board.isSmart = true
+        board.smartRuleTags = [swift]
+        context.insert(board)
+        try context.save()
+
+        let viewModel = BoardViewModel(modelContext: context)
+        viewModel.updateBoard(board, title: "Swift reading", icon: nil)
+
+        #expect(board.title == "Swift reading")
+        #expect(board.items.map(\.id) == [matched.id])
+        #expect(!board.isSmart)
+
+        // Re-creating a board by an existing smart board's name does the same.
+        let other = Board(title: "Other")
+        other.isSmart = true
+        other.smartRuleTags = [swift]
+        context.insert(other)
+        try context.save()
+        viewModel.createBoard(title: "Other", icon: nil)
+        #expect(other.items.map(\.id) == [matched.id])
+        #expect(!other.isSmart)
     }
 
     @MainActor
@@ -558,102 +810,6 @@ struct GroveTests {
         #expect(router.consumeRouteIntent() == .search(query: "swiftui"))
     }
 
-    @Test func nudgeSettingsOnlyEnableActiveEngineCategories() {
-        let previousResurface = NudgeSettings.resurfaceEnabled
-        let previousStaleInbox = NudgeSettings.staleInboxEnabled
-
-        NudgeSettings.resurfaceEnabled = true
-        NudgeSettings.staleInboxEnabled = true
-
-        #expect(NudgeSettings.isEnabled(for: .resurface))
-        #expect(NudgeSettings.isEnabled(for: .staleInbox))
-        #expect(!NudgeSettings.isEnabled(for: .connectionPrompt))
-        #expect(!NudgeSettings.isEnabled(for: .streak))
-        #expect(!NudgeSettings.isEnabled(for: .continueCourse))
-        #expect(!NudgeSettings.isEnabled(for: .reflectionPrompt))
-        #expect(!NudgeSettings.isEnabled(for: .contradiction))
-        #expect(!NudgeSettings.isEnabled(for: .knowledgeGap))
-        #expect(!NudgeSettings.isEnabled(for: .synthesisPrompt))
-        #expect(!NudgeSettings.isEnabled(for: .dialecticalCheckIn))
-
-        NudgeSettings.resurfaceEnabled = previousResurface
-        NudgeSettings.staleInboxEnabled = previousStaleInbox
-    }
-
-    @Test func nudgeSettingsRespectActiveCategoryToggles() {
-        let previousResurface = NudgeSettings.resurfaceEnabled
-        let previousStaleInbox = NudgeSettings.staleInboxEnabled
-
-        NudgeSettings.resurfaceEnabled = false
-        NudgeSettings.staleInboxEnabled = false
-
-        #expect(!NudgeSettings.isEnabled(for: .resurface))
-        #expect(!NudgeSettings.isEnabled(for: .staleInbox))
-
-        NudgeSettings.resurfaceEnabled = previousResurface
-        NudgeSettings.staleInboxEnabled = previousStaleInbox
-    }
-
-    @Test func systemNotificationsRequireExplicitOptIn() {
-        let key = "nudge.notifications.enabled"
-        let previousValue = UserDefaults.standard.object(forKey: key)
-        defer {
-            if let previousValue {
-                UserDefaults.standard.set(previousValue, forKey: key)
-            } else {
-                UserDefaults.standard.removeObject(forKey: key)
-            }
-        }
-
-        UserDefaults.standard.removeObject(forKey: key)
-        #expect(!NudgeSettings.notificationsEnabled)
-    }
-
-    @MainActor
-    @Test func nudgeGenerationSweepsNudgesThatCanNoLongerReachTheUser() throws {
-        let key = "nudge.notifications.enabled"
-        let previousValue = UserDefaults.standard.object(forKey: key)
-        defer {
-            if let previousValue {
-                UserDefaults.standard.set(previousValue, forKey: key)
-            } else {
-                UserDefaults.standard.removeObject(forKey: key)
-            }
-        }
-        NudgeSettings.notificationsEnabled = false
-
-        let context = try makeInMemoryModelContext()
-
-        // No notification surface, and Home only lists resurface nudges.
-        let staleInbox = Nudge(type: .staleInbox, message: "8 items waiting")
-        context.insert(staleInbox)
-
-        // Home filters targetless resurface nudges out, but the pending guard
-        // in the generator still counted them.
-        let orphanResurface = Nudge(type: .resurface, message: "Revisit?")
-        context.insert(orphanResurface)
-
-        // Control: reachable, must survive untouched.
-        let target = Item(title: "Still here", type: .note)
-        context.insert(target)
-        let liveResurface = Nudge(type: .resurface, message: "Revisit?", targetItem: target)
-        context.insert(liveResurface)
-        try context.save()
-
-        let engine = NudgeEngine(modelContext: context)
-        engine.generateNudges()
-
-        #expect(staleInbox.status == .dismissed)
-        #expect(orphanResurface.status == .dismissed)
-        #expect(liveResurface.status == .pending)
-
-        // Idempotent: a second run leaves the swept nudges exactly as they are.
-        engine.generateNudges()
-        #expect(staleInbox.status == .dismissed)
-        #expect(orphanResurface.status == .dismissed)
-        #expect(liveResurface.status == .pending)
-    }
-
     private func makeDate(
         year: Int,
         month: Int,
@@ -684,6 +840,39 @@ struct GroveTests {
         )
         let container = try ModelContainer(for: schema, configurations: [config])
         return ModelContext(container)
+    }
+
+    /// A saved inbox capture, as the auto-tagger leaves it when it posts a suggestion.
+    @MainActor
+    private func insertSuggestedItem(in context: ModelContext) throws -> Item {
+        let item = Item(title: "Pending", type: .note)
+        item.status = .inbox
+        context.insert(item)
+        try context.save()
+        return item
+    }
+
+    private func boardDecision(
+        named name: String,
+        mode: BoardSuggestionMode,
+        recommendedBoardID: UUID? = nil
+    ) -> BoardSuggestionDecision {
+        BoardSuggestionDecision(
+            suggestedName: name,
+            mode: mode,
+            recommendedBoardID: recommendedBoardID,
+            confidence: 0.9,
+            reason: "",
+            alternativeBoardIDs: []
+        )
+    }
+
+    /// Reads through a second context, so only what reached the store counts.
+    /// The caller keeps `store` alive for as long as it uses the returned item.
+    @MainActor
+    private func savedItem(_ itemID: UUID, in store: ModelContext) throws -> Item {
+        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
+        return try #require(try store.fetch(descriptor).first)
     }
 
     private func testDefaults() -> UserDefaults {

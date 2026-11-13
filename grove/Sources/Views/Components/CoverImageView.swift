@@ -44,8 +44,10 @@ struct CoverImageView: View {
                     if showPlayOverlay {
                         Image(systemName: "play.circle.fill")
                             .font(.title)
-                            .foregroundStyle(Color.white.opacity(0.95))
-                            .shadow(radius: 2)
+                            // A dark disc behind the white glyph keeps it legible
+                            // on any image without a drop shadow.
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(Color.white.opacity(0.95), Color.black.opacity(0.45))
                     }
                 }
                 .clipped()

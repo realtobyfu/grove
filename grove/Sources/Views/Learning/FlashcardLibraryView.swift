@@ -27,7 +27,11 @@ struct FlashcardLibraryView: View {
         List {
             if let errorMessage { Text(errorMessage).font(.groveBodySmall) }
             if cards.isEmpty {
-                ContentUnavailableView("No flashcards", systemImage: "rectangle.on.rectangle", description: Text("Create one here or from a passage, reflection, or note."))
+                GroveEmptyState(
+                    title: "No flashcards yet.",
+                    detail: "Make one here, or from a passage, a reflection, or a note."
+                )
+                .listRowSeparator(.hidden)
             }
             ForEach(cards) { card in
                 Button {

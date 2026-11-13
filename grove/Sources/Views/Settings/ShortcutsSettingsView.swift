@@ -11,14 +11,15 @@ struct ShortcutsSettingsView: View {
 
             Section("Navigation") {
                 shortcutRow("Search", shortcut: "⌘F")
-                shortcutRow("Go to Home", shortcut: "⌘0")
+                shortcutRow("Go to Today", shortcut: "⌘0")
                 shortcutRow("Go to Board 1–9", shortcut: "⌘1 – ⌘9")
                 shortcutRow("New Board", shortcut: "⌘⇧B")
+                shortcutRow("Review flashcards", shortcut: "⌘⇧R")
             }
 
             Section("View") {
                 shortcutRow("Toggle Inspector", shortcut: "⌘]")
-                shortcutRow("Toggle Dialectics", shortcut: "⌘⇧D")
+                shortcutRow("Toggle Chat", shortcut: "⌘⇧D")
             }
 
             Section("Library") {
@@ -26,13 +27,9 @@ struct ShortcutsSettingsView: View {
             }
 
             Section("Reader") {
-                shortcutRow("Zoom In", shortcut: "⌘+")
-                shortcutRow("Zoom Out", shortcut: "⌘−")
-                shortcutRow("Actual Size", shortcut: "⌘0")
-            }
-
-            Section("Boards") {
-                shortcutRow("Copy Board Link", shortcut: "⌘⇧C")
+                shortcutRow("Bigger Text", shortcut: "⌘+")
+                shortcutRow("Smaller Text", shortcut: "⌘−")
+                shortcutRow("Actual Size", shortcut: "⌘⇧0")
             }
 
             Section("Export") {
@@ -50,12 +47,12 @@ struct ShortcutsSettingsView: View {
             Text(shortcut)
                 .font(.groveShortcut)
                 .foregroundStyle(Color.textSecondary)
-                .padding(.horizontal, 8)
+                .padding(.horizontal, Spacing.sm)
                 .padding(.vertical, 2)
                 .background(Color.bgCard)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.control))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 4)
+                    RoundedRectangle(cornerRadius: Radius.control)
                         .stroke(Color.borderInput)
                 )
         }

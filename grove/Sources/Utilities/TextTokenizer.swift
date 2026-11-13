@@ -2,7 +2,7 @@ import Foundation
 
 /// Unified text tokenization and keyword extraction.
 /// Consolidates duplicate tokenize/stopWords/jaccard logic from
-/// ConnectionSuggestionService, SynthesisService, and BoardSuggestionEngine.
+/// and BoardSuggestionEngine.
 enum TextTokenizer {
     /// Common English stop words — merged superset from all services.
     static let stopWords: Set<String> = [
@@ -37,28 +37,6 @@ enum TextTokenizer {
             .components(separatedBy: .whitespaces)
             .filter { $0.count >= minLength }
         return Set(words).subtracting(stopWords)
-    }
-
-    /// Extract top-K keywords by frequency from text.
-    /// - Parameters:
-    ///   - text: The input text.
-    ///   - topK: Maximum number of keywords to return (default 20).
-    /// - Returns: A set of the most frequent non-stop-word tokens.
-    static func extractKeywords(from text: String, topK: Int = 20) -> Set<String> {
-        let words = text.lowercased()
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { $0.count > 2 && !stopWords.contains($0) }
-
-        var freq: [String: Int] = [:]
-        for word in words {
-            freq[word, default: 0] += 1
-        }
-
-        return Set(
-            freq.sorted { $0.value > $1.value }
-                .prefix(topK)
-                .map(\.key)
-        )
     }
 
     /// Jaccard similarity between two token sets.

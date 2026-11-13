@@ -14,7 +14,7 @@ final class ShareViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = UIColor(named: "bgPrimary") ?? UIColor(Color.bgPrimary)
 
         do {
             modelContainer = try SharedModelContainer.makeForExtension()

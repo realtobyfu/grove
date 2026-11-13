@@ -35,7 +35,7 @@ final class BoardExportService {
         for (index, item) in items.enumerated() {
             md += "## \(index + 1). \(item.title)\n\n"
 
-            md += "**Type:** \(item.type.rawValue.capitalized)  \n"
+            md += "**Type:** \(item.type.displayName)  \n"
 
             if let url = item.sourceURL, !url.isEmpty {
                 md += "**Source:** [\(url)](\(url))  \n"
@@ -50,6 +50,11 @@ final class BoardExportService {
             if options.includeContent, let content = item.content, !content.isEmpty {
                 md += "### Content\n\n"
                 md += content + "\n\n"
+            }
+
+            if options.includeContent, let overview = item.overview, !overview.isEmpty {
+                md += "### AI Overview\n\n"
+                md += overview + "\n\n"
             }
 
             if options.includeReflections && !item.reflections.isEmpty {

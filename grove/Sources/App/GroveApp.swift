@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import StoreKit
+import UserNotifications
 
 #if !SHARE_EXTENSION
 @main
@@ -14,8 +15,6 @@ struct GroveApp: App {
     @State private var paywallCoordinator = PaywallCoordinator.shared
     @State private var storeKitService = StoreKitService.shared
     @State private var conversationStarterService = ConversationStarterService.shared
-    @State private var coachMarkService = CoachMarkService.shared
-    @State private var feedDiscoveryService = FeedDiscoveryService.shared
     @State private var feedFetchService = FeedFetchService.shared
     #if os(iOS)
     @State private var deepLinkRouter = DeepLinkRouter()
@@ -35,14 +34,19 @@ struct GroveApp: App {
         #endif
     }
 
-    /// Newsletter pipeline: fetch new issues from enabled feeds (4h interval
-    /// enforced inside the service) and discover feeds on domains the user
-    /// saves from (24h cooldown, creates disabled suggestion sources only).
+    /// Following pipeline: fetch new issues from the feeds the user follows
+    /// (4h interval enforced inside the service).
     private func refreshFeedPipeline() async {
         guard !LearningDemo.isEnabled else { return }
-        let context = modelContainer.mainContext
-        await feedFetchService.refreshIfNeeded(in: context)
-        await feedDiscoveryService.discoverFeeds(in: context)
+        await feedFetchService.refreshIfNeeded(in: modelContainer.mainContext)
+    }
+
+    /// Older builds could schedule a stale-inbox system notification. Nothing
+    /// handles those any more, so drop any still pending or delivered.
+    private static func clearLegacyNotifications() {
+        let center = UNUserNotificationCenter.current()
+        center.removeAllPendingNotificationRequests()
+        center.removeAllDeliveredNotifications()
     }
 
     var body: some Scene {
@@ -57,12 +61,13 @@ struct GroveApp: App {
                 }
                 .onOpenURL { url in learningLaunch.handle(url) }
                 .task {
-                    NudgeNotificationService.shared.configure()
+                    Self.clearLegacyNotifications()
                     let context = modelContainer.mainContext
                     guard !LearningDemo.isEnabled else { return }
                     LearningWidgetSnapshotStore.refresh(modelContext: context)
                     AnnotationMigrationService.migrateIfNeeded(context: context)
-                    FeedSuggestionMigrationService.migrateIfNeeded(context: context)
+                    OverviewMigrationService.migrateItems(context: context)
+                    SmartBoardMigrationService.migrateBoards(context: context)
                     storeKitService.start()
                     #if !SHARE_EXTENSION
                     await GroveSpotlightIndexer.refreshAll(using: modelContainer)
@@ -83,9 +88,8 @@ struct GroveApp: App {
                 .environment(paywallCoordinator)
                 .environment(storeKitService)
                 .environment(conversationStarterService)
-                .environment(coachMarkService)
-                .environment(feedDiscoveryService)
                 .environment(feedFetchService)
+                .tint(Color.textPrimary)
         }
         .modelContainer(modelContainer)
         .defaultSize(width: 1200, height: 800)
@@ -110,11 +114,6 @@ struct GroveApp: App {
                         Label("AI", systemImage: "sparkles")
                     }
 
-                NudgeSettingsView()
-                    .tabItem {
-                        Label("Nudges", systemImage: "bell")
-                    }
-
                 SubscriptionsSettingsView()
                     .tabItem {
                         Label("Following", systemImage: "newspaper")
@@ -126,13 +125,12 @@ struct GroveApp: App {
                     }
             }
             .frame(width: 640, height: 500)
+            .tint(Color.textPrimary)
             .environment(entitlementService)
             .environment(onboardingService)
             .environment(paywallCoordinator)
             .environment(storeKitService)
             .environment(conversationStarterService)
-            .environment(coachMarkService)
-            .environment(feedDiscoveryService)
             .environment(feedFetchService)
             .environment(syncService)
         }
@@ -147,11 +145,13 @@ struct GroveApp: App {
                     }
                 }
                 .task {
+                    Self.clearLegacyNotifications()
                     let context = modelContainer.mainContext
                     guard !LearningDemo.isEnabled else { return }
                     LearningWidgetSnapshotStore.refresh(modelContext: context)
                     AnnotationMigrationService.migrateIfNeeded(context: context)
-                    FeedSuggestionMigrationService.migrateIfNeeded(context: context)
+                    OverviewMigrationService.migrateItems(context: context)
+                    SmartBoardMigrationService.migrateBoards(context: context)
                     ExtensionItemProcessor.processIfNeeded(context: context)
                     storeKitService.start()
                     #if !SHARE_EXTENSION
@@ -177,9 +177,8 @@ struct GroveApp: App {
                 .environment(paywallCoordinator)
                 .environment(storeKitService)
                 .environment(conversationStarterService)
-                .environment(coachMarkService)
-                .environment(feedDiscoveryService)
                 .environment(feedFetchService)
+                .tint(Color.textPrimary)
         }
         .modelContainer(modelContainer)
         #endif
@@ -229,12 +228,13 @@ struct GroveMenuCommands: Commands {
 
             Divider()
 
-            Button("Go to Home") {
+            Button("Go to Today") {
                 NotificationCenter.default.post(name: .groveGoToHome, object: nil)
             }
             .keyboardShortcut("0", modifiers: .command)
 
-            // Board switching Cmd+1 through Cmd+9
+            // Board switching Cmd+1 through Cmd+9. iPad regular width mirrors
+            // this map in iPadRootView; compact width has no number shortcuts.
             ForEach(1...9, id: \.self) { index in
                 Button("Go to Board \(index)") {
                     NotificationCenter.default.post(name: .groveGoToBoard, object: index)
@@ -250,7 +250,7 @@ struct GroveMenuCommands: Commands {
             }
             .keyboardShortcut("]", modifiers: .command)
 
-            Button("Toggle Dialectics") {
+            Button("Toggle Chat") {
                 NotificationCenter.default.post(name: .groveToggleChat, object: nil)
             }
             .keyboardShortcut("d", modifiers: [.command, .shift])

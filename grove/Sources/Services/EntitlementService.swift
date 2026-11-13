@@ -19,87 +19,72 @@ struct MeteredUsage: Codable {
     var monthKey: String  // "yyyy-MM"
 }
 
+/// This month's cloud chat usage: the conversations that have sent at least
+/// one message to cloud AI. A conversation counts once, at its first cloud
+/// send, however many messages follow.
+struct CloudConversationUsage: Codable, Equatable {
+    var monthKey: String  // "yyyy-MM"
+    var conversationIDs: [UUID]
+    /// Uses counted before conversations were tracked by ID (the old
+    /// count-at-creation `MeteredUsage`), carried into the month they belong to.
+    var carriedOverCount: Int
+
+    var usedCount: Int { conversationIDs.count + carriedOverCount }
+}
+
+/// AI features the free tier can use a limited number of times per month when
+/// they run on cloud AI. On-device AI costs nothing to serve, so it is never
+/// limited. Every case is enforced somewhere (`canUse` + `recordUse`); a case
+/// with no call site is a ghost and must not be added back.
 enum MeteredFeature: String, CaseIterable, Sendable {
-    case dialectics
-    case reflectionPrompts
-    case autoTagging
-    case connectionSuggestions
-    case synthesis
-    case suggestedArticles
+    case dialectics      // DialecticsService.sendMessage (canSendCloudMessage); creation-time early gate in chat entry points
+    case autoTagging     // AutoTagService
 
     var freeLimit: Int {
         switch self {
         case .dialectics: return 6
-        case .reflectionPrompts: return 3
         case .autoTagging: return 10
-        case .connectionSuggestions: return 5
-        case .synthesis: return 1
-        case .suggestedArticles: return 3
         }
     }
 
     var displayName: String {
         switch self {
-        case .dialectics: return "Dialectics"
-        case .reflectionPrompts: return "Reflection Prompts"
+        case .dialectics: return "Chat"
         case .autoTagging: return "Auto-Tagging"
-        case .connectionSuggestions: return "Connection Suggestions"
-        case .synthesis: return "Synthesis"
-        case .suggestedArticles: return "Suggested Articles"
         }
     }
 }
 
+/// What Grove Pro unlocks. This list is shown on the paywall, so every case
+/// must be a feature that exists and is gated on `isPro` somewhere in the app:
+/// sync (SyncSettingsView), full history (chat conversation lists), smart
+/// routing (AI settings) and the two metered features above.
 enum ProFeature: String, CaseIterable, Sendable, Identifiable {
-    case automations
-    case batchActions
-    case savedWorkflows
     case sync
+    case dialectics
     case fullHistory
     case smartRouting
-    case dialectics
-    case reflectionPrompts
     case autoTagging
-    case connectionSuggestions
-    case synthesis
-    case weeklyDigest
-    case suggestedArticles
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .automations: return "Automations"
-        case .batchActions: return "Batch Actions"
-        case .savedWorkflows: return "Saved Workflows"
         case .sync: return "Cross-device Sync"
+        case .dialectics: return "Unlimited Chat"
         case .fullHistory: return "Full History"
         case .smartRouting: return "Smart Routing"
-        case .dialectics: return "Unlimited Dialectics"
-        case .reflectionPrompts: return "AI Reflection Prompts"
-        case .autoTagging: return "Auto-Tagging"
-        case .connectionSuggestions: return "Connection Suggestions"
-        case .synthesis: return "AI Synthesis"
-        case .weeklyDigest: return "Weekly Digest"
-        case .suggestedArticles: return "Suggested Articles"
+        case .autoTagging: return "Unlimited Auto-Tagging"
         }
     }
 
     var summary: String {
         switch self {
-        case .automations: return "Run recurring workflows with less manual overhead."
-        case .batchActions: return "Apply actions across multiple items in fewer steps."
-        case .savedWorkflows: return "Save and reuse repeatable high-value workflows."
-        case .sync: return "Continue work seamlessly across devices."
-        case .fullHistory: return "Search and revisit complete conversation history."
-        case .smartRouting: return "Use cloud or on-device AI with optional smart fallback between them."
-        case .dialectics: return "Unlimited AI conversation sessions."
-        case .reflectionPrompts: return "AI-generated reflection prompts."
-        case .autoTagging: return "AI tags, summaries, and board placement."
-        case .connectionSuggestions: return "AI-suggested item connections."
-        case .synthesis: return "AI-generated cross-item synthesis."
-        case .weeklyDigest: return "AI weekly learning summaries."
-        case .suggestedArticles: return "AI-curated article suggestions from your trusted sources."
+        case .sync: return "Your library, boards and reflections on every device, through iCloud."
+        case .dialectics: return "Unlimited cloud conversations grounded in your own library. Free includes six a month, and on-device chat is never limited."
+        case .fullHistory: return "Keep and search your complete conversation history."
+        case .smartRouting: return "On-device AI first, with cloud AI as a fallback when it is needed."
+        case .autoTagging: return "Cloud AI tags, a one-line summary and a board suggestion for every capture. Free includes ten a month, and on-device tagging is never limited."
         }
     }
 }
@@ -157,11 +142,17 @@ final class EntitlementService {
 
     nonisolated private static let stateKey = "grove.monetization.entitlementState"
     private let defaults: UserDefaults
+    /// Whether AI calls currently go to the cloud. Free-tier limits apply only then.
+    private let usesCloudAI: () -> Bool
 
     private(set) var state: EntitlementState
 
-    init(defaults: UserDefaults = .standard) {
+    init(
+        defaults: UserDefaults = .standard,
+        usesCloudAI: @escaping () -> Bool = { LLMServiceConfig.effectiveProviderType == .groq }
+    ) {
         self.defaults = defaults
+        self.usesCloudAI = usesCloudAI
         self.state = Self.loadState(from: defaults) ?? EntitlementState()
         refreshTrialState()
     }
@@ -182,13 +173,9 @@ final class EntitlementService {
         state.trialEndsAt
     }
 
+    /// Pro is all-or-nothing: every `ProFeature` unlocks together.
     func hasAccess(to feature: ProFeature) -> Bool {
-        switch feature {
-        case .automations, .batchActions, .savedWorkflows, .sync, .fullHistory, .smartRouting,
-             .dialectics, .reflectionPrompts, .autoTagging, .connectionSuggestions, .synthesis, .weeklyDigest,
-             .suggestedArticles:
-            return isPro
-        }
+        isPro
     }
 
     // MARK: - Metered Usage
@@ -201,15 +188,29 @@ final class EntitlementService {
         return formatter.string(from: Date())
     }
 
-    /// Returns true if the user can use this metered feature (Pro = always, Free = under limit).
+    /// True when metered features count against a monthly limit: a free user on cloud AI.
+    var hasUsageLimits: Bool {
+        !isPro && usesCloudAI()
+    }
+
+    /// Returns true if the user can use this metered feature. Only a free user
+    /// on cloud AI has a limit; Pro and on-device AI are unlimited.
     func canUse(_ feature: MeteredFeature) -> Bool {
-        if isPro { return true }
+        guard hasUsageLimits else { return true }
         return usageCount(for: feature) < feature.freeLimit
     }
 
-    /// Records one use of a metered feature. No-op if Pro.
+    /// Records one use of a metered feature. No-op when no limit applies.
+    /// Chat is metered per conversation through `recordCloudMessage(in:)`;
+    /// a `.dialectics` use recorded here counts as one untracked conversation.
     func recordUse(_ feature: MeteredFeature) {
-        guard !isPro else { return }
+        guard hasUsageLimits else { return }
+        if feature == .dialectics {
+            var usage = loadCloudConversationUsage()
+            usage.carriedOverCount += 1
+            saveCloudConversationUsage(usage)
+            return
+        }
         var usage = loadUsage(for: feature)
         let monthKey = Self.currentMonthKey
         if usage.monthKey != monthKey {
@@ -219,14 +220,65 @@ final class EntitlementService {
         saveUsage(usage, for: feature)
     }
 
-    /// Returns remaining free uses for this feature. Returns Int.max if Pro.
+    /// Returns remaining free uses for this feature. Returns Int.max when no limit applies.
     func remaining(_ feature: MeteredFeature) -> Int {
-        if isPro { return Int.max }
+        guard hasUsageLimits else { return Int.max }
         let used = usageCount(for: feature)
         return max(0, feature.freeLimit - used)
     }
 
+    // MARK: Cloud chat, per conversation
+
+    /// Whether a message in this conversation may go to cloud AI. True for
+    /// Pro, on-device AI, a conversation already counted this month, or while
+    /// this month's count is below the free limit. Callers ask at the moment
+    /// they are about to call a cloud provider.
+    func canSendCloudMessage(in conversationID: UUID) -> Bool {
+        guard hasUsageLimits else { return true }
+        let usage = loadCloudConversationUsage()
+        if usage.conversationIDs.contains(conversationID) { return true }
+        return usage.usedCount < MeteredFeature.dialectics.freeLimit
+    }
+
+    /// Counts this conversation against this month's free cloud chats, once.
+    /// No-op when no limit applies or the conversation is already counted.
+    func recordCloudMessage(in conversationID: UUID) {
+        guard hasUsageLimits else { return }
+        var usage = loadCloudConversationUsage()
+        guard !usage.conversationIDs.contains(conversationID) else { return }
+        usage.conversationIDs.append(conversationID)
+        saveCloudConversationUsage(usage)
+    }
+
+    private static let cloudConversationsKey = usageKeyPrefix + "dialectics.conversations"
+
+    /// This month's usage. Before the first write it falls back to the old
+    /// count-at-creation counter, so uses already made this month still count.
+    private func loadCloudConversationUsage() -> CloudConversationUsage {
+        let monthKey = Self.currentMonthKey
+        if let data = defaults.data(forKey: Self.cloudConversationsKey),
+           let usage = try? JSONDecoder().decode(CloudConversationUsage.self, from: data) {
+            return usage.monthKey == monthKey
+                ? usage
+                : CloudConversationUsage(monthKey: monthKey, conversationIDs: [], carriedOverCount: 0)
+        }
+        let legacy = loadUsage(for: .dialectics)
+        return CloudConversationUsage(
+            monthKey: monthKey,
+            conversationIDs: [],
+            carriedOverCount: legacy.monthKey == monthKey ? legacy.count : 0
+        )
+    }
+
+    private func saveCloudConversationUsage(_ usage: CloudConversationUsage) {
+        guard let data = try? JSONEncoder().encode(usage) else { return }
+        defaults.set(data, forKey: Self.cloudConversationsKey)
+    }
+
     private func usageCount(for feature: MeteredFeature) -> Int {
+        if feature == .dialectics {
+            return loadCloudConversationUsage().usedCount
+        }
         let usage = loadUsage(for: feature)
         guard usage.monthKey == Self.currentMonthKey else { return 0 }
         return usage.count

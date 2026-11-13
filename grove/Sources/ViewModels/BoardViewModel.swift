@@ -11,7 +11,7 @@ final class BoardViewModel {
         self.modelContext = modelContext
     }
 
-    func createBoard(title: String, icon: String?, color: String?, nudgeFrequencyHours: Int = 0) {
+    func createBoard(title: String, icon: String?) {
         let cleanedTitle = BoardSuggestionEngine.cleanedBoardName(title)
         guard !cleanedTitle.isEmpty else { return }
 
@@ -19,60 +19,32 @@ final class BoardViewModel {
             if let icon, !icon.isEmpty {
                 existingBoard.icon = icon
             }
-            if let color, !color.isEmpty {
-                existingBoard.color = color
-            }
-            existingBoard.isSmart = false
-            existingBoard.smartRuleTags.removeAll()
-            existingBoard.nudgeFrequencyHours = nudgeFrequencyHours
+            // A not-yet-migrated smart board keeps the items its rule matched.
+            SmartBoardMigrationService.migrate(existingBoard, context: modelContext)
             try? modelContext.save()
             return
         }
 
         let maxSortOrder = fetchMaxSortOrder()
-        let board = Board(title: cleanedTitle, icon: icon, color: color)
+        let board = Board(title: cleanedTitle, icon: icon)
         board.sortOrder = maxSortOrder + 1
-        board.nudgeFrequencyHours = nudgeFrequencyHours
         modelContext.insert(board)
         try? modelContext.save()
     }
 
-    func createSmartBoard(title: String, icon: String?, color: String?, ruleTags: [Tag], logic: SmartRuleLogic, nudgeFrequencyHours: Int = 0) {
-        _ = ruleTags
-        _ = logic
-        // Smart board creation is deprecated; treat as standard board creation.
-        createBoard(title: title, icon: icon, color: color, nudgeFrequencyHours: nudgeFrequencyHours)
-    }
-
-    func updateBoard(_ board: Board, title: String, icon: String?, color: String?, nudgeFrequencyHours: Int = 0) {
+    func updateBoard(_ board: Board, title: String, icon: String?) {
         let cleanedTitle = BoardSuggestionEngine.cleanedBoardName(title)
         guard !cleanedTitle.isEmpty else { return }
 
         board.title = cleanedTitle
         board.icon = icon
-        board.color = color
-        board.isSmart = false
-        board.smartRuleTags.removeAll()
-        board.nudgeFrequencyHours = nudgeFrequencyHours
+        // A not-yet-migrated smart board keeps the items its rule matched.
+        SmartBoardMigrationService.migrate(board, context: modelContext)
         try? modelContext.save()
-    }
-
-    func updateSmartBoard(_ board: Board, title: String, icon: String?, color: String?, ruleTags: [Tag], logic: SmartRuleLogic, nudgeFrequencyHours: Int = 0) {
-        _ = ruleTags
-        _ = logic
-        // Smart board editing is deprecated; treat as standard board update.
-        updateBoard(board, title: title, icon: icon, color: color, nudgeFrequencyHours: nudgeFrequencyHours)
     }
 
     func deleteBoard(_ board: Board) {
         modelContext.delete(board)
-        try? modelContext.save()
-    }
-
-    func reorderBoards(_ boards: [Board]) {
-        for (index, board) in boards.enumerated() {
-            board.sortOrder = index
-        }
         try? modelContext.save()
     }
 
@@ -83,23 +55,6 @@ final class BoardViewModel {
             board.sortOrder = index
         }
         try? modelContext.save()
-    }
-
-    /// Returns items matching the smart board's tag rules
-    nonisolated static func smartBoardItems(for board: Board, from allItems: [Item]) -> [Item] {
-        guard board.isSmart, !board.smartRuleTags.isEmpty else { return [] }
-
-        let ruleTagIDs = Set(board.smartRuleTags.map(\.id))
-
-        return allItems.filter { item in
-            let itemTagIDs = Set(item.tags.map(\.id))
-            switch board.smartRuleLogic {
-            case .and:
-                return ruleTagIDs.isSubset(of: itemTagIDs)
-            case .or:
-                return !ruleTagIDs.isDisjoint(with: itemTagIDs)
-            }
-        }
     }
 
     private func fetchMaxSortOrder() -> Int {

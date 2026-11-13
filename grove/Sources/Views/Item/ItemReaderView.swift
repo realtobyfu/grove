@@ -1,6 +1,8 @@
+#if os(macOS)
+import AppKit
+#endif
 import SwiftUI
 import SwiftData
-import AVKit
 
 struct ItemReaderView: View {
     @Bindable var item: Item
@@ -8,6 +10,13 @@ struct ItemReaderView: View {
     // Optional so hosts that don't manage window chrome (iPad) can omit it.
     var isPDFSurfaceActive: Binding<Bool>? = nil
     var alwaysShowReflectionPanel: Bool = false
+    /// True while the window's own rail is showing something (writing, chat,
+    /// the inspector). The reader's reflections rail then resolves to
+    /// `.hidden`, so there is never a second trailing column; it returns as
+    /// soon as the window's rail closes.
+    var railYields: Bool = false
+    /// Asks the host to clear its rail when the reader needs its own.
+    var onClaimRail: (() -> Void)? = nil
     var onNavigateToItem: ((Item) -> Void)?
     @Environment(\.modelContext) private var modelContext
 
@@ -22,6 +31,7 @@ struct ItemReaderView: View {
     private var viewModel: ItemReaderViewModel {
         if let vm, vm.item.id == item.id { return vm }
         let newVM = ItemReaderViewModel(item: item, modelContext: modelContext, onNavigateToItem: onNavigateToItem)
+        newVM.onClaimRail = onClaimRail
         Task { @MainActor in self.vm = newVM }
         return newVM
     }
@@ -66,16 +76,24 @@ struct ItemReaderView: View {
             value: !vm.showArticleWebView && !vm.showPDFReader && vm.highlightableSelection != nil
         )
         .onAppear {
+            vm.migrateLegacyOverviewIfNeeded()
             vm.backfillThumbnailIfNeeded()
             openWebViewIfPageIsTheContent(vm)
         }
         .onReceive(NotificationCenter.default.publisher(for: .groveOpenReflectMode)) { _ in
+            // An editor already open behind the window's rail: Reflect brings
+            // it back rather than closing it out of sight.
+            if railYields, vm.showReflectionEditor {
+                onClaimRail?()
+                return
+            }
             vm.toggleReflectionEditor(focusTrigger: focusReflectionEditor)
         }
         .onChange(of: item.id) {
             // Reset first, then decide: the reset closes the web pane, so an
             // auto-open registered ahead of it would be undone by it.
             vm.resetOnItemChange()
+            vm.migrateLegacyOverviewIfNeeded()
             openWebViewIfPageIsTheContent(vm)
         }
         .onChange(of: vm.showArticleWebView) {
@@ -122,6 +140,14 @@ struct ItemReaderView: View {
         return panelIsNeeded && !vm.isReflectionPanelCollapsed
     }
 
+    /// The reader rail's mode when it is wanted: `.hidden` while the
+    /// window's rail holds the one trailing column.
+    private func readerRailMode(_ vm: ItemReaderViewModel) -> RightRailMode {
+        if railYields { return .hidden }
+        if vm.flashcardSelection != nil { return .flashcardEditor }
+        return vm.showReflectionEditor ? .reflectionEditor : .reflections
+    }
+
     // MARK: - Reader Pane Layout (source pane + optional rail, one identity)
 
     /// Hosts a full-bleed source pane — the web view, or PDFKit for a document
@@ -136,7 +162,7 @@ struct ItemReaderView: View {
         let paneContent = pane()
         return GeometryReader { geo in
             let railMode: RightRailMode = shouldShowSplitLayout(vm)
-                ? (vm.flashcardSelection != nil ? .flashcardEditor : vm.showReflectionEditor ? .reflectionEditor : .reflections)
+                ? readerRailMode(vm)
                 : .hidden
 
             HStack(spacing: 0) {
@@ -181,7 +207,7 @@ struct ItemReaderView: View {
             // rail, at one width — the swap is a crossfade, not a resize, so
             // the article never re-wraps for it and there is no blank frame
             // between the old panel leaving and the new one arriving.
-            let railMode: RightRailMode = vm.flashcardSelection != nil ? .flashcardEditor : vm.showReflectionEditor ? .reflectionEditor : .reflections
+            let railMode = readerRailMode(vm)
 
             HStack(spacing: 0) {
                 ScrollView {
@@ -296,42 +322,28 @@ struct ItemReaderView: View {
     @ViewBuilder
     private func sourceContent(vm: ItemReaderViewModel) -> some View {
         if vm.item.type == .video, let videoURL = vm.localVideoURL {
-            VStack(spacing: 8) {
-                VideoPlayerView(
-                    url: videoURL,
-                    currentTime: Binding(get: { vm.videoCurrentTime }, set: { vm.videoCurrentTime = $0 }),
-                    duration: Binding(get: { vm.videoDuration }, set: { vm.videoDuration = $0 }),
-                    seekToTime: vm.videoSeekTarget
-                )
-                .frame(minHeight: 360)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                HStack {
-                    Text(vm.videoCurrentTime.formattedTimestamp)
-                        .font(.groveMeta)
-                        .monospacedDigit()
-                        .foregroundStyle(Color.textSecondary)
-                    Text("/")
-                        .font(.groveMeta)
-                        .foregroundStyle(Color.textTertiary)
-                    Text(vm.videoDuration.formattedTimestamp)
-                        .font(.groveMeta)
-                        .monospacedDigit()
-                        .foregroundStyle(Color.textSecondary)
-                    Spacer()
-                    if let path = vm.item.metadata["originalPath"] {
-                        Text(URL(fileURLWithPath: path).lastPathComponent)
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                            .lineLimit(1)
-                    }
+            // Local video files are no longer played in Grove. Items saved
+            // that way still open here and point back to the file on disk.
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                Text(vm.item.title)
+                    .font(.groveItemTitle)
+                    .foregroundStyle(Color.textPrimary)
+                Text(videoURL.path)
+                    .font(.groveMeta)
+                    .foregroundStyle(Color.textSecondary)
+                    .textSelection(.enabled)
+                #if os(macOS)
+                Button("Open in Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([videoURL])
                 }
+                #endif
 
                 if let content = vm.item.content, !content.isEmpty {
                     Divider()
                     SelectableMarkdownView(markdown: content, onSelectText: { vm.webSelectedText = $0 })
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         } else if vm.item.type == .video, vm.remoteVideoEmbedURL != nil {
             // A video that lives on someone else's site plays in the web pane,
             // not here. The overview keeps whatever description was captured,
@@ -345,7 +357,7 @@ struct ItemReaderView: View {
                     SelectableMarkdownView(markdown: content, onSelectText: { vm.webSelectedText = $0 })
                 }
             }
-        } else if vm.isEditingContent && (vm.item.type == .note || (vm.item.type == .article && vm.item.metadata["hasLLMOverview"] == "true")) {
+        } else if vm.isEditingContent && vm.canEditContent {
             RichMarkdownEditor(
                 text: Binding(
                     get: { vm.item.content ?? "" },
@@ -358,13 +370,13 @@ struct ItemReaderView: View {
                 minHeight: 200
             )
         } else if let content = vm.item.content, !content.isEmpty {
-            if vm.item.metadata["hasLLMOverview"] == "true" {
-                AIOverviewHeaderRow(vm: vm)
-                    .padding(.bottom, 4)
+            if vm.item.hasLLMOverview {
+                AIMetaLabel(text: "AI Overview")
+                    .padding(.bottom, Spacing.xs)
             }
 
             SelectableMarkdownView(markdown: content, onSelectText: { vm.webSelectedText = $0 })
-        } else {
+        } else if (vm.item.overview ?? "").isEmpty {
             Text("No content available.")
                 .font(.groveBody)
                 .foregroundStyle(Color.textTertiary)
@@ -380,7 +392,7 @@ struct ItemReaderView: View {
         Button {
             withAnimation(.easeOut(duration: 0.2)) { vm.showArticleWebView = true }
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: Spacing.xsm) {
                 Image(systemName: "play.rectangle")
                     .font(.groveMeta)
                 Text(vm.item.sourceURL.map { "Watch on \(domainFrom($0))" } ?? "Watch")
@@ -450,7 +462,7 @@ struct ItemReaderView: View {
                             }
                         }
                     } label: {
-                        HStack(spacing: 4) {
+                        HStack(spacing: Spacing.xs) {
                             Image(systemName: block.blockType.systemImage)
                             Text(block.blockType.displayName)
                         }
@@ -470,10 +482,10 @@ struct ItemReaderView: View {
                     .buttonStyle(.plain)
                     .keyboardShortcut(.return, modifiers: .command)
                 }
-                .padding(.leading, 24)
-                .padding(.trailing, 12)
-                .padding(.top, 20)
-                .padding(.bottom, 8)
+                .padding(.leading, Spacing.xxl)
+                .padding(.trailing, Spacing.md)
+                .padding(.top, Spacing.xl)
+                .padding(.bottom, Spacing.sm)
 
                 // Highlight preview (if reflecting on selection)
                 if let highlight = block.highlight, !highlight.isEmpty {
@@ -483,7 +495,7 @@ struct ItemReaderView: View {
                         onJump: vm.articleURL != nil ? { vm.jumpToHighlight(highlight) } : nil
                     )
                     .padding(.horizontal, 40)
-                    .padding(.bottom, 10)
+                    .padding(.bottom, Spacing.md)
                 }
 
                 // Editor -- fills remaining space
@@ -525,7 +537,7 @@ struct ItemReaderView: View {
             return
         }
         guard item.isNewsletterIssue,
-              (item.content ?? "").isEmpty,
+              item.previewText == nil,
               vm.articleURL != nil else { return }
         vm.showArticleWebView = true
     }

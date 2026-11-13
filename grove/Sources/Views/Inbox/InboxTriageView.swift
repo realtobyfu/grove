@@ -14,9 +14,6 @@ struct InboxTriageView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Item.createdAt, order: .reverse) private var allItems: [Item]
     @Query(sort: \Board.sortOrder) private var boards: [Board]
-    /// Queried (not fetched on demand) so subscribing re-evaluates the cards
-    /// and the "+ Follow" affordance disappears on its own.
-    @Query private var feedSources: [FeedSource]
     @State private var focusedIndex: Int = 0
     @State private var showQueuedSection = false
     @State private var showBoardPicker = false
@@ -88,7 +85,7 @@ struct InboxTriageView: View {
                     recommendedBoardID: boardPickerRecommendedBoardID,
                     alternativeBoardIDs: boardPickerAlternativeBoardIDs,
                     onSelect: { board in
-                        BoardSuggestionMetadata.recordSelection(board, on: item)
+                        BoardSuggestionMetadata.clearPendingSuggestion(on: item)
                         let viewModel = ItemViewModel(modelContext: modelContext)
                         if boardPickerReplacesMembership {
                             viewModel.moveItemsToBoard([item], board: board)
@@ -103,9 +100,6 @@ struct InboxTriageView: View {
                     }
                 )
             }
-        }
-        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-            handleVideoDrop(providers: providers)
         }
         .onKeyPress(phases: [.down]) { keyPress in
             handleTriageKeyPress(keyPress)
@@ -129,10 +123,6 @@ struct InboxTriageView: View {
                 restoreDueQueuedItems()
             }
         }
-        .task(id: pendingDiscoveryDomain) {
-            guard let domain = pendingDiscoveryDomain else { return }
-            await FeedDiscoveryService.shared.discoverFeed(forDomain: domain, in: modelContext)
-        }
     }
 
     // MARK: - Inbox List
@@ -140,12 +130,12 @@ struct InboxTriageView: View {
     private var inboxList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(spacing: 8) {
+                VStack(spacing: Spacing.sm) {
                     if !queuedItems.isEmpty {
                         queuedDisclosure
                     }
 
-                    LazyVStack(spacing: 8) {
+                    LazyVStack(spacing: Spacing.sm) {
                         ForEach(Array(inboxItems.enumerated()), id: \.element.id) { index, item in
                             InboxCard(
                                 item: item,
@@ -157,9 +147,7 @@ struct InboxTriageView: View {
                                 onConfirmTag: { tag in confirmTag(tag) },
                                 onDismissTag: { tag in dismissTag(tag, from: item) },
                                 onFileToBoard: { board in keepItem(item, filingTo: board) },
-                                onMoreBoards: { presentBoardPicker(for: item) },
-                                followableSite: followableSite(for: item),
-                                onFollowSite: { followSite(for: item) }
+                                onMoreBoards: { presentBoardPicker(for: item) }
                             )
                             .id(item.id)
                             .transition(.asymmetric(
@@ -197,15 +185,15 @@ struct InboxTriageView: View {
     // MARK: - Embedded Inbox List
 
     private var embeddedInboxList: some View {
-        let visibleItems = Array(inboxItems.prefix(8))
-        return VStack(spacing: 8) {
+        let visibleItems = inboxItems
+        return VStack(spacing: Spacing.sm) {
             if !queuedItems.isEmpty {
                 queuedDisclosure
             }
 
             LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 300, maximum: 600), spacing: 12)],
-                spacing: 12
+                columns: [GridItem(.adaptive(minimum: 300, maximum: 600), spacing: Spacing.md)],
+                spacing: Spacing.md
             ) {
                 ForEach(Array(visibleItems.enumerated()), id: \.element.id) { index, item in
                     InboxCard(
@@ -218,9 +206,7 @@ struct InboxTriageView: View {
                         onConfirmTag: { tag in confirmTag(tag) },
                         onDismissTag: { tag in dismissTag(tag, from: item) },
                         onFileToBoard: { board in keepItem(item, filingTo: board) },
-                        onMoreBoards: { presentBoardPicker(for: item) },
-                        followableSite: followableSite(for: item),
-                        onFollowSite: { followSite(for: item) }
+                        onMoreBoards: { presentBoardPicker(for: item) }
                     )
                     .id(item.id)
                     .transition(.asymmetric(
@@ -232,18 +218,6 @@ struct InboxTriageView: View {
                         selectedItem = item
                     }
                 }
-            }
-
-            if inboxItems.count > 8 {
-                Button {
-                    NotificationCenter.default.post(name: .groveGoToHome, object: nil)
-                } label: {
-                    Text("Show all \(inboxItems.count) items")
-                        .font(.groveBodySmall)
-                        .foregroundStyle(Color.textSecondary)
-                }
-                .buttonStyle(.plain)
-                .padding(.top, Spacing.xs)
             }
 
         }
@@ -267,7 +241,7 @@ struct InboxTriageView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: Spacing.lg) {
             Image(systemName: queuedItems.isEmpty ? "tray" : "clock.badge")
                 .font(.system(size: 48))
                 .foregroundStyle(Color.textSecondary)
@@ -358,11 +332,10 @@ struct InboxTriageView: View {
     /// now announces itself through the inline confirmation row.
     private func keepItem(_ item: Item, filingTo board: Board? = nil) {
         if item.isFeedSuggestion {
-            recordSuggestionSignal(for: item, kept: true)
             // Kept suggestions become regular items; clear the flag so they
             // leave the "From your subscriptions" grouping for good.
-            item.metadata["isSuggested"] = nil
-            item.metadata["suggestionDismissed"] = nil
+            item.isFeedSuggestion = false
+            item.isSuggestionDismissed = false
         }
 
         item.status = .active
@@ -371,7 +344,7 @@ struct InboxTriageView: View {
 
         if let board {
             // Explicit one-gesture filing — no auto-assign, no confirmation.
-            BoardSuggestionMetadata.recordSelection(board, on: item)
+            BoardSuggestionMetadata.clearPendingSuggestion(on: item)
             ItemViewModel(modelContext: modelContext).assignToBoard(item, board: board)
             clearFiledConfirmation()
         } else if item.boards.isEmpty {
@@ -380,7 +353,7 @@ struct InboxTriageView: View {
             if let decision = BoardSuggestionMetadata.decision(from: item),
                let matchedBoard = autoAssignBoard(from: decision) {
                 autoAssigned = matchedBoard
-            } else if let suggestedName = item.metadata["suggestedBoard"],
+            } else if let suggestedName = item.suggestedBoard,
                       let matchedBoard = boards.first(where: {
                           $0.title.localizedCaseInsensitiveCompare(suggestedName) == .orderedSame
                       }) {
@@ -389,7 +362,7 @@ struct InboxTriageView: View {
 
             if let autoAssigned {
                 item.boards.append(autoAssigned)
-                BoardSuggestionMetadata.recordSelection(autoAssigned, on: item)
+                BoardSuggestionMetadata.clearPendingSuggestion(on: item)
                 showFiledConfirmation(item: item, board: autoAssigned)
             }
         }
@@ -404,7 +377,7 @@ struct InboxTriageView: View {
     /// assignment that already happened, so it must replace, not append.
     private func presentBoardPicker(for item: Item, replacingMembership: Bool = false) {
         let decision = BoardSuggestionMetadata.decision(from: item)
-        boardPickerSuggestedName = decision?.suggestedName ?? (item.metadata["suggestedBoard"] ?? "")
+        boardPickerSuggestedName = decision?.suggestedName ?? (item.suggestedBoard ?? "")
         boardPickerRecommendedBoardID = decision?.recommendedBoardID
         boardPickerAlternativeBoardIDs = decision?.alternativeBoardIDs ?? []
         boardPickerReplacesMembership = replacingMembership
@@ -415,55 +388,6 @@ struct InboxTriageView: View {
     /// One-click board chips for a card: recommended first, then alternates.
     private func suggestedBoards(for item: Item) -> [Board] {
         BoardRanking.suggestedBoards(for: item, from: boards)
-    }
-
-    // MARK: - Follow the Site
-
-    /// Host of an item's source, normalized to match `FeedSource.domain`.
-    /// Nil for anything that isn't a plain http(s) page — local files, notes,
-    /// and custom schemes have no site to follow.
-    private func followHost(for item: Item) -> String? {
-        guard let urlString = item.sourceURL, !urlString.isEmpty,
-              let url = resolvedSourceURL(from: urlString),
-              let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https",
-              let host = url.host, !host.isEmpty else { return nil }
-        let normalized = normalizedDomain(host)
-        return normalized.isEmpty ? nil : normalized
-    }
-
-    private func feedSource(for item: Item) -> FeedSource? {
-        guard let host = followHost(for: item) else { return nil }
-        return feedSources.first { normalizedDomain($0.domain) == host }
-    }
-
-    /// Display domain for the card's "+ Follow" chip, or nil to show nothing.
-    /// Only sites Grove already knows a feed for are offerable; a site with no
-    /// FeedSource yet stays silent until on-demand discovery lands one.
-    private func followableSite(for item: Item) -> String? {
-        guard let host = followHost(for: item),
-              let source = feedSource(for: item),
-              !source.isUserSubscribed else { return nil }
-        return host
-    }
-
-    private func followSite(for item: Item) {
-        guard let source = feedSource(for: item), !source.isUserSubscribed else { return }
-        FeedSubscriptionService.subscribe(source, in: modelContext)
-    }
-
-    /// Domain of the focused card when Grove has no FeedSource for it yet.
-    /// Drives a single `.task(id:)` rather than per-card work, so scrolling a
-    /// long inbox doesn't fan out into a burst of homepage fetches.
-    private var pendingDiscoveryDomain: String? {
-        let items = inboxItems
-        guard focusedIndex >= 0, focusedIndex < items.count else { return nil }
-        let item = items[focusedIndex]
-        // Newsletter issues already arrive from a subscription — there is
-        // nothing left to follow.
-        guard !item.isNewsletterIssue else { return nil }
-        guard let host = followHost(for: item), feedSource(for: item) == nil else { return nil }
-        return host
     }
 
     // MARK: - Auto-assign Confirmation
@@ -519,8 +443,6 @@ struct InboxTriageView: View {
     }
 
     private func dropItem(_ item: Item) {
-        recordSuggestionSignal(for: item, kept: false)
-
         withAnimation(.easeOut(duration: 0.3)) {
             item.status = .dismissed
             item.updatedAt = .now
@@ -541,15 +463,13 @@ struct InboxTriageView: View {
         guard decision.mode == .existing else { return nil }
         guard decision.confidence >= 0.78 else { return nil }
 
-        // Smart boards are rule-driven; membership must never be written into
-        // them, so they are not auto-assign targets.
         if let recommendedBoardID = decision.recommendedBoardID,
-           let recommended = boards.first(where: { $0.id == recommendedBoardID && !$0.isSmart }) {
+           let recommended = boards.first(where: { $0.id == recommendedBoardID }) {
             return recommended
         }
 
         return boards.first(where: {
-            !$0.isSmart && $0.title.localizedCaseInsensitiveCompare(decision.suggestedName) == .orderedSame
+            $0.title.localizedCaseInsensitiveCompare(decision.suggestedName) == .orderedSame
         })
     }
 
@@ -560,13 +480,13 @@ struct InboxTriageView: View {
         if let existingBoard = boards.first(where: {
             $0.title.localizedCaseInsensitiveCompare(title) == .orderedSame
         }) {
-            BoardSuggestionMetadata.recordSelection(existingBoard, on: item)
+            BoardSuggestionMetadata.clearPendingSuggestion(on: item)
             let viewModel = ItemViewModel(modelContext: modelContext)
             viewModel.assignToBoard(item, board: existingBoard)
         } else {
             let board = Board(title: title)
             modelContext.insert(board)
-            BoardSuggestionMetadata.recordSelection(board, on: item)
+            BoardSuggestionMetadata.clearPendingSuggestion(on: item)
             let viewModel = ItemViewModel(modelContext: modelContext)
             viewModel.assignToBoard(item, board: board)
         }
@@ -670,9 +590,9 @@ struct InboxTriageView: View {
             }
         }
         .background(Color.bgCard)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
         .overlay(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: Radius.control)
                 .stroke(Color.borderPrimary, lineWidth: 1)
         )
     }
@@ -692,19 +612,6 @@ struct InboxTriageView: View {
         }
     }
 
-    /// Per-source keep/dismiss counters feeding the auto-throttle in
-    /// FeedFetchService. No-op for non-suggested items.
-    private func recordSuggestionSignal(for item: Item, kept: Bool) {
-        guard item.isFeedSuggestion,
-              let idString = item.metadata["feedSourceID"],
-              let id = UUID(uuidString: idString) else { return }
-        if kept {
-            FeedPreferencesStore.recordKeep(sourceID: id)
-        } else {
-            FeedPreferencesStore.recordDismissal(sourceID: id)
-        }
-    }
-
     /// Restore a queued item to the inbox and open it for reading,
     /// using the same open mechanism as Return on a focused inbox card.
     private func readQueuedItemNow(_ item: Item) {
@@ -721,29 +628,5 @@ struct InboxTriageView: View {
 
     private func restoreDueQueuedItems() {
         _ = readLaterService.restoreDueItems()
-    }
-
-    // MARK: - Video Drag-and-Drop
-
-    private func handleVideoDrop(providers: [NSItemProvider]) -> Bool {
-        var handled = false
-        for provider in providers {
-            _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                guard let url = url else { return }
-                let path = url.path
-                guard CaptureService.isSupportedVideoFile(path) else { return }
-                Task { @MainActor in
-                    importDroppedVideo(at: path)
-                }
-            }
-            handled = true
-        }
-        return handled
-    }
-
-    @MainActor
-    private func importDroppedVideo(at path: String) {
-        let captureService = CaptureService(modelContext: modelContext)
-        _ = captureService.createVideoItem(filePath: path)
     }
 }

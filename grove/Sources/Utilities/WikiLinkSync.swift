@@ -4,7 +4,7 @@ import SwiftData
 /// Ensures a `.related` Connection exists for every `[[Wiki Link]]` found in an
 /// item's markdown content.
 ///
-/// The autocomplete dropdown in `RichMarkdownEditor`/`WikiLinkTextEditor` only
+/// The autocomplete dropdown in `RichMarkdownEditor` only
 /// creates a Connection when a target is picked from the dropdown AND the editor
 /// has a non-nil `sourceItem`. Links that are typed manually — or written in a
 /// context without a source item (e.g. the global Write panel) — never become

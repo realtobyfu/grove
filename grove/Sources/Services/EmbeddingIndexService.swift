@@ -56,9 +56,12 @@ actor EmbeddingIndexService {
         var parts = [item.title]
         let tags = item.tags.map(\.name).joined(separator: ", ")
         if !tags.isEmpty { parts.append(tags) }
-        if let summary = item.metadata["summary"], !summary.isEmpty { parts.append(summary) }
+        if let summary = item.summary, !summary.isEmpty { parts.append(summary) }
         if let content = item.content, !content.isEmpty {
             parts.append(String(content.prefix(1000)))
+        }
+        if let overview = item.overview, !overview.isEmpty {
+            parts.append(String(overview.prefix(1000)))
         }
         for reflection in item.reflections.prefix(3) {
             parts.append(String(reflection.content.prefix(300)))
@@ -96,10 +99,11 @@ actor EmbeddingIndexService {
     // MARK: - Queries
 
     /// Items semantically closest to a free-text query. Only entries embedded in
-    /// the query's detected language are comparable.
+    /// the query's language are comparable; see `embedQuery` for how that
+    /// language is chosen for short queries.
     func search(query: String, limit: Int, minScore: Double = 0.55) -> [(id: UUID, score: Double)] {
         loadIfNeeded()
-        guard let embedded = embed(query) else { return [] }
+        guard !entries.isEmpty, let embedded = embedQuery(query) else { return [] }
 
         return entries
             .filter { $0.value.language == embedded.language }
@@ -179,6 +183,38 @@ actor EmbeddingIndexService {
         }
         embeddingMisses.insert(key)
         return nil
+    }
+
+    /// Minimum recognizer probability for re-reading a query in an indexed
+    /// language. Real English words the recognizer misreads ("mind" → hu,
+    /// "stoic" → pl, "design" → da) still give English 0.06–0.21; keyboard
+    /// noise ("xqzv", "asdf") gives it under 0.04.
+    private static let queryLanguageFallbackFloor = 0.05
+
+    /// Embed a search query. One- and two-word queries are often misdetected,
+    /// which would put the vector in a language space with no indexed entries.
+    /// When the detected language is not indexed, use the most likely
+    /// hypothesis that is, provided the recognizer gives it real weight; below
+    /// that floor keep the detected language so noise is not forced into the
+    /// index's space.
+    private func embedQuery(_ text: String) -> EmbeddedText? {
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(text)
+        var language = recognizer.dominantLanguage ?? .english
+
+        let indexedLanguages = Set(entries.values.map(\.language))
+        if !indexedLanguages.contains(language.rawValue),
+           let fallback = recognizer.languageHypotheses(withMaximum: 20)
+               .filter({ indexedLanguages.contains($0.key.rawValue) && $0.value >= Self.queryLanguageFallbackFloor })
+               .max(by: { $0.value < $1.value }) {
+            language = fallback.key
+        }
+
+        guard let embedding = embedding(for: language),
+              let vector = embedding.vector(for: Self.embeddableText(text)) else {
+            return nil
+        }
+        return EmbeddedText(language: language.rawValue, vector: vector)
     }
 
     /// Dominant language of the text, defaulting to English when undetermined.

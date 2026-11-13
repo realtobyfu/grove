@@ -29,8 +29,31 @@ final class TokenTracker {
         var totalTokens: Int { inputTokens + outputTokens }
         var id: String { service }
 
+        /// Settings label for the service name recorded with each call.
+        var displayName: String { TokenTracker.displayName(forService: service) }
+
         var estimatedCost: Double {
             TokenTracker.cost(inputTokens: inputTokens, outputTokens: outputTokens)
+        }
+    }
+
+    /// Labels for every service name the app records. Names left in history by
+    /// retired services are split at their camelCase humps instead.
+    nonisolated static func displayName(forService service: String) -> String {
+        switch service {
+        case "tagging": return "Auto-Tagging"
+        case "overview": return "Article Overview"
+        case "dialectics": return "Chat"
+        case "conversationStarter": return "Conversation Starters"
+        case "tensionDetection": return "Tension Detection"
+        case "flashcardDraft": return "Flashcard Drafts"
+        default:
+            var words = ""
+            for character in service {
+                if character.isUppercase, !words.isEmpty { words.append(" ") }
+                words.append(character)
+            }
+            return words.prefix(1).uppercased() + words.dropFirst()
         }
     }
 

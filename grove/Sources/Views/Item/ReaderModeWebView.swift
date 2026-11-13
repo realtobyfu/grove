@@ -133,61 +133,102 @@ enum ReaderTemplate {
 
     // MARK: Shared JavaScript
 
-    /// Scroll-to-text helper shared by Reader mode and live pages.
-    /// `window.__groveScrollToText(query)` finds the first case-insensitive
-    /// occurrence of `query` in the page text, smooth-scrolls it into view,
-    /// and flashes a monochrome overlay marker. Returns true when found.
-    static let scrollToTextJS = """
-    window.__groveScrollToText = function(query) {
-        if (!query) { return false; }
-        // Concatenate all visible text nodes so a match can span inline markup
-        // (links, <em>/<strong>/<code>) instead of only matching within a
-        // single text node.
+    /// Text lookup shared by `scrollToTextJS` and `highlightMarksJS`, so any
+    /// quote that can be marked can also be jumped to. Declares `collectText`,
+    /// `strip` and `findText` in the enclosing function scope.
+    ///
+    /// Text nodes are concatenated so a match can span inline markup, and the
+    /// compare ignores case and all whitespace: a quote selected across a
+    /// paragraph break carries newlines the concatenated DOM text does not,
+    /// so an exact compare would miss most multi-block highlights.
+    private static let textLookupJS = """
+    function collectText() {
         var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
         var nodes = [];
         var full = '';
         while (walker.nextNode()) {
             var node = walker.currentNode;
             var p = node.parentElement;
-            if (p && (p.tagName === 'SCRIPT' || p.tagName === 'STYLE' || p.tagName === 'NOSCRIPT')) { continue; }
+            if (!p) { continue; }
+            var tag = p.tagName;
+            if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') { continue; }
+            if (!node.textContent.length) { continue; }
             nodes.push({ node: node, start: full.length });
             full += node.textContent;
         }
-        if (nodes.length === 0) { return false; }
-        var idx = full.toLowerCase().indexOf(query.toLowerCase());
-        if (idx === -1) { return false; }
-        var endIdx = idx + query.length;
-        function locate(offset) {
-            for (var i = 0; i < nodes.length; i++) {
-                var n = nodes[i];
-                var len = n.node.textContent.length;
-                if (offset <= n.start + len) {
-                    return { node: n.node, offset: Math.max(0, Math.min(offset - n.start, len)) };
+        return { nodes: nodes, full: full };
+    }
+
+    function strip(text) {
+        var out = '';
+        var map = [];
+        for (var i = 0; i < text.length; i++) {
+            var ch = text[i];
+            if (/\\s/.test(ch)) { continue; }
+            // Lowercasing can lengthen a character, so map every unit it yields.
+            var lowered = ch.toLowerCase();
+            out += lowered;
+            for (var k = 0; k < lowered.length; k++) { map.push(i); }
+        }
+        return { text: out, map: map };
+    }
+
+    // The half-open span of the first match in `collected.full`, or null.
+    function findText(collected, query) {
+        if (!collected.nodes.length) { return null; }
+        var needle = strip(query).text;
+        if (!needle) { return null; }
+        var haystack = strip(collected.full);
+        var at = haystack.text.indexOf(needle);
+        if (at === -1) { return null; }
+        return { start: haystack.map[at], end: haystack.map[at + needle.length - 1] + 1 };
+    }
+    """
+
+    /// Scroll-to-text helper shared by Reader mode and live pages.
+    /// `window.__groveScrollToText(query)` finds the first occurrence of
+    /// `query` in the page text (see `textLookupJS`), smooth-scrolls it into
+    /// view, and flashes a monochrome overlay marker. Returns true when found.
+    static let scrollToTextJS = """
+    (function() {
+        \(textLookupJS)
+
+        // The text node holding character `index` of the concatenated text.
+        function nodeAt(nodes, index) {
+            for (var i = nodes.length - 1; i >= 0; i--) {
+                if (nodes[i].start <= index) {
+                    return { node: nodes[i].node, offset: index - nodes[i].start };
                 }
             }
-            var last = nodes[nodes.length - 1];
-            return { node: last.node, offset: last.node.textContent.length };
+            return null;
         }
-        var startLoc = locate(idx);
-        var endLoc = locate(endIdx);
-        var range = document.createRange();
-        try {
-            range.setStart(startLoc.node, startLoc.offset);
-            range.setEnd(endLoc.node, endLoc.offset);
-        } catch (e) { return false; }
-        var rect = range.getBoundingClientRect();
-        window.scrollTo({ top: window.scrollY + rect.top - window.innerHeight * 0.3, behavior: 'smooth' });
-        var mark = document.createElement('div');
-        mark.style.cssText = 'position:absolute;pointer-events:none;background:rgba(128,128,128,0.35);border-radius:2px;transition:opacity 0.6s ease 0.9s;opacity:1;z-index:2147483647;';
-        mark.style.left = (window.scrollX + rect.left - 2) + 'px';
-        mark.style.top = (window.scrollY + rect.top - 1) + 'px';
-        mark.style.width = (rect.width + 4) + 'px';
-        mark.style.height = (rect.height + 2) + 'px';
-        document.body.appendChild(mark);
-        requestAnimationFrame(function() { mark.style.opacity = '0'; });
-        setTimeout(function() { mark.remove(); }, 1800);
-        return true;
-    };
+
+        window.__groveScrollToText = function(query) {
+            if (!query) { return false; }
+            var collected = collectText();
+            var match = findText(collected, query);
+            if (!match) { return false; }
+            var first = nodeAt(collected.nodes, match.start);
+            var last = nodeAt(collected.nodes, match.end - 1);
+            var range = document.createRange();
+            try {
+                range.setStart(first.node, first.offset);
+                range.setEnd(last.node, last.offset + 1);
+            } catch (e) { return false; }
+            var rect = range.getBoundingClientRect();
+            window.scrollTo({ top: window.scrollY + rect.top - window.innerHeight * 0.3, behavior: 'smooth' });
+            var mark = document.createElement('div');
+            mark.style.cssText = 'position:absolute;pointer-events:none;background:rgba(128,128,128,0.35);border-radius:2px;transition:opacity 0.6s ease 0.9s;opacity:1;z-index:2147483647;';
+            mark.style.left = (window.scrollX + rect.left - 2) + 'px';
+            mark.style.top = (window.scrollY + rect.top - 1) + 'px';
+            mark.style.width = (rect.width + 4) + 'px';
+            mark.style.height = (rect.height + 2) + 'px';
+            document.body.appendChild(mark);
+            requestAnimationFrame(function() { mark.style.opacity = '0'; });
+            setTimeout(function() { mark.remove(); }, 1800);
+            return true;
+        };
+    })();
     """
 
     /// Debounced selection reporter, shared verbatim by every web surface so
@@ -259,62 +300,38 @@ enum ReaderTemplate {
     /// Persistent highlight marks for Reader mode.
     /// `window.__groveApplyHighlights(list, animated)` clears every existing
     /// `mark.grove-highlight` and re-wraps the first match of each string in
-    /// `list`; strings in `animated` additionally get the one-shot ink-in
-    /// class. Strings that no longer match (content drift) are skipped
-    /// silently. Returns the number of strings that were marked.
+    /// `list` (see `textLookupJS`); strings in `animated` additionally get the
+    /// one-shot ink-in class. Strings that no longer match (content drift) are
+    /// skipped silently. Returns the number of distinct strings that matched.
     ///
-    /// Matching ignores whitespace entirely: a quote selected across a
-    /// paragraph break carries newlines the concatenated DOM text does not,
-    /// so an exact compare would miss most multi-block highlights.
+    /// The wash is translucent, so text must never sit inside two marks: quotes
+    /// equal under the lookup's compare collapse to one, and where quotes
+    /// overlap only the part not yet marked is wrapped.
     static let highlightMarksJS = """
     (function() {
-        function collect() {
-            var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
-            var nodes = [];
-            var full = '';
-            while (walker.nextNode()) {
-                var node = walker.currentNode;
-                var p = node.parentElement;
-                if (!p) { continue; }
-                var tag = p.tagName;
-                if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') { continue; }
-                if (!node.textContent.length) { continue; }
-                nodes.push({ node: node, start: full.length });
-                full += node.textContent;
-            }
-            return { nodes: nodes, full: full };
-        }
+        \(textLookupJS)
 
-        function strip(text) {
-            var out = '';
-            var map = [];
-            for (var i = 0; i < text.length; i++) {
-                var ch = text[i];
-                if (/\\s/.test(ch)) { continue; }
-                out += ch.toLowerCase();
-                map.push(i);
+        function isInsideMark(node) {
+            for (var p = node.parentElement; p; p = p.parentElement) {
+                if (p.tagName === 'MARK' && p.classList.contains('grove-highlight')) { return true; }
             }
-            return { text: out, map: map };
+            return false;
         }
 
         function wrapFirstMatch(query, animate) {
-            var collected = collect();
-            if (!collected.nodes.length) { return 0; }
-            var haystack = strip(collected.full);
-            var needle = strip(query).text;
-            if (!needle) { return 0; }
-            var at = haystack.text.indexOf(needle);
-            if (at === -1) { return 0; }
-            var startIdx = haystack.map[at];
-            var endIdx = haystack.map[at + needle.length - 1] + 1;
+            var collected = collectText();
+            var match = findText(collected, query);
+            if (!match) { return false; }
+            var startIdx = match.start;
+            var endIdx = match.end;
             var cls = animate ? 'grove-highlight grove-highlight--new' : 'grove-highlight';
-            var created = 0;
             var nodes = collected.nodes;
             for (var i = 0; i < nodes.length; i++) {
                 var entry = nodes[i];
                 var len = entry.node.textContent.length;
                 var nodeStart = entry.start;
                 if (nodeStart + len <= startIdx || nodeStart >= endIdx) { continue; }
+                if (isInsideMark(entry.node)) { continue; }
                 var s = Math.max(0, startIdx - nodeStart);
                 var e = Math.min(len, endIdx - nodeStart);
                 if (e <= s) { continue; }
@@ -327,9 +344,8 @@ enum ReaderTemplate {
                 mark.className = cls;
                 parent.replaceChild(mark, target);
                 mark.appendChild(target);
-                created++;
             }
-            return created;
+            return true;
         }
 
         window.__groveApplyHighlights = function(list, animated) {
@@ -344,15 +360,20 @@ enum ReaderTemplate {
                     parent.normalize();
                 }
                 if (!list || !list.length) { return 0; }
-                var fresh = {};
-                for (var a = 0; a < (animated || []).length; a++) { fresh[animated[a]] = true; }
+                // No prototype: a quote can be any word, "constructor" included.
+                var fresh = Object.create(null);
+                for (var a = 0; a < (animated || []).length; a++) { fresh[strip(animated[a]).text] = true; }
+                var seen = Object.create(null);
                 var applied = 0;
                 var didAnimate = false;
                 for (var j = 0; j < list.length; j++) {
                     var query = list[j];
                     if (!query) { continue; }
-                    var animate = fresh[query] === true;
-                    if (wrapFirstMatch(query, animate) > 0) {
+                    var key = strip(query).text;
+                    if (seen[key]) { continue; }
+                    seen[key] = true;
+                    var animate = fresh[key] === true;
+                    if (wrapFirstMatch(query, animate)) {
                         applied++;
                         if (animate) { didAnimate = true; }
                     }
@@ -1155,6 +1176,16 @@ struct ReaderModeWebView: UIViewRepresentable {
     /// Saved highlight strings for the item backing this page, rendered as
     /// persistent `<mark>` washes in the article.
     var highlights: [String] = []
+    /// Find-in-page, same contract as `MobileArticleWebView`: a query change
+    /// re-runs the search, the tokens step through matches, and results come
+    /// back as (current, total).
+    var findQuery: String = ""
+    var findForwardToken: Int = 0
+    var findBackwardToken: Int = 0
+    var onFindResult: ((Int, Int) -> Void)?
+    /// Bump to drop the page's text selection once it has become a highlight,
+    /// so the action bar can't re-anchor to a selection already acted on.
+    var clearSelectionToken: Int = 0
     var onTextSelected: ((String?) -> Void)?
     var onSelectionGeometry: ((WebSelectionGeometry?) -> Void)?
     var onScrollProgress: ((Double) -> Void)?
@@ -1170,18 +1201,39 @@ struct ReaderModeWebView: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> WKWebView {
-        let webView = ReaderModeSupport.makeWebView(coordinator: context.coordinator)
+        let coordinator = context.coordinator
+        let webView = ReaderModeSupport.makeWebView(coordinator: coordinator)
+        // The content controller is shared with the configuration the web view
+        // was built from, so a script added before the first load is injected
+        // into the reader page alongside the shared ones.
+        webView.configuration.userContentController.addUserScript(WKUserScript(
+            source: Self.findJS,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        ))
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
-        ReaderModeSupport.load(article, typography: typography, isDark: isDark, initialProgress: initialProgress, into: webView, coordinator: context.coordinator)
+        // Selection handles and the selection wash take the view's tint; the
+        // reader is monochrome, so they are ink rather than system blue.
+        webView.tintColor = .label
+        // A fresh mount must not replay find steps or a selection clear that
+        // belonged to an earlier web view; only a live query carries over.
+        coordinator.findState = ReaderModeCoordinator.FindState(
+            forwardToken: findForwardToken,
+            backwardToken: findBackwardToken
+        )
+        coordinator.lastClearSelectionToken = clearSelectionToken
+        ReaderModeSupport.load(article, typography: typography, isDark: isDark, initialProgress: initialProgress, into: webView, coordinator: coordinator)
         return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
+        let coordinator = context.coordinator
+        let loadedKey = coordinator.loadedArticleKey
         ReaderModeSupport.update(
             webView,
-            coordinator: context.coordinator,
+            coordinator: coordinator,
             article: article,
             typography: typography,
             isDark: isDark,
@@ -1194,6 +1246,195 @@ struct ReaderModeWebView: UIViewRepresentable {
             onScrollProgress: onScrollProgress,
             onOpenExternalLink: onOpenExternalLink
         )
+        coordinator.onFindResult = onFindResult
+        if coordinator.loadedArticleKey != loadedKey {
+            // A different article was just loaded: its document carries no
+            // find marks, so a live query runs again (and reports) once the
+            // new document is ready.
+            coordinator.findState = ReaderModeCoordinator.FindState(
+                forwardToken: findForwardToken,
+                backwardToken: findBackwardToken
+            )
+        }
+
+        if clearSelectionToken != coordinator.lastClearSelectionToken {
+            coordinator.lastClearSelectionToken = clearSelectionToken
+            webView.evaluateJavaScript(
+                "window.getSelection && window.getSelection().removeAllRanges();",
+                completionHandler: nil
+            )
+        }
+
+        coordinator.updateFind(
+            in: webView,
+            query: findQuery,
+            forwardToken: findForwardToken,
+            backwardToken: findBackwardToken
+        )
+    }
+
+    /// Find-in-page for the reader page. The live-page helper paints matches
+    /// yellow and orange; the reader is monochrome, so matches here are an ink
+    /// wash and the current one a darker wash. Unwrapping moves the original
+    /// text nodes back (no `outerHTML` round trip), so saved highlight marks
+    /// and the article's markup survive a search.
+    static let findJS = """
+    (function() {
+        var MATCH = 'rgba(128, 128, 128, 0.26)';
+        var CURRENT = 'rgba(128, 128, 128, 0.58)';
+        window.__groveMatches = [];
+        window.__groveMatchIndex = -1;
+
+        function unwrap(mark) {
+            var parent = mark.parentNode;
+            if (!parent) { return; }
+            while (mark.firstChild) { parent.insertBefore(mark.firstChild, mark); }
+            parent.removeChild(mark);
+            parent.normalize();
+        }
+        function paint(index, isCurrent) {
+            var mark = window.__groveMatches[index];
+            if (mark) { mark.style.backgroundColor = isCurrent ? CURRENT : MATCH; }
+        }
+        function focus(index) {
+            paint(index, true);
+            var mark = window.__groveMatches[index];
+            if (mark) { mark.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+        }
+        function step(delta) {
+            var count = window.__groveMatches.length;
+            if (!count) { return [0, 0]; }
+            paint(window.__groveMatchIndex, false);
+            window.__groveMatchIndex = (window.__groveMatchIndex + delta + count) % count;
+            focus(window.__groveMatchIndex);
+            return [window.__groveMatchIndex + 1, count];
+        }
+
+        window.__groveClearFind = function() {
+            var marks = document.querySelectorAll('mark.grove-find');
+            for (var i = 0; i < marks.length; i++) { unwrap(marks[i]); }
+            window.__groveMatches = [];
+            window.__groveMatchIndex = -1;
+        };
+
+        window.__groveFindAll = function(query) {
+            window.__groveClearFind();
+            if (!query) { return 0; }
+            var needle = query.toLowerCase();
+            var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+            var hits = [];
+            while (walker.nextNode()) {
+                var node = walker.currentNode;
+                var p = node.parentElement;
+                if (!p || p.tagName === 'SCRIPT' || p.tagName === 'STYLE' || p.tagName === 'NOSCRIPT') { continue; }
+                var text = node.textContent.toLowerCase();
+                var at = text.indexOf(needle);
+                while (at !== -1) {
+                    hits.push({ node: node, start: at });
+                    at = text.indexOf(needle, at + needle.length);
+                }
+            }
+            // Back to front, so wrapping a later hit never shifts the offsets
+            // of an earlier one in the same text node.
+            for (var h = hits.length - 1; h >= 0; h--) {
+                var hit = hits[h];
+                try {
+                    var range = document.createRange();
+                    range.setStart(hit.node, hit.start);
+                    range.setEnd(hit.node, hit.start + needle.length);
+                    var mark = document.createElement('mark');
+                    mark.className = 'grove-find';
+                    mark.style.cssText = 'color: inherit; border-radius: 2px; background-color: ' + MATCH + ';';
+                    range.surroundContents(mark);
+                } catch (e) { /* skip a hit the DOM won't wrap */ }
+            }
+            window.__groveMatches = document.querySelectorAll('mark.grove-find');
+            if (!window.__groveMatches.length) { return 0; }
+            window.__groveMatchIndex = 0;
+            focus(0);
+            return window.__groveMatches.length;
+        };
+
+        window.__groveFindNext = function() { return step(1); };
+        window.__groveFindPrev = function() { return step(-1); };
+    })();
+    """
+}
+
+/// Find-in-page driving for the iOS reader. The coordinator only stores the
+/// bookkeeping (`findState`); the behavior lives here beside the
+/// representable that uses it.
+extension ReaderModeCoordinator {
+    struct FindState {
+        /// The query the document currently reflects ("" = no marks).
+        var query = ""
+        var forwardToken = 0
+        var backwardToken = 0
+        /// A query that arrived before the document was ready; runs on didFinish.
+        var pendingQuery: String? = nil
+        /// False from load until didFinish. `isLoading` is not yet true in the
+        /// same turn as `loadHTMLString`, so it can't gate the find script.
+        var documentReady = false
+
+        init(forwardToken: Int = 0, backwardToken: Int = 0) {
+            self.forwardToken = forwardToken
+            self.backwardToken = backwardToken
+        }
+    }
+
+    func updateFind(in webView: WKWebView, query: String, forwardToken: Int, backwardToken: Int) {
+        if query != findState.query {
+            findState.query = query
+            findState.forwardToken = forwardToken
+            findState.backwardToken = backwardToken
+            guard findState.documentReady else {
+                findState.pendingQuery = query
+                return
+            }
+            runFindAll(query, in: webView)
+            return
+        }
+        guard findState.documentReady else { return }
+        if forwardToken != findState.forwardToken {
+            findState.forwardToken = forwardToken
+            stepFind("window.__groveFindNext && window.__groveFindNext();", in: webView)
+        }
+        if backwardToken != findState.backwardToken {
+            findState.backwardToken = backwardToken
+            stepFind("window.__groveFindPrev && window.__groveFindPrev();", in: webView)
+        }
+    }
+
+    /// Called from didFinish: the reader document and its find helper exist.
+    func readerDocumentDidFinish(_ webView: WKWebView) {
+        findState.documentReady = true
+        guard let query = findState.pendingQuery else { return }
+        runFindAll(query, in: webView)
+    }
+
+    private func runFindAll(_ query: String, in webView: WKWebView) {
+        findState.pendingQuery = nil
+        guard !query.isEmpty else {
+            // Reported from the completion, never synchronously: this runs
+            // inside updateUIView, where writing view state is not allowed.
+            webView.evaluateJavaScript("window.__groveClearFind && window.__groveClearFind(); 0;") { [weak self] _, _ in
+                self?.onFindResult?(0, 0)
+            }
+            return
+        }
+        let escaped = ReaderTemplate.escapeForJSString(query)
+        webView.evaluateJavaScript("window.__groveFindAll('\(escaped)');") { [weak self] result, _ in
+            let count = (result as? Int) ?? 0
+            self?.onFindResult?(count > 0 ? 1 : 0, count)
+        }
+    }
+
+    private func stepFind(_ script: String, in webView: WKWebView) {
+        webView.evaluateJavaScript(script) { [weak self] result, _ in
+            if let pair = result as? [Int], pair.count == 2 {
+                self?.onFindResult?(pair[0], pair[1])
+            }
+        }
     }
 }
 #endif
@@ -1263,7 +1504,7 @@ enum ReaderModeSupport {
         // A fresh document carries no marks yet; the first pass after didFinish
         // renders the saved highlights without the ink-in animation.
         coordinator.lastAppliedHighlights = nil
-        coordinator.pendingRestoreProgress = (initialProgress > 0.01 && initialProgress < 0.99) ? initialProgress : nil
+        coordinator.pendingRestoreProgress = restorableProgress(initialProgress)
         let html = ReaderTemplate.page(
             article: article,
             typography: typography,
@@ -1344,18 +1585,39 @@ enum ReaderModeSupport {
         // Injecting before the document is up would silently no-op and, worse,
         // record the set as applied. didFinish passes documentIsReady.
         guard documentIsReady || !webView.isLoading else { return }
-        let desired = coordinator.desiredHighlights
-        let previous = coordinator.lastAppliedHighlights
-        if let previous, previous == desired { return }
-        let animated = previous.map { prior in desired.filter { !prior.contains($0) } } ?? []
-        coordinator.lastAppliedHighlights = desired
+        guard let pass = highlightPass(
+            desired: coordinator.desiredHighlights,
+            previous: coordinator.lastAppliedHighlights
+        ) else { return }
+        coordinator.lastAppliedHighlights = pass.highlights
         webView.evaluateJavaScript(
-            ReaderTemplate.applyHighlightsJS(desired, animated: animated),
+            ReaderTemplate.applyHighlightsJS(pass.highlights, animated: pass.animated),
             completionHandler: nil
         )
     }
 
-    private static func articleKey(_ article: ReadableArticle) -> String {
+    /// What one highlight pass should inject, or nil when the document already
+    /// carries exactly `desired`. `previous` is the set last injected into this
+    /// document — nil on its first pass, when nothing animates; afterwards only
+    /// strings absent from `previous` ink in.
+    nonisolated static func highlightPass(
+        desired: [String],
+        previous: [String]?
+    ) -> (highlights: [String], animated: [String])? {
+        if let previous, previous == desired { return nil }
+        let animated = previous.map { prior in desired.filter { !prior.contains($0) } } ?? []
+        return (desired, animated)
+    }
+
+    /// The saved scroll fraction worth restoring on load, or nil to start at
+    /// the top. Fractions within 1% of either end are not restored.
+    nonisolated static func restorableProgress(_ fraction: Double) -> Double? {
+        (fraction > 0.01 && fraction < 0.99) ? fraction : nil
+    }
+
+    /// Identity of one extraction: a re-extraction of the same page is a new
+    /// document and reloads, while typography/theme changes update in place.
+    nonisolated static func articleKey(_ article: ReadableArticle) -> String {
         "\(article.sourceURLString ?? "")#\(article.extractedAt.timeIntervalSince1970)"
     }
 }
@@ -1381,6 +1643,13 @@ final class ReaderModeCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate,
     /// freshly loaded document, which is what keeps old highlights from
     /// animating in on arrival.
     var lastAppliedHighlights: [String]? = nil
+    #if os(iOS)
+    /// Find-in-page bookkeeping for the iOS reader (driven from the iOS
+    /// `ReaderModeWebView`); macOS Reader mode has no find of its own.
+    var findState = FindState()
+    var onFindResult: ((Int, Int) -> Void)? = nil
+    var lastClearSelectionToken = 0
+    #endif
 
     init(
         onTextSelected: ((String?) -> Void)?,
@@ -1452,6 +1721,9 @@ final class ReaderModeCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate,
             webView.evaluateJavaScript("window.__groveScrollToText('\(escaped)');", completionHandler: nil)
         }
         ReaderModeSupport.applyHighlights(webView, coordinator: self, documentIsReady: true)
+        #if os(iOS)
+        readerDocumentDidFinish(webView)
+        #endif
     }
 
     func userContentController(

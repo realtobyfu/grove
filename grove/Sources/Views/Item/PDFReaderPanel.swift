@@ -46,7 +46,7 @@ struct PDFReaderPanel: View {
 
     /// Persisted 0–1 progress, in the same format the web reader writes.
     private var storedProgress: Double {
-        Double(item.metadata["readingProgress"] ?? "") ?? 0
+        item.readingProgress
     }
 
     var body: some View {
@@ -63,12 +63,12 @@ struct PDFReaderPanel: View {
     // MARK: - Nav Bar
 
     private var navBar: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Spacing.sm) {
             if let onExit {
                 Button {
                     onExit()
                 } label: {
-                    HStack(spacing: 4) {
+                    HStack(spacing: Spacing.xs) {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 11, weight: .medium))
                         Text("Overview")
@@ -118,8 +118,8 @@ struct PDFReaderPanel: View {
                 .accessibilityLabel("Open in browser")
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.xsm)
         .background(Color.bgCard)
     }
 
@@ -212,8 +212,8 @@ struct PDFReaderPanel: View {
             return
         }
 
-        if item.metadata["pdfCached"] != "true" {
-            item.metadata["pdfCached"] = "true"
+        if !item.isPDFCached {
+            item.isPDFCached = true
             try? modelContext.save()
         }
         state = .loaded(document)
@@ -228,7 +228,7 @@ struct PDFReaderPanel: View {
         let fraction = min(max(Double(pageIndex) / Double(max(pageCount - 1, 1)), 0), 1)
         guard abs(fraction - lastSavedProgress) >= 0.05 || fraction >= 0.995 else { return }
         lastSavedProgress = fraction
-        item.metadata["readingProgress"] = String(format: "%.3f", fraction)
+        item.readingProgress = fraction
         try? modelContext.save()
     }
 

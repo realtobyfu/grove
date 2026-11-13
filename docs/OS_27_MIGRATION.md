@@ -10,13 +10,13 @@ tested, and profiled rather than added speculatively.
    abstraction.
 2. Add task profiles:
    - capture classification, tags, and short summaries: on-device model;
-   - long board synthesis and difficult multi-item reasoning: Private Cloud
+   - tension detection and difficult multi-item reasoning: Private Cloud
      Compute when the user enables Enhanced intelligence;
-   - Dialectics: a dynamic profile that changes tools and context without
+   - Chat: a dynamic profile that changes tools and context without
      rebuilding conversation history.
-3. Replace manual JSON parsing in tagging, reflection prompts, connections, and
-   starters with `@Generable` response types.
-4. Replace the text-based `tool_call` loop in Dialectics with Foundation Models
+3. Replace manual JSON parsing in tagging, connections, flashcard drafts,
+   and conversation starters with `@Generable` response types.
+4. Replace the text-based `tool_call` loop in Chat with Foundation Models
    `Tool` implementations. Keep write tools separately permissioned from search
    tools and require explicit confirmation for destructive or shared-data
    changes.
@@ -31,7 +31,7 @@ tested, and profiled rather than added speculatively.
    - board routing accuracy;
    - tag precision and duplicate-tag rate;
    - summary fidelity;
-   - Dialectics tool selection and tool-call trajectories.
+   - Chat tool selection and tool-call trajectories.
 2. Seed evaluation cases from local user corrections: accepted/dismissed board
    suggestions, board changes, edited summaries, and reverted AI overviews.
 3. Establish separate quality gates for the on-device and enhanced models.
