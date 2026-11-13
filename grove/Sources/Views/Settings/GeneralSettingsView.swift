@@ -3,13 +3,11 @@ import AppKit
 #endif
 import SwiftUI
 
-/// Settings view for general app preferences: appearance, reminders, onboarding, and feedback.
+/// Settings view for general app preferences: appearance, onboarding, and feedback.
 struct GeneralSettingsView: View {
     @Environment(OnboardingService.self) private var onboarding
     @Environment(\.openURL) private var openURL
     @State private var monochromeCoverImages = AppearanceSettings.monochromeCoverImages
-    @State private var notificationsEnabled = NudgeSettings.notificationsEnabled
-    @State private var staleInboxEnabled = NudgeSettings.staleInboxEnabled
 
     var body: some View {
         Form {
@@ -19,22 +17,6 @@ struct GeneralSettingsView: View {
                         AppearanceSettings.monochromeCoverImages = newValue
                     }
 
-            }
-
-            Section("Reminders") {
-                Toggle("System Notifications", isOn: $notificationsEnabled)
-                    .onChange(of: notificationsEnabled) { _, newValue in
-                        updateNotificationPreference(newValue)
-                    }
-
-                Text("When off, reminders appear only inside Today.")
-                    .font(.groveBodySmall)
-                    .foregroundStyle(Color.textSecondary)
-
-                Toggle("Stale inbox reminders", isOn: $staleInboxEnabled)
-                    .onChange(of: staleInboxEnabled) { _, newValue in
-                        NudgeSettings.staleInboxEnabled = newValue
-                    }
             }
 
             Section("Onboarding") {
@@ -68,17 +50,5 @@ struct GeneralSettingsView: View {
         }
         .formStyle(.grouped)
         .frame(minWidth: 400)
-    }
-
-    /// Permission is requested only on an explicit turn-on; the toggle snaps
-    /// back to the effective value when the system denies it.
-    private func updateNotificationPreference(_ enabled: Bool) {
-        Task {
-            let effectiveValue = await NudgeNotificationService.shared
-                .setNotificationsEnabled(enabled)
-            if notificationsEnabled != effectiveValue {
-                notificationsEnabled = effectiveValue
-            }
-        }
     }
 }

@@ -30,7 +30,7 @@ struct StarterCard: View {
                 .fill(Color.accentSelection)
                 .frame(width: 2)
         }
-        .cardStyle(cornerRadius: 8)
+        .cardStyle(cornerRadius: Radius.card)
         .accessibilityElement(children: .contain)
     }
 
@@ -118,7 +118,7 @@ private struct StarterCardAction: View {
                 .padding(.horizontal, Spacing.sm)
                 .frame(minHeight: StarterCardMetrics.minTarget)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 4)
+                    RoundedRectangle(cornerRadius: Radius.control)
                         .stroke(isHovered ? Color.borderInput : Color.borderPrimary, lineWidth: 1)
                 )
                 .contentShape(.rect)

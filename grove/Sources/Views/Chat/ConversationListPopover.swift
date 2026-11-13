@@ -139,7 +139,7 @@ struct ConversationListPopover: View {
             Button("Unlock Pro") {
                 onUnlockPro()
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.grove(.secondary, size: .compact))
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.xs)

@@ -109,7 +109,7 @@ struct ProPaywallView: View {
         .frame(width: 440, height: 600)
 #endif
 #if os(iOS)
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.large])
         .presentationDragIndicator(.visible)
 #endif
     }
@@ -242,12 +242,10 @@ struct ProPaywallView: View {
                     }
 
                     Text(isPurchasing ? "Purchasing..." : purchaseButtonTitle)
-                        .font(.groveBodyMedium)
                         .frame(maxWidth: .infinity)
                 }
-                .frame(minHeight: LayoutDimensions.minTouchTarget)
             }
-            .buttonStyle(PaywallFilledButtonStyle())
+            .buttonStyle(.grove(.primary))
             .disabled(isPurchasing)
 
             Text(renewalFootnote)
@@ -379,21 +377,5 @@ struct ProPaywallView: View {
             return true
         }
         return false
-    }
-}
-
-private struct PaywallFilledButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
-
-    var background: Color = .textPrimary
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(Color.textInverse)
-            .padding(.horizontal, Spacing.md)
-            .background(isEnabled ? background : Color.textSecondary)
-            .clipShape(.rect(cornerRadius: max(LayoutDimensions.cardCornerRadius, 12)))
-            .opacity(configuration.isPressed ? 0.85 : 1.0)
-            .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
     }
 }

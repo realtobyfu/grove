@@ -23,9 +23,9 @@ struct ChatInputArea: View {
                     .lineLimit(1...5)
                     .padding(Spacing.sm)
                     .background(Color.bgInput)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.card))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 8)
+                        RoundedRectangle(cornerRadius: Radius.card)
                             .stroke(Color.borderInput, lineWidth: 1)
                     )
                     .onSubmit {
@@ -66,10 +66,10 @@ struct ChatInputArea: View {
                         Text(item.title)
                             .font(.groveBadge)
                             .foregroundStyle(Color.textPrimary)
-                            .padding(.horizontal, 8)
+                            .padding(.horizontal, Spacing.sm)
                             .padding(.vertical, 3)
                             .background(Color.accentBadge)
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                            .clipShape(RoundedRectangle(cornerRadius: Radius.control))
                     }
                     .buttonStyle(.plain)
                 }

@@ -57,7 +57,9 @@ struct BoardDetailHeaderView {
         } label: {
             Label("Sort", systemImage: "arrow.up.arrow.down")
         }
-        .buttonStyle(.bordered)
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .buttonStyle(.grove(.secondary, size: .compact))
         .help("Sort items (\(sortOption.rawValue))")
     }
 
@@ -67,7 +69,7 @@ struct BoardDetailHeaderView {
         } label: {
             Label(viewMode == .grid ? "List" : "Grid", systemImage: viewMode.iconName)
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(.grove(.secondary, size: .compact))
         .help(viewMode == .grid ? "Switch to list view" : "Switch to grid view")
     }
 
@@ -82,7 +84,7 @@ struct BoardDetailHeaderView {
         } label: {
             Label("Copy as Markdown", systemImage: "doc.on.doc")
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(.grove(.secondary, size: .compact))
         .disabled(displayedItems.isEmpty)
         .help("Copy this board's items as Markdown")
     }

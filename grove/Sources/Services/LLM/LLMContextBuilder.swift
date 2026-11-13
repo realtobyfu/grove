@@ -4,20 +4,13 @@ import Foundation
 /// Possessive framing for notes ("your note") vs neutral for external content.
 extension ItemType {
     var llmLabel: String {
-        switch self {
-        case .note: "your note"
-        case .article: "article"
-        case .video: "video"
-        case .codebase: "codebase"
-        case .courseLecture: "course lecture"
-        }
+        self == .note ? "your note" : displayName.lowercased()
     }
 }
 
 /// Shared utilities for building LLM prompt context from Item data.
-/// Eliminates duplicated item-description and item-list formatting
-/// across DialecticsService,
-/// ReflectionPromptService, SmartNudgeService, and WeeklyDigestService.
+/// Keeps item-description and item-list formatting in one place for the
+/// services that send library context to a model.
 enum LLMContextBuilder {
     /// Build a text description of a single item for LLM context.
     /// - Parameters:

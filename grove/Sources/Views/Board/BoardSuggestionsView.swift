@@ -23,18 +23,18 @@ struct BoardSuggestionsView: View {
                     Button {
                         onRefresh()
                     } label: {
-                        HStack(spacing: 4) {
+                        HStack(spacing: Spacing.xs) {
                             Image(systemName: "arrow.clockwise")
                             Text("Refresh")
                         }
                         .font(.groveMeta)
                         .foregroundStyle(Color.textTertiary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, Spacing.sm)
+                        .padding(.vertical, Spacing.xs)
                         .background(Color.bgCard)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 4)
+                            RoundedRectangle(cornerRadius: Radius.control)
                                 .strokeBorder(Color.borderPrimary, lineWidth: 1)
                         )
                     }

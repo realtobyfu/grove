@@ -35,7 +35,7 @@ final class BoardExportService {
         for (index, item) in items.enumerated() {
             md += "## \(index + 1). \(item.title)\n\n"
 
-            md += "**Type:** \(item.type.rawValue.capitalized)  \n"
+            md += "**Type:** \(item.type.displayName)  \n"
 
             if let url = item.sourceURL, !url.isEmpty {
                 md += "**Source:** [\(url)](\(url))  \n"

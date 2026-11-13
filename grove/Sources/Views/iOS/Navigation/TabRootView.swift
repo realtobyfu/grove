@@ -12,12 +12,12 @@ struct TabRootView: View {
 
     @Environment(DeepLinkRouter.self) private var deepLinkRouter
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Query private var allItems: [Item]
     @Query(sort: \Board.sortOrder) private var boards: [Board]
     private struct LibraryBoardRoute: Hashable { let id: UUID }
     @State private var selectedTab: Tab = .home
     @State private var libraryPath = NavigationPath()
-    @State private var readerPresence = ReaderPresence()
     @State private var libraryBoardID: UUID?
     @State private var libraryFilterBoardID: UUID?
     @State private var showCaptureSheet = false
@@ -45,12 +45,6 @@ struct TabRootView: View {
         allItems.filter { $0.status == .inbox && !$0.isFeedSuggestion }.count
     }
 
-    /// One capture control per screen: Today has its inline bar and the reader
-    /// has its own button, so this covers Library and its boards only.
-    private var showFloatingCapture: Bool {
-        selectedTab == .library && !readerPresence.isActive
-    }
-
     private var currentBoardID: UUID? {
         guard selectedTab == .library else { return nil }
         return libraryBoardID ?? libraryFilterBoardID
@@ -74,13 +68,25 @@ struct TabRootView: View {
 
             SwiftUI.Tab("Library", systemImage: "books.vertical", value: Tab.library) {
                 NavigationStack(path: $libraryPath) {
-                    MobileLibraryView(selectedBoard: $libraryFilterBoardID)
-                        .mobileSettingsToolbar()
+                    MobileLibraryView(
+                        selectedBoard: $libraryFilterBoardID,
+                        onOpenBoard: { boardID in
+                            libraryBoardID = boardID
+                            libraryPath.append(LibraryBoardRoute(id: boardID))
+                        }
+                    )
+                    .mobileSettingsToolbar()
                         .navigationDestination(for: LibraryBoardRoute.self) { route in
                             if let board = boards.first(where: { $0.id == route.id }) {
                                 MobileBoardDetailView(board: board)
                             } else {
-                                ContentUnavailableView("Board unavailable", systemImage: "folder")
+                                GroveEmptyState(
+                                    title: "This board is gone.",
+                                    detail: "It may have been deleted on another device."
+                                )
+                                .padding(.horizontal, LayoutDimensions.contentPaddingH)
+                                .frame(maxHeight: .infinity, alignment: .top)
+                                .background(Color.bgPrimary)
                             }
                         }
                 }
@@ -88,7 +94,11 @@ struct TabRootView: View {
 
             SwiftUI.Tab("Following", systemImage: "newspaper", value: Tab.newsletters) {
                 NavigationStack {
+                    // The view lives outside Views/iOS; the paper is laid
+                    // down where it is mounted.
                     NewsletterInboxView()
+                        .scrollContentBackground(.hidden)
+                        .background(Color.bgPrimary)
                         .mobileSettingsToolbar()
                 }
             }
@@ -101,17 +111,8 @@ struct TabRootView: View {
             }
 
         }
-        .environment(readerPresence)
         // No ⌘-number shortcuts here: ⌘1–9 mean boards (macOS, regular-width
         // iPad), and this compact layout keeps boards inside Library.
-        .overlay(alignment: .bottomTrailing) {
-            if showFloatingCapture {
-                FloatingCaptureButton()
-                    .padding(.trailing, Spacing.lg)
-                    // Clear the floating tab bar (~64pt) so the button sits above it.
-                    .padding(.bottom, 76)
-            }
-        }
         // Board suggestion banner — slides in from top after auto-tagging
         .overlay(alignment: .top) {
             if showBoardSuggestion, let decision = pendingSuggestion {
@@ -124,14 +125,14 @@ struct TabRootView: View {
                 .padding(.top, Spacing.md)
             }
         }
-        .animation(.easeOut(duration: 0.2), value: showBoardSuggestion)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: showBoardSuggestion)
         .onReceive(NotificationCenter.default.publisher(for: .groveNewBoardSuggestion)) { notification in
             guard let result = BoardSuggestionMetadata.decision(from: notification) else { return }
 
             pendingSuggestionItemID = result.itemID
             pendingSuggestion = result.decision
 
-            withAnimation(.easeOut(duration: 0.2)) {
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
                 showBoardSuggestion = true
             }
 
@@ -141,6 +142,11 @@ struct TabRootView: View {
             #endif
 
             scheduleAutoDismiss()
+        }
+        // Today's toolbar search posts this; the one search sheet lives here.
+        .onReceive(NotificationCenter.default.publisher(for: .groveToggleSearch)) { _ in
+            searchInitialQuery = nil
+            showSearchSheet = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .groveNewNote)) { _ in
             presentWriteSheet()
@@ -287,7 +293,7 @@ struct TabRootView: View {
         suggestionDismissTask = nil
         showBoardPicker = false
 
-        withAnimation(.easeOut(duration: 0.2)) {
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
             showBoardSuggestion = false
         }
 

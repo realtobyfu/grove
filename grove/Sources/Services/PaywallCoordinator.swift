@@ -4,7 +4,6 @@ import Foundation
 enum PaywallSource: String, Codable, Sendable {
     case syncSettings
     case aiSettings
-    case nudgeSettings
     case chatHistory
     case proSettings
     case dialecticsLimit
@@ -84,10 +83,6 @@ final class PaywallCoordinator {
             return false
         }
         return referenceDate.timeIntervalSince(lastDismissedAt) < Self.cooldownInterval
-    }
-
-    func clearCooldown(for feature: ProFeature?) {
-        defaults.removeObject(forKey: cooldownKey(for: feature))
     }
 
     private func cooldownKey(for feature: ProFeature?) -> String {

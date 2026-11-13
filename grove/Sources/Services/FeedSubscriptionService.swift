@@ -111,6 +111,44 @@ enum FeedSubscriptionService {
         return .success(source)
     }
 
+    // MARK: - Deleting a Subscription
+
+    /// Deletes a source and dismisses its unkept, unread issues: they are
+    /// marked read and dismissed, the state the old suggestion expiry left
+    /// them in, so nothing keeps counting them. Kept (promoted) issues and
+    /// issues already read are left as they are.
+    static func delete(_ source: FeedSource, in context: ModelContext) {
+        let sourceID = source.id.uuidString
+        let items: [Item] = context.fetchAll()
+        for item in items
+        where item.feedSourceID == sourceID && item.isFeedSuggestion && !item.isFeedIssueRead {
+            item.isFeedIssueRead = true
+            item.isSuggestionDismissed = true
+        }
+        context.delete(source)
+        try? context.save()
+    }
+
+    // MARK: - Unread Issues
+
+    /// Whether an issue counts as unread on Following: not dismissed, not
+    /// read, and from a source that still exists. The Following list groups
+    /// by live source, so an issue whose source was deleted is never shown
+    /// and must not be counted either.
+    static func isUnreadIssue(_ item: Item, liveSourceIDs: Set<String>) -> Bool {
+        guard item.isNewsletterIssue,
+              item.status != .dismissed,
+              !item.isFeedIssueRead,
+              let sourceID = item.feedSourceID else { return false }
+        return liveSourceIDs.contains(sourceID)
+    }
+
+    /// The Following unread count every badge shows.
+    static func unreadIssueCount(items: [Item], sources: [FeedSource]) -> Int {
+        let liveSourceIDs = Set(sources.map(\.id.uuidString))
+        return items.filter { isUnreadIssue($0, liveSourceIDs: liveSourceIDs) }.count
+    }
+
     // MARK: - Feed Discovery From a Site URL
 
     /// Tries the page's advertised `<link rel="alternate">` feeds first, then

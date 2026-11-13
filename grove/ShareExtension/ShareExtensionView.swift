@@ -41,10 +41,15 @@ struct ShareExtensionView: View {
     var body: some View {
         NavigationStack {
             Form {
-                previewSection
-                boardPickerSection
-                noteSection
+                Group {
+                    previewSection
+                    boardPickerSection
+                    noteSection
+                }
+                .listRowBackground(Color.bgCard)
             }
+            .scrollContentBackground(.hidden)
+            .background(Color.bgPrimary)
             .navigationTitle("Save to Grove")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -69,14 +74,14 @@ struct ShareExtensionView: View {
 
     private var previewSection: some View {
         Section {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: Spacing.xsm) {
                 Text(displayTitle)
                     .font(.headline)
                     .foregroundStyle(.primary)
                     .lineLimit(3)
 
                 if let domain {
-                    HStack(spacing: 4) {
+                    HStack(spacing: Spacing.xs) {
                         Image(systemName: "globe")
                             .font(.caption)
                         Text(domain)
@@ -85,7 +90,7 @@ struct ShareExtensionView: View {
                     .foregroundStyle(.secondary)
                 }
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, Spacing.xs)
         } header: {
             Text("Saving to Grove")
         }

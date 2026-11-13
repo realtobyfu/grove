@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import SwiftUI
 import Testing
 @testable import grove
 
@@ -334,6 +335,73 @@ struct ChatBoardProposalTests {
         #expect(service.pendingBoardProposal(for: conversation) == nil)
         #expect(conversation.visibleMessages.last?.content == "Board not created.")
         #expect(await provider.requests.count == requestsBeforeDecline)
+    }
+
+    // MARK: - Persistence
+
+    private func isolatedDefaults() -> UserDefaults {
+        let name = "ChatBoardProposalTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        return defaults
+    }
+
+    @Test func aPendingProposalSurvivesARelaunchAnchoredToItsReply() async throws {
+        let context = try makeInMemoryModelContext()
+        let item = insertItem("Filed thought", in: context)
+        try context.save()
+
+        let (_, conversation) = await propose(boardName: "Research", itemTitles: item.title, context: context)
+        let reply = try #require(conversation.visibleMessages.last)
+        #expect(reply.role == .assistant)
+
+        // A fresh store over the same defaults is what a relaunch sees.
+        let relaunched = BoardProposalStore()
+        let proposal = try #require(relaunched.proposal(for: conversation.id))
+        #expect(proposal.boardName == "Research")
+        #expect(proposal.itemIDs == [item.id])
+        #expect(proposal.messageID == reply.id)
+
+        let afterRelaunch = DialecticsService(provider: ScriptedProvider(responses: []), boardProposals: relaunched)
+        let board = try #require(afterRelaunch.confirmBoardProposal(for: conversation, context: context))
+        #expect(board.items.map(\.id) == [item.id])
+        #expect(BoardProposalStore().proposal(for: conversation.id) == nil)
+    }
+
+    @Test func storeKeepsOnePendingProposalPerConversationAndTakesItOnce() {
+        let defaults = isolatedDefaults()
+        let store = BoardProposalStore(defaults: defaults)
+        let conversationID = UUID()
+        let otherID = UUID()
+        func proposal(_ name: String, in id: UUID) -> BoardProposal {
+            BoardProposal(boardName: name, itemIDs: [UUID()], itemTitles: ["A"], unmatchedTitles: [], conversationID: id)
+        }
+
+        store.set(proposal("First", in: conversationID))
+        store.set(proposal("Second", in: conversationID))
+        store.set(proposal("Other", in: otherID))
+
+        let reloaded = BoardProposalStore(defaults: defaults)
+        #expect(reloaded.proposal(for: conversationID)?.boardName == "Second")
+        #expect(reloaded.take(for: conversationID)?.boardName == "Second")
+        #expect(reloaded.take(for: conversationID) == nil)
+        #expect(store.proposal(for: conversationID) == nil)
+
+        store.remove(for: otherID)
+        #expect(BoardProposalStore(defaults: defaults).proposal(for: otherID) == nil)
+    }
+
+    @Test func deletingAConversationDiscardsItsProposal() async throws {
+        let context = try makeInMemoryModelContext()
+        let (service, conversation) = await propose(boardName: "Research", itemTitles: "", context: context)
+        #expect(service.pendingBoardProposal(for: conversation) != nil)
+
+        let viewModel = DialecticalChatViewModel(modelContext: context)
+        let binding = Binding<Conversation?>.constant(conversation)
+        let conversationID = conversation.id
+        viewModel.deleteConversation(conversation, selectedConversation: binding, conversations: [conversation])
+
+        #expect(BoardProposalStore.shared.proposal(for: conversationID) == nil)
     }
 
     // MARK: - Stored system prompts

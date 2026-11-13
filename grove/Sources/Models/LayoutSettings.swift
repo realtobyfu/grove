@@ -8,7 +8,6 @@ struct LayoutSettings: Sendable {
         case contentChat = "grove.layout.width.contentChat"
         case contentInspector = "grove.layout.width.contentInspector"
         case readerReflections = "grove.layout.width.readerReflections"
-        case mobileReaderSidePanel = "grove.layout.width.mobileReaderSidePanel"
     }
 
     private static var defaults: UserDefaults { UserDefaults.standard }

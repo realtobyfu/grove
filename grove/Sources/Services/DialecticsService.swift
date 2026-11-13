@@ -24,20 +24,45 @@ protocol DialecticsServiceProtocol {
 @Observable
 final class DialecticsService: DialecticsServiceProtocol {
     private let provider: LLMProvider
+    private let entitlements: EntitlementService
+    /// Whether `provider` sends requests to cloud AI, which the free tier meters.
+    private let isCloudBacked: Bool
     var isGenerating = false
     var streamingText = ""
     var lastError: String?
+    /// Set when the last send was refused because this month's free cloud
+    /// conversations are used up. The chat UI turns it into the paywall.
+    private(set) var hitCloudChatLimit = false
 
-    /// Shared because a conversation's turn can run on a different service
-    /// instance from the one its chat view holds, and views come and go.
-    private static let boardProposals = BoardProposalStore()
+    static let cloudChatLimitMessage = "You've used this month's free cloud conversations."
+
+    /// Shared by default because a conversation's turn can run on a different
+    /// service instance from the one its chat view holds, and views come and go.
+    private let boardProposals: BoardProposalStore
 
     private static let maxToolRounds = 3
     private static let contextSummaryThreshold = 20
     private static let keepRecentMessages = 10
 
-    init(provider: LLMProvider = LLMServiceConfig.makeProvider()) {
+    init(
+        provider: LLMProvider = LLMServiceConfig.makeProvider(),
+        entitlements: EntitlementService? = nil,
+        isCloudBacked: Bool? = nil,
+        boardProposals: BoardProposalStore? = nil
+    ) {
         self.provider = provider
+        self.boardProposals = boardProposals ?? .shared
+        self.entitlements = entitlements ?? .shared
+        // Smart routing (on-device first, cloud fallback) can reach the cloud too.
+        self.isCloudBacked = isCloudBacked
+            ?? (provider is GroqProvider || provider is FallbackLLMProvider)
+    }
+
+    /// Whether a message in this conversation may be sent now. False only for
+    /// a free user on cloud AI whose monthly conversations are used up and
+    /// for whom this conversation is not one of them.
+    func canSendMessage(in conversation: Conversation) -> Bool {
+        !isCloudBacked || entitlements.canSendCloudMessage(in: conversation.id)
     }
 
     // MARK: - System Prompt
@@ -112,6 +137,19 @@ final class DialecticsService: DialecticsServiceProtocol {
         context: ModelContext
     ) async -> ChatMessage? {
         guard !isGenerating else { return nil }
+        hitCloudChatLimit = false
+
+        // Cloud chat is metered per conversation, at its first cloud send.
+        if isCloudBacked {
+            guard entitlements.canSendCloudMessage(in: conversation.id) else {
+                lastError = Self.cloudChatLimitMessage
+                hitCloudChatLimit = true
+                NotificationCenter.default.post(name: .groveDialecticsLimitReached, object: nil)
+                return nil
+            }
+            entitlements.recordCloudMessage(in: conversation.id)
+        }
+
         isGenerating = true
         streamingText = ""
         lastError = nil
@@ -153,12 +191,14 @@ final class DialecticsService: DialecticsServiceProtocol {
             )
         }
 
-        // Published after the loop so the card arrives with the reply, not above it.
-        if let proposal = tools.boardProposal {
-            Self.boardProposals.set(proposal)
-        }
+        // Published after the loop so the card arrives with the reply, not
+        // above it, and anchored to that reply once it is saved.
+        let proposal = tools.boardProposal
 
         guard let finalContent = assistantContent, !finalContent.isEmpty else {
+            if let proposal {
+                boardProposals.set(proposal)
+            }
             if lastError == nil {
                 lastError = "Unable to generate a response. Try again."
             }
@@ -181,6 +221,11 @@ final class DialecticsService: DialecticsServiceProtocol {
         context.insert(assistantMsg)
         conversation.updatedAt = .now
         try? context.save()
+
+        if var proposal {
+            proposal.messageID = assistantMsg.id
+            boardProposals.set(proposal)
+        }
 
         // Auto-title after first exchange
         if conversation.title == "New Conversation" && conversation.visibleMessages.count >= 3 {
@@ -645,13 +690,13 @@ final class DialecticsService: DialecticsServiceProtocol {
     /// user cannot act on it while the model is mid-turn.
     func pendingBoardProposal(for conversation: Conversation) -> BoardProposal? {
         guard !isGenerating else { return nil }
-        return Self.boardProposals.proposal(for: conversation.id)
+        return boardProposals.proposal(for: conversation.id)
     }
 
     /// Performs the write the user approved. Does not call the model.
     @discardableResult
     func confirmBoardProposal(for conversation: Conversation, context: ModelContext) -> Board? {
-        guard let proposal = Self.boardProposals.take(for: conversation.id) else { return nil }
+        guard let proposal = boardProposals.take(for: conversation.id) else { return nil }
 
         // A board with this name may have appeared while the card was waiting.
         let allBoards: [Board] = context.fetchAll()
@@ -683,9 +728,14 @@ final class DialecticsService: DialecticsServiceProtocol {
         return board
     }
 
+    /// Forgets a deleted conversation's pending proposal.
+    static func discardBoardProposal(forConversationID conversationID: UUID) {
+        BoardProposalStore.shared.remove(for: conversationID)
+    }
+
     /// Drops the proposal. Does not call the model.
     func declineBoardProposal(for conversation: Conversation, context: ModelContext) {
-        guard Self.boardProposals.take(for: conversation.id) != nil else { return }
+        guard boardProposals.take(for: conversation.id) != nil else { return }
         appendAssistantNote("Board not created.", to: conversation, context: context)
     }
 

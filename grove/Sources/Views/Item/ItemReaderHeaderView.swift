@@ -7,17 +7,13 @@ struct ItemReaderHeaderView: View {
     var onExport: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            HStack(spacing: Spacing.sm) {
                 Image(systemName: vm.item.type.iconName)
                     .foregroundStyle(Color.textSecondary)
-                Text(vm.item.type.rawValue.capitalized)
+                Text(vm.item.type.displayName)
                     .font(.groveMeta)
                     .foregroundStyle(Color.textSecondary)
-
-                if vm.item.isAIGenerated {
-                    AIMetaLabel(text: "AI-Generated Synthesis")
-                }
 
                 Spacer()
 
@@ -28,10 +24,8 @@ struct ItemReaderHeaderView: View {
                     onExport()
                 } label: {
                     Label("Export", systemImage: "square.and.arrow.up")
-                        .font(.groveMeta)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(.grove(.secondary, size: .compact))
                 #endif
 
                 if vm.canEditContent {
@@ -39,26 +33,17 @@ struct ItemReaderHeaderView: View {
                         vm.toggleContentEditing()
                     } label: {
                         Label(vm.isEditingContent ? "Done" : "Edit", systemImage: vm.isEditingContent ? "checkmark" : "pencil")
-                            .font(.groveMeta)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .buttonStyle(.grove(.secondary, size: .compact))
                 }
             }
 
             Text(vm.item.title)
-                .font(.custom("Newsreader", size: 18))
-                .fontWeight(.medium)
+                .font(.groveItemTitle)
                 .tracking(-0.36)
                 .textSelection(.enabled)
 
-            if vm.item.isAIGenerated {
-                let isEdited = vm.item.isAIEdited
-                AIMetaLabel(
-                    text: isEdited ? "Edited" : "AI Draft",
-                    systemImage: isEdited ? "pencil" : "sparkles"
-                )
-            } else if vm.item.hasLLMOverview || vm.item.isSummaryGeneratedByAI {
+            if vm.item.hasLLMOverview || vm.item.isSummaryGeneratedByAI {
                 AIMetaLabel(text: "AI-assisted")
             }
 
@@ -71,7 +56,7 @@ struct ItemReaderHeaderView: View {
                 sourceURLView(sourceURL: sourceURL)
             }
 
-            HStack(spacing: 16) {
+            HStack(spacing: Spacing.lg) {
                 Label(vm.item.createdAt.formatted(date: .abbreviated, time: .shortened), systemImage: "calendar")
                     .font(.groveMeta)
                     .foregroundStyle(Color.textTertiary)
@@ -118,7 +103,7 @@ struct ItemReaderHeaderView: View {
     @ViewBuilder
     private func sourceURLView(sourceURL: String) -> some View {
         if vm.item.isVideoLocalFile, let path = vm.item.originalPath {
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
                 Image(systemName: "folder")
                     .font(.groveMeta)
                 Text(path)
@@ -133,7 +118,7 @@ struct ItemReaderHeaderView: View {
             Button {
                 withAnimation(.easeOut(duration: 0.2)) { vm.showPDFReader = true }
             } label: {
-                HStack(spacing: 4) {
+                HStack(spacing: Spacing.xs) {
                     Image(systemName: "doc.richtext")
                         .font(.groveMeta)
                     Text(sourceURL)
@@ -151,7 +136,7 @@ struct ItemReaderHeaderView: View {
             Button {
                 withAnimation(.easeOut(duration: 0.2)) { vm.showArticleWebView = true }
             } label: {
-                HStack(spacing: 4) {
+                HStack(spacing: Spacing.xs) {
                     Image(systemName: "doc.text.magnifyingglass")
                         .font(.groveMeta)
                     Text(sourceURL)
@@ -165,7 +150,7 @@ struct ItemReaderHeaderView: View {
             .help("Read in App")
         } else {
             Link(destination: URL(string: sourceURL) ?? URL(string: "about:blank")!) {
-                HStack(spacing: 4) {
+                HStack(spacing: Spacing.xs) {
                     Image(systemName: "link")
                         .font(.groveMeta)
                     Text(sourceURL)
@@ -188,7 +173,7 @@ struct AIMetaLabel: View {
     var systemImage: String? = "sparkles"
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
             if let systemImage {
                 Image(systemName: systemImage)
                     .font(.system(size: 9))
@@ -275,8 +260,8 @@ struct ItemReaderSummaryField: View {
     var body: some View {
         Group {
             if vm.isEditingSummary {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
+                VStack(alignment: .leading, spacing: Spacing.xs) {
+                    HStack(spacing: Spacing.xsm) {
                         Image(systemName: "text.quote")
                             .font(.system(size: 10))
                             .foregroundStyle(Color.textTertiary)
@@ -295,13 +280,11 @@ struct ItemReaderSummaryField: View {
                         Button("Done") {
                             vm.finishEditingSummary()
                         }
-                        .font(.groveBodySecondary)
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+                        .buttonStyle(.grove(.secondary, size: .compact))
                     }
                 }
             } else {
-                HStack(spacing: 6) {
+                HStack(spacing: Spacing.xsm) {
                     Image(systemName: "text.quote")
                         .font(.system(size: 10))
                         .foregroundStyle(Color.textTertiary)

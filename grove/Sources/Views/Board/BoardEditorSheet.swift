@@ -133,12 +133,12 @@ struct BoardEditorSheet: View {
     #if os(macOS)
     private let iconCellSize: CGFloat = 32
     private let iconGridSpacing: CGFloat = 8
-    private let iconColumns = Array(repeating: GridItem(.fixed(36), spacing: 8), count: 8)
+    private let iconColumns = Array(repeating: GridItem(.fixed(36), spacing: Spacing.sm), count: 8)
     #else
     /// Fills whatever width the sheet gives it, at the 44pt touch minimum.
     private let iconCellSize = LayoutDimensions.minTouchTarget
     private let iconGridSpacing: CGFloat = 4
-    private let iconColumns = [GridItem(.adaptive(minimum: LayoutDimensions.minTouchTarget), spacing: 4)]
+    private let iconColumns = [GridItem(.adaptive(minimum: LayoutDimensions.minTouchTarget), spacing: Spacing.xs)]
     #endif
 
     /// Icons read in ink, never in color. The selected one steps up to full
@@ -156,7 +156,7 @@ struct BoardEditorSheet: View {
                         .foregroundStyle(isSelected ? Color.textPrimary : Color.textSecondary)
                         .frame(width: iconCellSize, height: iconCellSize)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 3)
+                            RoundedRectangle(cornerRadius: Radius.tag)
                                 .stroke(Color.textPrimary, lineWidth: isSelected ? 1 : 0)
                         )
                         .contentShape(Rectangle())

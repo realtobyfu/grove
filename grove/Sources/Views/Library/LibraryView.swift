@@ -46,6 +46,7 @@ struct LibraryView: View {
     @Binding var openedItem: Item?
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @Query(sort: \Item.updatedAt, order: .reverse) private var allItems: [Item]
     @Query(sort: \Board.sortOrder) private var allBoards: [Board]
@@ -170,7 +171,7 @@ struct LibraryView: View {
 
                 if isMultiSelectMode && !selectedIDs.isEmpty {
                     multiSelectToolbar
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                 }
             }
         }
@@ -276,10 +277,10 @@ struct LibraryView: View {
             Text("\(selectedIDs.count) selected")
                 .font(.groveBadge)
                 .foregroundStyle(Color.textSecondary)
-                .padding(.horizontal, 8)
+                .padding(.horizontal, Spacing.sm)
                 .padding(.vertical, 3)
                 .background(Color.accentBadge)
-                .clipShape(Capsule())
+                .clipShape(RoundedRectangle(cornerRadius: Radius.control))
 
             Spacer()
 
@@ -322,9 +323,13 @@ struct LibraryView: View {
             .buttonStyle(.plain)
         }
         .padding(.horizontal, Spacing.md)
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial)
-        .overlay(alignment: .top) { Divider() }
+        .padding(.vertical, Spacing.md)
+        .background(Color.bgCard)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(Color.borderPrimary)
+                .frame(height: 1)
+        }
     }
 
     // MARK: - Board Picker Sheet

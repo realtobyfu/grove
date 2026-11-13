@@ -27,15 +27,9 @@ struct MobileOnboardingView: View {
                     onboarding.complete()
                 } label: {
                     Text("Get Started")
-                        .font(.groveBody)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(Color.textInverse)
-                        .frame(maxWidth: .infinity, minHeight: LayoutDimensions.minTouchTarget)
-                        .padding(.vertical, Spacing.xs)
-                        .background(Color.textPrimary)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.grove(.primary))
                 .padding(.horizontal, Spacing.xl)
             }
             .padding(.bottom, Spacing.xl)
@@ -51,7 +45,7 @@ struct MobileOnboardingView: View {
     private var welcomeContent: some View {
         VStack(spacing: Spacing.xl) {
             Image(systemName: "leaf")
-                .font(.system(size: 60, weight: .light))
+                .font(.system(size: 60, weight: .medium))
                 .foregroundStyle(Color.textPrimary)
 
             VStack(spacing: Spacing.md) {

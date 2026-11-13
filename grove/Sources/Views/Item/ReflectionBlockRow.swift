@@ -33,7 +33,7 @@ struct ReflectionBlockRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
             // Header: type label + actions
             HStack(spacing: headerActionSpacing) {
                 Text(block.blockType.displayName)
@@ -91,7 +91,7 @@ struct ReflectionBlockRow: View {
                     quote: highlight,
                     onJump: onHighlightTap.map { tap in { tap(highlight) } }
                 )
-                .padding(.leading, 4)
+                .padding(.leading, Spacing.xs)
             }
 
             // Content
@@ -105,8 +105,8 @@ struct ReflectionBlockRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, Spacing.md)
         // The whole row is the edit target — buttons, menus, and links inside
         // still win their own taps, but padding and header whitespace no
         // longer swallow the click.

@@ -83,11 +83,40 @@ final class Conversation {
         (messages.map(\.position).max() ?? -1) + 1
     }
 
+    /// Longest first-message title before it is cut with an ellipsis.
+    static let derivedTitleLimit = 48
+
+    /// The stored title once someone has named it; until then the board's
+    /// discussion, else the opening line the user wrote, else a plain label.
     var displayTitle: String {
         guard title == "New Conversation" else { return title }
         if let boardName = board?.title { return "\(boardName) Discussion" }
-        let f = DateFormatter()
-        f.dateFormat = "MMM d, h:mm a"
-        return "Conversation – \(f.string(from: createdAt))"
+        let firstUserText = sortedMessages
+            .first { $0.role == .user && !$0.isHidden }?
+            .content
+        guard let derived = firstUserText.flatMap(Self.oneLineTitle(from:)) else {
+            return "New conversation"
+        }
+        return derived
+    }
+
+    /// First non-empty line, whitespace collapsed, cut at a word boundary
+    /// near `derivedTitleLimit` with an ellipsis. Nil when nothing is left.
+    static func oneLineTitle(from text: String) -> String? {
+        guard let line = text
+            .split(whereSeparator: \.isNewline)
+            .lazy
+            .map({ $0.split(whereSeparator: \.isWhitespace).joined(separator: " ") })
+            .first(where: { !$0.isEmpty })
+        else { return nil }
+
+        guard line.count > derivedTitleLimit else { return line }
+        let cut = line.prefix(derivedTitleLimit)
+        // Prefer ending on a whole word, unless that throws away most of it.
+        if let space = cut.lastIndex(of: " "),
+           cut.distance(from: cut.startIndex, to: space) >= derivedTitleLimit / 2 {
+            return String(cut[..<space]) + "…"
+        }
+        return String(cut) + "…"
     }
 }

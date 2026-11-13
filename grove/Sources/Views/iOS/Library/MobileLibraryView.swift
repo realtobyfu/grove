@@ -12,11 +12,14 @@ struct MobileLibraryView: View {
     @State private var searchText: String = ""
     @State private var localSelectedBoardID: UUID?
     @State private var showNewBoardSheet = false
+    @State private var showCaptureSheet = false
 
     var onOpenItem: ((Item) -> Void)? = nil
     var selectedItem: Binding<Item?>? = nil
     var openedItem: Binding<Item?>? = nil
     var selectedBoard: Binding<UUID?>? = nil
+    /// Pushes the board's detail page. Without it the board header is hidden.
+    var onOpenBoard: ((UUID) -> Void)? = nil
 
     private var selectedBoardID: UUID? {
         get {
@@ -30,6 +33,11 @@ struct MobileLibraryView: View {
     }
 
     // MARK: - Computed
+
+    private var selectedBoardModel: Board? {
+        guard let selectedBoardID else { return nil }
+        return boards.first(where: { $0.id == selectedBoardID })
+    }
 
     /// Items scoped to the board filter (if any), before text search
     private var boardFilteredItems: [Item] {
@@ -55,26 +63,43 @@ struct MobileLibraryView: View {
     var body: some View {
         Group {
             if allItems.isEmpty {
-                ContentUnavailableView {
-                    Label("No Items", systemImage: "tray")
-                } description: {
-                    Text("Items you capture will appear here.")
-                }
+                GroveEmptyState(
+                    title: "Nothing saved yet.",
+                    detail: "Links and notes you save will be kept here.",
+                    actionTitle: "Add link or note",
+                    action: { showCaptureSheet = true }
+                )
+                .padding(.horizontal, LayoutDimensions.contentPaddingH)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else {
                 itemList
             }
         }
+        .background(Color.bgPrimary)
         .navigationTitle("Library")
         .searchable(text: $searchText, prompt: "Search items")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showNewBoardSheet = true
+                Menu {
+                    Button {
+                        showCaptureSheet = true
+                    } label: {
+                        Label("Add link or note", systemImage: "square.and.pencil")
+                    }
+                    Button {
+                        showNewBoardSheet = true
+                    } label: {
+                        Label("New board", systemImage: "folder.badge.plus")
+                    }
                 } label: {
                     Image(systemName: "plus")
+                        .fontWeight(.medium)
                 }
-                .accessibilityLabel("New board")
+                .accessibilityLabel("Add")
             }
+        }
+        .sheet(isPresented: $showCaptureSheet) {
+            CaptureSheetView(initialBoardID: selectedBoardModel?.id)
         }
         .sheet(isPresented: $showNewBoardSheet) {
             BoardEditorSheet(
@@ -95,6 +120,16 @@ struct MobileLibraryView: View {
                 boardFilterChips
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
+                    .listRowBackground(Color.bgPrimary)
+            }
+
+            if let board = selectedBoardModel {
+                if let onOpenBoard {
+                    boardHeaderRow(board, onOpen: onOpenBoard)
+                }
+                if board.items.isEmpty {
+                    emptyBoardState
+                }
             }
 
             // Items
@@ -103,9 +138,22 @@ struct MobileLibraryView: View {
                     MobileItemCardView(item: item)
                 }
                 .mobileItemContextMenu(item: item)
+                .alignmentGuide(.listRowSeparatorLeading) { dimensions in
+                    dimensions[.leading]
+                }
             }
+            .listRowBackground(Color.bgPrimary)
+            // Same inset as the chip bar, so chips and rows share one edge.
+            .listRowInsets(EdgeInsets(
+                top: Spacing.xsm,
+                leading: LayoutDimensions.contentPaddingH,
+                bottom: Spacing.xsm,
+                trailing: LayoutDimensions.contentPaddingH
+            ))
         }
         .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Color.bgPrimary)
         .navigationDestination(for: MobileItemRoute.self) { route in
             MobileItemRouteDestinationView(route: route)
         }
@@ -116,35 +164,79 @@ struct MobileLibraryView: View {
     private var boardFilterChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: Spacing.sm) {
-                boardChip(title: "All", boardID: nil)
+                FilterChip(label: "All", isActive: selectedBoardID == nil) {
+                    selectedBoardID = nil
+                }
 
                 ForEach(boards) { board in
-                    boardChip(title: board.title, boardID: board.id)
+                    FilterChip(label: board.title, isActive: selectedBoardID == board.id) {
+                        selectedBoardID = board.id
+                    }
                 }
             }
-            .padding(.horizontal, Spacing.md)
-            .padding(.vertical, Spacing.sm)
+            .padding(.horizontal, LayoutDimensions.contentPaddingH)
+            .padding(.vertical, Spacing.xs)
         }
     }
 
-    private func boardChip(title: String, boardID: UUID?) -> some View {
-        let isActive = selectedBoardID == boardID
-        return Button {
-            selectedBoardID = boardID
+    // MARK: - Board header
+
+    /// Table-of-contents entry for the filtered board: serif title, item count
+    /// set like a page number, and a chevron into the board's own page.
+    private func boardHeaderRow(_ board: Board, onOpen: @escaping (UUID) -> Void) -> some View {
+        Button {
+            onOpen(board.id)
         } label: {
-            Text(title)
-                .font(.groveTag)
-                .foregroundStyle(isActive ? Color.textInverse : Color.textPrimary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(isActive ? Color.bgTagActive : Color.bgCard)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(isActive ? Color.clear : Color.borderTag, lineWidth: 1)
-                )
+            HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+                Text(board.title)
+                    .font(.groveListTitle)
+                    .foregroundStyle(Color.textPrimary)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+
+                Spacer(minLength: Spacing.sm)
+
+                Text("\(board.items.count)")
+                    .font(.groveMeta)
+                    .foregroundStyle(Color.textTertiary)
+                    .monospacedDigit()
+                    .fixedSize()
+
+                Image(systemName: "chevron.right")
+                    .font(.groveMeta)
+                    .fontWeight(.medium)
+                    .foregroundStyle(Color.textMuted)
+            }
+            .frame(minHeight: LayoutDimensions.minTouchTarget)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(
+            top: 0,
+            leading: LayoutDimensions.contentPaddingH,
+            bottom: 0,
+            trailing: LayoutDimensions.contentPaddingH
+        ))
+        .listRowBackground(Color.bgPrimary)
+        .accessibilityLabel("\(board.title), \(board.items.count) items")
+        .accessibilityHint("Opens the board")
+    }
+
+    // MARK: - Empty board
+
+    private var emptyBoardState: some View {
+        GroveEmptyState(
+            title: "Nothing on this board yet.",
+            detail: "Tap + and choose Add link or note to put something here."
+        )
+        .listRowBackground(Color.bgPrimary)
+        .listRowInsets(EdgeInsets(
+            top: 0,
+            leading: LayoutDimensions.contentPaddingH,
+            bottom: 0,
+            trailing: LayoutDimensions.contentPaddingH
+        ))
+        .listRowSeparator(.hidden)
     }
 
     @ViewBuilder

@@ -411,22 +411,10 @@ private extension GroveItemEntity {
     init(_ item: Item) {
         id = item.id
         title = item.title
-        kind = item.type.intentDisplayName
+        kind = item.type.displayName
         contentPreview = item.content.map { String($0.prefix(500)) }
         sourceURL = item.sourceURL.flatMap(URL.init(string:))
         boardTitles = item.boards.map(\.title).sorted()
-    }
-}
-
-private extension ItemType {
-    var intentDisplayName: String {
-        switch self {
-        case .article: "Article"
-        case .codebase: "Codebase"
-        case .video: "Video"
-        case .note: "Note"
-        case .courseLecture: "Course lecture"
-        }
     }
 }
 

@@ -19,8 +19,8 @@ final class BoardViewModel {
             if let icon, !icon.isEmpty {
                 existingBoard.icon = icon
             }
-            existingBoard.isSmart = false
-            existingBoard.smartRuleTags.removeAll()
+            // A not-yet-migrated smart board keeps the items its rule matched.
+            SmartBoardMigrationService.migrate(existingBoard, context: modelContext)
             try? modelContext.save()
             return
         }
@@ -38,20 +38,13 @@ final class BoardViewModel {
 
         board.title = cleanedTitle
         board.icon = icon
-        board.isSmart = false
-        board.smartRuleTags.removeAll()
+        // A not-yet-migrated smart board keeps the items its rule matched.
+        SmartBoardMigrationService.migrate(board, context: modelContext)
         try? modelContext.save()
     }
 
     func deleteBoard(_ board: Board) {
         modelContext.delete(board)
-        try? modelContext.save()
-    }
-
-    func reorderBoards(_ boards: [Board]) {
-        for (index, board) in boards.enumerated() {
-            board.sortOrder = index
-        }
         try? modelContext.save()
     }
 

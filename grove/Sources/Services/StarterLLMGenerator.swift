@@ -58,7 +58,7 @@ enum StarterLLMGenerator {
           NEVER mention one inside the prompt text itself.
         - Only items annotated "(your note)" are the person's own writing — "you wrote" framing
           applies to those and nothing else.
-        - Items annotated "(article)", "(video)", "(course lecture)", "(codebase)" are things they
+        - Items annotated "(article)" or "(video)" are things they
           saved, not things they wrote — say "that article", "the video".
         - Return ONLY valid JSON. No markdown fences, no explanation. Return [] if no snippet
           supports a concrete starter.

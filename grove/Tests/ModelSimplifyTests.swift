@@ -114,7 +114,7 @@ struct ModelSimplifyTests {
         retired.createdAt = current.createdAt
 
         #expect(retired.displayTitle == current.displayTitle)
-        #expect(retired.displayTitle.hasPrefix("Conversation"))
+        #expect(retired.displayTitle == "New conversation")
     }
 
     @Test func titledConversationKeepsItsTitleWhateverItsTrigger() {

@@ -130,12 +130,12 @@ struct InboxTriageView: View {
     private var inboxList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(spacing: 8) {
+                VStack(spacing: Spacing.sm) {
                     if !queuedItems.isEmpty {
                         queuedDisclosure
                     }
 
-                    LazyVStack(spacing: 8) {
+                    LazyVStack(spacing: Spacing.sm) {
                         ForEach(Array(inboxItems.enumerated()), id: \.element.id) { index, item in
                             InboxCard(
                                 item: item,
@@ -186,14 +186,14 @@ struct InboxTriageView: View {
 
     private var embeddedInboxList: some View {
         let visibleItems = inboxItems
-        return VStack(spacing: 8) {
+        return VStack(spacing: Spacing.sm) {
             if !queuedItems.isEmpty {
                 queuedDisclosure
             }
 
             LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 300, maximum: 600), spacing: 12)],
-                spacing: 12
+                columns: [GridItem(.adaptive(minimum: 300, maximum: 600), spacing: Spacing.md)],
+                spacing: Spacing.md
             ) {
                 ForEach(Array(visibleItems.enumerated()), id: \.element.id) { index, item in
                     InboxCard(
@@ -241,7 +241,7 @@ struct InboxTriageView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: Spacing.lg) {
             Image(systemName: queuedItems.isEmpty ? "tray" : "clock.badge")
                 .font(.system(size: 48))
                 .foregroundStyle(Color.textSecondary)
@@ -590,9 +590,9 @@ struct InboxTriageView: View {
             }
         }
         .background(Color.bgCard)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
         .overlay(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: Radius.control)
                 .stroke(Color.borderPrimary, lineWidth: 1)
         )
     }

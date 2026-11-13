@@ -28,7 +28,7 @@ struct InboxCard: View {
                     imageData: thumbnailData,
                     height: 140,
                     showPlayOverlay: item.type == .video,
-                    cornerRadius: 6
+                    cornerRadius: Radius.control
                 )
             }
 
@@ -39,14 +39,14 @@ struct InboxCard: View {
                     .foregroundStyle(Color.textMuted)
                     .frame(width: 24, height: 24)
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: Spacing.xs) {
                     if isFetchingMetadata {
                         // URL title not yet resolved — show raw URL in mono
                         Text(item.title)
                             .font(.groveMeta)
                             .foregroundStyle(Color.textSecondary)
                             .lineLimit(2)
-                        HStack(spacing: 4) {
+                        HStack(spacing: Spacing.xs) {
                             ProgressView()
                                 .controlSize(.small)
                             Text("Fetching title…")
@@ -61,7 +61,7 @@ struct InboxCard: View {
                     }
 
                     // Source domain and capture date
-                    HStack(spacing: 8) {
+                    HStack(spacing: Spacing.sm) {
                         if let url = item.sourceURL, !url.isEmpty {
                             Label(domainFrom(url), systemImage: "link")
                                 .font(.groveMeta)
@@ -94,7 +94,7 @@ struct InboxCard: View {
 
             // Auto-tags with confirm/dismiss actions
             if !item.tags.isEmpty {
-                FlowLayout(spacing: 4) {
+                FlowLayout(spacing: Spacing.xs) {
                     ForEach(item.tags.prefix(5)) { tag in
                         TagChip(tag: tag, mode: .autoTag(
                             onConfirm: { onConfirmTag?(tag) },
@@ -122,11 +122,8 @@ struct InboxCard: View {
                     onKeep()
                 } label: {
                     Label("Keep unfiled", systemImage: "checkmark.circle")
-                        .font(.groveBodyMedium)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.textPrimary)
-                .controlSize(.small)
+                .buttonStyle(.grove(.primary, size: .compact))
                 .help("Keep without filing to a board. Shortcut: 1")
 
                 Menu {
@@ -139,10 +136,10 @@ struct InboxCard: View {
                     }
                 } label: {
                     Label("Later", systemImage: "clock")
-                        .font(.groveBodyMedium)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .menuStyle(.button)
+                .menuIndicator(.hidden)
+                .buttonStyle(.grove(.secondary, size: .compact))
                 .disabled(onQueue == nil)
                 .help("Shortcut: 3 queues until tomorrow morning")
 
@@ -150,16 +147,14 @@ struct InboxCard: View {
                     onDrop()
                 } label: {
                     Label("Drop", systemImage: "xmark.circle")
-                        .font(.groveBodyMedium)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(.grove(.secondary, size: .compact))
                 .help("Shortcut: 2")
             }
         }
         .padding(Spacing.lg)
         .background(Color.bgCard)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card))
         .selectedItemStyle(isSelected)
     }
 
@@ -178,7 +173,7 @@ struct InboxCard: View {
     }
 
     private var chipFlow: some View {
-        FlowLayout(spacing: 6) {
+        FlowLayout(spacing: Spacing.xsm) {
             ForEach(Array(suggestedBoards.prefix(3).enumerated()), id: \.element.id) { index, board in
                 BoardFilingChip(
                     title: board.title,
@@ -241,13 +236,13 @@ private struct BoardFilingChip: View {
                 .font(.groveBodySmall)
                 .foregroundStyle(ink)
                 .lineLimit(1)
-                .padding(.horizontal, 8)
+                .padding(.horizontal, Spacing.sm)
                 .padding(.vertical, Self.verticalPadding)
                 #if os(iOS)
                 .frame(minHeight: LayoutDimensions.minTouchTarget)
                 #endif
                 .overlay(
-                    RoundedRectangle(cornerRadius: 3)
+                    RoundedRectangle(cornerRadius: Radius.tag)
                         .stroke(
                             isRecommended || isHovering ? Color.borderPrimary : Color.borderTag,
                             lineWidth: 1

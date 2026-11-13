@@ -55,7 +55,7 @@ struct BoardProposalCard: View {
                 .fill(Color.accentSelection)
                 .frame(width: 2)
         }
-        .cardStyle(cornerRadius: 8)
+        .cardStyle(cornerRadius: Radius.card)
         .accessibilityElement(children: .contain)
     }
 
@@ -64,7 +64,7 @@ struct BoardProposalCard: View {
             Text("Create Board")
                 .frame(minHeight: buttonMinHeight)
         }
-        .buttonStyle(GroveCompactButtonStyle(prominent: true))
+        .buttonStyle(.grove(.primary, size: .compact))
     }
 
     private var declineButton: some View {
@@ -72,7 +72,7 @@ struct BoardProposalCard: View {
             Text("Not Now")
                 .frame(minHeight: buttonMinHeight)
         }
-        .buttonStyle(GroveCompactButtonStyle())
+        .buttonStyle(.grove(.secondary, size: .compact))
     }
 
     private var buttonMinHeight: CGFloat {

@@ -68,7 +68,7 @@ enum SidebarItem: Hashable, Codable {
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(OnboardingService.self) private var onboarding
-    @State private var coachMarks = CoachMarkService.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Query(sort: \Board.sortOrder) private var boards: [Board]
     @Query private var allItemsForOnboarding: [Item]
     @Query private var allConversationsForOnboarding: [Conversation]
@@ -158,7 +158,7 @@ struct ContentView: View {
                 viewModel.writePanelEditItem = item
                 viewModel.selectedItem = item
                 viewModel.openedItem = nil
-                withAnimation(.easeOut(duration: 0.2)) {
+                withAnimation(RightRailMetrics.widthChange) {
                     viewModel.showWritePanel = true
                 }
             } else if let item = viewModel.openedItem, !item.reflections.isEmpty {
@@ -171,6 +171,21 @@ struct ContentView: View {
                     // Restore saved panel state when leaving reader
                     viewModel.exitFocusMode()
                 }
+            }
+        }
+        // Any route that brings chat forward (menu, deep link, "discuss",
+        // a started conversation) takes the rail from the writer: there is
+        // only ever one trailing column.
+        .onChange(of: viewModel.showChatPanel) {
+            if viewModel.showChatPanel { closeWritePanelForRail() }
+        }
+        .onChange(of: viewModel.selectedConversation) {
+            if viewModel.selectedConversation != nil { closeWritePanelForRail() }
+        }
+        .onChange(of: viewModel.showWritePanel) {
+            if !viewModel.showWritePanel {
+                viewModel.writePanelPrompt = nil
+                viewModel.writePanelEditItem = nil
             }
         }
         .onAppear {
@@ -198,25 +213,17 @@ struct ContentView: View {
             searchOverlay
             captureOverlay
             onboardingOverlay
-            coachMarkOverlay
         }
     }
 
     private var mainContentArea: some View {
-        @Bindable var vm = viewModel
-        return HStack(spacing: 0) {
-            detailContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .overlay {
-                    if viewModel.isInspectorVisible && viewModel.selectedItem != nil && viewModel.openedItem == nil {
-                        Color.black.opacity(0.04)
-                            .allowsHitTesting(false)
-                    }
-                }
+        GeometryReader { geo in
+            HStack(spacing: 0) {
+                detailContent
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            writePanelSection
-
-            sidePanel
+                sidePanel(availableWidth: geo.size.width)
+            }
         }
         .toolbar {
             if viewModel.openedItem != nil {
@@ -234,10 +241,7 @@ struct ContentView: View {
                     if viewModel.openedItem != nil {
                         NotificationCenter.default.post(name: .groveOpenReflectMode, object: nil)
                     } else {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            viewModel.writePanelPrompt = nil
-                            viewModel.showWritePanel.toggle()
-                        }
+                        viewModel.toggleWritePanel()
                     }
                 } label: {
                     Image(systemName: viewModel.openedItem != nil
@@ -255,26 +259,25 @@ struct ContentView: View {
     }
 
     private var chatToolbarButton: some View {
-        Button {
-            withAnimation(RightRailMetrics.widthChange) { viewModel.showChatPanel.toggle() }
+        let chatShown = viewModel.rightRailMode == .dialectics
+        return Button {
+            viewModel.toggleChatPanel()
         } label: {
-            Image(systemName: viewModel.showChatPanel ? "bubble.left.and.bubble.right.fill" : "bubble.left.and.bubble.right")
+            Image(systemName: chatShown ? "bubble.left.and.bubble.right.fill" : "bubble.left.and.bubble.right")
         }
-        .help(viewModel.showChatPanel ? "Hide Chat" : "Show Chat")
+        .help(chatShown ? "Hide Chat" : "Show Chat")
     }
 
     private var inspectorToolbarButton: some View {
         Button {
-            withAnimation(RightRailMetrics.widthChange) {
-                viewModel.inspectorUserOverride = !viewModel.isInspectorVisible
-            }
+            viewModel.toggleInspector()
         } label: {
             Image(systemName: "sidebar.trailing")
         }
         // Nothing to inspect means no rail at all, so the toggle has nothing
         // to show — don't offer it.
-        .disabled(inspectorItem == nil)
-        .help(viewModel.isInspectorVisible ? "Hide Inspector" : "Show Inspector")
+        .disabled(viewModel.inspectorItem == nil)
+        .help(viewModel.rightRailMode == .inspector ? "Hide Inspector" : "Show Inspector")
     }
 
     // MARK: - Overlays
@@ -304,10 +307,10 @@ struct ContentView: View {
                     },
                     onSelectTag: { _ in }
                 )
-                .padding(.top, 12)
+                .padding(.top, Spacing.md)
                 Spacer()
             }
-            .transition(.opacity.combined(with: .move(edge: .top)))
+            .transition(reduceMotion ? .identity : .opacity.combined(with: .move(edge: .top)))
         }
     }
 
@@ -331,7 +334,7 @@ struct ContentView: View {
                 .padding(.top, 80)
                 Spacer()
             }
-            .transition(.opacity.combined(with: .move(edge: .top)))
+            .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
         }
     }
 
@@ -339,97 +342,49 @@ struct ContentView: View {
     private var onboardingOverlay: some View {
         if onboarding.isPresented {
             OnboardingFlowView()
-                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98)))
         }
-    }
-
-    @ViewBuilder
-    private var coachMarkOverlay: some View {
-        @Bindable var vm = viewModel
-        CoachMarkOverlay(
-            coachMarks: coachMarks,
-            showChatPanel: $vm.showChatPanel
-        )
     }
 
     // MARK: - Panels
 
-    private func clampedWidth(_ width: CGFloat, min minWidth: CGFloat, max maxWidth: CGFloat) -> CGFloat {
-        Swift.min(Swift.max(width, minWidth), maxWidth)
-    }
-
-    private func clampedWidthBinding(
-        _ width: Binding<CGFloat>,
-        min minWidth: CGFloat,
-        max maxWidth: CGFloat
-    ) -> Binding<CGFloat> {
-        Binding(
-            get: { clampedWidth(width.wrappedValue, min: minWidth, max: maxWidth) },
-            set: { width.wrappedValue = $0 }
-        )
-    }
-
-    @ViewBuilder
-    private var writePanelSection: some View {
-        if viewModel.showWritePanel {
-            @Bindable var vm = viewModel
-            let widthBinding = clampedWidthBinding($vm.writePanelWidth, min: 360, max: 700)
-            ResizableTrailingDivider(
-                width: widthBinding,
-                minWidth: 360,
-                maxWidth: 700,
-                onCollapse: { viewModel.showWritePanel = false }
-            ) { width in
-                LayoutSettings.setWidth(width, for: .contentWrite)
-            }
-            NoteWriterPanelView(
-                isPresented: $vm.showWritePanel,
-                currentBoardID: currentBoardID,
-                prompt: viewModel.writePanelPrompt,
-                editingItem: viewModel.writePanelEditItem,
-                isSidePanel: true
-            ) { note in
-                viewModel.writePanelPrompt = nil
-                viewModel.writePanelEditItem = nil
-                viewModel.selectedItem = note
-            }
-            .frame(width: widthBinding.wrappedValue)
-            .transition(.move(edge: .trailing))
-            .onChange(of: viewModel.showWritePanel) {
-                if !viewModel.showWritePanel {
-                    viewModel.writePanelPrompt = nil
-                    viewModel.writePanelEditItem = nil
-                }
-            }
+    /// Close the writer because something else is taking the rail.
+    private func closeWritePanelForRail() {
+        guard viewModel.showWritePanel else { return }
+        withAnimation(RightRailMetrics.widthChange) {
+            viewModel.showWritePanel = false
         }
     }
 
-    /// The item the inspector would describe. Nil means there is nothing to
-    /// inspect, which resolves to `.hidden` — no rail, no placeholder column.
-    private var inspectorItem: Item? {
-        viewModel.selectedItem ?? viewModel.openedItem
-    }
-
-    /// Single source of truth for the right rail. Dialectics still wins over
-    /// the item panels, exactly as the old `if/else if` chain did.
-    private var railMode: RightRailMode {
-        if viewModel.showChatPanel { return .dialectics }
-        if viewModel.isInspectorVisible, inspectorItem != nil { return .inspector }
-        return .hidden
-    }
-
-    private var sidePanel: some View {
+    private func sidePanel(availableWidth: CGFloat) -> some View {
         @Bindable var vm = viewModel
         return RightRailContainer(
-            mode: railMode,
+            mode: viewModel.rightRailMode,
+            availableWidth: availableWidth,
             onCollapse: {
-                switch railMode {
+                switch viewModel.rightRailMode {
+                case .writing: viewModel.showWritePanel = false
                 case .dialectics: viewModel.showChatPanel = false
                 default: viewModel.inspectorUserOverride = false
                 }
             }
         ) { mode in
             switch mode {
+            case .writing:
+                NoteWriterPanelView(
+                    isPresented: $vm.showWritePanel,
+                    currentBoardID: currentBoardID,
+                    prompt: viewModel.writePanelPrompt,
+                    editingItem: viewModel.writePanelEditItem,
+                    isSidePanel: true
+                ) { note in
+                    viewModel.writePanelPrompt = nil
+                    viewModel.writePanelEditItem = nil
+                    viewModel.selectedItem = note
+                }
+                // A different note or prompt is a different writing session:
+                // rebuild the editor so it picks up the new content.
+                .id(WriteSessionKey(editItemID: viewModel.writePanelEditItem?.id, prompt: viewModel.writePanelPrompt))
             case .dialectics:
                 DialecticalChatPanel(
                     selectedConversation: $vm.selectedConversation,
@@ -441,7 +396,7 @@ struct ContentView: View {
                     }
                 )
             case .inspector:
-                if let inspectorItem {
+                if let inspectorItem = viewModel.inspectorItem {
                     InspectorPanelView(item: inspectorItem, onNavigateToItem: { target in
                         viewModel.selectedItem = target
                         viewModel.openedItem = target
@@ -453,16 +408,28 @@ struct ContentView: View {
         }
     }
 
+    private struct WriteSessionKey: Hashable {
+        let editItemID: UUID?
+        let prompt: String?
+    }
+
     // MARK: - Detail Content
 
     @ViewBuilder
     private var detailContent: some View {
         @Bindable var vm = viewModel
         if let openedItemValue = viewModel.openedItem {
-            ItemReaderView(item: openedItemValue, isWebViewActive: $vm.isArticleWebViewActive, isPDFSurfaceActive: $vm.isPDFReaderActive, onNavigateToItem: { item in
-                viewModel.selectedItem = item
-                viewModel.openedItem = item
-            })
+            ItemReaderView(
+                item: openedItemValue,
+                isWebViewActive: $vm.isArticleWebViewActive,
+                isPDFSurfaceActive: $vm.isPDFReaderActive,
+                railYields: viewModel.readerRailYields,
+                onClaimRail: { viewModel.claimRailForReader() },
+                onNavigateToItem: { item in
+                    viewModel.selectedItem = item
+                    viewModel.openedItem = item
+                }
+            )
         } else {
             switch viewModel.selection {
             case .home:

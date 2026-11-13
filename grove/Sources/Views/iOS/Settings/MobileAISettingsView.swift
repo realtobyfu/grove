@@ -47,6 +47,7 @@ struct MobileAISettingsView: View {
                     .font(.groveBodySmall)
                     .foregroundStyle(Color.textSecondary)
             }
+            .listRowBackground(Color.bgCard)
 
             Section("Provider") {
                 if LLMServiceConfig.isAppleIntelligenceSupported {
@@ -65,7 +66,7 @@ struct MobileAISettingsView: View {
                         appleIntelligenceStatus
                     }
                 } else {
-                    HStack(spacing: 6) {
+                    HStack(spacing: Spacing.xsm) {
                         Image(systemName: "cloud")
                             .foregroundStyle(Color.textSecondary)
                         Text("Cloud AI is available. Apple Intelligence requires iOS 26 or later.")
@@ -109,18 +110,21 @@ struct MobileAISettingsView: View {
                                 .foregroundStyle(Color.textTertiary)
                         }
                     } else {
-                        Text("Cloud AI is managed in this build.")
+                        // Release builds: the cloud model runs on Grove's
+                        // hosted service with Grove's own key.
+                        Text("Cloud AI is provided by Grove, so there is no API key to set up.")
                             .font(.groveBadge)
                             .foregroundStyle(Color.textTertiary)
 
                         if !LLMServiceConfig.isConfigured {
-                            Text("Cloud AI is unavailable until managed configuration is provided.")
+                            Text("Cloud AI isn't available right now.")
                                 .font(.groveBadge)
                                 .foregroundStyle(Color.textTertiary)
                         }
                     }
                 }
             }
+            .listRowBackground(Color.bgCard)
 
             Section("Routing") {
                 Toggle("Smart cloud fallback", isOn: $smartRoutingEnabled)
@@ -138,7 +142,7 @@ struct MobileAISettingsView: View {
                         .font(.groveBodySmall)
                         .foregroundStyle(Color.textSecondary)
                 } else {
-                    HStack(spacing: 6) {
+                    HStack(spacing: Spacing.xsm) {
                         Image(systemName: "lock")
                             .font(.groveBodySmall)
                             .foregroundStyle(Color.textSecondary)
@@ -159,6 +163,7 @@ struct MobileAISettingsView: View {
                     }
                 }
             }
+            .listRowBackground(Color.bgCard)
 
             if showUsageSection {
                 Section("Usage") {
@@ -197,19 +202,19 @@ struct MobileAISettingsView: View {
 
                         DisclosureGroup("Advanced usage and limits", isExpanded: $showAdvancedUsage) {
                             usageByService
-                                .padding(.top, 4)
+                                .padding(.top, Spacing.xs)
 
                             budgetControls
-                                .padding(.top, 8)
+                                .padding(.top, Spacing.sm)
 
                             Button("Reset Usage") {
                                 tracker.resetAll()
                                 refreshID = UUID()
                             }
-                            .padding(.top, 4)
+                            .padding(.top, Spacing.xs)
                         }
                     } else {
-                        HStack(spacing: 6) {
+                        HStack(spacing: Spacing.xsm) {
                             Image(systemName: monthlyUsageRatio >= 1.0 ? "exclamationmark.triangle.fill" : "exclamationmark.triangle")
                                 .foregroundStyle(Color.textSecondary)
                             Text("Cloud usage is at \(formatPercent(monthlyUsageRatio)) of this month's limit.")
@@ -217,14 +222,17 @@ struct MobileAISettingsView: View {
                                 .foregroundStyle(Color.textSecondary)
                         }
 
-                        Text(monthlyUsageRatio >= 1.0 ? "Cloud usage has reached the monthly limit." : "Usage details stay hidden until account usage is elevated.")
+                        Text(monthlyUsageRatio >= 1.0 ? "Cloud usage has reached the monthly limit." : "The limit resets at the start of each month.")
                             .font(.groveBadge)
                             .foregroundStyle(Color.textTertiary)
                     }
                 }
+                .listRowBackground(Color.bgCard)
             }
 
         }
+        .scrollContentBackground(.hidden)
+        .background(Color.bgPrimary)
         .navigationTitle("AI Settings")
         #if os(iOS)
         .listStyle(.insetGrouped)
@@ -245,7 +253,7 @@ struct MobileAISettingsView: View {
     // MARK: - Status
 
     private var statusRow: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.xsm) {
             Image(systemName: LLMServiceConfig.isConfigured ? "checkmark.circle.fill" : "exclamationmark.triangle")
                 .foregroundStyle(LLMServiceConfig.isConfigured ? Color.textPrimary : Color.textSecondary)
             Text(statusText)
@@ -265,7 +273,7 @@ struct MobileAISettingsView: View {
             if isBYOEnabled {
                 return "Add a cloud API key to enable AI."
             }
-            return "Cloud AI is managed by this build."
+            return "Cloud AI isn't available right now."
         }
         return "Apple Intelligence is unavailable on this device."
     }
@@ -275,7 +283,7 @@ struct MobileAISettingsView: View {
     private var appleIntelligenceStatus: some View {
         Group {
             if #available(macOS 26, iOS 26, *), AppleIntelligenceProvider.isAvailable {
-                HStack(spacing: 6) {
+                HStack(spacing: Spacing.xsm) {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(Color.textPrimary)
                     Text("Apple Intelligence is available on this device.")
@@ -283,7 +291,7 @@ struct MobileAISettingsView: View {
                         .foregroundStyle(Color.textSecondary)
                 }
             } else {
-                HStack(spacing: 6) {
+                HStack(spacing: Spacing.xsm) {
                     Image(systemName: "exclamationmark.triangle")
                         .foregroundStyle(Color.textSecondary)
                     Text("Apple Intelligence is not available. Check that it is enabled in Settings.")
@@ -300,7 +308,7 @@ struct MobileAISettingsView: View {
     // MARK: - Usage
 
     private var usageByService: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
             Text("Usage by Service")
                 .font(.groveBadge)
                 .fontWeight(.semibold)
@@ -314,7 +322,7 @@ struct MobileAISettingsView: View {
             } else {
                 ForEach(services) { service in
                     HStack {
-                        Text(displayName(for: service.service))
+                        Text(service.displayName)
                             .font(.groveBodySecondary)
                             .foregroundStyle(Color.textPrimary)
                         Spacer()
@@ -335,7 +343,7 @@ struct MobileAISettingsView: View {
     }
 
     private var budgetControls: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
             Toggle("Enable monthly budget limit", isOn: $budgetEnabled)
                 .onChange(of: budgetEnabled) { _, newValue in
                     tracker.budgetEnabled = newValue
@@ -375,7 +383,7 @@ struct MobileAISettingsView: View {
                 }
 
                 if tracker.isBudgetExceeded {
-                    HStack(spacing: 6) {
+                    HStack(spacing: Spacing.xsm) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(Color.textPrimary)
                         Text("Budget exceeded. AI features pause until next month or a higher budget.")
@@ -407,14 +415,5 @@ struct MobileAISettingsView: View {
         let clamped = max(0, ratio)
         let percent = Int((clamped * 100).rounded())
         return "\(percent)%"
-    }
-
-    private func displayName(for service: String) -> String {
-        switch service {
-        case "tagging": return "Auto-Tagging"
-        case "overview": return "Article Overview"
-        case "dialectics": return "Chat"
-        default: return service.capitalized
-        }
     }
 }

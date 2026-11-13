@@ -11,7 +11,6 @@ extension Notification.Name {
     static let groveGoToBoard = Notification.Name("groveGoToBoard")
     static let groveExportItem = Notification.Name("groveExportItem")
     static let groveToggleChat = Notification.Name("groveToggleChat")
-    static let groveOpenConversation = Notification.Name("groveOpenConversation")
     static let groveEnterFocusMode = Notification.Name("groveEnterFocusMode")
     static let groveExitFocusMode = Notification.Name("groveExitFocusMode")
     /// Object: String — the writing prompt to display at the top of NoteWriterPanelView
@@ -19,10 +18,6 @@ extension Notification.Name {
     static let groveStartConversationWithPrompt = Notification.Name("groveStartConversationWithPrompt")
     static let groveDiscussItem = Notification.Name("groveDiscussItem")
     static let groveOpenReflectMode = Notification.Name("groveOpenReflectMode")
-    static let groveOpenNudgeNotification = Notification.Name("groveOpenNudgeNotification")
-    static let groveDismissNudgeNotification = Notification.Name("groveDismissNudgeNotification")
-    /// Object: String — URL to pre-fill in the capture bar, then auto-capture
-    static let groveCoachMarkPrefill = Notification.Name("groveCoachMarkPrefill")
     /// Posted to trigger find-in-page when an article WebView is active
     static let groveFindInArticle = Notification.Name("groveFindInArticle")
     /// Reader text size, from the View menu. The reader routes these to whatever

@@ -44,7 +44,7 @@ struct InspectorPanelView: View {
             HStack {
                 Image(systemName: item.type.iconName)
                     .foregroundStyle(Color.textSecondary)
-                Text(item.type.rawValue.capitalized)
+                Text(item.type.displayName)
                     .font(.groveMeta)
                     .foregroundStyle(Color.textSecondary)
 
@@ -57,9 +57,9 @@ struct InspectorPanelView: View {
                     Label("Discuss", systemImage: "bubble.left.and.bubble.right")
                         .font(.groveBadge)
                         .foregroundStyle(Color.textSecondary)
-                        .padding(.horizontal, 8)
+                        .padding(.horizontal, Spacing.sm)
                         .padding(.vertical, 3)
-                        .cardStyle(cornerRadius: 4)
+                        .cardStyle(cornerRadius: Radius.control)
                 }
                 .buttonStyle(.plain)
                 .help("Discuss this item in Chat")
@@ -78,7 +78,7 @@ struct InspectorPanelView: View {
 
             // Source URL
             if let sourceURL = item.sourceURL, !sourceURL.isEmpty {
-                HStack(spacing: 4) {
+                HStack(spacing: Spacing.xs) {
                     Image(systemName: "link")
                         .font(.groveMeta)
                         .foregroundStyle(Color.textSecondary)
@@ -92,7 +92,7 @@ struct InspectorPanelView: View {
             }
 
             // Dates
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
                 Label("Created: \(item.createdAt.formatted(date: .abbreviated, time: .shortened))", systemImage: "calendar")
                     .font(.groveMeta)
                     .foregroundStyle(Color.textSecondary)
@@ -119,7 +119,7 @@ struct InspectorPanelView: View {
                     .padding(.horizontal)
             } else {
                 ForEach(item.boards) { board in
-                    HStack(spacing: 6) {
+                    HStack(spacing: Spacing.xsm) {
                         if let icon = board.icon {
                             Image(systemName: icon)
                                 .font(.groveBadge)
@@ -233,7 +233,7 @@ struct InspectorPanelView: View {
     }
 
     private var addConnectionPanel: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Spacing.xsm) {
             Picker("Type", selection: $selectedConnectionType) {
                 ForEach(ConnectionType.userSelectableCases, id: \.self) { type in
                     Text(type.displayLabel).tag(type)
@@ -253,7 +253,7 @@ struct InspectorPanelView: View {
                             Button {
                                 createConnectionTo(candidate)
                             } label: {
-                                HStack(spacing: 6) {
+                                HStack(spacing: Spacing.xsm) {
                                     Image(systemName: candidate.type.iconName)
                                         .font(.groveBadge)
                                         .foregroundStyle(Color.textSecondary)
@@ -263,8 +263,8 @@ struct InspectorPanelView: View {
                                         .lineLimit(1)
                                     Spacer()
                                 }
-                                .padding(.vertical, 4)
-                                .padding(.horizontal, 6)
+                                .padding(.vertical, Spacing.xs)
+                                .padding(.horizontal, Spacing.xsm)
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
@@ -272,7 +272,7 @@ struct InspectorPanelView: View {
                     }
                 }
                 .frame(maxHeight: 150)
-                .cardStyle(cornerRadius: 4)
+                .cardStyle(cornerRadius: Radius.control)
             } else if !connectionSearchText.isEmpty {
                 Text("No matching items")
                     .font(.groveBadge)
@@ -283,12 +283,10 @@ struct InspectorPanelView: View {
                 isAddingConnection = false
                 connectionSearchText = ""
             }
-            .font(.groveBodySmall)
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(.grove(.secondary, size: .compact))
         }
         .padding(Spacing.sm)
-        .cardStyle(cornerRadius: 6)
+        .cardStyle(cornerRadius: Radius.control)
         .padding(.horizontal)
     }
 
@@ -297,7 +295,7 @@ struct InspectorPanelView: View {
         let linkedItem = isOutgoing ? connection.targetItem : connection.sourceItem
         let typeLabel = connection.type.displayLabel(isOutgoing: isOutgoing)
 
-        return HStack(spacing: 6) {
+        return HStack(spacing: Spacing.xsm) {
             Image(systemName: isOutgoing ? "arrow.right.circle" : "arrow.left.circle")
                 .font(.groveBadge)
                 .foregroundStyle(Color.textSecondary)
@@ -309,10 +307,10 @@ struct InspectorPanelView: View {
                 Text(typeLabel)
                     .font(.groveBadge)
                     .foregroundStyle(Color.textTertiary)
-                    .padding(.horizontal, 6)
+                    .padding(.horizontal, Spacing.xsm)
                     .padding(.vertical, 2)
                     .background(Color.accentBadge)
-                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.tag))
             }
             Spacer()
             Button {
@@ -356,7 +354,7 @@ struct InspectorPanelView: View {
                     await ConversationStarterService.shared.forceRefresh(items: allItems)
                 }
             } label: {
-                HStack(spacing: 6) {
+                HStack(spacing: Spacing.xsm) {
                     Image(systemName: item.isIncludedInDiscussionSuggestions ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 14))
                         .foregroundStyle(item.isIncludedInDiscussionSuggestions ? Color.textPrimary : Color.textTertiary)

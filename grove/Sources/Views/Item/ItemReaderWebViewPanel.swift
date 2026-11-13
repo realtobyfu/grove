@@ -127,12 +127,12 @@ struct ItemReaderWebViewPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             // Slim navigation bar
-            HStack(spacing: 10) {
+            HStack(spacing: Spacing.sm) {
                 // Where-am-I cluster: the single root affordance, the page
                 // history when there is any, then the current host.
                 HStack(spacing: 0) {
                     overviewButton
-                        .padding(.trailing, 10)
+                        .padding(.trailing, Spacing.md)
 
                     // The history chevrons exist only once this reading
                     // session has actually navigated somewhere. The slot
@@ -207,8 +207,8 @@ struct ItemReaderWebViewPanel: View {
                     openInBrowserButton
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.xsm)
             .background(Color.bgCard)
             .background {
                 // What the strip can seat depends on how wide the reading pane
@@ -528,7 +528,7 @@ struct ItemReaderWebViewPanel: View {
             }
             showCapturePicker = true
         }
-        .padding(20)
+        .padding(Spacing.xl)
         // Arrow on the top edge — the FAB sits at the bottom of the pane, so
         // the picker opens upward into the content it files.
         .popover(isPresented: $showCapturePicker, arrowEdge: .top) {
@@ -627,7 +627,7 @@ struct ItemReaderWebViewPanel: View {
             vm.webSelectionGeometry = nil
             withAnimation(.easeOut(duration: 0.2)) { vm.showArticleWebView = false }
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 11, weight: .medium))
                 // At the narrowest the chevron carries the meaning alone; the
@@ -652,7 +652,7 @@ struct ItemReaderWebViewPanel: View {
 
     /// Reader-mode typography: size down, size up, serif toggle, column width.
     private var typographyControls: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.xsm) {
             Button { stepTextSize(-1) } label: {
                 Image(systemName: "textformat.size.smaller")
                     .font(.system(size: 11, weight: .medium))
@@ -699,7 +699,7 @@ struct ItemReaderWebViewPanel: View {
 
     /// Live-page zoom. The percentage doubles as the reset target.
     private var zoomControls: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
             Button { vm.zoomOut() } label: {
                 Image(systemName: "minus.magnifyingglass")
                     .font(.system(size: 11, weight: .medium))
@@ -781,7 +781,7 @@ struct ItemReaderWebViewPanel: View {
     /// Web history for the page on screen. Works in Reader mode too: the live
     /// page stays mounted underneath, so its history is still the pane's.
     private var webHistoryControls: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Spacing.sm) {
             Divider().frame(width: 1, height: 12)
 
             Button { goBackToken += 1 } label: {
@@ -816,7 +816,7 @@ struct ItemReaderWebViewPanel: View {
             .help("Page forward")
             .accessibilityLabel("Page forward")
         }
-        .padding(.trailing, 10)
+        .padding(.trailing, Spacing.md)
     }
 
     /// Whether the pane is showing the item's own page rather than something
@@ -872,7 +872,7 @@ struct ItemReaderWebViewPanel: View {
     /// ORIGINAL is the honest state even though Reader mode is still the
     /// standing preference and will resume the moment the parse lands.
     private var readerModeControl: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Spacing.sm) {
             ReaderModeSegment(
                 title: "READER",
                 isActive: showsReaderContent,
@@ -1053,7 +1053,7 @@ private struct ReaderViaChip: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
                 Image(systemName: "arrow.left")
                     .font(.system(size: 9, weight: .medium))
                 Text("via \(displayTitle)")
@@ -1092,7 +1092,7 @@ private struct ReaderModeSegment: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 5) {
+            HStack(spacing: Spacing.xs) {
                 Rectangle()
                     .fill(Color.textPrimary)
                     .frame(width: 2, height: 11)
@@ -1138,6 +1138,7 @@ private struct ReaderModeSegment: View {
 /// placement.
 struct HighlightActionBarOverlay: View {
     let vm: ItemReaderViewModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let selection: String
     var selectionGeometry: WebSelectionGeometry? = nil
     /// Fired after the highlight is written. Writing on a page reached by
@@ -1154,8 +1155,8 @@ struct HighlightActionBarOverlay: View {
             .transition(.opacity)
         } else {
             bar
-                .padding(.bottom, 20)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .padding(.bottom, Spacing.xl)
+                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
         }
     }
 
@@ -1253,9 +1254,9 @@ struct HighlightActionBar: View {
             }
         }
         .background(Color.bgCard)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
         .overlay(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: Radius.control)
                 .stroke(Color.borderPrimary, lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
@@ -1263,15 +1264,15 @@ struct HighlightActionBar: View {
 
     private func barButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 5) {
+            HStack(spacing: Spacing.xs) {
                 Image(systemName: systemImage)
                     .font(.system(size: 11, weight: .medium))
                 Text(title)
                     .font(.groveMeta)
             }
             .foregroundStyle(Color.textSecondary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm)
             .frame(minWidth: Self.minTargetSize, minHeight: Self.minTargetSize)
             .contentShape(Rectangle())
         }
@@ -1285,8 +1286,8 @@ struct ItemReaderFindBar: View {
     @Bindable var vm: ItemReaderViewModel
 
     var body: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 4) {
+        HStack(spacing: Spacing.sm) {
+            HStack(spacing: Spacing.xs) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 11))
                     .foregroundStyle(Color.textTertiary)
@@ -1307,12 +1308,12 @@ struct ItemReaderFindBar: View {
                         .monospacedDigit()
                 }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xsm)
             .background(Color.bgCard)
-            .clipShape(.rect(cornerRadius: 6))
+            .clipShape(.rect(cornerRadius: Radius.control))
             .overlay(
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: Radius.control)
                     .stroke(Color.borderPrimary, lineWidth: 1)
             )
 
@@ -1348,8 +1349,8 @@ struct ItemReaderFindBar: View {
             .buttonStyle(.plain)
             .help("Close find bar (Esc)")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.xsm)
         .background(Color.bgCard)
 
         Divider()

@@ -135,11 +135,3 @@ enum VideoEmbed {
         return playbackURL(for: url, videoSource: videoSource, videoID: videoID)
     }
 }
-
-/// Canonical host for matching an item's source URL against a `FeedSource.domain`.
-/// Accepts either a full URL or a bare domain and always answers the lowercased
-/// host with any leading "www." removed, so both sides of the comparison agree.
-func normalizedDomain(_ value: String) -> String {
-    let host = (resolvedSourceURL(from: value)?.host ?? value).lowercased()
-    return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
-}

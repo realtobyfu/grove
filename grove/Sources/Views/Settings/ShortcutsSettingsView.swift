@@ -47,12 +47,12 @@ struct ShortcutsSettingsView: View {
             Text(shortcut)
                 .font(.groveShortcut)
                 .foregroundStyle(Color.textSecondary)
-                .padding(.horizontal, 8)
+                .padding(.horizontal, Spacing.sm)
                 .padding(.vertical, 2)
                 .background(Color.bgCard)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.control))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 4)
+                    RoundedRectangle(cornerRadius: Radius.control)
                         .stroke(Color.borderInput)
                 )
         }

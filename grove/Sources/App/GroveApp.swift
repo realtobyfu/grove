@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import StoreKit
+import UserNotifications
 
 #if !SHARE_EXTENSION
 @main
@@ -14,7 +15,6 @@ struct GroveApp: App {
     @State private var paywallCoordinator = PaywallCoordinator.shared
     @State private var storeKitService = StoreKitService.shared
     @State private var conversationStarterService = ConversationStarterService.shared
-    @State private var coachMarkService = CoachMarkService.shared
     @State private var feedFetchService = FeedFetchService.shared
     #if os(iOS)
     @State private var deepLinkRouter = DeepLinkRouter()
@@ -41,6 +41,14 @@ struct GroveApp: App {
         await feedFetchService.refreshIfNeeded(in: modelContainer.mainContext)
     }
 
+    /// Older builds could schedule a stale-inbox system notification. Nothing
+    /// handles those any more, so drop any still pending or delivered.
+    private static func clearLegacyNotifications() {
+        let center = UNUserNotificationCenter.current()
+        center.removeAllPendingNotificationRequests()
+        center.removeAllDeliveredNotifications()
+    }
+
     var body: some Scene {
         #if os(macOS)
         WindowGroup {
@@ -53,12 +61,13 @@ struct GroveApp: App {
                 }
                 .onOpenURL { url in learningLaunch.handle(url) }
                 .task {
-                    NudgeNotificationService.shared.configure()
+                    Self.clearLegacyNotifications()
                     let context = modelContainer.mainContext
                     guard !LearningDemo.isEnabled else { return }
                     LearningWidgetSnapshotStore.refresh(modelContext: context)
                     AnnotationMigrationService.migrateIfNeeded(context: context)
                     OverviewMigrationService.migrateItems(context: context)
+                    SmartBoardMigrationService.migrateBoards(context: context)
                     storeKitService.start()
                     #if !SHARE_EXTENSION
                     await GroveSpotlightIndexer.refreshAll(using: modelContainer)
@@ -79,7 +88,6 @@ struct GroveApp: App {
                 .environment(paywallCoordinator)
                 .environment(storeKitService)
                 .environment(conversationStarterService)
-                .environment(coachMarkService)
                 .environment(feedFetchService)
                 .tint(Color.textPrimary)
         }
@@ -123,7 +131,6 @@ struct GroveApp: App {
             .environment(paywallCoordinator)
             .environment(storeKitService)
             .environment(conversationStarterService)
-            .environment(coachMarkService)
             .environment(feedFetchService)
             .environment(syncService)
         }
@@ -138,11 +145,13 @@ struct GroveApp: App {
                     }
                 }
                 .task {
+                    Self.clearLegacyNotifications()
                     let context = modelContainer.mainContext
                     guard !LearningDemo.isEnabled else { return }
                     LearningWidgetSnapshotStore.refresh(modelContext: context)
                     AnnotationMigrationService.migrateIfNeeded(context: context)
                     OverviewMigrationService.migrateItems(context: context)
+                    SmartBoardMigrationService.migrateBoards(context: context)
                     ExtensionItemProcessor.processIfNeeded(context: context)
                     storeKitService.start()
                     #if !SHARE_EXTENSION
@@ -168,7 +177,6 @@ struct GroveApp: App {
                 .environment(paywallCoordinator)
                 .environment(storeKitService)
                 .environment(conversationStarterService)
-                .environment(coachMarkService)
                 .environment(feedFetchService)
                 .tint(Color.textPrimary)
         }

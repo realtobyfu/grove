@@ -20,6 +20,17 @@ enum ItemType: String, Codable {
         case .courseLecture: "graduationcap"
         }
     }
+
+    /// The type's human label ("Course lecture", not the raw "courseLecture").
+    var displayName: String {
+        switch self {
+        case .article: "Article"
+        case .codebase: "Codebase"
+        case .video: "Video"
+        case .note: "Note"
+        case .courseLecture: "Course lecture"
+        }
+    }
 }
 
 enum ItemStatus: String, Codable {
@@ -105,11 +116,6 @@ final class Item {
     var incomingConnections: [Connection] {
         get { incomingConnectionsStorage ?? [] }
         set { incomingConnectionsStorage = newValue }
-    }
-
-    var nudges: [Nudge] {
-        get { nudgesStorage ?? [] }
-        set { nudgesStorage = newValue }
     }
 
     // MARK: - Depth Score

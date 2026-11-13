@@ -22,7 +22,7 @@ final class FeedSource {
         feedURL: String,
         domain: String,
         title: String? = nil,
-        isAutoDiscovered: Bool = true,
+        isAutoDiscovered: Bool = false,
         isEnabled: Bool = true,
         isUserSubscribed: Bool = false
     ) {

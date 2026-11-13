@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 /// iOS Settings screen — List-based with sections for AI, Sync, Appearance,
@@ -18,25 +19,26 @@ struct MobileSettingsView: View {
     @State private var paywallPresentation: PaywallPresentation?
     @State private var learningPresentation: LearningPresentation?
     @State private var syncEnabled = SyncSettings.syncEnabled
-    @State private var notificationsEnabled = NudgeSettings.notificationsEnabled
-    @State private var staleInboxEnabled = NudgeSettings.staleInboxEnabled
 
     var body: some View {
         List {
-            aiSection
-            notificationsSection
-            newslettersSection
-            learningSection
-            syncSection
-            appearanceSection
-            subscriptionSection
-            aboutSection
+            // Grouped rows read as cards on the paper page.
+            Group {
+                aiSection
+                newslettersSection
+                learningSection
+                syncSection
+                appearanceSection
+                subscriptionSection
+                aboutSection
+            }
+            .listRowBackground(Color.bgCard)
         }
+        .scrollContentBackground(.hidden)
+        .background(Color.bgPrimary)
         .navigationTitle("Settings")
         .onAppear {
             syncEnabled = SyncSettings.syncEnabled
-            notificationsEnabled = NudgeSettings.notificationsEnabled
-            staleInboxEnabled = NudgeSettings.staleInboxEnabled
         }
         .sheet(item: $paywallPresentation) { presentation in
             ProPaywallView(presentation: presentation)
@@ -47,36 +49,6 @@ struct MobileSettingsView: View {
                 case .library: FlashcardLibraryView()
                 case .focus: LearningFocusView()
                 }
-            }
-        }
-    }
-
-    // MARK: - Notifications
-
-    private var notificationsSection: some View {
-        Section("Reminders") {
-            Toggle(isOn: $notificationsEnabled) {
-                Label("System Notifications", systemImage: "bell")
-            }
-            .onChange(of: notificationsEnabled) { _, newValue in
-                Task {
-                    let effectiveValue = await NudgeNotificationService.shared
-                        .setNotificationsEnabled(newValue)
-                    if notificationsEnabled != effectiveValue {
-                        notificationsEnabled = effectiveValue
-                    }
-                }
-            }
-
-            Text("When off, reminders appear only inside Today.")
-                .font(.groveBodySmall)
-                .foregroundStyle(Color.textSecondary)
-
-            Toggle(isOn: $staleInboxEnabled) {
-                Label("Stale inbox reminders", systemImage: "tray.full")
-            }
-            .onChange(of: staleInboxEnabled) { _, newValue in
-                NudgeSettings.staleInboxEnabled = newValue
             }
         }
     }

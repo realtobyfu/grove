@@ -45,7 +45,7 @@ struct FollowFeedBar: View {
                     }
                     .buttonStyle(.plain)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 6)
+                        RoundedRectangle(cornerRadius: Radius.control)
                             .stroke(Color.borderPrimary, lineWidth: 1)
                     )
                     #if os(iOS)
@@ -123,9 +123,9 @@ struct FollowFeedBar: View {
         .padding(.horizontal, Spacing.lg)
         .padding(.vertical, Spacing.sm)
         .background(Color.bgInput)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
         .overlay(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: Radius.control)
                 .stroke(isFocused ? Color.borderPrimary : Color.borderInput, lineWidth: 1)
         )
         .overlay {
@@ -142,7 +142,7 @@ struct FollowFeedBar: View {
                 .padding(.horizontal, Spacing.md)
                 .padding(.vertical, Spacing.xs)
                 .background(Color.bgCard)
-                .clipShape(Capsule())
+                .clipShape(RoundedRectangle(cornerRadius: Radius.control))
                 .transition(.opacity.combined(with: .scale(scale: 0.9)))
             }
         }

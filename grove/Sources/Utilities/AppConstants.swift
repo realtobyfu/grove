@@ -9,58 +9,6 @@ enum AppConstants {
         static let manageSubscriptions = URL(string: "https://apps.apple.com/account/subscriptions")
     }
 
-    // MARK: - Time Windows (Days)
-    enum Days {
-        /// Recent activity window (nudge engagement, weekly digest, etc.)
-        static let recent: Int = 7
-        /// Stale/inactive threshold (inbox staleness)
-        static let stale: Int = 14
-        /// Longer cooldown (dismissed nudge suppression)
-        static let cooldown: Int = 30
-    }
-
-    // MARK: - Connection Scoring
-    enum Scoring {
-        /// Minimum heuristic score to suggest a connection
-        static let connectionSuggestionFloor: Double = 0.15
-        /// Minimum heuristic score for auto-connect fallback
-        static let autoConnectHeuristicFloor: Double = 0.5
-        /// LLM confidence required for auto-connecting items
-        static let autoConnectLLMConfidence: Double = 0.7
-        /// Maximum auto-connections created per item
-        static let maxAutoConnections: Int = 2
-        /// Minimum other items required for meaningful auto-connect signal
-        static let minItemsForAutoConnect: Int = 5
-        /// Tag similarity threshold for merge suggestions
-        static let tagMergeSimilarity: Double = 0.75
-    }
-
-    // MARK: - Nudge
-    enum Nudge {
-        /// High engagement = acted on N+ nudges in recent window
-        static let highEngagementThreshold: Int = 3
-        /// Stale inbox nudge fires when inbox has N+ old items
-        static let staleInboxMinCount: Int = 5
-        /// Nudges created per day before the cap applies (high engagement may exceed it)
-        static let maxPerDay: Int = 2
-        /// How often the nudge engine runs, in hours
-        static let scheduleIntervalHours: Int = 4
-    }
-
-    // MARK: - LLM Context Limits
-    enum LLM {
-        /// Max candidate items sent to LLM for connection/nudge prompts
-        static let maxCandidateItems: Int = 50
-        /// Max content characters in item descriptions for LLM
-        static let defaultContentLimit: Int = 1000
-        /// Summary character cap
-        static let summaryMaxLength: Int = 120
-        /// Reflection prompt text cap
-        static let promptMaxLength: Int = 150
-        /// JPEG compression quality for downloaded images
-        static let imageCompressionQuality: Double = 0.7
-    }
-
     // MARK: - Capture
     enum Capture {
         /// Auto-dismiss delay for inline board suggestions shown after capture.

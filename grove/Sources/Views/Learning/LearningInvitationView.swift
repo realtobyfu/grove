@@ -82,7 +82,7 @@ struct LearningInvitationView: View {
                     if let onReview { onReview() } else { presentation = .review }
                 } else { presentation = .library }
             }
-            .buttonStyle(HomePrimaryButtonStyle())
+            .buttonStyle(.grove(.primary, size: .compact))
             .frame(minHeight: 44)
             .accessibilityLabel(readyCount > 0 ? "Review \(readyCount) flashcards" : "Open flashcards")
 

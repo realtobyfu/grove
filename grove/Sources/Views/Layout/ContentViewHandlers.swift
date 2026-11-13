@@ -37,16 +37,10 @@ struct ContentViewNotificationHandlers: ViewModifier {
     func body(content: Content) -> some View {
         let step1 = content
             .onReceive(NotificationCenter.default.publisher(for: .groveNewNote)) { _ in
-                withAnimation(.easeOut(duration: 0.2)) {
-                    viewModel.writePanelPrompt = nil
-                    viewModel.showWritePanel = true
-                }
+                viewModel.openWritePanel()
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveNewNoteWithPrompt)) { notification in
-                withAnimation(.easeOut(duration: 0.2)) {
-                    viewModel.writePanelPrompt = notification.object as? String
-                    viewModel.showWritePanel = true
-                }
+                viewModel.openWritePanel(prompt: notification.object as? String)
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveToggleSearch)) { _ in
                 if viewModel.isArticleWebViewActive {
@@ -59,9 +53,7 @@ struct ContentViewNotificationHandlers: ViewModifier {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveToggleInspector)) { _ in
-                withAnimation(RightRailMetrics.widthChange) {
-                    viewModel.inspectorUserOverride = !viewModel.isInspectorVisible
-                }
+                viewModel.toggleInspector()
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveCaptureBar)) { _ in
                 withAnimation(.easeOut(duration: 0.2)) {
@@ -96,13 +88,7 @@ struct ContentViewNotificationHandlers: ViewModifier {
                 openItem(id: id)
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveToggleChat)) { _ in
-                withAnimation(RightRailMetrics.widthChange) { viewModel.showChatPanel.toggle() }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .groveOpenConversation)) { notification in
-                if let conversation = notification.object as? Conversation {
-                    viewModel.selectedConversation = conversation
-                    withAnimation(RightRailMetrics.widthChange) { viewModel.showChatPanel = true }
-                }
+                viewModel.toggleChatPanel()
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveStartConversationWithPrompt)) { notification in
                 let payload = NotificationCenter.conversationPromptPayload(from: notification)
@@ -116,14 +102,6 @@ struct ContentViewNotificationHandlers: ViewModifier {
                 guard let payload = NotificationCenter.discussItemPayload(from: notification) else { return }
                 startDiscussion(item: payload.item)
             }
-            .onReceive(NotificationCenter.default.publisher(for: .groveOpenNudgeNotification)) { notification in
-                guard let nudgeID = notification.object as? UUID else { return }
-                openNudgeFromNotification(id: nudgeID)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .groveDismissNudgeNotification)) { notification in
-                guard let nudgeID = notification.object as? UUID else { return }
-                dismissNudgeFromNotification(id: nudgeID)
-            }
             .onReceive(NotificationCenter.default.publisher(for: .groveEnterFocusMode)) { _ in
                 viewModel.enterFocusMode()
             }
@@ -131,15 +109,14 @@ struct ContentViewNotificationHandlers: ViewModifier {
                 viewModel.exitFocusMode()
             }
             .onAppear {
-                NudgeNotificationService.shared.configure()
-                guard viewModel.nudgeEngine == nil else { return }
-                let engine = NudgeEngine(modelContext: modelContext)
-                engine.startSchedule()
-                viewModel.nudgeEngine = engine
+                guard viewModel.readLaterScheduler == nil else { return }
+                let scheduler = ReadLaterRestoreScheduler(modelContext: modelContext)
+                scheduler.start()
+                viewModel.readLaterScheduler = scheduler
             }
             .onDisappear {
-                viewModel.nudgeEngine?.stopSchedule()
-                viewModel.nudgeEngine = nil
+                viewModel.readLaterScheduler?.stop()
+                viewModel.readLaterScheduler = nil
             }
     }
 
@@ -172,41 +149,6 @@ struct ContentViewNotificationHandlers: ViewModifier {
         viewModel.openedItem = item
     }
 
-    private func openNudgeFromNotification(id: UUID) {
-        let allNudges: [Nudge] = modelContext.fetchAll()
-        guard let nudge = allNudges.first(where: { $0.id == id }),
-              nudge.status == .pending || nudge.status == .shown
-        else {
-            NudgeNotificationService.shared.cancel(for: id)
-            return
-        }
-
-        nudge.status = .actedOn
-        NudgeNotificationService.shared.cancel(for: id)
-        try? modelContext.save()
-
-        // Stale inbox is the only nudge still delivered; it opens the Library.
-        // Retired types (persisted records only) have nowhere to go.
-        guard nudge.type == .staleInbox else { return }
-        viewModel.openedItem = nil
-        viewModel.selectedItem = nil
-        viewModel.selection = .library
-    }
-
-    private func dismissNudgeFromNotification(id: UUID) {
-        let allNudges: [Nudge] = modelContext.fetchAll()
-        guard let nudge = allNudges.first(where: { $0.id == id }),
-              nudge.status == .pending || nudge.status == .shown
-        else {
-            NudgeNotificationService.shared.cancel(for: id)
-            return
-        }
-
-        nudge.status = .dismissed
-        NudgeNotificationService.shared.cancel(for: id)
-        try? modelContext.save()
-    }
-
     private func startConversation(
         withPrompt prompt: String,
         seedItemIDs: [UUID] = [],
@@ -218,7 +160,6 @@ struct ContentViewNotificationHandlers: ViewModifier {
             NotificationCenter.default.post(name: .groveDialecticsLimitReached, object: nil)
             return
         }
-        entitlement.recordUse(.dialectics)
 
         var seedItems: [Item] = []
         if !seedItemIDs.isEmpty {

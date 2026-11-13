@@ -9,7 +9,7 @@ struct LibrarySearchBar: View {
     let onToggleMultiSelect: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
             Image(systemName: isSearching ? "hourglass" : "magnifyingglass")
                 .font(.groveBody)
                 .foregroundStyle(Color.textSecondary)
@@ -60,7 +60,7 @@ struct LibrarySearchBar: View {
             .buttonStyle(.plain)
         }
         .padding(.horizontal, Spacing.md)
-        .padding(.vertical, 10)
+        .padding(.vertical, Spacing.md)
         .background(Color.bgPrimary)
     }
 }
@@ -94,48 +94,17 @@ struct LibraryBoardFilterBar: View {
 
     /// Toggle chip that switches the list to archived items.
     private var archivedChip: some View {
-        Button {
+        FilterChip(label: "Archived", systemImage: "archivebox", isActive: showingArchived) {
             withAnimation(.easeInOut(duration: 0.15)) {
                 showingArchived.toggle()
             }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "archivebox")
-                    .font(.groveMeta)
-                Text("Archived")
-                    .font(.groveTag)
-            }
-            .foregroundStyle(showingArchived ? Color.textInverse : Color.textSecondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(showingArchived ? Color.bgTagActive : Color.bgCard)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-            .overlay(
-                RoundedRectangle(cornerRadius: 4)
-                    .stroke(showingArchived ? Color.clear : Color.borderTag, lineWidth: 1)
-            )
         }
-        .buttonStyle(.plain)
         .help(showingArchived ? "Show active items" : "Show archived items")
     }
 
     private func boardChip(title: String, boardID: UUID?) -> some View {
-        let isActive = selectedBoardID == boardID
-        return Button {
+        FilterChip(label: title, isActive: selectedBoardID == boardID) {
             selectedBoardID = boardID
-        } label: {
-            Text(title)
-                .font(.groveTag)
-                .foregroundStyle(isActive ? Color.textInverse : Color.textPrimary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(isActive ? Color.bgTagActive : Color.bgCard)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(isActive ? Color.clear : Color.borderTag, lineWidth: 1)
-                )
         }
-        .buttonStyle(.plain)
     }
 }

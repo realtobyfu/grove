@@ -1,13 +1,10 @@
 import Foundation
 import SwiftData
 
-/// Raw values are persisted in `Nudge.type`, so every case stays even after
-/// its generator is retired. Only `staleInbox` is still produced.
+/// Raw values are persisted in `Nudge.type`, so every case stays even though
+/// no generator is left; persisted records still decode.
 enum NudgeType: String, Codable {
-    // Active engine category.
     case staleInbox
-
-    // Retired categories, kept so persisted records still decode.
     case resurface
     case connectionPrompt
     case streak
@@ -26,6 +23,7 @@ enum NudgeStatus: String, Codable {
     case dismissed
 }
 
+/// Retired: nothing creates or reads nudges; the model stays only for the synced schema.
 @Model
 final class Nudge {
     var id: UUID = UUID()

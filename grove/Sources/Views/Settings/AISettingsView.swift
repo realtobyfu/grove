@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Settings view for configuring LLM (AI) features.
-/// Keeps core setup visible and tucks diagnostics behind advanced disclosure groups.
+/// Keeps provider choice and the usage summary visible; API keys, overrides
+/// and raw token budgets show only when `BuildFlags.isBYOEnabled` (DEBUG).
 struct AISettingsView: View {
     @Environment(EntitlementService.self) private var entitlement
     @Environment(PaywallCoordinator.self) private var paywallCoordinator
@@ -65,7 +66,7 @@ struct AISettingsView: View {
                         appleIntelligenceStatus
                     }
                 } else {
-                    HStack(spacing: 6) {
+                    HStack(spacing: Spacing.xsm) {
                         Image(systemName: "cloud")
                             .foregroundStyle(Color.textSecondary)
                         Text("Cloud AI is available. Apple Intelligence requires macOS 26 or later.")
@@ -108,12 +109,12 @@ struct AISettingsView: View {
                                 .foregroundStyle(Color.textTertiary)
                         }
                     } else {
-                        Text("Cloud AI is managed in this build.")
+                        Text("Cloud AI is provided by Grove, so you don't need an API key.")
                             .font(.groveBadge)
                             .foregroundStyle(Color.textTertiary)
 
                         if !LLMServiceConfig.isConfigured {
-                            Text("Cloud AI is unavailable until managed configuration is provided.")
+                            Text("Cloud AI isn't available right now.")
                                 .font(.groveBadge)
                                 .foregroundStyle(Color.textTertiary)
                         }
@@ -137,7 +138,7 @@ struct AISettingsView: View {
                         .font(.groveBodySmall)
                         .foregroundStyle(Color.textSecondary)
                 } else {
-                    HStack(spacing: 6) {
+                    HStack(spacing: Spacing.xsm) {
                         Image(systemName: "lock")
                             .font(.groveBodySmall)
                             .foregroundStyle(Color.textSecondary)
@@ -170,7 +171,7 @@ struct AISettingsView: View {
                                 .foregroundStyle(Color.textPrimary)
                             Spacer()
                             Text(formatNumber(tracker.totalTokens))
-                                .font(.custom("IBMPlexMono-SemiBold", size: 13))
+                                .font(.groveMeta)
                                 .foregroundStyle(Color.textPrimary)
                         }
 
@@ -180,7 +181,7 @@ struct AISettingsView: View {
                                 .foregroundStyle(Color.textPrimary)
                             Spacer()
                             Text(formatNumber(tracker.callCount))
-                                .font(.custom("IBMPlexMono-SemiBold", size: 13))
+                                .font(.groveMeta)
                                 .foregroundStyle(Color.textPrimary)
                         }
 
@@ -191,26 +192,26 @@ struct AISettingsView: View {
                                     .foregroundStyle(Color.textPrimary)
                                 Spacer()
                                 Text(formatCost(tracker.estimatedCost))
-                                    .font(.custom("IBMPlexMono-SemiBold", size: 13))
+                                    .font(.groveMeta)
                                     .foregroundStyle(Color.textPrimary)
                             }
                         }
 
                         DisclosureGroup("Advanced usage and limits", isExpanded: $showAdvancedUsage) {
                             usageByService
-                                .padding(.top, 4)
+                                .padding(.top, Spacing.xs)
 
                             budgetControls
-                                .padding(.top, 8)
+                                .padding(.top, Spacing.sm)
 
                             Button("Reset Usage") {
                                 tracker.resetAll()
                                 refreshID = UUID()
                             }
-                            .padding(.top, 4)
+                            .padding(.top, Spacing.xs)
                         }
                     } else {
-                        HStack(spacing: 6) {
+                        HStack(spacing: Spacing.xsm) {
                             Image(systemName: monthlyUsageRatio >= 1.0 ? "exclamationmark.triangle.fill" : "exclamationmark.triangle")
                                 .foregroundStyle(Color.textSecondary)
                             Text("Cloud usage is at \(formatPercent(monthlyUsageRatio)) of this month's limit.")
@@ -218,7 +219,7 @@ struct AISettingsView: View {
                                 .foregroundStyle(Color.textSecondary)
                         }
 
-                        Text(monthlyUsageRatio >= 1.0 ? "Cloud usage has reached the monthly limit." : "Usage details stay hidden until account usage is elevated.")
+                        Text("Usage resets at the start of each month.")
                             .font(.groveBadge)
                             .foregroundStyle(Color.textTertiary)
                     }
@@ -243,7 +244,7 @@ struct AISettingsView: View {
     // MARK: - Status
 
     private var statusRow: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.xsm) {
             Image(systemName: LLMServiceConfig.isConfigured ? "checkmark.circle.fill" : "exclamationmark.triangle")
                 .foregroundStyle(LLMServiceConfig.isConfigured ? Color.textPrimary : Color.textSecondary)
             Text(statusText)
@@ -263,7 +264,7 @@ struct AISettingsView: View {
             if isBYOEnabled {
                 return "Add a cloud API key to enable AI."
             }
-            return "Cloud AI is managed by this build."
+            return "Cloud AI isn't available right now."
         }
         return "Apple Intelligence is unavailable on this Mac."
     }
@@ -273,7 +274,7 @@ struct AISettingsView: View {
     private var appleIntelligenceStatus: some View {
         Group {
             if #available(macOS 26, iOS 26, *), AppleIntelligenceProvider.isAvailable {
-                HStack(spacing: 6) {
+                HStack(spacing: Spacing.xsm) {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(Color.textPrimary)
                     Text("Apple Intelligence is available on this device.")
@@ -281,7 +282,7 @@ struct AISettingsView: View {
                         .foregroundStyle(Color.textSecondary)
                 }
             } else {
-                HStack(spacing: 6) {
+                HStack(spacing: Spacing.xsm) {
                     Image(systemName: "exclamationmark.triangle")
                         .foregroundStyle(Color.textSecondary)
                     Text("Apple Intelligence is not available. Check that it is enabled in System Settings.")
@@ -298,7 +299,7 @@ struct AISettingsView: View {
     // MARK: - Advanced Usage
 
     private var usageByService: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
             Text("Usage by Service")
                 .font(.groveBadge)
                 .fontWeight(.semibold)
@@ -312,7 +313,7 @@ struct AISettingsView: View {
             } else {
                 ForEach(services) { service in
                     HStack {
-                        Text(displayName(for: service.service))
+                        Text(service.displayName)
                             .font(.groveBodySecondary)
                             .foregroundStyle(Color.textPrimary)
                         Spacer()
@@ -333,7 +334,7 @@ struct AISettingsView: View {
     }
 
     private var budgetControls: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
             Toggle("Enable monthly budget limit", isOn: $budgetEnabled)
                 .onChange(of: budgetEnabled) { _, newValue in
                     tracker.budgetEnabled = newValue
@@ -370,7 +371,7 @@ struct AISettingsView: View {
                 }
 
                 if tracker.isBudgetExceeded {
-                    HStack(spacing: 6) {
+                    HStack(spacing: Spacing.xsm) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(Color.textPrimary)
                         Text("Budget exceeded. AI features pause until next month or a higher budget.")
@@ -402,14 +403,5 @@ struct AISettingsView: View {
         let clamped = max(0, ratio)
         let percent = Int((clamped * 100).rounded())
         return "\(percent)%"
-    }
-
-    private func displayName(for service: String) -> String {
-        switch service {
-        case "tagging": return "Auto-Tagging"
-        case "overview": return "Article Overview"
-        case "dialectics": return "Chat"
-        default: return service.capitalized
-        }
     }
 }

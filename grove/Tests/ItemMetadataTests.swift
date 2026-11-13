@@ -51,20 +51,11 @@ struct ItemMetadataTests {
     // MARK: - AI provenance
 
     @Test func aiProvenanceUsesLegacyKeys() {
-        expectFlag(\.isAIGenerated, storedAs: "isAIGenerated")
-        expectFlag(\.isAIEdited, storedAs: "isAIEdited")
         expectFlag(\.hasLLMOverview, storedAs: "hasLLMOverview")
         expectFlag(\.isSummaryGeneratedByAI, storedAs: "summaryGeneratedByAI")
         expectFlag(\.isSummaryReviewPending, storedAs: "summaryReviewPending")
         expectFlag(\.isOverviewReviewPending, storedAs: "overviewReviewPending")
         expectString(\.originalDescription, storedAs: "originalDescription")
-    }
-
-    /// Older versions wrote `isLLMGenerated ? "true" : "false"` for this flag.
-    @Test func storedFalseReadsAsNotAIGenerated() {
-        let item = makeItem()
-        item.metadata["isAIGenerated"] = "false"
-        #expect(item.isAIGenerated == false)
     }
 
     // MARK: - Reading

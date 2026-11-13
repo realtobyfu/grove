@@ -27,7 +27,7 @@ enum ReaderCaptureState: String, Equatable {
     }
 }
 
-/// The single capture affordance in the reader: one ink disc, bottom-trailing
+/// The single capture affordance in the reader: one ink square, bottom-trailing
 /// of the content, whose meaning follows the page currently on screen.
 ///
 /// Replaces the toolbar's "+" boards menu and its conditional save button —
@@ -42,6 +42,7 @@ struct ReaderCaptureFAB: View {
     @State private var isHovering = false
     @State private var scale: CGFloat = 1
     @State private var opacity: Double = 1
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     #if os(iOS)
     private static let diameter: CGFloat = 44
@@ -59,11 +60,14 @@ struct ReaderCaptureFAB: View {
                     .foregroundStyle(Color.textSecondary)
                     .lineLimit(1)
                     .padding(.horizontal, Spacing.md)
-                    .padding(.vertical, 6)
+                    .padding(.vertical, Spacing.xsm)
                     .background(Color.bgCard)
-                    .clipShape(Capsule())
-                    .overlay(Capsule().stroke(Color.borderPrimary, lineWidth: 1))
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.control))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Radius.control)
+                            .stroke(Color.borderPrimary, lineWidth: 1)
+                    )
+                    .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
             }
 
             Button(action: action) {
@@ -72,9 +76,10 @@ struct ReaderCaptureFAB: View {
                     .foregroundStyle(Color.textInverse)
                     .frame(width: Self.diameter, height: Self.diameter)
                     .background(Color.textPrimary)
-                    .clipShape(Circle())
-                    .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
-                    .contentShape(Circle())
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.card))
+                    // It floats over the page, so it keeps one soft shadow.
+                    .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+                    .contentShape(RoundedRectangle(cornerRadius: Radius.card))
             }
             .buttonStyle(.plain)
             .accessibilityLabel(state.label)
@@ -96,7 +101,8 @@ struct ReaderCaptureFAB: View {
                 opacity = 1
                 return
             }
-            scale = 0.6
+            // Reduce Motion: fade in place, no scale-up.
+            scale = reduceMotion ? 1 : 0.6
             opacity = 0
             try? await Task.sleep(for: .milliseconds(400))
             guard !Task.isCancelled else { return }

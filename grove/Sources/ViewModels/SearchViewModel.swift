@@ -385,7 +385,7 @@ final class SearchViewModel {
         } else if let preview = item.previewText {
             return String(preview.prefix(80))
         } else {
-            return item.type.rawValue.capitalized
+            return item.type.displayName
         }
     }
 

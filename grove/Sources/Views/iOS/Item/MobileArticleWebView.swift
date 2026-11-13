@@ -77,7 +77,7 @@ struct MobileArticleWebView: UIViewRepresentable {
         // interactive pop gesture. Use the explicit back control instead.
         webView.allowsBackForwardNavigationGestures = false
         webView.isOpaque = false
-        webView.backgroundColor = .systemBackground
+        webView.backgroundColor = UIColor(named: "bgPrimary") ?? UIColor(Color.bgPrimary)
 
         context.coordinator.startObserving(webView)
         context.coordinator.lastLoadedURL = url

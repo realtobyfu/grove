@@ -1,23 +1,6 @@
 import SwiftUI
 import SwiftData
 
-// MARK: - Home Primary Button Style
-
-struct HomePrimaryButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.groveBodySmall)
-            .foregroundStyle(Color.textInverse)
-            .padding(.horizontal, Spacing.md)
-            .padding(.vertical, 6)
-            .background(isEnabled ? Color.textPrimary : Color.textSecondary)
-            .clipShape(.rect(cornerRadius: 6))
-            .opacity(configuration.isPressed ? 0.8 : 1.0)
-    }
-}
-
 // MARK: - HomeView
 
 struct HomeView: View {
@@ -139,11 +122,11 @@ struct HomeSectionHeader: View {
 
                 Text("\(count)")
                     .font(.groveBadge)
-                    .padding(.horizontal, 6)
+                    .padding(.horizontal, Spacing.xsm)
                     .padding(.vertical, 2)
                     .background(Color.accentBadge)
                     .foregroundStyle(Color.textPrimary)
-                    .clipShape(Capsule())
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.tag))
 
                 Spacer()
             }

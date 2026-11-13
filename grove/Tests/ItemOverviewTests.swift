@@ -181,14 +181,170 @@ struct ItemOverviewTests {
         #expect(item.overview == nil)
     }
 
-    @Test func anExistingOverviewIsNeverOverwrittenByMigration() {
-        let item = makeLegacyItem(content: generated)
-        item.overview = "Already here."
+    // MARK: - Re-overviewed by an older build
 
+    /// An older build on another device re-overviewed an item that was
+    /// already migrated: `overview` is set, yet `content` is AI text again.
+    @Test func mixedStateWithAGeneratedOverviewTakesTheNewerText() {
+        let item = makeItem()
+        item.content = original
+        item.recordOverview("The first overview.")
+        // What the old build writes.
+        item.originalDescription = original
+        item.content = generated
+        item.hasLLMOverview = true
+
+        #expect(item.migrateLegacyOverviewIfNeeded())
+        #expect(item.overview == generated)
+        #expect(item.content == original)
+        #expect(item.originalDescription == nil)
+        #expect(!item.hasLLMOverview)
+        #expect(!item.canReplaceOverview)
         #expect(!item.migrateLegacyOverviewIfNeeded())
-        #expect(item.overview == "Already here.")
-        #expect(item.content == generated)
+    }
+
+    @Test func mixedStateNeverReplacesAnOverviewThatMayBeTheUsers() {
+        // Moved out of a legacy `content`, so possibly a plain-prose edit.
+        let moved = makeLegacyItem(content: "Words the user may have written.")
+        moved.migrateLegacyOverviewIfNeeded()
+        // Written before the generated marker existed.
+        let unmarked = makeItem()
+        unmarked.overview = "Already here."
+
+        for (item, kept) in [(moved, "Words the user may have written."), (unmarked, "Already here.")] {
+            item.originalDescription = original
+            item.content = generated
+            item.hasLLMOverview = true
+
+            #expect(item.migrateLegacyOverviewIfNeeded())
+            #expect(item.overview == kept)
+            #expect(item.content == original)
+            #expect(item.originalDescription == nil)
+            #expect(!item.hasLLMOverview)
+        }
+    }
+
+    @Test func mixedStateWithAnEditedContentStaysPut() {
+        let item = makeItem()
+        item.recordOverview("The first overview.")
+        item.originalDescription = original
+        item.content = "See [[Moss Ecology]] for the follow-up."
+        item.hasLLMOverview = true
+
+        #expect(item.migrateLegacyOverviewIfNeeded())
+        #expect(item.overview == "The first overview.")
+        #expect(item.content == "See [[Moss Ecology]] for the follow-up.")
         #expect(item.originalDescription == original)
+        #expect(item.hasLLMOverview)
+    }
+
+    @Test func thePassRepairsAMixedStateItem() throws {
+        let context = try makeInMemoryModelContext()
+        let item = makeItem()
+        item.recordOverview("The first overview.")
+        item.originalDescription = original
+        item.content = generated
+        item.hasLLMOverview = true
+        context.insert(item)
+        try context.save()
+
+        OverviewMigrationService.migrateItems(context: context)
+        #expect(!context.hasChanges)
+        #expect(item.overview == generated)
+        #expect(item.content == original)
+    }
+
+    // MARK: - Which overviews a refresh may regenerate
+
+    @Test func onlyAGeneratedOverviewCanBeReplaced() {
+        let empty = makeItem()
+        #expect(empty.canReplaceOverview)
+
+        let generatedItem = makeItem()
+        generatedItem.recordOverview(generated)
+        #expect(generatedItem.canReplaceOverview)
+
+        let unmarked = makeItem()
+        unmarked.overview = generated
+        #expect(!unmarked.canReplaceOverview)
+
+        let moved = makeLegacyItem(content: generated)
+        moved.migrateLegacyOverviewIfNeeded()
+        #expect(moved.overview == generated)
+        #expect(!moved.canReplaceOverview)
+    }
+
+    @Test func theRefreshCheckMigratesALegacyItemBeforeDeciding() throws {
+        let context = try makeInMemoryModelContext()
+        let legacy = makeLegacyItem(content: generated)
+        context.insert(legacy)
+        try context.save()
+
+        let enricher = ItemMetadataEnricher()
+        #expect(!enricher.overviewMayBeReplaced(itemID: legacy.id, context: context))
+        #expect(legacy.overview == generated)
+        #expect(legacy.content == original)
+    }
+
+    // MARK: - Refreshing metadata
+
+    private func makeEnricher(_ metadata: URLMetadata) -> ItemMetadataEnricher {
+        let fetcher = MockURLMetadataFetcher()
+        fetcher.result = metadata
+        return ItemMetadataEnricher(metadataFetcher: fetcher, imageDownloader: MockImageDownloadService())
+    }
+
+    private let pageURL = "https://example.com/moss"
+    private var fetched: URLMetadata {
+        URLMetadata(title: "Fetched Title", description: "Fetched description.", authors: "R. Kimmerer")
+    }
+
+    @Test func refreshKeepsTheUsersTitleAndContent() async throws {
+        let context = try makeInMemoryModelContext()
+        let item = makeItem()
+        item.title = "My name for it"
+        item.content = "Notes I wrote."
+        item.sourceURL = pageURL
+        context.insert(item)
+        try context.save()
+
+        _ = await makeEnricher(fetched).enrichURLItem(
+            itemID: item.id, urlString: pageURL, context: context, overwrite: .refresh
+        )
+        #expect(item.title == "My name for it")
+        #expect(item.content == "Notes I wrote.")
+        #expect(item.authors == "R. Kimmerer")
+    }
+
+    @Test(arguments: ["https://example.com/moss", "example.com", "www.example.com", ""])
+    func refreshFillsAPlaceholderTitleAndEmptyContent(placeholder: String) async throws {
+        let context = try makeInMemoryModelContext()
+        let item = makeItem()
+        item.title = placeholder
+        item.content = nil
+        item.sourceURL = pageURL
+        context.insert(item)
+        try context.save()
+
+        _ = await makeEnricher(fetched).enrichURLItem(
+            itemID: item.id, urlString: pageURL, context: context, overwrite: .refresh
+        )
+        #expect(item.title == "Fetched Title")
+        #expect(item.content == "Fetched description.")
+    }
+
+    @Test func initialCaptureStillReplacesTitleAndContent() async throws {
+        let context = try makeInMemoryModelContext()
+        let item = makeItem()
+        item.title = "Something else"
+        item.content = "Old"
+        item.sourceURL = pageURL
+        context.insert(item)
+        try context.save()
+
+        _ = await makeEnricher(fetched).enrichURLItem(itemID: item.id, urlString: pageURL, context: context)
+        #expect(item.title == "Fetched Title")
+        #expect(item.content == "Fetched description.")
     }
 
     @Test func thePassMigratesAStoreAndPersistsTheResult() throws {

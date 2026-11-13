@@ -149,7 +149,7 @@ import Observation
         let context = StarterContextBuilder.buildContext(from: boardItems)
 
         var result: [PromptBubble] = []
-        if EntitlementService.shared.isPro, let llmBubbles = await generateViaLLM(context: context) {
+        if let llmBubbles = await generateViaLLM(context: context) {
             result = Array(llmBubbles.prefix(Self.maxBubbleCount))
         } else {
             result = Array(

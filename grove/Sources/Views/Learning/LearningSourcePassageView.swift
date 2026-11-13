@@ -51,8 +51,11 @@ struct LearningSourcePassageView: View {
                         .foregroundStyle(Color.textSecondary)
                 }
                 if let onRetry {
-                    Button("Back to question", action: onRetry)
-                        .buttonStyle(LearningPrimaryButtonStyle())
+                    Button(action: onRetry) {
+                        Text("Back to question")
+                            .frame(maxWidth: .infinity)
+                    }
+                        .buttonStyle(.grove(.primary))
                 }
                 if sourceItem != nil {
                     Button {
@@ -62,7 +65,7 @@ struct LearningSourcePassageView: View {
                         Label("Open source", systemImage: "book")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(LearningSecondaryButtonStyle())
+                    .buttonStyle(.grove(.secondary))
                 } else if let raw = card.sourceURL, let url = URL(string: raw), ["https", "http"].contains(url.scheme?.lowercased() ?? "") {
                     Button {
                         onReadOriginal?()
@@ -96,12 +99,18 @@ private struct LearningOriginalSourceView: View {
             Group {
                 if let item = items.first(where: { $0.id == card.sourceItemID }) {
                     #if os(iOS)
-                    MobileItemReaderView(item: item, preferFullScreenReaderExperience: true)
+                    MobileItemReaderView(item: item)
                     #else
                     ItemReaderView(item: item, isWebViewActive: $webViewActive)
                     #endif
                 } else {
-                    ContentUnavailableView("Original unavailable", systemImage: "doc.text", description: Text("Return to your flashcard to continue."))
+                    GroveEmptyState(
+                        title: "This page is no longer in your library.",
+                        detail: "Go back to the question to keep reviewing."
+                    )
+                    .frame(maxWidth: 420)
+                    .padding(.horizontal, Spacing.xxl)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             .toolbar {

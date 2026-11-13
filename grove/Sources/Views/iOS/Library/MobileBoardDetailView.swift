@@ -40,6 +40,7 @@ struct MobileBoardDetailView: View {
     @State private var starterService = ConversationStarterService.shared
     @State private var paywallPresentation: PaywallPresentation?
     @State private var showFlashcards = false
+    @State private var showCapture = false
 
     private var isRegularSplitMode: Bool {
         horizontalSizeClass == .regular && (selectedItem != nil || openedItem != nil || readerCoordinator != nil)
@@ -118,6 +119,11 @@ struct MobileBoardDetailView: View {
                 compactBoardLayout
             }
         }
+        // Paper under every layout, including the shared list/grid views
+        // mounted in split mode (their lists inherit the hidden background).
+        .scrollContentBackground(.hidden)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.bgPrimary)
         .navigationTitle(board.title)
         .navigationDestination(for: MobileItemRoute.self) { route in
             MobileItemRouteDestinationView(route: route)
@@ -141,6 +147,9 @@ struct MobileBoardDetailView: View {
         }
         .sheet(isPresented: $showFlashcards) {
             NavigationStack { FlashcardLibraryView(boardID: board.id) }
+        }
+        .sheet(isPresented: $showCapture) {
+            CaptureSheetView(initialBoardID: board.id)
         }
         .task(id: board.id) {
             await starterService.refreshBoard(board.id, items: allItems)
@@ -275,10 +284,12 @@ struct MobileBoardDetailView: View {
     }
 
     private var emptyState: some View {
-        ContentUnavailableView {
-            Label(board.title, systemImage: board.icon ?? "tray")
-        } description: {
-            Text("Items added to this board will appear here.")
+        ScrollView {
+            GroveEmptyState(
+                title: "Nothing on this board yet.",
+                detail: "Tap + to add a link or a note."
+            )
+            .padding(.horizontal, LayoutDimensions.contentPaddingH)
         }
     }
 
@@ -287,6 +298,18 @@ struct MobileBoardDetailView: View {
     @ToolbarContentBuilder
     private var toolbarCluster: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
+            Button {
+                showCapture = true
+            } label: {
+                Image(systemName: "plus")
+                    .fontWeight(.medium)
+                    .frame(minWidth: LayoutDimensions.minTouchTarget,
+                           minHeight: LayoutDimensions.minTouchTarget)
+                    .contentShape(Rectangle())
+            }
+            .keyboardShortcut("n", modifiers: .command)
+            .accessibilityLabel("Add to board")
+
             Menu {
                 ForEach(BoardSortOption.allCases, id: \.self) { option in
                     Button {
@@ -370,7 +393,6 @@ struct MobileBoardDetailView: View {
             )
             return
         }
-        entitlement.recordUse(.dialectics)
 
         let prompt = bubble.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         let seedIDs = scopedSeedItemIDs(for: bubble)

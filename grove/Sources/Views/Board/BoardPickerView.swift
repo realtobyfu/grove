@@ -178,7 +178,7 @@ struct BoardPickerView: View {
             }
         }
         .background(Color.bgPrimary)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card))
         #if os(macOS)
         .frame(width: chrome == .sheet ? 380 : 320, height: chrome == .sheet ? 440 : 380)
         #else
@@ -459,7 +459,7 @@ private struct BoardPickerRow: View {
                     .frame(width: 2)
                     .opacity(isFocused ? 1 : 0)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.control))
         }
         .buttonStyle(.plain)
         .padding(.horizontal, Spacing.sm)

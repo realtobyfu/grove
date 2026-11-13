@@ -262,7 +262,7 @@ private struct NewsletterDirectoryRow: View {
                     Button("Subscribe") {
                         onSubscribe()
                     }
-                    .buttonStyle(GroveCompactButtonStyle(prominent: true))
+                    .buttonStyle(.grove(.primary, size: .compact))
                     #if os(iOS)
                     .frame(minHeight: LayoutDimensions.minTouchTarget)
                     #endif

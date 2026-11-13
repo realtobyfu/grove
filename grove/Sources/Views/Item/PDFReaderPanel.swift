@@ -63,12 +63,12 @@ struct PDFReaderPanel: View {
     // MARK: - Nav Bar
 
     private var navBar: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Spacing.sm) {
             if let onExit {
                 Button {
                     onExit()
                 } label: {
-                    HStack(spacing: 4) {
+                    HStack(spacing: Spacing.xs) {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 11, weight: .medium))
                         Text("Overview")
@@ -118,8 +118,8 @@ struct PDFReaderPanel: View {
                 .accessibilityLabel("Open in browser")
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.xsm)
         .background(Color.bgCard)
     }
 

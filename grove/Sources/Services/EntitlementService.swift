@@ -19,12 +19,25 @@ struct MeteredUsage: Codable {
     var monthKey: String  // "yyyy-MM"
 }
 
+/// This month's cloud chat usage: the conversations that have sent at least
+/// one message to cloud AI. A conversation counts once, at its first cloud
+/// send, however many messages follow.
+struct CloudConversationUsage: Codable, Equatable {
+    var monthKey: String  // "yyyy-MM"
+    var conversationIDs: [UUID]
+    /// Uses counted before conversations were tracked by ID (the old
+    /// count-at-creation `MeteredUsage`), carried into the month they belong to.
+    var carriedOverCount: Int
+
+    var usedCount: Int { conversationIDs.count + carriedOverCount }
+}
+
 /// AI features the free tier can use a limited number of times per month when
 /// they run on cloud AI. On-device AI costs nothing to serve, so it is never
 /// limited. Every case is enforced somewhere (`canUse` + `recordUse`); a case
 /// with no call site is a ghost and must not be added back.
 enum MeteredFeature: String, CaseIterable, Sendable {
-    case dialectics      // DialecticalChatViewModel, Mobile chat entry points
+    case dialectics      // DialecticsService.sendMessage (canSendCloudMessage); creation-time early gate in chat entry points
     case autoTagging     // AutoTagService
 
     var freeLimit: Int {
@@ -188,8 +201,16 @@ final class EntitlementService {
     }
 
     /// Records one use of a metered feature. No-op when no limit applies.
+    /// Chat is metered per conversation through `recordCloudMessage(in:)`;
+    /// a `.dialectics` use recorded here counts as one untracked conversation.
     func recordUse(_ feature: MeteredFeature) {
         guard hasUsageLimits else { return }
+        if feature == .dialectics {
+            var usage = loadCloudConversationUsage()
+            usage.carriedOverCount += 1
+            saveCloudConversationUsage(usage)
+            return
+        }
         var usage = loadUsage(for: feature)
         let monthKey = Self.currentMonthKey
         if usage.monthKey != monthKey {
@@ -206,7 +227,58 @@ final class EntitlementService {
         return max(0, feature.freeLimit - used)
     }
 
+    // MARK: Cloud chat, per conversation
+
+    /// Whether a message in this conversation may go to cloud AI. True for
+    /// Pro, on-device AI, a conversation already counted this month, or while
+    /// this month's count is below the free limit. Callers ask at the moment
+    /// they are about to call a cloud provider.
+    func canSendCloudMessage(in conversationID: UUID) -> Bool {
+        guard hasUsageLimits else { return true }
+        let usage = loadCloudConversationUsage()
+        if usage.conversationIDs.contains(conversationID) { return true }
+        return usage.usedCount < MeteredFeature.dialectics.freeLimit
+    }
+
+    /// Counts this conversation against this month's free cloud chats, once.
+    /// No-op when no limit applies or the conversation is already counted.
+    func recordCloudMessage(in conversationID: UUID) {
+        guard hasUsageLimits else { return }
+        var usage = loadCloudConversationUsage()
+        guard !usage.conversationIDs.contains(conversationID) else { return }
+        usage.conversationIDs.append(conversationID)
+        saveCloudConversationUsage(usage)
+    }
+
+    private static let cloudConversationsKey = usageKeyPrefix + "dialectics.conversations"
+
+    /// This month's usage. Before the first write it falls back to the old
+    /// count-at-creation counter, so uses already made this month still count.
+    private func loadCloudConversationUsage() -> CloudConversationUsage {
+        let monthKey = Self.currentMonthKey
+        if let data = defaults.data(forKey: Self.cloudConversationsKey),
+           let usage = try? JSONDecoder().decode(CloudConversationUsage.self, from: data) {
+            return usage.monthKey == monthKey
+                ? usage
+                : CloudConversationUsage(monthKey: monthKey, conversationIDs: [], carriedOverCount: 0)
+        }
+        let legacy = loadUsage(for: .dialectics)
+        return CloudConversationUsage(
+            monthKey: monthKey,
+            conversationIDs: [],
+            carriedOverCount: legacy.monthKey == monthKey ? legacy.count : 0
+        )
+    }
+
+    private func saveCloudConversationUsage(_ usage: CloudConversationUsage) {
+        guard let data = try? JSONEncoder().encode(usage) else { return }
+        defaults.set(data, forKey: Self.cloudConversationsKey)
+    }
+
     private func usageCount(for feature: MeteredFeature) -> Int {
+        if feature == .dialectics {
+            return loadCloudConversationUsage().usedCount
+        }
         let usage = loadUsage(for: feature)
         guard usage.monthKey == Self.currentMonthKey else { return 0 }
         return usage.count

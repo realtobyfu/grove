@@ -9,13 +9,17 @@ import WebKit
 /// Toolbar: back, Reader | Live, Reflections, and (iPhone) an overflow menu
 /// with Info, Discuss, Share, Find, Text size and Flashcards. iPad has room
 /// for every action directly.
+///
+/// This is the compact-width reader: iPhone, and iPad in compact width (Slide
+/// Over, narrow split). Reflections and Discuss open as a sheet and a push. A
+/// regular-width iPad reads in `IPadItemReaderHostView` instead.
 struct MobileItemReaderView: View {
     let item: Item
     var onCloseRequested: (() -> Void)? = nil
-    var preferFullScreenReaderExperience: Bool = false
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Query(sort: \Board.sortOrder) private var boards: [Board]
 
     // Reader typography — the same app-wide keys and defaults as the macOS
@@ -23,26 +27,6 @@ struct MobileItemReaderView: View {
     @AppStorage(ReaderTypographySettings.sizeStepKey) private var readerSizeStep = ReaderTypographySettings.defaultSizeStep
     @AppStorage(ReaderTypographySettings.isWideKey) private var readerIsWide = false
     @AppStorage(ReaderTypographySettings.useSerifKey) private var readerUseSerif = true
-
-    // MARK: - Right panel (iPad 2-panel)
-
-    enum RightPanel: Equatable {
-        case none
-        case reflections
-        case chat(Conversation)
-
-        static func == (lhs: RightPanel, rhs: RightPanel) -> Bool {
-            switch (lhs, rhs) {
-            case (.none, .none): return true
-            case (.reflections, .reflections): return true
-            case (.chat(let a), .chat(let b)): return a.id == b.id
-            default: return false
-            }
-        }
-    }
-
-    @State private var rightPanel: RightPanel = .none
-    @State private var panelConversation: Conversation?
 
     @State private var dialecticsService = DialecticsService()
     @State private var showReflections = false
@@ -64,7 +48,6 @@ struct MobileItemReaderView: View {
     @State private var navigateToChat: Conversation?
     @State private var reflectionDetent: PresentationDetent = .medium
     @State private var zoomLevel: CGFloat = 1.0
-    @State private var sidePanelWidth: CGFloat? = LayoutSettings.width(for: .mobileReaderSidePanel)
     @FocusState private var findBarFocused: Bool
 
     // MARK: - Info
@@ -182,15 +165,6 @@ struct MobileItemReaderView: View {
         item.type != .note && !item.isPDFDocument
     }
 
-    private var usesSidePanel: Bool {
-        horizontalSizeClass == .regular && !preferFullScreenReaderExperience
-    }
-
-    private var isReflectionsPanelOpen: Bool { rightPanel == .reflections }
-    private var isChatPanelOpen: Bool {
-        if case .chat = rightPanel { return true }
-        return false
-    }
     private var articleURL: URL? {
         guard item.type != .note, !item.isVideoLocalFile else { return nil }
         // A video hosted elsewhere loads its player, not its watch page: the
@@ -208,10 +182,6 @@ struct MobileItemReaderView: View {
     var body: some View {
         mainLayout
             .onAppear {
-                // iPad: auto-open reflections panel for article+notes reading experience
-                if usesSidePanel && rightPanel == .none {
-                    rightPanel = .reflections
-                }
                 resolveCaptureState()
             }
             .task(id: item.id) {
@@ -259,55 +229,16 @@ struct MobileItemReaderView: View {
             .navigationDestination(item: $navigateToLinkedItem) { linkedItem in
                 MobileItemReaderView(item: linkedItem)
             }
-            .animation(.easeInOut(duration: 0.25), value: rightPanel)
     }
 
     // MARK: - Main Layout
 
-    @ViewBuilder
     private var mainLayout: some View {
-        if usesSidePanel && rightPanel != .none {
-            // iPad 2-panel
-            GeometryReader { geo in
-                let storedOrDefaultWidth = sidePanelWidth ?? geo.size.width * 0.4
-                let panelWidth = min(max(storedOrDefaultWidth, 320), 480)
-                let panelWidthBinding = Binding(
-                    get: { panelWidth },
-                    set: { sidePanelWidth = $0 }
-                )
-                HStack(spacing: 0) {
-                    ZStack(alignment: .top) {
-                        contentView
-                        if showFindBar {
-                            findBar
-                                .transition(.move(edge: .top).combined(with: .opacity))
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                    ResizableTrailingDivider(
-                        width: panelWidthBinding,
-                        minWidth: 320,
-                        maxWidth: 480,
-                        onCollapse: { rightPanel = .none }
-                    ) { width in
-                        LayoutSettings.setWidth(width, for: .mobileReaderSidePanel)
-                    }
-
-                    rightPanelContent
-                        .frame(width: panelWidthBinding.wrappedValue)
-                        .frame(maxHeight: .infinity)
-                        .background(Color.bgPrimary)
-                }
-            }
-        } else {
-            // iPhone or no panel open
-            ZStack(alignment: .top) {
-                contentView
-                if showFindBar {
-                    findBar
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
+        ZStack(alignment: .top) {
+            contentView
+            if showFindBar {
+                findBar
+                    .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
             }
         }
     }
@@ -340,7 +271,7 @@ struct MobileItemReaderView: View {
                     bar
                         .padding(.bottom, Spacing.lg)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                 }
             }
             .animation(.easeOut(duration: 0.15), value: trimmedSelection != nil)
@@ -413,19 +344,17 @@ struct MobileItemReaderView: View {
     }
 
     private func flashSavedIndicator() {
-        withAnimation { showSavedIndicator = true }
+        withAnimation(reduceMotion ? nil : .default) { showSavedIndicator = true }
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(2))
-            withAnimation { showSavedIndicator = false }
+            withAnimation(reduceMotion ? nil : .default) { showSavedIndicator = false }
         }
     }
 
     private func jumpToHighlight(_ text: String) {
         scrollToTextQuery = text
         scrollToTextToken += 1
-        if !usesSidePanel {
-            showReflections = false
-        }
+        showReflections = false
     }
 
     // MARK: - Content
@@ -493,7 +422,7 @@ struct MobileItemReaderView: View {
                     .overlay { highlightActionOverlay }
                 }
                 .overlay(alignment: .bottomTrailing) { captureFAB }
-                .animation(.easeInOut(duration: 0.2), value: showsBrowseBar)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: showsBrowseBar)
                 .animation(.easeOut(duration: 0.2), value: showsReaderContent)
             }
             #else
@@ -520,11 +449,18 @@ struct MobileItemReaderView: View {
                 .padding(.vertical, Spacing.lg)
             }
         } else {
-            ContentUnavailableView {
-                Label("No Content", systemImage: "doc.text")
-            } description: {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                Text("Nothing to read here.")
+                    .font(.groveListTitle)
+                    .foregroundStyle(Color.textPrimary)
                 Text("This item has no readable content.")
+                    .font(.groveBodySecondary)
+                    .foregroundStyle(Color.textMuted)
             }
+            .padding(.horizontal, LayoutDimensions.contentPaddingH)
+            .padding(.top, Spacing.xxl)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .accessibilityElement(children: .combine)
         }
     }
 
@@ -732,8 +668,8 @@ struct MobileItemReaderView: View {
             ) {
                 handleCaptureTap()
             }
-            .padding(20)
-            .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
+            .padding(Spacing.xl)
+            .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
         }
     }
 
@@ -999,7 +935,7 @@ struct MobileItemReaderView: View {
 
     private var findButton: some View {
         Button {
-            withAnimation { showFindBar.toggle() }
+            withAnimation(reduceMotion ? nil : .default) { showFindBar.toggle() }
             if showFindBar { findBarFocused = true }
         } label: {
             Label("Find in Page", systemImage: "doc.text.magnifyingglass")
@@ -1009,39 +945,21 @@ struct MobileItemReaderView: View {
 
     private var reflectionsButton: some View {
         Button {
-            if usesSidePanel {
-                // iPad: toggle side panel
-                withAnimation {
-                    rightPanel = isReflectionsPanelOpen ? .none : .reflections
-                }
-            } else {
-                // iPhone: open sheet
-                if horizontalSizeClass == .regular {
-                    reflectionDetent = .large
-                }
-                showReflections = true
+            if horizontalSizeClass == .regular {
+                reflectionDetent = .large
             }
+            showReflections = true
         } label: {
-            Label("Reflections", systemImage: isReflectionsPanelOpen ? "text.bubble.fill" : "text.bubble")
+            Label("Reflections", systemImage: "text.bubble")
         }
         .accessibilityLabel("Reflections")
     }
 
     private var discussButton: some View {
         Button {
-            if usesSidePanel {
-                // iPad: toggle side panel
-                if isChatPanelOpen {
-                    withAnimation { rightPanel = .none }
-                } else {
-                    startDiscussionForPanel()
-                }
-            } else {
-                // iPhone: navigate push
-                startDiscussion()
-            }
+            startDiscussion()
         } label: {
-            Label("Discuss", systemImage: isChatPanelOpen ? "bubble.left.and.bubble.right.fill" : "bubble.left.and.bubble.right")
+            Label("Discuss", systemImage: "bubble.left.and.bubble.right")
         }
         .accessibilityLabel("Discuss")
     }
@@ -1189,9 +1107,13 @@ struct MobileItemReaderView: View {
                 }
             }
             .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, 8)
-            .background(Color.bgCard)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .padding(.vertical, Spacing.sm)
+            .background(Color.bgPrimary)
+            .clipShape(RoundedRectangle(cornerRadius: Radius.control))
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.control)
+                    .strokeBorder(Color.borderPrimary, lineWidth: 1)
+            )
 
             Button {
                 findBackwardToken += 1
@@ -1208,7 +1130,7 @@ struct MobileItemReaderView: View {
             .disabled(findTotalMatches == 0)
 
             Button("Done") {
-                withAnimation {
+                withAnimation(reduceMotion ? nil : .default) {
                     showFindBar = false
                     findQuery = ""
                     findBarFocused = false
@@ -1218,7 +1140,12 @@ struct MobileItemReaderView: View {
         }
         .padding(.horizontal, LayoutDimensions.contentPaddingH)
         .padding(.vertical, Spacing.sm)
-        .background(.ultraThinMaterial)
+        .background(Color.bgCard)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(Color.borderPrimary)
+                .frame(height: 1)
+        }
     }
 
     // MARK: - Reflections sheet
@@ -1238,54 +1165,7 @@ struct MobileItemReaderView: View {
         #endif
     }
 
-    // MARK: - Right panel content (iPad)
-
-    @ViewBuilder
-    private var rightPanelContent: some View {
-        switch rightPanel {
-        case .none:
-            EmptyView()
-        case .reflections:
-            MobileReflectionSheet(
-                item: readingItem,
-                onDismiss: {
-                    withAnimation { rightPanel = .none }
-                },
-                requestedEditBlock: $pendingEditBlock,
-                onHighlightTap: articleURL != nil ? { jumpToHighlight($0) } : nil
-            )
-        case .chat(let conversation):
-            NavigationStack {
-                MobileChatView(conversation: conversation)
-            }
-        }
-    }
-
     // MARK: - Actions
-
-    private func startDiscussionForPanel() {
-        // Reuse existing panel conversation if it belongs to this item
-        if let existing = panelConversation,
-           existing.seedItemIDs.contains(item.id) {
-            withAnimation { rightPanel = .chat(existing) }
-            return
-        }
-        let conversation = dialecticsService.startConversation(
-            trigger: .userInitiated,
-            seedItems: [item],
-            board: item.boards.first,
-            context: modelContext
-        )
-        Task {
-            _ = await dialecticsService.sendMessage(
-                userText: "Let's discuss \"\(item.title)\".",
-                conversation: conversation,
-                context: modelContext
-            )
-        }
-        panelConversation = conversation
-        withAnimation { rightPanel = .chat(conversation) }
-    }
 
     private func startDiscussion() {
         let conversation = dialecticsService.startConversation(

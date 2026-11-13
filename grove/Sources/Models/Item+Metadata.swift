@@ -4,12 +4,12 @@ import Foundation
 /// value here must never change: existing items are keyed by these exact bytes.
 private enum Key {
     // AI provenance
-    static let isAIGenerated = "isAIGenerated"
-    static let isAIEdited = "isAIEdited"
     static let overview = "overview"
     static let hasLLMOverview = "hasLLMOverview"
     static let originalDescription = "originalDescription"
     static let overviewEditKept = "overviewEditKept"
+    static let overviewGenerated = "overviewGenerated"
+    static let overviewFromLegacyContent = "overviewFromLegacyContent"
     static let summaryGeneratedByAI = "summaryGeneratedByAI"
     static let summaryReviewPending = "summaryReviewPending"
     static let overviewReviewPending = "overviewReviewPending"
@@ -60,8 +60,7 @@ private enum Key {
 // synced items read back unchanged.
 extension Item {
     /// A stored flag: the string "true" when set, the key absent when not.
-    /// Anything else reads as false, which covers the "false" some older items
-    /// hold for `isAIGenerated`.
+    /// Anything else reads as false.
     private func flag(_ key: String) -> Bool {
         metadata[key] == "true"
     }
@@ -71,18 +70,6 @@ extension Item {
     }
 
     // MARK: - AI provenance
-
-    /// Set by older versions on AI-drafted notes; nothing writes it any more,
-    /// but those items still show their AI badge.
-    var isAIGenerated: Bool {
-        get { flag(Key.isAIGenerated) }
-        set { setFlag(Key.isAIGenerated, newValue) }
-    }
-
-    var isAIEdited: Bool {
-        get { flag(Key.isAIEdited) }
-        set { setFlag(Key.isAIEdited, newValue) }
-    }
 
     /// The AI overview of this item. It sits beside `content` and never
     /// replaces it; regenerating replaces only the previous overview.
@@ -111,6 +98,22 @@ extension Item {
     private var isOverviewEditKept: Bool {
         get { flag(Key.overviewEditKept) }
         set { setFlag(Key.overviewEditKept, newValue) }
+    }
+
+    /// `overview` holds text an AI wrote through `recordOverview`. Absent on
+    /// overviews written before this marker existed, which therefore count as
+    /// possibly user-written.
+    private(set) var isOverviewGenerated: Bool {
+        get { flag(Key.overviewGenerated) }
+        set { setFlag(Key.overviewGenerated, newValue) }
+    }
+
+    /// `overview` holds text migration moved out of a legacy `content`. A
+    /// plain-prose edit there can't be told apart from the AI original, so
+    /// this text is treated as the user's.
+    private(set) var isOverviewFromLegacyContent: Bool {
+        get { flag(Key.overviewFromLegacyContent) }
+        set { setFlag(Key.overviewFromLegacyContent, newValue) }
     }
 
     var isSummaryGeneratedByAI: Bool {
@@ -369,14 +372,32 @@ extension Item {
 extension Item {
     /// Stores a freshly generated overview. `content` is not touched, though an
     /// old-shape item is first brought up to date so its text isn't stranded.
+    /// Callers that regenerate check `canReplaceOverview` first.
     func recordOverview(_ text: String) {
         migrateLegacyOverviewIfNeeded()
         overview = text
+        isOverviewGenerated = true
+        isOverviewFromLegacyContent = false
+    }
+
+    /// Whether a regenerated overview may take the place of the current one:
+    /// true when there is none, or when the current one is marked as written
+    /// by `recordOverview` and did not come out of a legacy `content`. An
+    /// overview without the marker may hold the user's words, so it stays.
+    var canReplaceOverview: Bool {
+        guard !Self.trimmed(overview).isEmpty else { return true }
+        return isOverviewGenerated && !isOverviewFromLegacyContent
     }
 
     /// Overviews used to replace `content`, with the replaced text kept in
     /// `originalDescription`. This moves such an item to the current shape:
     /// the overview into `overview`, the original back into `content`.
+    ///
+    /// Also repairs an already-migrated item that an older build on another
+    /// device re-overviewed in the old shape (`overview` set, yet `content` is
+    /// AI text again with the original in `originalDescription`). The old-shape
+    /// text replaces `overview` only when `canReplaceOverview`; otherwise the
+    /// existing overview stays and the regenerable AI text is dropped.
     ///
     /// Idempotent, and leaves `updatedAt` alone because nothing the user did
     /// changed. Returns true when it changed the item, so a caller knows to save.
@@ -385,7 +406,7 @@ extension Item {
     /// as it is, with `hasLLMOverview` still labelling `content` as AI text.
     @discardableResult
     func migrateLegacyOverviewIfNeeded() -> Bool {
-        guard hasLLMOverview, !isOverviewEditKept, overview == nil,
+        guard hasLLMOverview, !isOverviewEditKept,
               let original = originalDescription, !original.isEmpty else { return false }
 
         if Self.trimmed(content) == Self.trimmed(original) {
@@ -397,7 +418,11 @@ extension Item {
             isOverviewEditKept = true
             return true
         }
-        overview = content
+        if canReplaceOverview {
+            overview = content
+            isOverviewGenerated = false
+            isOverviewFromLegacyContent = true
+        }
         content = original
         hasLLMOverview = false
         originalDescription = nil

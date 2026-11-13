@@ -28,7 +28,7 @@ private struct MobileSettingsToolbar: ViewModifier {
     private var settingsButton: some View {
         Button { showSettings = true } label: {
             Image(systemName: "gearshape")
-                .frame(minWidth: 44, minHeight: 44)
+                .frame(minWidth: LayoutDimensions.minTouchTarget, minHeight: LayoutDimensions.minTouchTarget)
         }
         .accessibilityLabel("Settings")
         .keyboardShortcut(",", modifiers: .command)

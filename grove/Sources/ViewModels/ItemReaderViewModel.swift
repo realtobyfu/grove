@@ -18,6 +18,10 @@ final class ItemReaderViewModel {
     var item: Item
     var modelContext: ModelContext
     var onNavigateToItem: ((Item) -> Void)?
+    /// Called when the reader asks for its reflections rail, so the host can
+    /// close its own trailing column first. Nil on hosts with no rail of their
+    /// own (iPad, the flashcard source sheet).
+    var onClaimRail: (() -> Void)?
 
     // MARK: - Business State
 
@@ -459,6 +463,7 @@ final class ItemReaderViewModel {
         let selectedQuote = quote ?? reflection?.highlight
         flashcardSelection = FlashcardSelection(item: host, reflection: reflection, quote: selectedQuote)
         isReflectionPanelCollapsed = false
+        onClaimRail?()
         webSelectedText = nil
         webSelectionGeometry = nil
         NotificationCenter.default.post(name: .groveEnterFocusMode, object: nil)
@@ -482,11 +487,20 @@ final class ItemReaderViewModel {
         withAnimation(.easeOut(duration: 0.25)) {
             showReflectionEditor = true
         }
+        onClaimRail?()
         NotificationCenter.default.post(name: .groveEnterFocusMode, object: nil)
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(150))
             focusTrigger()
         }
+    }
+
+    /// Bring the collapsed reflections panel back into the rail.
+    func expandReflectionPanel() {
+        withAnimation(.easeOut(duration: 0.25)) {
+            isReflectionPanelCollapsed = false
+        }
+        onClaimRail?()
     }
 
     func openReflectionEditor(type: ReflectionBlockType, content: String, highlight: String?, focusTrigger: @escaping () -> Void) {
@@ -507,6 +521,7 @@ final class ItemReaderViewModel {
         withAnimation(.easeOut(duration: 0.25)) {
             showReflectionEditor = true
         }
+        onClaimRail?()
         NotificationCenter.default.post(name: .groveEnterFocusMode, object: nil)
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(150))
@@ -563,11 +578,6 @@ final class ItemReaderViewModel {
         }
     }
 
-    func requestDeleteBlock(_ block: ReflectionBlock) -> Bool {
-        blockToDelete = block
-        return true
-    }
-
     func confirmDeleteBlock() {
         if let block = blockToDelete {
             deleteBlock(block)
@@ -595,20 +605,6 @@ final class ItemReaderViewModel {
         try? modelContext.save()
     }
 
-    // MARK: - Review Banner
-
-    func acceptReview() {
-        item.isSummaryReviewPending = false
-        item.isOverviewReviewPending = false
-        try? modelContext.save()
-    }
-
-    func dismissReview() {
-        item.isSummaryReviewPending = false
-        item.isOverviewReviewPending = false
-        try? modelContext.save()
-    }
-
     // MARK: - Overview
 
     /// Catches an old-shape item that synced in after the launch pass.
@@ -631,9 +627,6 @@ final class ItemReaderViewModel {
         let wasEditing = isEditingContent
         isEditingContent.toggle()
         if wasEditing {
-            if item.isAIGenerated && !item.isAIEdited {
-                item.isAIEdited = true
-            }
             WikiLinkSync.sync(item: item, modelContext: modelContext)
         }
     }

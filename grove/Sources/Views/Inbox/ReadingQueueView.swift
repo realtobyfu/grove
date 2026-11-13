@@ -32,7 +32,7 @@ struct ReadingQueueView: View {
     // MARK: - Row
 
     private func queueRow(for item: Item) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Spacing.sm) {
             Image(systemName: item.type.iconName)
                 .font(.groveMeta)
                 .foregroundStyle(Color.textMuted)
@@ -44,7 +44,7 @@ struct ReadingQueueView: View {
                     .foregroundStyle(Color.textPrimary)
                     .lineLimit(1)
 
-                HStack(spacing: 4) {
+                HStack(spacing: Spacing.xs) {
                     Text(sourceLabel(for: item))
                         .font(.groveMeta)
                         .foregroundStyle(Color.textTertiary)
@@ -70,12 +70,12 @@ struct ReadingQueueView: View {
                 Text("Read now")
                     .font(.groveBadge)
                     .foregroundStyle(Color.textPrimary)
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, Spacing.sm)
                     .padding(.vertical, 3)
                     .background(Color.bgPrimary)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.control))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 4)
+                        RoundedRectangle(cornerRadius: Radius.control)
                             .stroke(Color.borderPrimary, lineWidth: 1)
                     )
             }
@@ -103,13 +103,7 @@ struct ReadingQueueView: View {
         if let url = item.sourceURL, !url.isEmpty {
             return domainFrom(url)
         }
-        switch item.type {
-        case .article: return "Article"
-        case .codebase: return "Codebase"
-        case .video: return "Video"
-        case .note: return "Note"
-        case .courseLecture: return "Course lecture"
-        }
+        return item.type.displayName
     }
 
     /// Human-readable return time. Reuses the Read Later preset labels when the

@@ -1,29 +1,10 @@
 import SwiftUI
 
-// MARK: - Onboarding Button Style
-
-private struct OnboardingPrimaryButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.groveBodyMedium)
-            .foregroundStyle(Color.textInverse)
-            .padding(.horizontal, Spacing.lg)
-            .padding(.vertical, Spacing.sm)
-            .background(isEnabled ? Color.textPrimary : Color.textSecondary)
-            .clipShape(.rect(cornerRadius: 4))
-            .opacity(configuration.isPressed ? 0.8 : 1.0)
-    }
-}
-
 // MARK: - Flow View
 
-/// First-launch welcome card. One page: what Grove is, then hand off to the
-/// interactive coach-mark guide for the actual walkthrough.
+/// First-launch welcome card. One page: what Grove is and how it works.
 struct OnboardingFlowView: View {
     @Environment(OnboardingService.self) private var onboarding
-    @Environment(CoachMarkService.self) private var coachMarks
 
     @State private var iconAppeared = false
     @State private var skipHovered = false
@@ -52,12 +33,12 @@ struct OnboardingFlowView: View {
             }
             .frame(maxWidth: 460)
             .background(Color.bgPrimary)
-            .clipShape(.rect(cornerRadius: 8))
+            .clipShape(.rect(cornerRadius: Radius.card))
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: Radius.card)
                     .stroke(Color.borderPrimary, lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.18), radius: 18, y: 8)
+            .shadow(color: .black.opacity(0.12), radius: 16, y: 6)
         }
     }
 
@@ -84,9 +65,9 @@ struct OnboardingFlowView: View {
                 #endif
             }
             .frame(width: 48, height: 48)
-            .clipShape(.rect(cornerRadius: 11))
+            .clipShape(.rect(cornerRadius: Radius.card))
             .overlay(
-                RoundedRectangle(cornerRadius: 11)
+                RoundedRectangle(cornerRadius: Radius.card)
                     .stroke(Color.borderPrimary, lineWidth: 1)
             )
             .scaleEffect(iconAppeared ? 1.0 : 0.8)
@@ -141,14 +122,9 @@ struct OnboardingFlowView: View {
             VStack(spacing: Spacing.sm) {
                 Button("Get Started") {
                     onboarding.complete()
-                    coachMarks.startGuide()
                 }
-                .buttonStyle(OnboardingPrimaryButtonStyle())
+                .buttonStyle(.grove(.primary))
                 .keyboardShortcut(.return, modifiers: [])
-
-                Text("A short tour will walk you through the basics.")
-                    .font(.groveMeta)
-                    .foregroundStyle(Color.textTertiary)
             }
             .padding(.bottom, Spacing.md)
         }

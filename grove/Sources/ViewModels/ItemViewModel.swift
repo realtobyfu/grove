@@ -11,14 +11,6 @@ final class ItemViewModel {
         self.modelContext = modelContext
     }
 
-    func createNote(title: String = "Untitled Note") -> Item {
-        let item = Item(title: title, type: .note)
-        item.status = .active
-        modelContext.insert(item)
-        try? modelContext.save()
-        return item
-    }
-
     func assignToBoard(_ item: Item, board: Board) {
         if !item.boards.contains(where: { $0.id == board.id }) {
             item.boards.append(board)
@@ -27,6 +19,55 @@ final class ItemViewModel {
         item.status = .active
         item.updatedAt = .now
         try? modelContext.save()
+    }
+
+    // MARK: - Board Suggestions
+
+    /// Files the item behind an accepted board suggestion. Takes the item's ID
+    /// because the capture bars clear their pending suggestion on dismissal,
+    /// which happens before this runs.
+    func assignPendingItem(_ itemID: UUID, accepting decision: BoardSuggestionDecision) {
+        let boards = (try? modelContext.fetch(FetchDescriptor<Board>())) ?? []
+        if decision.mode == .existing,
+           let recommended = boards.first(where: { $0.id == decision.recommendedBoardID }) {
+            assignPendingItem(itemID, to: recommended)
+        } else {
+            let suggestedName = BoardSuggestionEngine.cleanedBoardName(decision.suggestedName)
+            assignPendingItem(itemID, toBoardNamed: suggestedName.isEmpty ? "General" : suggestedName)
+        }
+    }
+
+    func assignPendingItem(_ itemID: UUID, to board: Board) {
+        guard let item = fetchItem(itemID) else { return }
+
+        BoardSuggestionMetadata.clearPendingSuggestion(on: item)
+        assignToBoard(item, board: board)
+    }
+
+    /// Reuses a board with this title, or creates one. The item is checked
+    /// first so a suggestion for a deleted item leaves no empty board behind.
+    func assignPendingItem(_ itemID: UUID, toBoardNamed name: String) {
+        let title = BoardSuggestionEngine.cleanedBoardName(name)
+        guard !title.isEmpty, let item = fetchItem(itemID) else { return }
+
+        let boards = (try? modelContext.fetch(FetchDescriptor<Board>())) ?? []
+        let board: Board
+        if let existing = boards.first(where: {
+            $0.title.localizedCaseInsensitiveCompare(title) == .orderedSame
+        }) {
+            board = existing
+        } else {
+            board = Board(title: title)
+            modelContext.insert(board)
+        }
+
+        BoardSuggestionMetadata.clearPendingSuggestion(on: item)
+        assignToBoard(item, board: board)
+    }
+
+    private func fetchItem(_ itemID: UUID) -> Item? {
+        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
+        return try? modelContext.fetch(descriptor).first
     }
 
     func removeFromBoard(_ item: Item, board: Board) {
@@ -44,13 +85,6 @@ final class ItemViewModel {
             }
             item.updatedAt = .now
         }
-        try? modelContext.save()
-    }
-
-    func updateItem(_ item: Item, title: String, content: String?) {
-        item.title = title
-        item.content = content
-        item.updatedAt = .now
         try? modelContext.save()
     }
 

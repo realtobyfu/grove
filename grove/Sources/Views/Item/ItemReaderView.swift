@@ -10,6 +10,13 @@ struct ItemReaderView: View {
     // Optional so hosts that don't manage window chrome (iPad) can omit it.
     var isPDFSurfaceActive: Binding<Bool>? = nil
     var alwaysShowReflectionPanel: Bool = false
+    /// True while the window's own rail is showing something (writing, chat,
+    /// the inspector). The reader's reflections rail then resolves to
+    /// `.hidden`, so there is never a second trailing column; it returns as
+    /// soon as the window's rail closes.
+    var railYields: Bool = false
+    /// Asks the host to clear its rail when the reader needs its own.
+    var onClaimRail: (() -> Void)? = nil
     var onNavigateToItem: ((Item) -> Void)?
     @Environment(\.modelContext) private var modelContext
 
@@ -24,6 +31,7 @@ struct ItemReaderView: View {
     private var viewModel: ItemReaderViewModel {
         if let vm, vm.item.id == item.id { return vm }
         let newVM = ItemReaderViewModel(item: item, modelContext: modelContext, onNavigateToItem: onNavigateToItem)
+        newVM.onClaimRail = onClaimRail
         Task { @MainActor in self.vm = newVM }
         return newVM
     }
@@ -73,6 +81,12 @@ struct ItemReaderView: View {
             openWebViewIfPageIsTheContent(vm)
         }
         .onReceive(NotificationCenter.default.publisher(for: .groveOpenReflectMode)) { _ in
+            // An editor already open behind the window's rail: Reflect brings
+            // it back rather than closing it out of sight.
+            if railYields, vm.showReflectionEditor {
+                onClaimRail?()
+                return
+            }
             vm.toggleReflectionEditor(focusTrigger: focusReflectionEditor)
         }
         .onChange(of: item.id) {
@@ -126,6 +140,14 @@ struct ItemReaderView: View {
         return panelIsNeeded && !vm.isReflectionPanelCollapsed
     }
 
+    /// The reader rail's mode when it is wanted: `.hidden` while the
+    /// window's rail holds the one trailing column.
+    private func readerRailMode(_ vm: ItemReaderViewModel) -> RightRailMode {
+        if railYields { return .hidden }
+        if vm.flashcardSelection != nil { return .flashcardEditor }
+        return vm.showReflectionEditor ? .reflectionEditor : .reflections
+    }
+
     // MARK: - Reader Pane Layout (source pane + optional rail, one identity)
 
     /// Hosts a full-bleed source pane — the web view, or PDFKit for a document
@@ -140,7 +162,7 @@ struct ItemReaderView: View {
         let paneContent = pane()
         return GeometryReader { geo in
             let railMode: RightRailMode = shouldShowSplitLayout(vm)
-                ? (vm.flashcardSelection != nil ? .flashcardEditor : vm.showReflectionEditor ? .reflectionEditor : .reflections)
+                ? readerRailMode(vm)
                 : .hidden
 
             HStack(spacing: 0) {
@@ -185,7 +207,7 @@ struct ItemReaderView: View {
             // rail, at one width — the swap is a crossfade, not a resize, so
             // the article never re-wraps for it and there is no blank frame
             // between the old panel leaving and the new one arriving.
-            let railMode: RightRailMode = vm.flashcardSelection != nil ? .flashcardEditor : vm.showReflectionEditor ? .reflectionEditor : .reflections
+            let railMode = readerRailMode(vm)
 
             HStack(spacing: 0) {
                 ScrollView {
@@ -350,7 +372,7 @@ struct ItemReaderView: View {
         } else if let content = vm.item.content, !content.isEmpty {
             if vm.item.hasLLMOverview {
                 AIMetaLabel(text: "AI Overview")
-                    .padding(.bottom, 4)
+                    .padding(.bottom, Spacing.xs)
             }
 
             SelectableMarkdownView(markdown: content, onSelectText: { vm.webSelectedText = $0 })
@@ -370,7 +392,7 @@ struct ItemReaderView: View {
         Button {
             withAnimation(.easeOut(duration: 0.2)) { vm.showArticleWebView = true }
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: Spacing.xsm) {
                 Image(systemName: "play.rectangle")
                     .font(.groveMeta)
                 Text(vm.item.sourceURL.map { "Watch on \(domainFrom($0))" } ?? "Watch")
@@ -440,7 +462,7 @@ struct ItemReaderView: View {
                             }
                         }
                     } label: {
-                        HStack(spacing: 4) {
+                        HStack(spacing: Spacing.xs) {
                             Image(systemName: block.blockType.systemImage)
                             Text(block.blockType.displayName)
                         }
@@ -460,10 +482,10 @@ struct ItemReaderView: View {
                     .buttonStyle(.plain)
                     .keyboardShortcut(.return, modifiers: .command)
                 }
-                .padding(.leading, 24)
-                .padding(.trailing, 12)
-                .padding(.top, 20)
-                .padding(.bottom, 8)
+                .padding(.leading, Spacing.xxl)
+                .padding(.trailing, Spacing.md)
+                .padding(.top, Spacing.xl)
+                .padding(.bottom, Spacing.sm)
 
                 // Highlight preview (if reflecting on selection)
                 if let highlight = block.highlight, !highlight.isEmpty {
@@ -473,7 +495,7 @@ struct ItemReaderView: View {
                         onJump: vm.articleURL != nil ? { vm.jumpToHighlight(highlight) } : nil
                     )
                     .padding(.horizontal, 40)
-                    .padding(.bottom, 10)
+                    .padding(.bottom, Spacing.md)
                 }
 
                 // Editor -- fills remaining space

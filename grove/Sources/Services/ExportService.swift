@@ -41,7 +41,7 @@ final class ExportService: ExportServiceProtocol {
         var md = "# \(item.title)\n\n"
 
         // Metadata
-        md += "**Type:** \(item.type.rawValue.capitalized)  \n"
+        md += "**Type:** \(item.type.displayName)  \n"
         md += "**Status:** \(item.status.rawValue.capitalized)  \n"
         md += "**Created:** \(item.createdAt.formatted(date: .long, time: .shortened))  \n"
         md += "**Updated:** \(item.updatedAt.formatted(date: .long, time: .shortened))  \n"

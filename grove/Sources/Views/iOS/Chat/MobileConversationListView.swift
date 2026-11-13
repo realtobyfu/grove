@@ -46,15 +46,12 @@ struct MobileConversationListView: View {
     var body: some View {
         Group {
             if activeConversations.isEmpty {
-                ContentUnavailableView {
-                    Label("No Conversations", systemImage: "bubble.left.and.bubble.right")
-                } description: {
-                    Text("Start a conversation to explore your ideas.")
-                }
+                emptyState
             } else {
                 conversationList
             }
         }
+        .background(Color.bgPrimary)
         .navigationTitle("Chat")
         .searchable(
             text: $searchText,
@@ -89,6 +86,20 @@ struct MobileConversationListView: View {
         }
     }
 
+    // MARK: - Empty
+
+    private var emptyState: some View {
+        ScrollView {
+            GroveEmptyState(
+                title: "No conversations yet.",
+                detail: "Think something through with Chat. It can search your library, highlights and reflections.",
+                actionTitle: "New conversation",
+                action: startNewConversation
+            )
+            .padding(.horizontal, LayoutDimensions.contentPaddingH)
+        }
+    }
+
     // MARK: - List
 
     private var conversationList: some View {
@@ -111,10 +122,14 @@ struct MobileConversationListView: View {
                     } label: {
                         Label("Delete", systemImage: "trash")
                     }
+                    .tint(Color.textTertiary)
                 }
             }
+            .listRowBackground(Color.bgPrimary)
         }
         .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Color.bgPrimary)
         .navigationDestination(for: Conversation.self) { conversation in
             MobileChatView(conversation: conversation)
         }
@@ -139,9 +154,10 @@ struct MobileConversationListView: View {
                     source: .chatHistory
                 )
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.grove(.secondary, size: .compact))
         }
         .padding(.vertical, Spacing.xs)
+        .listRowBackground(Color.bgPrimary)
     }
 
     private var noSearchResultsRow: some View {
@@ -154,32 +170,36 @@ struct MobileConversationListView: View {
                 .foregroundStyle(Color.textTertiary)
         }
         .padding(.vertical, Spacing.sm)
+        .listRowBackground(Color.bgPrimary)
     }
 
     private func conversationRow(_ conversation: Conversation) -> some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
-            HStack {
-                Text(conversation.displayTitle)
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textPrimary)
-                    .lineLimit(1)
+            Text(conversation.displayTitle)
+                .font(.groveListTitle)
+                .foregroundStyle(Color.textPrimary)
+                .lineLimit(1)
 
-                Spacer()
-
-                Text(compactRelativeTime(from: conversation.updatedAt))
-                    .font(.groveMeta)
-                    .foregroundStyle(Color.textMuted)
-            }
-
-            if let lastMessage = conversation.lastMessage {
-                Text(lastMessage.content)
-                    .font(.groveBodySecondary)
-                    .foregroundStyle(Color.textTertiary)
-                    .lineLimit(2)
-            }
+            Text(rowMeta(for: conversation))
+                .font(.groveMeta)
+                .foregroundStyle(Color.textMuted)
+                .lineLimit(1)
         }
-        .frame(minHeight: LayoutDimensions.minTouchTarget)
+        .frame(maxWidth: .infinity, minHeight: LayoutDimensions.minTouchTarget, alignment: .leading)
         .padding(.vertical, Spacing.xs)
+    }
+
+    /// "2h · 6 messages · Gardens": when, how long, and where, in one mono line.
+    private func rowMeta(for conversation: Conversation) -> String {
+        let count = conversation.visibleMessages.count
+        var parts = [
+            compactRelativeTime(from: conversation.updatedAt),
+            count == 1 ? "1 message" : "\(count) messages",
+        ]
+        if let boardTitle = conversation.board?.title, !boardTitle.isEmpty {
+            parts.append(boardTitle)
+        }
+        return parts.joined(separator: " · ")
     }
 
     // MARK: - Actions
@@ -192,7 +212,6 @@ struct MobileConversationListView: View {
             )
             return
         }
-        entitlement.recordUse(.dialectics)
 
         let conversation = dialecticsService.startConversation(
             trigger: .userInitiated,
@@ -207,6 +226,7 @@ struct MobileConversationListView: View {
         if routedConversation?.id == conversation.id {
             routedConversation = nil
         }
+        DialecticsService.discardBoardProposal(forConversationID: conversation.id)
         modelContext.delete(conversation)
         try? modelContext.save()
     }

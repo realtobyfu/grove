@@ -156,7 +156,7 @@ struct SubscriptionsSettingsView: View {
                         Button("Add") {
                             addFeed()
                         }
-                        .buttonStyle(GroveCompactButtonStyle(prominent: true))
+                        .buttonStyle(.grove(.primary, size: .compact))
                         .disabled(trimmedFeedURL.isEmpty)
                         .opacity(trimmedFeedURL.isEmpty ? 0.4 : 1)
                     }
@@ -266,8 +266,7 @@ struct SubscriptionsSettingsView: View {
     // MARK: - Actions
 
     private func delete(_ source: FeedSource) {
-        modelContext.delete(source)
-        try? modelContext.save()
+        FeedSubscriptionService.delete(source, in: modelContext)
     }
 
     private func addFeed() {
@@ -398,7 +397,7 @@ private struct FeedMonogram: View {
             .foregroundStyle(Color.textSecondary)
             .frame(width: 28, height: 28)
             .background(Color.bgTagActive)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.control))
             .accessibilityHidden(true)
     }
 }

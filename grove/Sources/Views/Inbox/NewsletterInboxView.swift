@@ -51,12 +51,15 @@ struct NewsletterInboxView: View {
                 .append(DatedIssue(item: item, publishedAt: date))
         }
         guard !bySource.isEmpty else { return [] }
+        let liveSourceIDs = Set(allSources.map(\.id.uuidString))
 
         return allSources
             .compactMap { source -> SourceGroup? in
                 guard let dated = bySource[source.id.uuidString] else { return nil }
                 let sorted = dated.sorted { $0.publishedAt > $1.publishedAt }
-                let unread = sorted.filter { !$0.item.isFeedIssueRead }.count
+                let unread = sorted.filter {
+                    FeedSubscriptionService.isUnreadIssue($0.item, liveSourceIDs: liveSourceIDs)
+                }.count
                 return SourceGroup(source: source, issues: sorted, unread: unread)
             }
             .sorted { $0.latest > $1.latest }
@@ -425,10 +428,10 @@ private struct HistoryToggle: View {
             }
             .font(.groveMeta)
             .foregroundStyle(isHovering ? Color.textPrimary : Color.textSecondary)
-            .padding(.horizontal, 8)
+            .padding(.horizontal, Spacing.sm)
             .padding(.vertical, 3)
             .overlay(
-                RoundedRectangle(cornerRadius: 4)
+                RoundedRectangle(cornerRadius: Radius.control)
                     .stroke(isHovering ? Color.borderPrimary : Color.borderTag, lineWidth: 1)
             )
             .contentShape(Rectangle())
@@ -462,7 +465,7 @@ private struct NewsletterIssueRow: View {
     private var isKept: Bool { !item.isFeedSuggestion }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Spacing.sm) {
             // Same gutter as LibraryRowView: type icon, 20pt column. Unread
             // reads through ink weight on the title, not a separate marker.
             Image(systemName: item.type.iconName)
@@ -520,7 +523,7 @@ private struct NewsletterIssueRow: View {
                 .font(.groveMeta)
                 .foregroundStyle(Color.textTertiary)
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, Spacing.sm)
         .contentShape(Rectangle())
         .animation(.easeOut(duration: 0.12), value: isHovering)
         .onHover { isHovering = $0 }

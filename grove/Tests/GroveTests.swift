@@ -85,6 +85,111 @@ struct GroveTests {
     }
 
     @MainActor
+    @Test func acceptingExistingBoardSuggestionFilesItemOnRecommendedBoard() throws {
+        let context = try makeInMemoryModelContext()
+        let item = try insertSuggestedItem(in: context)
+        let board = Board(title: "Research")
+        context.insert(board)
+        let decision = boardDecision(named: "Renamed Since", mode: .existing, recommendedBoardID: board.id)
+        BoardSuggestionMetadata.apply(decision, to: item)
+
+        ItemViewModel(modelContext: context).assignPendingItem(item.id, accepting: decision)
+
+        let store = ModelContext(context.container)
+        let saved = try savedItem(item.id, in: store)
+        #expect(saved.status == .active)
+        #expect(saved.boards.map(\.id) == [board.id])
+        #expect(saved.pendingBoardSuggestion == nil)
+    }
+
+    @MainActor
+    @Test func acceptingCreateBoardSuggestionSavesNewBoardWithItem() throws {
+        let context = try makeInMemoryModelContext()
+        let item = try insertSuggestedItem(in: context)
+        let decision = boardDecision(named: "Field Notes", mode: .create)
+
+        ItemViewModel(modelContext: context).assignPendingItem(item.id, accepting: decision)
+
+        let store = ModelContext(context.container)
+        let saved = try savedItem(item.id, in: store)
+        #expect(saved.status == .active)
+        #expect(saved.boards.map(\.title) == ["Field Notes"])
+        #expect(!context.hasChanges)
+    }
+
+    @MainActor
+    @Test func acceptingBoardSuggestionFallsBackToTitleWhenRecommendedBoardIsGone() throws {
+        let context = try makeInMemoryModelContext()
+        let item = try insertSuggestedItem(in: context)
+        let board = Board(title: "Research")
+        context.insert(board)
+        let decision = boardDecision(named: "research", mode: .existing, recommendedBoardID: UUID())
+
+        ItemViewModel(modelContext: context).assignPendingItem(item.id, accepting: decision)
+
+        let store = ModelContext(context.container)
+        let saved = try savedItem(item.id, in: store)
+        #expect(saved.boards.map(\.id) == [board.id])
+        #expect(try context.fetchCount(FetchDescriptor<Board>()) == 1)
+    }
+
+    @MainActor
+    @Test func pickingBoardForSuggestionFilesItem() throws {
+        let context = try makeInMemoryModelContext()
+        let item = try insertSuggestedItem(in: context)
+        let board = Board(title: "Research")
+        context.insert(board)
+
+        ItemViewModel(modelContext: context).assignPendingItem(item.id, to: board)
+
+        let store = ModelContext(context.container)
+        let saved = try savedItem(item.id, in: store)
+        #expect(saved.status == .active)
+        #expect(saved.boards.map(\.id) == [board.id])
+        #expect(saved.pendingBoardSuggestion == nil)
+    }
+
+    @MainActor
+    @Test func creatingBoardForSuggestionSavesCleanedBoardWithItem() throws {
+        let context = try makeInMemoryModelContext()
+        let item = try insertSuggestedItem(in: context)
+
+        ItemViewModel(modelContext: context).assignPendingItem(item.id, toBoardNamed: "  Field   Notes ")
+
+        let store = ModelContext(context.container)
+        let saved = try savedItem(item.id, in: store)
+        #expect(saved.status == .active)
+        #expect(saved.boards.map(\.title) == ["Field Notes"])
+        #expect(!context.hasChanges)
+    }
+
+    @MainActor
+    @Test func creatingBoardForSuggestionReusesBoardWithSameTitle() throws {
+        let context = try makeInMemoryModelContext()
+        let item = try insertSuggestedItem(in: context)
+        let board = Board(title: "Research")
+        context.insert(board)
+
+        ItemViewModel(modelContext: context).assignPendingItem(item.id, toBoardNamed: "RESEARCH")
+
+        let store = ModelContext(context.container)
+        let saved = try savedItem(item.id, in: store)
+        #expect(saved.boards.map(\.id) == [board.id])
+        #expect(try context.fetchCount(FetchDescriptor<Board>()) == 1)
+    }
+
+    @MainActor
+    @Test func boardSuggestionForMissingItemCreatesNoBoard() throws {
+        let context = try makeInMemoryModelContext()
+        let viewModel = ItemViewModel(modelContext: context)
+
+        viewModel.assignPendingItem(UUID(), toBoardNamed: "Field Notes")
+        viewModel.assignPendingItem(UUID(), accepting: boardDecision(named: "Field Notes", mode: .create))
+
+        #expect(try context.fetchCount(FetchDescriptor<Board>()) == 0)
+    }
+
+    @MainActor
     @Test func entitlementServiceDefaultsToFreeTier() {
         let defaults = testDefaults()
         let service = EntitlementService(defaults: defaults)
@@ -516,8 +621,8 @@ struct GroveTests {
 
     @MainActor
     @Test func mobileBoardDetailEffectiveItemsShowsAssignedActiveItems() {
-        // A leftover smart board's flag and tag rules no longer do anything:
-        // it shows what is assigned to it, like every other board.
+        // A board shows what is assigned to it; tag rules on a leftover smart
+        // board are not evaluated at display time.
         let board = Board(title: "Formerly Smart")
         board.isSmart = true
         board.smartRuleLogic = .or
@@ -540,6 +645,118 @@ struct GroveTests {
         let effective = MobileBoardDetailView.effectiveItems(for: board)
 
         #expect(effective.map(\.id) == [assignedActive.id])
+    }
+
+    // MARK: - Smart board migration
+
+    @MainActor
+    private func insertTaggedItem(_ title: String, tags: [grove.Tag], in context: ModelContext) -> Item {
+        let item = Item(title: title, type: .article)
+        item.status = .active
+        item.tags = tags
+        context.insert(item)
+        return item
+    }
+
+    @MainActor
+    @Test func smartBoardMigrationStoresWhatTheRuleMatched() throws {
+        let context = try makeInMemoryModelContext()
+        let swift = Tag(name: "swift", category: .technology)
+        let ui = Tag(name: "ui", category: .technology)
+        context.insert(swift)
+        context.insert(ui)
+        let both = insertTaggedItem("Both", tags: [swift, ui], in: context)
+        let swiftOnly = insertTaggedItem("Swift only", tags: [swift], in: context)
+        let neither = insertTaggedItem("Neither", tags: [], in: context)
+
+        let anyBoard = Board(title: "Any")
+        anyBoard.isSmart = true
+        anyBoard.smartRuleLogic = .or
+        anyBoard.smartRuleTags = [swift, ui]
+        let allBoard = Board(title: "All")
+        allBoard.isSmart = true
+        allBoard.smartRuleLogic = .and
+        allBoard.smartRuleTags = [swift, ui]
+        let emptyRule = Board(title: "No rule")
+        emptyRule.isSmart = true
+        let plain = Board(title: "Plain")
+        plain.smartRuleTags = [swift]
+        for board in [anyBoard, allBoard, emptyRule, plain] { context.insert(board) }
+        try context.save()
+
+        SmartBoardMigrationService.migrateBoards(context: context)
+
+        #expect(Set(anyBoard.items.map(\.id)) == [both.id, swiftOnly.id])
+        #expect(allBoard.items.map(\.id) == [both.id])
+        #expect(emptyRule.items.isEmpty)
+        #expect(plain.items.isEmpty)
+        #expect(!neither.boards.contains { $0.id == anyBoard.id })
+        for board in [anyBoard, allBoard, emptyRule] {
+            #expect(!board.isSmart)
+        }
+        // The rule fields stay, inert.
+        #expect(anyBoard.smartRuleTags.count == 2)
+        #expect(allBoard.smartRuleLogic == .and)
+        #expect(!context.hasChanges)
+    }
+
+    @MainActor
+    @Test func smartBoardMigrationIsIdempotentAndKeepsExistingItems() throws {
+        let context = try makeInMemoryModelContext()
+        let swift = Tag(name: "swift", category: .technology)
+        context.insert(swift)
+        let matched = insertTaggedItem("Matched", tags: [swift], in: context)
+        let assigned = insertTaggedItem("Assigned by hand", tags: [], in: context)
+
+        let board = Board(title: "Formerly Smart")
+        board.isSmart = true
+        board.smartRuleTags = [swift]
+        context.insert(board)
+        // Already there, as after another synced device migrated it.
+        board.items = [assigned, matched]
+        try context.save()
+
+        SmartBoardMigrationService.migrateBoards(context: context)
+        #expect(board.items.count == 2)
+
+        // A smart flag synced back in from an old device: running again adds nothing twice.
+        board.isSmart = true
+        SmartBoardMigrationService.migrateBoards(context: context)
+        SmartBoardMigrationService.migrateBoards(context: context)
+        let boardItemIDs: [UUID] = board.items.map(\.id)
+        #expect(boardItemIDs.count == 2)
+        #expect(Set(boardItemIDs) == Set([assigned.id, matched.id]))
+        #expect(!board.isSmart)
+    }
+
+    @MainActor
+    @Test func editingANotYetMigratedSmartBoardKeepsItsItems() throws {
+        let context = try makeInMemoryModelContext()
+        let swift = Tag(name: "swift", category: .technology)
+        context.insert(swift)
+        let matched = insertTaggedItem("Matched", tags: [swift], in: context)
+        let board = Board(title: "Swift")
+        board.isSmart = true
+        board.smartRuleTags = [swift]
+        context.insert(board)
+        try context.save()
+
+        let viewModel = BoardViewModel(modelContext: context)
+        viewModel.updateBoard(board, title: "Swift reading", icon: nil)
+
+        #expect(board.title == "Swift reading")
+        #expect(board.items.map(\.id) == [matched.id])
+        #expect(!board.isSmart)
+
+        // Re-creating a board by an existing smart board's name does the same.
+        let other = Board(title: "Other")
+        other.isSmart = true
+        other.smartRuleTags = [swift]
+        context.insert(other)
+        try context.save()
+        viewModel.createBoard(title: "Other", icon: nil)
+        #expect(other.items.map(\.id) == [matched.id])
+        #expect(!other.isSmart)
     }
 
     @MainActor
@@ -593,21 +810,6 @@ struct GroveTests {
         #expect(router.consumeRouteIntent() == .search(query: "swiftui"))
     }
 
-    @Test func systemNotificationsRequireExplicitOptIn() {
-        let key = "nudge.notifications.enabled"
-        let previousValue = UserDefaults.standard.object(forKey: key)
-        defer {
-            if let previousValue {
-                UserDefaults.standard.set(previousValue, forKey: key)
-            } else {
-                UserDefaults.standard.removeObject(forKey: key)
-            }
-        }
-
-        UserDefaults.standard.removeObject(forKey: key)
-        #expect(!NudgeSettings.notificationsEnabled)
-    }
-
     private func makeDate(
         year: Int,
         month: Int,
@@ -638,6 +840,39 @@ struct GroveTests {
         )
         let container = try ModelContainer(for: schema, configurations: [config])
         return ModelContext(container)
+    }
+
+    /// A saved inbox capture, as the auto-tagger leaves it when it posts a suggestion.
+    @MainActor
+    private func insertSuggestedItem(in context: ModelContext) throws -> Item {
+        let item = Item(title: "Pending", type: .note)
+        item.status = .inbox
+        context.insert(item)
+        try context.save()
+        return item
+    }
+
+    private func boardDecision(
+        named name: String,
+        mode: BoardSuggestionMode,
+        recommendedBoardID: UUID? = nil
+    ) -> BoardSuggestionDecision {
+        BoardSuggestionDecision(
+            suggestedName: name,
+            mode: mode,
+            recommendedBoardID: recommendedBoardID,
+            confidence: 0.9,
+            reason: "",
+            alternativeBoardIDs: []
+        )
+    }
+
+    /// Reads through a second context, so only what reached the store counts.
+    /// The caller keeps `store` alive for as long as it uses the returned item.
+    @MainActor
+    private func savedItem(_ itemID: UUID, in store: ModelContext) throws -> Item {
+        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
+        return try #require(try store.fetch(descriptor).first)
     }
 
     private func testDefaults() -> UserDefaults {
