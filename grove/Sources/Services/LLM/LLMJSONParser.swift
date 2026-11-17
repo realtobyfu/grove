@@ -26,25 +26,6 @@ enum LLMJSONParser {
         return nil
     }
 
-    /// Parse raw JSON from an LLM response string into a dictionary.
-    static func parseDictionary(from response: String) -> [String: Any]? {
-        let cleaned = stripMarkdownFences(response)
-        guard let data = cleaned.data(using: .utf8) else { return nil }
-
-        if let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            return result
-        }
-
-        // Try extracting embedded JSON
-        if let extracted = extractJSON(from: cleaned),
-           let extractedData = extracted.data(using: .utf8),
-           let result = try? JSONSerialization.jsonObject(with: extractedData) as? [String: Any] {
-            return result
-        }
-
-        return nil
-    }
-
     /// Parse raw JSON from an LLM response string into an array.
     static func parseArray(from response: String) -> [[String: Any]]? {
         let cleaned = stripMarkdownFences(response)

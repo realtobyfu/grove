@@ -34,13 +34,6 @@ enum TagCategory: String, Codable, CaseIterable {
     }
 }
 
-/// Trend direction for tag usage over time
-enum TagTrend: String, Codable {
-    case increasing
-    case stable
-    case decreasing
-}
-
 @Model
 final class Tag {
     var id: UUID = UUID()
@@ -55,10 +48,10 @@ final class Tag {
     /// Parent tag for informational hierarchy (e.g., "Swift" is parent of "SwiftUI")
     @Relationship(inverse: \Tag.childTagsStorage) var parentTag: Tag?
     /// Child tags in the hierarchy
-    @Relationship(originalName: "childTags") var childTagsStorage: [Tag]? = []
+    var childTagsStorage: [Tag]? = []
 
-    @Relationship(originalName: "items") var itemsStorage: [Item]? = []
-    @Relationship(originalName: "smartRuleBoards", inverse: \Board.smartRuleTagsStorage)
+    var itemsStorage: [Item]? = []
+    @Relationship(inverse: \Board.smartRuleTagsStorage)
     var smartRuleBoardsStorage: [Board]? = []
 
     var childTags: [Tag] {
@@ -69,11 +62,6 @@ final class Tag {
     var items: [Item] {
         get { itemsStorage ?? [] }
         set { itemsStorage = newValue }
-    }
-
-    var smartRuleBoards: [Board] {
-        get { smartRuleBoardsStorage ?? [] }
-        set { smartRuleBoardsStorage = newValue }
     }
 
     /// Number of items using this tag at last trend calculation
@@ -93,14 +81,5 @@ final class Tag {
         self.smartRuleBoardsStorage = []
         self.previousItemCount = 0
         self.trendCalculatedAt = nil
-    }
-
-    /// Computed trend based on current vs previous item count
-    var trend: TagTrend {
-        let current = items.count
-        let previous = previousItemCount
-        if current > previous + 1 { return .increasing }
-        if current < previous - 1 { return .decreasing }
-        return .stable
     }
 }

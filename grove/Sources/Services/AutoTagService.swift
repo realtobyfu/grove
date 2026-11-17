@@ -73,7 +73,7 @@ final class AutoTagService: AutoTagServiceProtocol {
         Return 3-7 tags. Only return valid JSON, no extra text.
         """
 
-        let contentExcerpt = String((item.content ?? "").prefix(1500))
+        let contentExcerpt = String(item.retrievalText.prefix(1500))
         let userPrompt = """
         Title: \(item.title)
         Source URL: \(item.sourceURL ?? "none")
@@ -118,7 +118,7 @@ final class AutoTagService: AutoTagServiceProtocol {
 
         // Apply one-line summary
         if let summary = parsed.one_line_summary, !summary.isEmpty {
-            item.metadata["summary"] = String(summary.prefix(120))
+            item.summary = String(summary.prefix(120))
         }
 
         // Apply suggested board

@@ -31,7 +31,7 @@ enum RecallRating: String, Codable, CaseIterable, Sendable, Identifiable {
 /// Append-only learning evidence. Retries reuse `id`; model reconciliation
 /// deduplicates that event key rather than relying on CloudKit uniqueness.
 @Model
-final class FlashcardReview {
+final class UserFlashcardReview {
     var id: UUID = UUID()
     var cardID: UUID = UUID()
     var cardRevision: Int = 1
@@ -73,3 +73,7 @@ final class FlashcardReview {
         self.reviewedAt = reviewedAt
     }
 }
+
+/// The stored entity is named `UserFlashcardReview` so it sorts after every 2.0 entity.
+/// Read "Migration Limits" in SharedModelContainer.swift before adding a model.
+typealias FlashcardReview = UserFlashcardReview

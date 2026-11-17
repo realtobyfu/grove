@@ -88,7 +88,7 @@ private struct BoardSuggestionBanner: View {
         .padding(.horizontal, Spacing.lg)
         .padding(.vertical, Spacing.sm)
         .background(Color.bgCard)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
         .padding(.horizontal, Spacing.lg)
         .transition(.opacity.combined(with: .move(edge: .top)))
     }
@@ -132,10 +132,11 @@ private struct CaptureConfirmationChip: View {
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.xs)
         .background(Color.bgCard)
-        .clipShape(Capsule())
+        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
         .overlay {
             if duplicateItemID != nil {
-                Capsule().stroke(Color.borderPrimary, lineWidth: 1)
+                RoundedRectangle(cornerRadius: Radius.control)
+                    .stroke(Color.borderPrimary, lineWidth: 1)
             }
         }
         .transition(.opacity.combined(with: .scale(scale: 0.9)))
@@ -144,7 +145,19 @@ private struct CaptureConfirmationChip: View {
 
 // MARK: - CaptureBarView
 
+/// The one capture bar. `.inline` is the field on Today and board pages;
+/// `.overlay` is the floating ⌘N card, which focuses itself on appear and
+/// closes after each action.
 struct CaptureBarView: View {
+    enum Presentation {
+        case inline
+        case overlay(isPresented: Binding<Bool>)
+    }
+
+    private static let confirmationDuration: Duration = .seconds(1)
+    private static let duplicateConfirmationDuration: Duration = .seconds(5)
+    private static let fadeDuration: Double = 0.2
+
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Board.sortOrder) private var boards: [Board]
     @State private var inputText = ""
@@ -161,8 +174,23 @@ struct CaptureBarView: View {
     @State private var showBoardPicker = false
     @State private var suggestionDismissTask: Task<Void, Never>? = nil
 
-    /// Currently selected board (passed from ContentView)
-    var currentBoardID: UUID?
+    private let presentation: Presentation
+    /// Board new captures are filed into, when the bar sits on a board page.
+    private let currentBoardID: UUID?
+
+    init(currentBoardID: UUID? = nil) {
+        self.init(presentation: .inline, currentBoardID: currentBoardID)
+    }
+
+    init(presentation: Presentation, currentBoardID: UUID? = nil) {
+        self.presentation = presentation
+        self.currentBoardID = currentBoardID
+    }
+
+    private var isOverlay: Bool {
+        if case .overlay = presentation { return true }
+        return false
+    }
 
     private var isURL: Bool {
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -174,118 +202,156 @@ struct CaptureBarView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: Spacing.sm) {
-                Image(systemName: isURL ? "link" : "note.text")
-                    .font(.groveMeta)
-                    .foregroundStyle(Color.textMuted)
-                    .frame(width: 16)
+        chrome
+            .onReceive(NotificationCenter.default.publisher(for: .groveNewBoardSuggestion)) { notification in
+                guard let notificationSuggestion = BoardSuggestionMetadata.decision(from: notification) else { return }
 
-                TextField("", text: $inputText, prompt:
-                    Text("Paste a URL or type a note...")
-                        .font(.groveGhostText)
-                        .foregroundStyle(Color.textMuted)
-                )
-                .textFieldStyle(.plain)
-                .font(.groveBody)
-                .foregroundStyle(Color.textPrimary)
-                .focused($isFocused)
-                .onSubmit {
-                    capture()
+                if currentBoardID != nil { return }
+
+                pendingSuggestionItemID = notificationSuggestion.itemID
+                pendingSuggestion = notificationSuggestion.decision
+                withAnimation(.easeOut(duration: Self.fadeDuration)) {
+                    showBoardSuggestion = true
                 }
-
-                if !inputText.isEmpty {
-                    Button {
-                        capture()
-                    } label: {
-                        Image(systemName: "arrow.right.circle.fill")
-                            .font(.groveBody)
-                            .foregroundStyle(Color.textSecondary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Capture item")
-                    .accessibilityHint("Saves the current note or URL.")
-                }
-
-                Text("⏎")
-                    .font(.groveShortcut)
-                    .foregroundStyle(Color.textTertiary)
+                scheduleAutoDismiss()
             }
-            .padding(.horizontal, Spacing.lg)
-            .padding(.vertical, Spacing.sm)
-            .background(Color.bgInput)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(isFocused ? Color.borderPrimary : Color.borderInput, lineWidth: 1)
-            )
-            .padding(.horizontal, Spacing.lg)
-            .padding(.vertical, Spacing.sm)
-            .overlay {
-                if showConfirmation {
-                    CaptureConfirmationChip(
-                        message: confirmationMessage,
-                        duplicateItemID: duplicateItemID,
-                        onOpen: { openDuplicate($0) }
+            .sheet(isPresented: $showBoardPicker) {
+                if let pendingSuggestion {
+                    BoardPickerView(
+                        boards: boards,
+                        mode: .add,
+                        suggestedName: pendingSuggestion.suggestedName,
+                        recommendedBoardID: pendingSuggestion.recommendedBoardID,
+                        alternativeBoardIDs: pendingSuggestion.alternativeBoardIDs,
+                        onSelect: { board in
+                            selectBoardFromPicker(board)
+                        },
+                        onCreate: { boardName in
+                            createBoardFromPicker(named: boardName)
+                        }
                     )
                 }
             }
-
-            if showBoardSuggestion, let pendingSuggestion {
-                BoardSuggestionBanner(
-                    decision: pendingSuggestion,
-                    onPrimary: { acceptBoardSuggestion() },
-                    onChoose: {
-                        suggestionDismissTask?.cancel()
-                        showBoardPicker = true
-                    },
-                    onDismiss: { dismissBoardSuggestion() }
-                )
-                .padding(.top, Spacing.xs)
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .groveNewBoardSuggestion)) { notification in
-            guard let notificationSuggestion = BoardSuggestionMetadata.decision(from: notification) else { return }
-
-            if currentBoardID != nil { return }
-
-            pendingSuggestionItemID = notificationSuggestion.itemID
-            pendingSuggestion = notificationSuggestion.decision
-            withAnimation(.easeOut(duration: 0.2)) {
-                showBoardSuggestion = true
-            }
-            scheduleAutoDismiss()
-        }
-        .sheet(isPresented: $showBoardPicker) {
-            if let pendingSuggestion {
-                BoardPickerView(
-                    boards: boards,
-                    mode: .add,
-                    suggestedName: pendingSuggestion.suggestedName,
-                    recommendedBoardID: pendingSuggestion.recommendedBoardID,
-                    alternativeBoardIDs: pendingSuggestion.alternativeBoardIDs,
-                    onSelect: { board in
-                        selectBoardFromPicker(board)
-                    },
-                    onCreate: { boardName in
-                        createBoardFromPicker(named: boardName)
-                    }
-                )
-            }
-        }
-        .onChange(of: showBoardPicker) { _, isPresented in
-            if !isPresented, showBoardSuggestion {
-                scheduleAutoDismiss()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .groveCoachMarkPrefill)) { notification in
-            if let url = notification.object as? String {
-                inputText = url
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(200))
-                    capture()
+            .onChange(of: showBoardPicker) { _, isPresented in
+                if !isPresented, showBoardSuggestion {
+                    scheduleAutoDismiss()
                 }
             }
+            .onAppear {
+                if isOverlay { isFocused = true }
+            }
+            #if os(macOS)
+            .onExitCommand(perform: isOverlay ? { closeOverlay() } : nil)
+            #endif
+    }
+
+    // MARK: - Chrome
+
+    @ViewBuilder
+    private var chrome: some View {
+        switch presentation {
+        case .inline:
+            VStack(spacing: 0) {
+                inputRow
+                    .padding(.horizontal, Spacing.lg)
+                    .padding(.vertical, Spacing.sm)
+                    .background(Color.bgInput)
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.control))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Radius.control)
+                            .stroke(isFocused ? Color.borderPrimary : Color.borderInput, lineWidth: 1)
+                    )
+                    .padding(.horizontal, Spacing.lg)
+                    .padding(.vertical, Spacing.sm)
+                    .overlay { confirmationChip }
+
+                suggestionBanner
+                    .padding(.top, Spacing.xs)
+            }
+        case .overlay:
+            VStack(spacing: 0) {
+                inputRow
+                    .padding(.horizontal, Spacing.lg)
+                    .padding(.vertical, Spacing.md)
+
+                suggestionBanner
+                    .padding(.vertical, Spacing.xs)
+            }
+            .frame(width: 600)
+            .background(Color.bgCard)
+            .clipShape(RoundedRectangle(cornerRadius: Radius.card))
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.card)
+                    .stroke(Color.borderPrimary, lineWidth: 1)
+            )
+            // The one shadow: this card floats over content.
+            .shadow(color: .black.opacity(0.12), radius: 16, y: 6)
+            .overlay { confirmationChip }
+        }
+    }
+
+    private var inputRow: some View {
+        HStack(spacing: Spacing.sm) {
+            Image(systemName: isURL ? "link" : "note.text")
+                .font(.groveMeta)
+                .foregroundStyle(Color.textMuted)
+                .frame(width: 16)
+
+            TextField("", text: $inputText, prompt:
+                Text("Paste a URL or type a note...")
+                    .font(.groveGhostText)
+                    .foregroundStyle(Color.textMuted)
+            )
+            .textFieldStyle(.plain)
+            .font(.groveBody)
+            .foregroundStyle(Color.textPrimary)
+            .focused($isFocused)
+            .onSubmit {
+                capture()
+            }
+
+            if !inputText.isEmpty {
+                Button {
+                    capture()
+                } label: {
+                    Image(systemName: "arrow.right.circle.fill")
+                        .font(.groveBody)
+                        .foregroundStyle(Color.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Capture item")
+                .accessibilityHint("Saves the current note or URL.")
+            }
+
+            Text("⏎")
+                .font(.groveShortcut)
+                .foregroundStyle(Color.textTertiary)
+        }
+    }
+
+    @ViewBuilder
+    private var confirmationChip: some View {
+        if showConfirmation {
+            CaptureConfirmationChip(
+                message: confirmationMessage,
+                duplicateItemID: duplicateItemID,
+                onOpen: { openDuplicate($0) }
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var suggestionBanner: some View {
+        if showBoardSuggestion, let pendingSuggestion {
+            BoardSuggestionBanner(
+                decision: pendingSuggestion,
+                onPrimary: { acceptBoardSuggestion() },
+                onChoose: {
+                    suggestionDismissTask?.cancel()
+                    showBoardPicker = true
+                },
+                onDismiss: { dismissBoardSuggestion() }
+            )
         }
     }
 
@@ -310,93 +376,80 @@ struct CaptureBarView: View {
         withAnimation(.easeIn(duration: 0.15)) {
             showConfirmation = true
         }
+        let visibleFor = result.isDuplicate ? Self.duplicateConfirmationDuration : Self.confirmationDuration
         Task { @MainActor in
-            try? await Task.sleep(for: .seconds(result.isDuplicate ? 5 : 1))
-            withAnimation(.easeOut(duration: 0.3)) {
+            try? await Task.sleep(for: visibleFor)
+            withAnimation(.easeOut(duration: Self.fadeDuration)) {
                 showConfirmation = false
+            }
+            if !showBoardSuggestion {
+                closeOverlay()
             }
         }
     }
 
+    /// In the overlay, opening the existing item replaces the card — the
+    /// handler for `.groveOpenItem` closes it on the way to the reader.
     private func openDuplicate(_ itemID: UUID) {
-        withAnimation(.easeOut(duration: 0.2)) { showConfirmation = false }
+        withAnimation(.easeOut(duration: Self.fadeDuration)) { showConfirmation = false }
         NotificationCenter.default.post(name: .groveOpenItem, object: itemID)
+        closeOverlay()
+    }
+
+    /// Closes the floating card; a no-op for the inline field.
+    private func closeOverlay() {
+        guard case .overlay(let isPresented) = presentation else { return }
+        withAnimation(.easeOut(duration: Self.fadeDuration)) {
+            isPresented.wrappedValue = false
+        }
     }
 
     // MARK: - Board Suggestion Actions
+    //
+    // Each handler reads `pendingSuggestionItemID` into a local before queuing
+    // its Task: `dismissBoardSuggestion()` clears it synchronously, before the
+    // Task body runs.
 
     private func acceptBoardSuggestion() {
-        guard let pendingSuggestion else {
+        guard let pendingSuggestion, let itemID = pendingSuggestionItemID else {
             dismissBoardSuggestion()
             return
         }
 
-        let suggestedName = BoardSuggestionEngine.cleanedBoardName(pendingSuggestion.suggestedName)
-
+        let viewModel = ItemViewModel(modelContext: modelContext)
         Task { @MainActor in
-            let boardDescriptor = FetchDescriptor<Board>()
-            let allBoards = (try? modelContext.fetch(boardDescriptor)) ?? []
-
-            let board: Board
-            if pendingSuggestion.mode == .existing,
-               let recommendedBoardID = pendingSuggestion.recommendedBoardID,
-               let recommended = allBoards.first(where: { $0.id == recommendedBoardID }) {
-                board = recommended
-            } else if let existing = allBoards.first(where: {
-                $0.title.localizedCaseInsensitiveCompare(suggestedName) == .orderedSame
-            }) {
-                board = existing
-            } else {
-                let newBoard = Board(title: suggestedName.isEmpty ? "General" : suggestedName)
-                modelContext.insert(newBoard)
-                board = newBoard
-            }
-
-            assignPendingItem(to: board)
+            viewModel.assignPendingItem(itemID, accepting: pendingSuggestion)
         }
 
         dismissBoardSuggestion()
+        closeOverlay()
     }
 
     private func selectBoardFromPicker(_ board: Board) {
-        Task { @MainActor in
-            assignPendingItem(to: board)
+        if let itemID = pendingSuggestionItemID {
+            let viewModel = ItemViewModel(modelContext: modelContext)
+            Task { @MainActor in
+                viewModel.assignPendingItem(itemID, to: board)
+            }
         }
 
         dismissBoardSuggestion()
+        closeOverlay()
     }
 
     private func createBoardFromPicker(named boardName: String) {
         let normalizedName = BoardSuggestionEngine.cleanedBoardName(boardName)
         guard !normalizedName.isEmpty else { return }
 
-        Task { @MainActor in
-            let boardDescriptor = FetchDescriptor<Board>()
-            let allBoards = (try? modelContext.fetch(boardDescriptor)) ?? []
-
-            if let existing = allBoards.first(where: {
-                $0.title.localizedCaseInsensitiveCompare(normalizedName) == .orderedSame
-            }) {
-                assignPendingItem(to: existing)
-            } else {
-                let newBoard = Board(title: normalizedName)
-                modelContext.insert(newBoard)
-                assignPendingItem(to: newBoard)
+        if let itemID = pendingSuggestionItemID {
+            let viewModel = ItemViewModel(modelContext: modelContext)
+            Task { @MainActor in
+                viewModel.assignPendingItem(itemID, toBoardNamed: normalizedName)
             }
         }
 
         dismissBoardSuggestion()
-    }
-
-    private func assignPendingItem(to board: Board) {
-        guard let itemID = pendingSuggestionItemID else { return }
-
-        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-        guard let item = try? modelContext.fetch(descriptor).first else { return }
-
-        BoardSuggestionMetadata.recordSelection(board, on: item)
-        let viewModel = ItemViewModel(modelContext: modelContext)
-        viewModel.assignToBoard(item, board: board)
+        closeOverlay()
     }
 
     private func dismissBoardSuggestion() {
@@ -404,7 +457,7 @@ struct CaptureBarView: View {
         suggestionDismissTask = nil
         showBoardPicker = false
 
-        withAnimation(.easeOut(duration: 0.2)) {
+        withAnimation(.easeOut(duration: Self.fadeDuration)) {
             showBoardSuggestion = false
         }
 
@@ -418,298 +471,22 @@ struct CaptureBarView: View {
             after: .seconds(AppConstants.Capture.boardSuggestionAutoDismissSeconds)
         ) {
             dismissBoardSuggestion()
+            closeOverlay()
         }
     }
 }
 
 // MARK: - Capture Bar Overlay
 
+/// The floating ⌘N capture card: `CaptureBarView` in its overlay presentation.
 struct CaptureBarOverlayView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query(sort: \Board.sortOrder) private var boards: [Board]
     @Binding var isPresented: Bool
-    @State private var inputText = ""
-    @State private var showConfirmation = false
-    @State private var confirmationMessage = "Captured"
-    /// Set when the last capture matched an item already in the library.
-    @State private var duplicateItemID: UUID? = nil
-    @FocusState private var isFocused: Bool
-
-    // Board suggestion state
-    @State private var pendingSuggestionItemID: UUID? = nil
-    @State private var pendingSuggestion: BoardSuggestionDecision? = nil
-    @State private var showBoardSuggestion = false
-    @State private var showBoardPicker = false
-    @State private var suggestionDismissTask: Task<Void, Never>? = nil
-
     var currentBoardID: UUID?
 
-    private var isURL: Bool {
-        let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmed),
-              let scheme = url.scheme,
-              ["http", "https"].contains(scheme.lowercased()),
-              url.host != nil else { return false }
-        return true
-    }
-
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: Spacing.sm) {
-                Image(systemName: isURL ? "link" : "note.text")
-                    .font(.groveMeta)
-                    .foregroundStyle(Color.textMuted)
-                    .frame(width: 16)
-
-                TextField("", text: $inputText, prompt:
-                    Text("Paste a URL or type a note...")
-                        .font(.groveGhostText)
-                        .foregroundStyle(Color.textMuted)
-                )
-                .textFieldStyle(.plain)
-                .font(.groveBody)
-                .foregroundStyle(Color.textPrimary)
-                .focused($isFocused)
-                .onSubmit {
-                    capture()
-                }
-
-                if !inputText.isEmpty {
-                    Button {
-                        capture()
-                    } label: {
-                        Image(systemName: "arrow.right.circle.fill")
-                            .font(.groveBody)
-                            .foregroundStyle(Color.textSecondary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Capture item")
-                    .accessibilityHint("Saves the current note or URL.")
-                }
-
-                Text("⏎")
-                    .font(.groveShortcut)
-                    .foregroundStyle(Color.textTertiary)
-            }
-            .padding(.horizontal, Spacing.lg)
-            .padding(.vertical, Spacing.md)
-
-            if showBoardSuggestion, let pendingSuggestion {
-                BoardSuggestionBanner(
-                    decision: pendingSuggestion,
-                    onPrimary: { acceptBoardSuggestion() },
-                    onChoose: {
-                        suggestionDismissTask?.cancel()
-                        showBoardPicker = true
-                    },
-                    onDismiss: { dismissBoardSuggestion() }
-                )
-                .padding(.vertical, Spacing.xs)
-            }
-        }
-        .frame(width: 600)
-        .background(Color.bgCard)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.borderPrimary, lineWidth: 1)
+        CaptureBarView(
+            presentation: .overlay(isPresented: $isPresented),
+            currentBoardID: currentBoardID
         )
-        .shadow(color: .black.opacity(0.15), radius: 20, y: 8)
-        .overlay {
-            if showConfirmation {
-                CaptureConfirmationChip(
-                    message: confirmationMessage,
-                    duplicateItemID: duplicateItemID,
-                    onOpen: { openDuplicate($0) }
-                )
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .groveNewBoardSuggestion)) { notification in
-            guard let notificationSuggestion = BoardSuggestionMetadata.decision(from: notification) else { return }
-
-            if currentBoardID != nil { return }
-
-            pendingSuggestionItemID = notificationSuggestion.itemID
-            pendingSuggestion = notificationSuggestion.decision
-            withAnimation(.easeOut(duration: 0.2)) {
-                showBoardSuggestion = true
-            }
-            scheduleAutoDismiss()
-        }
-        .sheet(isPresented: $showBoardPicker) {
-            if let pendingSuggestion {
-                BoardPickerView(
-                    boards: boards,
-                    mode: .add,
-                    suggestedName: pendingSuggestion.suggestedName,
-                    recommendedBoardID: pendingSuggestion.recommendedBoardID,
-                    alternativeBoardIDs: pendingSuggestion.alternativeBoardIDs,
-                    onSelect: { board in
-                        selectBoardFromPicker(board)
-                    },
-                    onCreate: { boardName in
-                        createBoardFromPicker(named: boardName)
-                    }
-                )
-            }
-        }
-        .onChange(of: showBoardPicker) { _, isPresented in
-            if !isPresented, showBoardSuggestion {
-                scheduleAutoDismiss()
-            }
-        }
-        .onAppear {
-            isFocused = true
-        }
-        #if os(macOS)
-        .onExitCommand {
-            dismiss()
-        }
-        #endif
-    }
-
-    private func capture() {
-        let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        let captureService = CaptureService(modelContext: modelContext)
-        let board = currentBoardID.flatMap { boardID in
-            boards.first(where: { $0.id == boardID })
-        }
-        let result = captureService.captureItemDetailed(input: trimmed, board: board)
-
-        inputText = ""
-
-        // A duplicate is not a capture: no new item, no success checkmark.
-        duplicateItemID = result.isDuplicate ? result.item.id : nil
-        confirmationMessage = result.isDuplicate ? "Already in your library" : "Captured"
-        withAnimation(.easeIn(duration: 0.15)) {
-            showConfirmation = true
-        }
-        let isDuplicate = result.isDuplicate
-        Task { @MainActor in
-            try? await Task.sleep(for: isDuplicate ? .seconds(5) : .milliseconds(800))
-            withAnimation(.easeOut(duration: 0.2)) {
-                showConfirmation = false
-                if !showBoardSuggestion {
-                    dismiss()
-                }
-            }
-        }
-    }
-
-    /// Opening the existing item replaces the overlay — the handler for
-    /// `.groveOpenItem` closes it on the way to the reader.
-    private func openDuplicate(_ itemID: UUID) {
-        withAnimation(.easeOut(duration: 0.2)) { showConfirmation = false }
-        NotificationCenter.default.post(name: .groveOpenItem, object: itemID)
-        dismiss()
-    }
-
-    private func dismiss() {
-        withAnimation(.easeOut(duration: 0.2)) {
-            isPresented = false
-        }
-    }
-
-    // MARK: - Board Suggestion Actions
-
-    private func acceptBoardSuggestion() {
-        guard let pendingSuggestion else {
-            dismissBoardSuggestion()
-            return
-        }
-
-        let suggestedName = BoardSuggestionEngine.cleanedBoardName(pendingSuggestion.suggestedName)
-
-        Task { @MainActor in
-            let boardDescriptor = FetchDescriptor<Board>()
-            let allBoards = (try? modelContext.fetch(boardDescriptor)) ?? []
-
-            let board: Board
-            if pendingSuggestion.mode == .existing,
-               let recommendedBoardID = pendingSuggestion.recommendedBoardID,
-               let recommended = allBoards.first(where: { $0.id == recommendedBoardID }) {
-                board = recommended
-            } else if let existing = allBoards.first(where: {
-                $0.title.localizedCaseInsensitiveCompare(suggestedName) == .orderedSame
-            }) {
-                board = existing
-            } else {
-                let newBoard = Board(title: suggestedName.isEmpty ? "General" : suggestedName)
-                modelContext.insert(newBoard)
-                board = newBoard
-            }
-
-            assignPendingItem(to: board)
-        }
-
-        dismissBoardSuggestion()
-        dismiss()
-    }
-
-    private func selectBoardFromPicker(_ board: Board) {
-        Task { @MainActor in
-            assignPendingItem(to: board)
-        }
-
-        dismissBoardSuggestion()
-        dismiss()
-    }
-
-    private func createBoardFromPicker(named boardName: String) {
-        let normalizedName = BoardSuggestionEngine.cleanedBoardName(boardName)
-        guard !normalizedName.isEmpty else { return }
-
-        Task { @MainActor in
-            let boardDescriptor = FetchDescriptor<Board>()
-            let allBoards = (try? modelContext.fetch(boardDescriptor)) ?? []
-
-            if let existing = allBoards.first(where: {
-                $0.title.localizedCaseInsensitiveCompare(normalizedName) == .orderedSame
-            }) {
-                assignPendingItem(to: existing)
-            } else {
-                let newBoard = Board(title: normalizedName)
-                modelContext.insert(newBoard)
-                assignPendingItem(to: newBoard)
-            }
-        }
-
-        dismissBoardSuggestion()
-        dismiss()
-    }
-
-    private func assignPendingItem(to board: Board) {
-        guard let itemID = pendingSuggestionItemID else { return }
-
-        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == itemID })
-        guard let item = try? modelContext.fetch(descriptor).first else { return }
-
-        BoardSuggestionMetadata.recordSelection(board, on: item)
-        let viewModel = ItemViewModel(modelContext: modelContext)
-        viewModel.assignToBoard(item, board: board)
-    }
-
-    private func dismissBoardSuggestion() {
-        suggestionDismissTask?.cancel()
-        suggestionDismissTask = nil
-        showBoardPicker = false
-
-        withAnimation(.easeOut(duration: 0.2)) {
-            showBoardSuggestion = false
-        }
-        pendingSuggestionItemID = nil
-        pendingSuggestion = nil
-    }
-
-    private func scheduleAutoDismiss() {
-        suggestionDismissTask?.cancel()
-        suggestionDismissTask = MainActorTaskScheduler.schedule(
-            after: .seconds(AppConstants.Capture.boardSuggestionAutoDismissSeconds)
-        ) {
-            dismissBoardSuggestion()
-            dismiss()
-        }
     }
 }

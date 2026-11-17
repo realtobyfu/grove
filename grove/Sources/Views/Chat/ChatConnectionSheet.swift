@@ -40,12 +40,12 @@ struct ChatConnectionSheet: View {
                     Button("Cancel") {
                         onDismiss()
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.grove(.secondary))
 
                     Button("Create") {
                         onCreateConnection()
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.grove(.primary))
                 }
             } else {
                 Text("Need at least 2 referenced items to create a connection.")
@@ -55,7 +55,7 @@ struct ChatConnectionSheet: View {
                 Button("Close") {
                     onDismiss()
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.grove(.secondary))
             }
         }
         .padding(Spacing.xl)

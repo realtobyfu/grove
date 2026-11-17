@@ -17,6 +17,13 @@ struct PromptBubble: Identifiable {
     /// records which context signal produced this bubble.
     let contextID: String?
 
+    /// What a card shows. `label` stays the stored vocabulary that
+    /// `StarterLLMGenerator` validates and the disk cache round-trips.
+    var displayLabel: String {
+        let stored = label.uppercased()
+        return stored == "RESOLVE" ? "These two disagree" : stored
+    }
+
     init(
         prompt: String,
         label: String,
@@ -31,44 +38,5 @@ struct PromptBubble: Identifiable {
         self.clusterItemIDs = clusterItemIDs
         self.boardIDs = boardIDs
         self.contextID = contextID
-    }
-}
-
-// MARK: - Suggestion Types (shared across HomeView and BoardDetailView)
-
-enum SuggestionType: String {
-    case reflect = "REFLECT"
-    case revisit = "REVISIT"
-    case synthesize = "SYNTHESIZE"
-    case continueCourse = "CONTINUE"
-    case nudge = "NUDGE"
-
-    var systemImage: String {
-        switch self {
-        case .reflect: "pencil.and.outline"
-        case .revisit: "arrow.counterclockwise"
-        case .synthesize: "sparkles"
-        case .continueCourse: "play.circle"
-        case .nudge: "lightbulb"
-        }
-    }
-}
-
-struct Suggestion: Identifiable {
-    let id = UUID()
-    let type: SuggestionType
-    let title: String
-    let reason: String
-    let item: Item?
-    let board: Board?
-    let nudge: Nudge?
-
-    init(type: SuggestionType, title: String, reason: String, item: Item? = nil, board: Board? = nil, nudge: Nudge? = nil) {
-        self.type = type
-        self.title = title
-        self.reason = reason
-        self.item = item
-        self.board = board
-        self.nudge = nudge
     }
 }

@@ -58,7 +58,7 @@ enum StarterLLMGenerator {
           NEVER mention one inside the prompt text itself.
         - Only items annotated "(your note)" are the person's own writing — "you wrote" framing
           applies to those and nothing else.
-        - Items annotated "(article)", "(video)", "(course lecture)", "(codebase)" are things they
+        - Items annotated "(article)" or "(video)" are things they
           saved, not things they wrote — say "that article", "the video".
         - Return ONLY valid JSON. No markdown fences, no explanation. Return [] if no snippet
           supports a concrete starter.
@@ -207,15 +207,15 @@ enum StarterLLMGenerator {
             return "their note on it: \(excerpt(reflection))"
         }
 
-        let summary = item.metadata["summary"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let summary = item.summary?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let summary, !summary.isEmpty {
             return excerpt(summary)
         }
 
         // Short scraps of content are usually boilerplate ("Sign in to
         // continue"), not something to build a question on.
-        let content = item.content?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let content, content.count >= 80 {
+        let content = item.retrievalText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if content.count >= 80 {
             return excerpt(content)
         }
 

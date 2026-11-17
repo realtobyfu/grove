@@ -57,22 +57,22 @@ struct RichMarkdownEditor: View {
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     formattingToolbar
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, Spacing.sm)
+                        .padding(.vertical, Spacing.xs)
                         .background(Color.bgCard)
-                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
                                 .stroke(Color.borderInput, lineWidth: 1)
                         )
-                        .padding(.bottom, 4)
+                        .padding(.bottom, Spacing.xs)
 
                     editorContent
                         .frame(minHeight: minHeight)
                         .background(Color.bgCard)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 6)
+                            RoundedRectangle(cornerRadius: Radius.control)
                                 .stroke(Color.borderInput, lineWidth: 1)
                         )
 
@@ -99,7 +99,7 @@ struct RichMarkdownEditor: View {
             }
             Divider()
                 .frame(height: 16)
-                .padding(.horizontal, 4)
+                .padding(.horizontal, Spacing.xs)
 
             Menu {
                 Button("# Title") { editingProxy.setHeading(level: 1) }
@@ -127,7 +127,7 @@ struct RichMarkdownEditor: View {
 
             Divider()
                 .frame(height: 16)
-                .padding(.horizontal, 4)
+                .padding(.horizontal, Spacing.xs)
 
             Menu {
                 Button("Code") { editingProxy.wrapSelection(prefix: "`", suffix: "`") }
@@ -149,7 +149,7 @@ struct RichMarkdownEditor: View {
             Text(wordCountLabel)
                 .font(.groveMeta)
                 .foregroundStyle(Color.textTertiary)
-                .padding(.trailing, 8)
+                .padding(.trailing, Spacing.sm)
         }
     }
 
@@ -168,7 +168,7 @@ struct RichMarkdownEditor: View {
     // MARK: - Prose Toolbar
 
     private var proseToolbar: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: Spacing.lg) {
             toolbarButton("Bold", icon: "bold", shortcut: "B") {
                 editingProxy.wrapSelection(prefix: "**", suffix: "**")
             }
@@ -223,7 +223,7 @@ struct RichMarkdownEditor: View {
                 .foregroundStyle(Color.textTertiary)
         }
         .padding(.horizontal, 40)
-        .padding(.vertical, 8)
+        .padding(.vertical, Spacing.sm)
     }
 
     private var editorContent: some View {
@@ -287,9 +287,9 @@ struct RichMarkdownEditor: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(Color.textTertiary)
             }
-            .padding(.horizontal, 8)
-            .padding(.top, 6)
-            .padding(.bottom, 4)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.top, Spacing.xsm)
+            .padding(.bottom, Spacing.xs)
 
             Divider()
 
@@ -297,7 +297,7 @@ struct RichMarkdownEditor: View {
                 Text("No matching items")
                     .font(.groveBodySmall)
                     .foregroundStyle(Color.textTertiary)
-                    .padding(8)
+                    .padding(Spacing.sm)
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
@@ -305,7 +305,7 @@ struct RichMarkdownEditor: View {
                             Button {
                                 insertWikiLink(for: candidate)
                             } label: {
-                                HStack(spacing: 6) {
+                                HStack(spacing: Spacing.xsm) {
                                     Image(systemName: candidate.type.iconName)
                                         .font(.groveBadge)
                                         .foregroundStyle(Color.textSecondary)
@@ -315,8 +315,8 @@ struct RichMarkdownEditor: View {
                                         .lineLimit(1)
                                     Spacer()
                                 }
-                                .padding(.vertical, 4)
-                                .padding(.horizontal, 8)
+                                .padding(.vertical, Spacing.xs)
+                                .padding(.horizontal, Spacing.sm)
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
@@ -327,9 +327,9 @@ struct RichMarkdownEditor: View {
             }
         }
         .background(.background)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
         .overlay(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: Radius.control)
                 .stroke(Color.borderPrimary, lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
@@ -1672,7 +1672,7 @@ struct RichMarkdownEditor: View {
                 if showsInlineToolbar {
                     formattingToolbar
                         .padding(.horizontal, proseMode ? 20 : 8)
-                        .padding(.bottom, 6)
+                        .padding(.bottom, Spacing.xsm)
                 }
 
                 MarkdownUITextView(
@@ -1720,7 +1720,7 @@ struct RichMarkdownEditor: View {
 
                 Divider()
                     .frame(height: 16)
-                    .padding(.horizontal, 4)
+                    .padding(.horizontal, Spacing.xs)
 
                 Menu {
                     Button("# Title") { editingProxy.setHeading(level: 1) }
@@ -1747,7 +1747,7 @@ struct RichMarkdownEditor: View {
 
                 Divider()
                     .frame(height: 16)
-                    .padding(.horizontal, 4)
+                    .padding(.horizontal, Spacing.xs)
 
                 toolbarButton("Code", icon: "chevron.left.forwardslash.chevron.right") {
                     editingProxy.wrapSelection(prefix: "`", suffix: "`")
@@ -1762,13 +1762,13 @@ struct RichMarkdownEditor: View {
                     editingProxy.wrapSelection(prefix: "~~", suffix: "~~")
                 }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xs)
         }
         .background(Color.bgCard)
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
                 .stroke(Color.borderInput, lineWidth: 1)
         )
     }
@@ -1807,9 +1807,9 @@ struct RichMarkdownEditor: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(Color.textTertiary)
             }
-            .padding(.horizontal, 8)
-            .padding(.top, 6)
-            .padding(.bottom, 4)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.top, Spacing.xsm)
+            .padding(.bottom, Spacing.xs)
 
             Divider()
 
@@ -1817,7 +1817,7 @@ struct RichMarkdownEditor: View {
                 Text("No matching items")
                     .font(.groveBodySmall)
                     .foregroundStyle(Color.textTertiary)
-                    .padding(8)
+                    .padding(Spacing.sm)
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
@@ -1825,7 +1825,7 @@ struct RichMarkdownEditor: View {
                             Button {
                                 insertWikiLink(for: candidate)
                             } label: {
-                                HStack(spacing: 6) {
+                                HStack(spacing: Spacing.xsm) {
                                     Image(systemName: candidate.type.iconName)
                                         .font(.groveBadge)
                                         .foregroundStyle(Color.textSecondary)
@@ -1835,8 +1835,8 @@ struct RichMarkdownEditor: View {
                                         .lineLimit(1)
                                     Spacer()
                                 }
-                                .padding(.vertical, 4)
-                                .padding(.horizontal, 8)
+                                .padding(.vertical, Spacing.xs)
+                                .padding(.horizontal, Spacing.sm)
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
@@ -1847,9 +1847,9 @@ struct RichMarkdownEditor: View {
             }
         }
         .background(.background)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
         .overlay(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: Radius.control)
                 .stroke(Color.borderPrimary, lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.1), radius: 4, y: 2)

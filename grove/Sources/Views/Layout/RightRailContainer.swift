@@ -1,4 +1,9 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 // MARK: - Rail Modes
 
@@ -24,6 +29,10 @@ enum RightRailMode: String, Hashable, CaseIterable, Sendable {
     case reflectionEditor
     /// Reader: a source-linked flashcard draft, beside the unchanged source.
     case flashcardEditor
+    /// The note writer. A mode of the rail rather than a column of its own, so
+    /// opening it replaces whatever the rail was showing instead of adding a
+    /// fourth column beside it.
+    case writing
 }
 
 // MARK: - Metrics
@@ -34,7 +43,8 @@ enum RightRailMetrics {
     /// The standard rail width. Item-level panels all use it, which is what
     /// makes swapping between them a pure crossfade with no reflow at all.
     static let standardWidth: CGFloat = 360
-    /// The reader's rail is a writing surface, so it legitimately runs wider.
+    /// The reader's rail and the note writer are writing surfaces, so they
+    /// legitimately run wider.
     static let readerWidth: CGFloat = 440
     /// Reader prose measure. The web reader caps its column in CSS (66/80ch);
     /// this is the SwiftUI equivalent for natively rendered content.
@@ -48,7 +58,21 @@ enum RightRailMetrics {
     /// The one curve every rail width change and every coordinated sidebar
     /// collapse uses. Focus mode drives both from a single `withAnimation`
     /// with this animation so there is never a second, offset reflow.
-    static let widthChange: Animation = .easeOut(duration: 0.25)
+    ///
+    /// With Reduce Motion on this is `nil`: the rail and the content beside it
+    /// snap to their new widths instead of sliding. Read from the system
+    /// setting rather than the environment because view models drive it too.
+    @MainActor static var widthChange: Animation? {
+        systemReduceMotion ? nil : .easeOut(duration: 0.25)
+    }
+
+    @MainActor private static var systemReduceMotion: Bool {
+        #if os(macOS)
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        #else
+        UIAccessibility.isReduceMotionEnabled
+        #endif
+    }
     /// Mode swaps at equal width crossfade instead of moving. The outgoing
     /// panel stays mounted until the incoming one is in, so there is no blank
     /// frame between them.
@@ -67,6 +91,7 @@ extension RightRailMode {
         case .inspector: .contentInspector
         case .dialectics: .contentChat
         case .reflections, .reflectionEditor, .flashcardEditor: .readerReflections
+        case .writing: .contentWrite
         }
     }
 
@@ -74,7 +99,7 @@ extension RightRailMode {
         switch self {
         case .hidden: 0
         case .inspector, .dialectics: 300
-        case .reflections, .reflectionEditor, .flashcardEditor: 280
+        case .reflections, .reflectionEditor, .flashcardEditor, .writing: 280
         }
     }
 
@@ -87,7 +112,7 @@ extension RightRailMode {
         case .hidden: 0
         case .inspector: 520
         case .dialectics: 560
-        case .reflections, .reflectionEditor, .flashcardEditor: 720
+        case .reflections, .reflectionEditor, .flashcardEditor, .writing: 720
         }
         guard let available, available > 0 else { return hardCap }
         return max(minWidth, min(hardCap, available - RightRailMetrics.minContentWidth))
@@ -99,7 +124,7 @@ extension RightRailMode {
         switch self {
         case .hidden: 0
         case .inspector, .dialectics: RightRailMetrics.standardWidth
-        case .reflections, .reflectionEditor, .flashcardEditor: RightRailMetrics.readerWidth
+        case .reflections, .reflectionEditor, .flashcardEditor, .writing: RightRailMetrics.readerWidth
         }
     }
 
@@ -148,6 +173,7 @@ struct RightRailContainer<Content: View>: View {
     /// zero instead of popping, so it interpolates against whatever rail is
     /// animating out above it rather than stacking beside it.
     @State private var hasAppeared = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
         mode: RightRailMode,
@@ -212,10 +238,12 @@ struct RightRailContainer<Content: View>: View {
         }
         // Keyed on mode (+ first appearance) rather than on the width itself so
         // that dragging the divider stays instant.
-        .animation(RightRailMetrics.widthChange, value: WidthToken(mode: mode, hasAppeared: hasAppeared))
+        // Reduce Motion: no width animation at all; the crossfade above is a
+        // plain opacity change and stays.
+        .animation(reduceMotion ? nil : RightRailMetrics.widthChange, value: WidthToken(mode: mode, hasAppeared: hasAppeared))
         .onAppear {
             guard !hasAppeared else { return }
-            withAnimation(RightRailMetrics.widthChange) { hasAppeared = true }
+            withAnimation(reduceMotion ? nil : RightRailMetrics.widthChange) { hasAppeared = true }
         }
     }
 

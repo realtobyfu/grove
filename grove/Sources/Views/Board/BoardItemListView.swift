@@ -2,9 +2,9 @@
 import AppKit
 #endif
 import SwiftUI
-import UniformTypeIdentifiers
+import SwiftData
 
-/// Extracted from BoardDetailView — item list/grid display with sorting, reorder, context menus, and video drop.
+/// Extracted from BoardDetailView — item list/grid display with sorting, reorder, and context menus.
 struct BoardItemListView: View {
     let board: Board
     let sortedFilteredItems: [Item]
@@ -61,7 +61,7 @@ struct BoardItemListView: View {
         }
 
         if let urlString = item.sourceURL, let url = URL(string: urlString),
-           item.metadata["videoLocalFile"] != "true" {
+           !item.isVideoLocalFile {
             Button {
                 openedItem = item
                 selectedItem = item
@@ -81,13 +81,11 @@ struct BoardItemListView: View {
 
         Divider()
 
-        if !board.isSmart {
-            Button {
-                let viewModel = ItemViewModel(modelContext: modelContext)
-                viewModel.removeFromBoard(item, board: board)
-            } label: {
-                Label("Remove from Board", systemImage: "folder.badge.minus")
-            }
+        Button {
+            let viewModel = ItemViewModel(modelContext: modelContext)
+            viewModel.removeFromBoard(item, board: board)
+        } label: {
+            Label("Remove from Board", systemImage: "folder.badge.minus")
         }
 
         Button(role: .destructive) {
@@ -95,27 +93,5 @@ struct BoardItemListView: View {
         } label: {
             Label("Delete Item", systemImage: "trash")
         }
-    }
-}
-
-// MARK: - Video Drop Handling
-
-extension BoardItemListView {
-    func handleVideoDrop(providers: [NSItemProvider]) -> Bool {
-        var handled = false
-        for provider in providers {
-            _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                guard let url = url else { return }
-                let path = url.path
-                guard CaptureService.isSupportedVideoFile(path) else { return }
-                Task { @MainActor in
-                    let captureService = CaptureService(modelContext: modelContext)
-                    let item = captureService.createVideoItem(filePath: path, board: board)
-                    selectedItem = item
-                }
-            }
-            handled = true
-        }
-        return handled
     }
 }

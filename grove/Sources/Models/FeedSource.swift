@@ -12,8 +12,8 @@ final class FeedSource {
     var isAutoDiscovered: Bool = false
     /// Whether the user has ever explicitly subscribed to this feed. Distinct
     /// from `isEnabled` (currently fetching) so toggling a subscription off
-    /// keeps it in the Subscriptions list instead of teleporting it back to
-    /// "Suggested from your library".
+    /// keeps it in the Subscriptions list. Only explicit subscriptions are
+    /// fetched; sources left behind by the removed auto-discovery stay inert.
     var isUserSubscribed: Bool = false
     var errorCount: Int = 0
     var createdAt: Date = Date.now
@@ -22,7 +22,7 @@ final class FeedSource {
         feedURL: String,
         domain: String,
         title: String? = nil,
-        isAutoDiscovered: Bool = true,
+        isAutoDiscovered: Bool = false,
         isEnabled: Bool = true,
         isUserSubscribed: Bool = false
     ) {

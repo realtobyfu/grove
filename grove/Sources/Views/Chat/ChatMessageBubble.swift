@@ -40,9 +40,9 @@ struct ChatMessageBubble: View {
             }
             .padding(Spacing.md)
             .background(Color.bgCard)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.card))
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: Radius.card)
                     .stroke(Color.borderPrimary, lineWidth: 1)
             )
 
@@ -60,7 +60,7 @@ struct ChatMessageBubble: View {
                 .foregroundStyle(Color.textInverse)
                 .padding(Spacing.md)
                 .background(Color.accentSelection)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.card))
                 .textSelection(.enabled)
         }
     }
@@ -79,7 +79,7 @@ struct ChatMessageBubble: View {
             }
             .padding(Spacing.md)
             .background(Color.bgCard)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.card))
             .overlay(alignment: .leading) {
                 Rectangle()
                     .fill(Color.accentSelection)
@@ -149,7 +149,7 @@ struct ChatMessageBubble: View {
 struct ChatThinkingIndicator: View {
     var body: some View {
         HStack {
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
                 Text("Thinking")
                     .font(.groveMeta)
                     .foregroundStyle(Color.textMuted)
@@ -158,7 +158,7 @@ struct ChatThinkingIndicator: View {
             }
             .padding(Spacing.sm)
             .background(Color.bgCard)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.card))
             Spacer()
         }
     }
@@ -188,9 +188,9 @@ struct ChatErrorBubble: View {
         }
         .padding(Spacing.md)
         .background(Color.bgCard)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card))
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: Radius.card)
                 .stroke(Color.borderPrimary, lineWidth: 1)
         )
     }

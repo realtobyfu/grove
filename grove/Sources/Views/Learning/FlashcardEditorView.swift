@@ -54,7 +54,7 @@ struct FlashcardEditorView: View {
                             Text(isSuggesting ? "Suggesting…" : "Suggest a question")
                         }
                     }
-                    .buttonStyle(LearningSecondaryButtonStyle())
+                    .buttonStyle(.grove(.secondary))
                     .disabled(isSuggesting)
                     Text("AI uses this passage to draft a card. Review it before saving.")
                         .font(.groveBodySmall).foregroundStyle(Color.textTertiary)
@@ -69,7 +69,7 @@ struct FlashcardEditorView: View {
                             answer = suggestedDraft.answer
                             hints = suggestedDraft.hints.joined(separator: "\n")
                             self.suggestedDraft = nil
-                        }.buttonStyle(LearningSecondaryButtonStyle())
+                        }.buttonStyle(.grove(.secondary))
                         Button("Dismiss draft") { self.suggestedDraft = nil }
                             .buttonStyle(.plain).frame(minHeight: 44)
                     }
@@ -99,8 +99,11 @@ struct FlashcardEditorView: View {
                         .foregroundStyle(Color.textPrimary)
                         .accessibilityLabel("Could not save: \(errorMessage)")
                 }
-                Button(card == nil ? "Save flashcard" : "Save changes", action: save)
-                    .buttonStyle(LearningPrimaryButtonStyle())
+                Button(action: save) {
+                    Text(card == nil ? "Save flashcard" : "Save changes")
+                        .frame(maxWidth: .infinity)
+                }
+                    .buttonStyle(.grove(.primary))
                     .disabled(question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .padding(Spacing.lg)

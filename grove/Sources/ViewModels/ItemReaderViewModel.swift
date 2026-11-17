@@ -18,6 +18,10 @@ final class ItemReaderViewModel {
     var item: Item
     var modelContext: ModelContext
     var onNavigateToItem: ((Item) -> Void)?
+    /// Called when the reader asks for its reflections rail, so the host can
+    /// close its own trailing column first. Nil on hosts with no rail of their
+    /// own (iPad, the flashcard source sheet).
+    var onClaimRail: (() -> Void)?
 
     // MARK: - Business State
 
@@ -36,12 +40,6 @@ final class ItemReaderViewModel {
     var blockToDelete: ReflectionBlock?
     var flashcardSelection: FlashcardSelection?
     private var reflectionPanelWasCollapsedBeforeFlashcard = false
-
-    // MARK: - Video State
-
-    var videoCurrentTime: Double = 0
-    var videoDuration: Double = 0
-    var videoSeekTarget: Double? = nil
 
     // MARK: - Zoom State
 
@@ -120,10 +118,6 @@ final class ItemReaderViewModel {
         item.reflections.sorted { $0.position < $1.position }
     }
 
-    var isVideoItem: Bool {
-        item.type == .video && localVideoURL != nil
-    }
-
     /// True when this item's source is a PDF document. Such an item reads in
     /// the native PDF pane, never the web pane: WKWebView's PDF plugin renders
     /// the file but leaves selection, find, Reader mode and reading progress
@@ -138,12 +132,13 @@ final class ItemReaderViewModel {
         return resolvedSourceURL(from: item.sourceURL)
     }
 
-    /// URL that can be loaded in the in-app WebView (article/codebase items,
-    /// not local video, not PDFs).
+    /// URL that can be loaded in the in-app WebView (articles, and the
+    /// `.codebase` items captured before GitHub links became articles; not
+    /// local video, not PDFs).
     var articleURL: URL? {
         guard (item.type == .article || item.type == .codebase),
               !isPDFItem,
-              item.metadata["videoLocalFile"] != "true" else { return nil }
+              !item.isVideoLocalFile else { return nil }
 
         return resolvedSourceURL(from: item.sourceURL)
     }
@@ -153,7 +148,7 @@ final class ItemReaderViewModel {
     /// every item that has a local file to play or no web source at all.
     var remoteVideoEmbedURL: URL? {
         guard item.type == .video, localVideoURL == nil else { return nil }
-        return VideoEmbed.remoteURL(sourceURL: item.sourceURL, metadata: item.metadata)
+        return VideoEmbed.remoteURL(sourceURL: item.sourceURL, videoSource: item.videoSource, videoID: item.videoID)
     }
 
     /// True for every video item — whether the pane is showing an embed or a
@@ -187,7 +182,7 @@ final class ItemReaderViewModel {
     /// Resolve the local video file URL for this item
     var localVideoURL: URL? {
         guard item.type == .video else { return nil }
-        if let path = item.metadata["originalPath"] {
+        if let path = item.originalPath {
             let url = URL(fileURLWithPath: path)
             if FileManager.default.fileExists(atPath: path) {
                 return url
@@ -223,7 +218,7 @@ final class ItemReaderViewModel {
 
     /// Persisted 0–1 reading progress for this item.
     var readingProgress: Double {
-        Double(item.metadata["readingProgress"] ?? "") ?? 0
+        item.readingProgress
     }
 
     /// Loads a cached extraction if present, and opens straight into Reader
@@ -233,8 +228,8 @@ final class ItemReaderViewModel {
         guard let cached = ArticleReaderService.shared.cachedArticle(for: item.id) else { return }
         readerArticle = cached
         isReaderMode = true
-        if item.metadata["readTimeMinutes"] == nil {
-            item.metadata["readTimeMinutes"] = String(cached.readMinutes)
+        if item.readTimeMinutes == nil {
+            item.readTimeMinutes = cached.readMinutes
         }
     }
 
@@ -274,7 +269,7 @@ final class ItemReaderViewModel {
             ) else { return }
             ArticleReaderService.shared.saveArticle(article, for: itemID)
             readerArticle = article
-            item.metadata["readTimeMinutes"] = String(article.readMinutes)
+            item.readTimeMinutes = article.readMinutes
             try? modelContext.save()
             withAnimation(.easeOut(duration: 0.2)) { isReaderMode = true }
         }
@@ -362,7 +357,7 @@ final class ItemReaderViewModel {
         liveReadingProgress = clamped
         guard abs(clamped - lastSavedReadingProgress) >= 0.05 || clamped >= 0.995 else { return }
         lastSavedReadingProgress = clamped
-        item.metadata["readingProgress"] = String(format: "%.3f", clamped)
+        item.readingProgress = clamped
         try? modelContext.save()
     }
 
@@ -429,14 +424,12 @@ final class ItemReaderViewModel {
         guard !trimmed.isEmpty else { return }
         let host = reflectionHost()
         let nextPosition = (host.reflections.map(\.position).max() ?? -1) + 1
-        let timestamp: Int? = isVideoItem ? Int(videoCurrentTime) : nil
         let block = ReflectionBlock(
             item: host,
             blockType: .keyInsight,
             content: "",
             highlight: trimmed,
-            position: nextPosition,
-            videoTimestamp: timestamp
+            position: nextPosition
         )
         modelContext.insert(block)
         host.reflections.append(block)
@@ -470,6 +463,7 @@ final class ItemReaderViewModel {
         let selectedQuote = quote ?? reflection?.highlight
         flashcardSelection = FlashcardSelection(item: host, reflection: reflection, quote: selectedQuote)
         isReflectionPanelCollapsed = false
+        onClaimRail?()
         webSelectedText = nil
         webSelectionGeometry = nil
         NotificationCenter.default.post(name: .groveEnterFocusMode, object: nil)
@@ -493,6 +487,7 @@ final class ItemReaderViewModel {
         withAnimation(.easeOut(duration: 0.25)) {
             showReflectionEditor = true
         }
+        onClaimRail?()
         NotificationCenter.default.post(name: .groveEnterFocusMode, object: nil)
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(150))
@@ -500,19 +495,25 @@ final class ItemReaderViewModel {
         }
     }
 
+    /// Bring the collapsed reflections panel back into the rail.
+    func expandReflectionPanel() {
+        withAnimation(.easeOut(duration: 0.25)) {
+            isReflectionPanelCollapsed = false
+        }
+        onClaimRail?()
+    }
+
     func openReflectionEditor(type: ReflectionBlockType, content: String, highlight: String?, focusTrigger: @escaping () -> Void) {
         flashcardSelection = nil
         if isReflectionPanelCollapsed { isReflectionPanelCollapsed = false }
         let host = reflectionHost()
         let nextPosition = (host.reflections.map(\.position).max() ?? -1) + 1
-        let timestamp: Int? = isVideoItem ? Int(videoCurrentTime) : nil
         let block = ReflectionBlock(
             item: host,
             blockType: type,
             content: content,
             highlight: highlight,
-            position: nextPosition,
-            videoTimestamp: timestamp
+            position: nextPosition
         )
         modelContext.insert(block)
         host.reflections.append(block)
@@ -520,6 +521,7 @@ final class ItemReaderViewModel {
         withAnimation(.easeOut(duration: 0.25)) {
             showReflectionEditor = true
         }
+        onClaimRail?()
         NotificationCenter.default.post(name: .groveEnterFocusMode, object: nil)
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(150))
@@ -576,11 +578,6 @@ final class ItemReaderViewModel {
         }
     }
 
-    func requestDeleteBlock(_ block: ReflectionBlock) -> Bool {
-        blockToDelete = block
-        return true
-    }
-
     func confirmDeleteBlock() {
         if let block = blockToDelete {
             deleteBlock(block)
@@ -602,45 +599,34 @@ final class ItemReaderViewModel {
     func finishEditingSummary() {
         let trimmed = editableSummary.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
-            item.metadata["summary"] = String(trimmed.prefix(120))
+            item.summary = String(trimmed.prefix(120))
         }
         isEditingSummary = false
         try? modelContext.save()
     }
 
-    // MARK: - Review Banner
+    // MARK: - Overview
 
-    func acceptReview() {
-        item.metadata["summaryReviewPending"] = nil
-        item.metadata["overviewReviewPending"] = nil
-        try? modelContext.save()
-    }
-
-    func revertOverview() {
-        if let original = item.metadata["originalDescription"], !original.isEmpty {
-            item.content = original
-            item.metadata["hasLLMOverview"] = nil
-            item.metadata["overviewReviewPending"] = nil
-            item.metadata["originalDescription"] = nil
+    /// Catches an old-shape item that synced in after the launch pass.
+    func migrateLegacyOverviewIfNeeded() {
+        if item.migrateLegacyOverviewIfNeeded() {
             try? modelContext.save()
         }
     }
 
-    func dismissReview() {
-        item.metadata["summaryReviewPending"] = nil
-        item.metadata["overviewReviewPending"] = nil
-        try? modelContext.save()
-    }
-
     // MARK: - Content Editing
+
+    /// Notes, and articles that have an AI overview. Editing always targets
+    /// `content`; the overview itself is regenerated, not edited.
+    var canEditContent: Bool {
+        item.type == .note
+            || (item.type == .article && (item.hasLLMOverview || item.overview != nil))
+    }
 
     func toggleContentEditing() {
         let wasEditing = isEditingContent
         isEditingContent.toggle()
         if wasEditing {
-            if item.metadata["isAIGenerated"] == "true" && item.metadata["isAIEdited"] != "true" {
-                item.metadata["isAIEdited"] = "true"
-            }
             WikiLinkSync.sync(item: item, modelContext: modelContext)
         }
     }
@@ -662,7 +648,7 @@ final class ItemReaderViewModel {
     /// Downloads cover image for existing items that have a thumbnailURL but no stored thumbnail.
     func backfillThumbnailIfNeeded() {
         guard item.thumbnail == nil,
-              let thumbnailURL = item.metadata["thumbnailURL"],
+              let thumbnailURL = item.thumbnailURL,
               !thumbnailURL.isEmpty else { return }
         Task {
             if let imageData = await ImageDownloadService.shared.downloadAndCompress(urlString: thumbnailURL) {

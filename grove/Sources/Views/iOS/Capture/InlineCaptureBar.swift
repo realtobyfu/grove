@@ -6,10 +6,7 @@ import SwiftData
 struct InlineCaptureBar: View {
     @Environment(\.modelContext) private var modelContext
     @State private var inputText = ""
-    @State private var isExpanded = false
     @FocusState private var isFocused: Bool
-    @Query(sort: \Board.sortOrder) private var boards: [Board]
-    @State private var selectedBoardID: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,11 +29,13 @@ struct InlineCaptureBar: View {
                         save()
                     } label: {
                         Image(systemName: "return")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(Color.textPrimary)
+                            .frame(minWidth: LayoutDimensions.minTouchTarget,
+                                   minHeight: LayoutDimensions.minTouchTarget)
+                            .contentShape(.rect)
                     }
-                    .frame(minWidth: LayoutDimensions.minTouchTarget,
-                           minHeight: LayoutDimensions.minTouchTarget)
+                    .buttonStyle(.plain)
                 } else {
                     Button {
                         pasteFromClipboard()
@@ -44,9 +43,11 @@ struct InlineCaptureBar: View {
                         Image(systemName: "doc.on.clipboard")
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(Color.textMuted)
+                            .frame(minWidth: LayoutDimensions.minTouchTarget,
+                                   minHeight: LayoutDimensions.minTouchTarget)
+                            .contentShape(.rect)
                     }
-                    .frame(minWidth: LayoutDimensions.minTouchTarget,
-                           minHeight: LayoutDimensions.minTouchTarget)
+                    .buttonStyle(.plain)
                     .accessibilityLabel("Paste from clipboard")
                 }
             }
@@ -59,8 +60,6 @@ struct InlineCaptureBar: View {
                     .stroke(Color.borderInput, lineWidth: 1)
             }
         }
-        .listRowInsets(EdgeInsets(top: Spacing.sm, leading: LayoutDimensions.contentPaddingH, bottom: Spacing.sm, trailing: LayoutDimensions.contentPaddingH))
-        .listRowSeparator(.hidden)
     }
 
     private func pasteFromClipboard() {

@@ -9,6 +9,7 @@ struct SidebarView: View {
     @Binding var selection: SidebarItem?
     @Environment(\.modelContext) private var modelContext
     @Query private var allItems: [Item]
+    @Query private var feedSources: [FeedSource]
     @Query(sort: \Board.sortOrder) private var boards: [Board]
 
     @State private var showNewBoardSheet = false
@@ -22,9 +23,7 @@ struct SidebarView: View {
     }
 
     private var unreadNewsletterCount: Int {
-        allItems.filter {
-            $0.isNewsletterIssue && $0.status != .dismissed && !$0.isFeedIssueRead
-        }.count
+        FeedSubscriptionService.unreadIssueCount(items: allItems, sources: feedSources)
     }
 
     private var viewModel: BoardViewModel {
@@ -84,16 +83,16 @@ struct SidebarView: View {
         }
         .sheet(isPresented: $showNewBoardSheet) {
             BoardEditorSheet(
-                onSave: { title, icon, color, nudgeFreq in
-                    viewModel.createBoard(title: title, icon: icon, color: color, nudgeFrequencyHours: nudgeFreq)
+                onSave: { title, icon in
+                    viewModel.createBoard(title: title, icon: icon)
                 }
             )
         }
         .sheet(item: $boardToEdit) { board in
             BoardEditorSheet(
                 board: board,
-                onSave: { title, icon, color, nudgeFreq in
-                    viewModel.updateBoard(board, title: title, icon: icon, color: color, nudgeFrequencyHours: nudgeFreq)
+                onSave: { title, icon in
+                    viewModel.updateBoard(board, title: title, icon: icon)
                 }
             )
         }
@@ -169,7 +168,6 @@ struct SidebarView: View {
     private func boardRow(_ board: Board) -> some View {
         SidebarRow(
             icon: board.icon ?? "folder",
-            iconColor: board.color.map { Color(hex: $0) },
             title: board.title,
             tier: .board,
             isSelected: selection == .board(board.id)
@@ -246,14 +244,14 @@ private struct SidebarSearchField: View {
             .padding(.horizontal, Spacing.sm + 2)
             .frame(height: 30)
             .background(
-                RoundedRectangle(cornerRadius: 4)
+                RoundedRectangle(cornerRadius: Radius.control)
                     .fill(Color.bgCard)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 4)
+                RoundedRectangle(cornerRadius: Radius.control)
                     .stroke(Color.borderPrimary, lineWidth: 1)
             )
-            .contentShape(RoundedRectangle(cornerRadius: 4))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.control))
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
@@ -279,7 +277,6 @@ private struct SidebarRow: View {
     }
 
     let icon: String
-    var iconColor: Color? = nil
     let title: String
     var count: Int = 0
     var tier: Tier = .primary
@@ -305,7 +302,7 @@ private struct SidebarRow: View {
             HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
                 Image(systemName: icon)
                     .font(.system(size: tier == .primary ? 13 : 12, weight: .medium))
-                    .foregroundStyle(iconColor ?? inkColor)
+                    .foregroundStyle(inkColor)
                     .frame(width: 20)
 
                 Text(title)
@@ -331,16 +328,16 @@ private struct SidebarRow: View {
             .padding(.trailing, Spacing.sm + 2)
             .frame(minHeight: tier == .primary ? 32 : 30)
             .background(
-                RoundedRectangle(cornerRadius: 4)
+                RoundedRectangle(cornerRadius: Radius.control)
                     .fill(fillColor)
             )
             .overlay {
                 if isSelected {
-                    RoundedRectangle(cornerRadius: 4)
+                    RoundedRectangle(cornerRadius: Radius.control)
                         .stroke(Color.borderPrimary, lineWidth: 1)
                 }
             }
-            .contentShape(RoundedRectangle(cornerRadius: 4))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.control))
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
@@ -394,10 +391,10 @@ private struct SettingsFooterRow: View {
             .padding(.horizontal, Spacing.sm + 2)
             .frame(minHeight: 30)
             .background(
-                RoundedRectangle(cornerRadius: 4)
+                RoundedRectangle(cornerRadius: Radius.control)
                     .fill(isHovering ? Color.bgCardHover.opacity(0.6) : Color.clear)
             )
-            .contentShape(RoundedRectangle(cornerRadius: 4))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.control))
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }

@@ -41,10 +41,15 @@ struct ShareExtensionView: View {
     var body: some View {
         NavigationStack {
             Form {
-                previewSection
-                boardPickerSection
-                noteSection
+                Group {
+                    previewSection
+                    boardPickerSection
+                    noteSection
+                }
+                .listRowBackground(Color.bgCard)
             }
+            .scrollContentBackground(.hidden)
+            .background(Color.bgPrimary)
             .navigationTitle("Save to Grove")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -62,20 +67,21 @@ struct ShareExtensionView: View {
                 }
             }
         }
+        .tint(Color.textPrimary)
     }
 
     // MARK: - Sections
 
     private var previewSection: some View {
         Section {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: Spacing.xsm) {
                 Text(displayTitle)
                     .font(.headline)
                     .foregroundStyle(.primary)
                     .lineLimit(3)
 
                 if let domain {
-                    HStack(spacing: 4) {
+                    HStack(spacing: Spacing.xs) {
                         Image(systemName: "globe")
                             .font(.caption)
                         Text(domain)
@@ -84,7 +90,7 @@ struct ShareExtensionView: View {
                     .foregroundStyle(.secondary)
                 }
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, Spacing.xs)
         } header: {
             Text("Saving to Grove")
         }
@@ -95,7 +101,7 @@ struct ShareExtensionView: View {
             Picker("Board", selection: $selectedBoardID) {
                 Text("None (Inbox)")
                     .tag(UUID?.none)
-                ForEach(boards.filter { !$0.isSmart }) { board in
+                ForEach(boards) { board in
                     Label(board.title, systemImage: board.icon ?? "folder")
                         .tag(Optional(board.id))
                 }
@@ -133,8 +139,8 @@ struct ShareExtensionView: View {
 
         // Mark as needing metadata fetch so the main app picks it up
         if isURL {
-            item.metadata["fetchingMetadata"] = "true"
-            item.metadata["pendingFromExtension"] = "true"
+            item.isFetchingMetadata = true
+            item.isPendingFromExtension = true
         }
 
         // Append note if provided

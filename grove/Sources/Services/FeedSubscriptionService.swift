@@ -1,6 +1,17 @@
 import Foundation
 import SwiftData
 
+extension FeedSource {
+    /// Whether the user chose to follow this feed: subscribed through the
+    /// Follow bar, the directory, or a pasted URL. Legacy manual sources
+    /// predate `isUserSubscribed` and count too. Auto-discovered sources the
+    /// user never subscribed to do not, even if an early build left them
+    /// enabled, so they are never fetched.
+    var isExplicitSubscription: Bool {
+        isUserSubscribed || !isAutoDiscovered
+    }
+}
+
 /// Centralizes newsletter/RSS subscription mutations so the two entry points
 /// (SubscriptionsSettingsView and NewsletterDirectoryView) share one dedupe and
 /// subscribe rule instead of hand-rolling it each. Feed URLs are matched with
@@ -21,7 +32,7 @@ enum FeedSubscriptionService {
         }
     }
 
-    /// Subscribes to an existing discovered/known source: enables it, marks it
+    /// Subscribes to an existing known source: enables it, marks it
     /// user-subscribed, and clears any prior error count.
     static func subscribe(_ source: FeedSource, in context: ModelContext) {
         source.isEnabled = true
@@ -98,6 +109,44 @@ enum FeedSubscriptionService {
             in: context
         )
         return .success(source)
+    }
+
+    // MARK: - Deleting a Subscription
+
+    /// Deletes a source and dismisses its unkept, unread issues: they are
+    /// marked read and dismissed, the state the old suggestion expiry left
+    /// them in, so nothing keeps counting them. Kept (promoted) issues and
+    /// issues already read are left as they are.
+    static func delete(_ source: FeedSource, in context: ModelContext) {
+        let sourceID = source.id.uuidString
+        let items: [Item] = context.fetchAll()
+        for item in items
+        where item.feedSourceID == sourceID && item.isFeedSuggestion && !item.isFeedIssueRead {
+            item.isFeedIssueRead = true
+            item.isSuggestionDismissed = true
+        }
+        context.delete(source)
+        try? context.save()
+    }
+
+    // MARK: - Unread Issues
+
+    /// Whether an issue counts as unread on Following: not dismissed, not
+    /// read, and from a source that still exists. The Following list groups
+    /// by live source, so an issue whose source was deleted is never shown
+    /// and must not be counted either.
+    static func isUnreadIssue(_ item: Item, liveSourceIDs: Set<String>) -> Bool {
+        guard item.isNewsletterIssue,
+              item.status != .dismissed,
+              !item.isFeedIssueRead,
+              let sourceID = item.feedSourceID else { return false }
+        return liveSourceIDs.contains(sourceID)
+    }
+
+    /// The Following unread count every badge shows.
+    static func unreadIssueCount(items: [Item], sources: [FeedSource]) -> Int {
+        let liveSourceIDs = Set(sources.map(\.id.uuidString))
+        return items.filter { isUnreadIssue($0, liveSourceIDs: liveSourceIDs) }.count
     }
 
     // MARK: - Feed Discovery From a Site URL

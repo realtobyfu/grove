@@ -40,19 +40,19 @@ struct MarkdownTextView: View {
                 Rectangle()
                     .fill(Color.borderPrimary)
                     .frame(width: 2)
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: Spacing.xs) {
                     ForEach(Array(blockquote.lines.enumerated()), id: \.offset) { _, line in
                         if !document.text(in: line.contentRange).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             renderInlineText(range: line.contentRange, style: .body)
                         }
                     }
                 }
-                .padding(.leading, 10)
+                .padding(.leading, Spacing.md)
             }
             .foregroundStyle(Color.textTertiary)
 
         case .bulletList(let list):
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
                 ForEach(Array(list.items.enumerated()), id: \.offset) { _, item in
                     listRow(indentation: item.indentation, contentRange: item.contentRange) {
                         Text("\u{2022}")
@@ -63,7 +63,7 @@ struct MarkdownTextView: View {
             }
 
         case .orderedList(let list):
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
                 ForEach(Array(list.items.enumerated()), id: \.offset) { _, item in
                     listRow(indentation: item.indentation, contentRange: item.contentRange) {
                         Text("\(item.number).")
@@ -85,7 +85,7 @@ struct MarkdownTextView: View {
         contentRange: Range<Int>,
         @ViewBuilder marker: () -> Marker
     ) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
+        HStack(alignment: .firstTextBaseline, spacing: Spacing.xsm) {
             marker()
             renderInlineText(range: contentRange, style: .body)
         }
@@ -211,13 +211,13 @@ struct MarkdownTextView: View {
         switch heading.level {
         case 1:
             text
-                .padding(.top, 8)
+                .padding(.top, Spacing.sm)
         case 2:
             text
-                .padding(.top, 6)
+                .padding(.top, Spacing.xsm)
         case 3:
             text
-                .padding(.top, 4)
+                .padding(.top, Spacing.xs)
         default:
             text
                 .padding(.top, 2)
@@ -242,22 +242,22 @@ private struct SyntaxHighlightedCodeView: View {
                     .font(.custom(MarkdownTypeSpec.FontName.monoEmphasis, size: 9))
                     .tracking(0.8)
                     .foregroundStyle(Color.textTertiary)
-                    .padding(.horizontal, 10)
-                    .padding(.top, 8)
-                    .padding(.bottom, 4)
+                    .padding(.horizontal, Spacing.md)
+                    .padding(.top, Spacing.sm)
+                    .padding(.bottom, Spacing.xs)
             }
 
             // Highlighted code
             highlightedText
                 .font(.custom(MarkdownTypeSpec.FontName.mono, size: codeSize))
-                .padding(.horizontal, 10)
+                .padding(.horizontal, Spacing.md)
                 .padding(.vertical, language != nil ? 6 : 10)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Color.bgCard)
-        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
         .overlay(
-            RoundedRectangle(cornerRadius: 4)
+            RoundedRectangle(cornerRadius: Radius.control)
                 .strokeBorder(Color.borderPrimary, lineWidth: 1)
         )
     }

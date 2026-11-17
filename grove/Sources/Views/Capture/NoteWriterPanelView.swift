@@ -32,16 +32,20 @@ struct NoteWriterPanelView: View {
                 .onAppear {
                     configureInitialContent()
                 }
+                // The side panel shares the window's one rail, so chat or the
+                // inspector can take it over mid-draft; keep what was written.
+                .onDisappear {
+                    if isSidePanel { saveContent(notifyCreated: false) }
+                }
             } else {
                 editorContent
                 .frame(minWidth: 640, idealWidth: 700, maxWidth: 820, minHeight: 480, idealHeight: 560, maxHeight: 760)
                 .background(Color.bgCard)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.card))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12)
+                    RoundedRectangle(cornerRadius: Radius.card)
                         .stroke(Color.borderPrimary, lineWidth: 1)
                 )
-                .shadow(color: .black.opacity(0.18), radius: 20, y: 8)
                 .onAppear {
                     configureInitialContent()
                 }
@@ -110,9 +114,9 @@ struct NoteWriterPanelView: View {
             .padding(.vertical, Spacing.sm)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.bgInput)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.control))
             .padding(.horizontal, 40)
-            .padding(.bottom, 8)
+            .padding(.bottom, Spacing.sm)
     }
 
     // MARK: - Top Bar
@@ -168,8 +172,8 @@ struct NoteWriterPanelView: View {
             .accessibilityHint("Saves and closes this panel.")
         }
         .padding(.horizontal, 40)
-        .padding(.top, 20)
-        .padding(.bottom, 8)
+        .padding(.top, Spacing.xl)
+        .padding(.bottom, Spacing.sm)
     }
 
     // MARK: - Title Field
@@ -184,7 +188,7 @@ struct NoteWriterPanelView: View {
         .foregroundStyle(Color.textPrimary)
         .focused($isTitleFocused)
         .padding(.horizontal, 40)
-        .padding(.vertical, 10)
+        .padding(.vertical, Spacing.md)
     }
 
     // MARK: - Body Editor

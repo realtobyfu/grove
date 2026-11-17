@@ -23,7 +23,7 @@ enum ExtensionItemProcessor {
         let descriptor = FetchDescriptor<Item>()
         guard let items = try? context.fetch(descriptor) else { return }
 
-        let pending = items.filter { $0.metadata["pendingFromExtension"] == "true" }
+        let pending = items.filter { $0.isPendingFromExtension }
         guard !pending.isEmpty else { return }
 
         let enricher = ItemMetadataEnricher(
@@ -33,7 +33,7 @@ enum ExtensionItemProcessor {
 
         for item in pending {
             // Clear the extension flag immediately to avoid reprocessing
-            item.metadata["pendingFromExtension"] = nil
+            item.isPendingFromExtension = false
 
             // Dedupe: the Share Extension can't run the main app's URL dedupe, so
             // reconcile here — if this URL already exists as a reachable item,
@@ -53,7 +53,7 @@ enum ExtensionItemProcessor {
 
             let itemID = item.id
             let sourceURL = item.sourceURL
-            let needsMetadata = item.metadata["fetchingMetadata"] == "true"
+            let needsMetadata = item.isFetchingMetadata
 
             Task {
                 // Step 1: Enrich URL items through the same router in-app capture
@@ -80,8 +80,8 @@ enum ExtensionItemProcessor {
         let normalized = CaptureService.normalizedURLString(urlString)
         return items.contains { other in
             guard other.id != id,
-                  other.metadata["pendingFromExtension"] != "true",
-                  other.metadata["suggestionDismissed"] != "true",
+                  !other.isPendingFromExtension,
+                  !other.isSuggestionDismissed,
                   other.status != .dismissed, other.status != .archived,
                   let source = other.sourceURL else { return false }
             return CaptureService.normalizedURLString(source) == normalized

@@ -38,9 +38,9 @@ struct MobileBoardDetailView: View {
     @State private var itemToDelete: Item?
     @State private var isSuggestionsCollapsed = false
     @State private var starterService = ConversationStarterService.shared
-    @State private var selectedSuggestion: PromptBubble?
     @State private var paywallPresentation: PaywallPresentation?
     @State private var showFlashcards = false
+    @State private var showCapture = false
 
     private var isRegularSplitMode: Bool {
         horizontalSizeClass == .regular && (selectedItem != nil || openedItem != nil || readerCoordinator != nil)
@@ -73,7 +73,7 @@ struct MobileBoardDetailView: View {
     }
 
     private var effectiveItems: [Item] {
-        Self.effectiveItems(for: board, allItems: allItems)
+        Self.effectiveItems(for: board)
     }
 
     private var sortedFilteredItems: [Item] {
@@ -119,6 +119,11 @@ struct MobileBoardDetailView: View {
                 compactBoardLayout
             }
         }
+        // Paper under every layout, including the shared list/grid views
+        // mounted in split mode (their lists inherit the hidden background).
+        .scrollContentBackground(.hidden)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.bgPrimary)
         .navigationTitle(board.title)
         .navigationDestination(for: MobileItemRoute.self) { route in
             MobileItemRouteDestinationView(route: route)
@@ -128,9 +133,23 @@ struct MobileBoardDetailView: View {
             ToolbarItem(placement: .secondaryAction) {
                 Button("Flashcards", systemImage: "rectangle.on.rectangle") { showFlashcards = true }
             }
+            ToolbarItem(placement: .secondaryAction) {
+                Button("Copy as Markdown", systemImage: "doc.on.doc") {
+                    let markdown = BoardExportService.markdownForBoard(
+                        board,
+                        items: sortedFilteredItems,
+                        options: BoardExportOptions()
+                    )
+                    BoardExportService.copyToClipboard(markdown)
+                }
+                .disabled(sortedFilteredItems.isEmpty)
+            }
         }
         .sheet(isPresented: $showFlashcards) {
             NavigationStack { FlashcardLibraryView(boardID: board.id) }
+        }
+        .sheet(isPresented: $showCapture) {
+            CaptureSheetView(initialBoardID: board.id)
         }
         .task(id: board.id) {
             await starterService.refreshBoard(board.id, items: allItems)
@@ -144,19 +163,6 @@ struct MobileBoardDetailView: View {
         .onChange(of: board.id, initial: true) {
             sortOption = .dateAdded
             viewMode = .grid
-            selectedSuggestion = nil
-        }
-        .sheet(item: $selectedSuggestion) { suggestion in
-            MobilePromptActionSheet(
-                contextTitle: board.title,
-                suggestion: suggestion,
-                onOpenDialectics: {
-                    startDialectic(with: suggestion)
-                },
-                onStartWriting: {
-                    startWriting(with: suggestion.prompt)
-                }
-            )
         }
         .sheet(item: $paywallPresentation) { presentation in
             ProPaywallView(presentation: presentation)
@@ -205,9 +211,8 @@ struct MobileBoardDetailView: View {
                     BoardSuggestionsView(
                         suggestions: boardDiscussionSuggestions,
                         isSuggestionsCollapsed: $isSuggestionsCollapsed,
-                        onSelectSuggestion: { bubble in
-                            selectedSuggestion = bubble
-                        },
+                        onOpenChat: { startDialectic(with: $0) },
+                        onStartWriting: { startWriting(with: $0.prompt) },
                         onRefresh: {
                             Task {
                                 await starterService.forceRefreshBoard(board.id, items: allItems)
@@ -221,7 +226,7 @@ struct MobileBoardDetailView: View {
                     BoardGridView(
                         items: sortedFilteredItems,
                         sections: weekSections,
-                        canReorder: sortOption == .manual && !board.isSmart,
+                        canReorder: sortOption == .manual,
                         selectedItem: selectedItemBinding,
                         openedItem: openedItemBinding,
                         draggingItemID: $draggingItemID,
@@ -233,7 +238,7 @@ struct MobileBoardDetailView: View {
                     BoardListView(
                         items: sortedFilteredItems,
                         sections: weekSections,
-                        canReorder: sortOption == .manual && !board.isSmart,
+                        canReorder: sortOption == .manual,
                         selectedItem: selectedItemBinding,
                         openedItem: openedItemBinding,
                         onOpenItem: onOpenItem,
@@ -279,12 +284,12 @@ struct MobileBoardDetailView: View {
     }
 
     private var emptyState: some View {
-        ContentUnavailableView {
-            Label(board.title, systemImage: board.icon ?? "tray")
-        } description: {
-            Text(board.isSmart
-                ? "No items match this smart board yet."
-                : "Items added to this board will appear here.")
+        ScrollView {
+            GroveEmptyState(
+                title: "Nothing on this board yet.",
+                detail: "Tap + to add a link or a note."
+            )
+            .padding(.horizontal, LayoutDimensions.contentPaddingH)
         }
     }
 
@@ -293,17 +298,27 @@ struct MobileBoardDetailView: View {
     @ToolbarContentBuilder
     private var toolbarCluster: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
+            Button {
+                showCapture = true
+            } label: {
+                Image(systemName: "plus")
+                    .fontWeight(.medium)
+                    .frame(minWidth: LayoutDimensions.minTouchTarget,
+                           minHeight: LayoutDimensions.minTouchTarget)
+                    .contentShape(Rectangle())
+            }
+            .keyboardShortcut("n", modifiers: .command)
+            .accessibilityLabel("Add to board")
+
             Menu {
                 ForEach(BoardSortOption.allCases, id: \.self) { option in
-                    if !(option == .manual && board.isSmart) {
-                        Button {
-                            sortOption = option
-                        } label: {
-                            HStack {
-                                Text(option.rawValue)
-                                if sortOption == option {
-                                    Image(systemName: "checkmark")
-                                }
+                    Button {
+                        sortOption = option
+                    } label: {
+                        HStack {
+                            Text(option.rawValue)
+                            if sortOption == option {
+                                Image(systemName: "checkmark")
                             }
                         }
                     }
@@ -320,7 +335,7 @@ struct MobileBoardDetailView: View {
                 }
             }
 
-            if isRegularSplitMode && sortOption == .manual && viewMode == .list && !board.isSmart {
+            if isRegularSplitMode && sortOption == .manual && viewMode == .list {
 #if os(iOS)
                 EditButton()
 #endif
@@ -339,7 +354,7 @@ struct MobileBoardDetailView: View {
         }
 
         if let urlString = item.sourceURL, let url = URL(string: urlString),
-           item.metadata["videoLocalFile"] != "true" {
+           !item.isVideoLocalFile {
             Button {
                 openItem(item)
             } label: {
@@ -354,13 +369,11 @@ struct MobileBoardDetailView: View {
 
         Divider()
 
-        if !board.isSmart {
-            Button {
-                let viewModel = ItemViewModel(modelContext: modelContext)
-                viewModel.removeFromBoard(item, board: board)
-            } label: {
-                Label("Remove from Board", systemImage: "folder.badge.minus")
-            }
+        Button {
+            let viewModel = ItemViewModel(modelContext: modelContext)
+            viewModel.removeFromBoard(item, board: board)
+        } label: {
+            Label("Remove from Board", systemImage: "folder.badge.minus")
         }
 
         Button(role: .destructive) {
@@ -380,7 +393,6 @@ struct MobileBoardDetailView: View {
             )
             return
         }
-        entitlement.recordUse(.dialectics)
 
         let prompt = bubble.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         let seedIDs = scopedSeedItemIDs(for: bubble)
@@ -420,7 +432,6 @@ struct MobileBoardDetailView: View {
     // MARK: - Reorder
 
     private func moveGridItem(fromID: UUID, toID: UUID) {
-        guard !board.isSmart else { return }
         var order = board.manualOrder()
         let allIDs = board.items.map(\.id)
         let known = Set(order)
@@ -435,7 +446,6 @@ struct MobileBoardDetailView: View {
     }
 
     private func moveListItems(from source: IndexSet, to destination: Int) {
-        guard !board.isSmart else { return }
         var order = board.manualOrder()
         let allIDs = board.items.map(\.id)
         let known = Set(order)
@@ -447,12 +457,8 @@ struct MobileBoardDetailView: View {
 
     // MARK: - Testable Data Helpers
 
-    static func effectiveItems(for board: Board, allItems: [Item]) -> [Item] {
-        if board.isSmart {
-            return BoardViewModel.smartBoardItems(for: board, from: allItems)
-                .filter { $0.status == .active }
-        }
-        return board.items.filter { $0.status == .active }
+    static func effectiveItems(for board: Board) -> [Item] {
+        board.items.filter { $0.status == .active }
     }
 
     static func sortedItems(_ items: [Item], for board: Board, sortOption: BoardSortOption) -> [Item] {
@@ -467,8 +473,6 @@ struct MobileBoardDetailView: View {
             return items.sorted { $0.createdAt > $1.createdAt }
         case .title:
             return items.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        case .depthScore:
-            return items.sorted { $0.depthScore > $1.depthScore }
         }
     }
 }

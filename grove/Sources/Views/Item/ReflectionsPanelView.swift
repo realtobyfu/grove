@@ -38,9 +38,9 @@ struct ReflectionsListPanel: View {
 
                 addReflectionMenu
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
-            .padding(.bottom, 8)
+            .padding(.horizontal, Spacing.lg)
+            .padding(.top, Spacing.lg)
+            .padding(.bottom, Spacing.sm)
 
             Divider()
 
@@ -48,17 +48,17 @@ struct ReflectionsListPanel: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if vm.sortedReflections.isEmpty {
                         GhostPrompts(vm: vm, focusTrigger: focusTrigger)
-                            .padding(.horizontal, 16)
-                            .padding(.top, 12)
-                            .padding(.bottom, 8)
+                            .padding(.horizontal, Spacing.lg)
+                            .padding(.top, Spacing.md)
+                            .padding(.bottom, Spacing.sm)
 
                         Divider()
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, Spacing.lg)
                     }
 
                     reflectionBlocksList
                 }
-                .padding(.vertical, 8)
+                .padding(.vertical, Spacing.sm)
             }
         }
     }
@@ -69,10 +69,10 @@ struct ReflectionsListPanel: View {
         Text("\(vm.item.reflections.count)")
             .font(.groveBadge)
             .foregroundStyle(Color.textMuted)
-            .padding(.horizontal, 6)
+            .padding(.horizontal, Spacing.xsm)
             .padding(.vertical, 2)
             .background(Color.accentBadge)
-            .clipShape(Capsule())
+            .clipShape(RoundedRectangle(cornerRadius: Radius.tag))
     }
 
     private var addReflectionMenu: some View {
@@ -103,11 +103,6 @@ struct ReflectionsListPanel: View {
             }) {
                 ReflectionBlockRow(
                     block: block,
-                    isVideoItem: vm.isVideoItem,
-                    videoSeekTarget: Binding(
-                        get: { vm.videoSeekTarget },
-                        set: { vm.videoSeekTarget = $0 }
-                    ),
                     onEdit: { vm.openBlockForEditing($0, focusTrigger: focusTrigger) },
                     onDelete: { blk in
                         vm.blockToDelete = blk
@@ -127,7 +122,7 @@ struct ReflectionsListPanel: View {
 
             if index < vm.sortedReflections.count - 1 {
                 Divider()
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, Spacing.lg)
             }
         }
     }
@@ -153,10 +148,10 @@ struct InlineReflectionsSection: View {
                 Text("\(vm.item.reflections.count)")
                     .font(.groveBadge)
                     .foregroundStyle(Color.textMuted)
-                    .padding(.horizontal, 6)
+                    .padding(.horizontal, Spacing.xsm)
                     .padding(.vertical, 2)
                     .background(Color.accentBadge)
-                    .clipShape(Capsule())
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.tag))
 
                 Spacer()
 
@@ -165,9 +160,7 @@ struct InlineReflectionsSection: View {
                     // recognisable toggle for one piece of layout, rather than
                     // an up-chevron and a down-chevron that have to be read.
                     Button {
-                        withAnimation(.easeOut(duration: 0.25)) {
-                            vm.isReflectionPanelCollapsed = false
-                        }
+                        vm.expandReflectionPanel()
                     } label: {
                         Image(systemName: "sidebar.trailing")
                             .font(.groveBody)
@@ -197,12 +190,12 @@ struct InlineReflectionsSection: View {
             }
 
             Divider()
-                .padding(.top, 12)
+                .padding(.top, Spacing.md)
 
             // Quick-add chips when no reflections exist yet
             if vm.sortedReflections.isEmpty {
                 GhostPrompts(vm: vm, focusTrigger: focusTrigger)
-                    .padding(.top, 12)
+                    .padding(.top, Spacing.md)
             }
 
             // Existing reflection blocks
@@ -213,11 +206,6 @@ struct InlineReflectionsSection: View {
                 }) {
                     ReflectionBlockRow(
                         block: block,
-                        isVideoItem: vm.isVideoItem,
-                        videoSeekTarget: Binding(
-                            get: { vm.videoSeekTarget },
-                            set: { vm.videoSeekTarget = $0 }
-                        ),
                         onEdit: { vm.openBlockForEditing($0, focusTrigger: focusTrigger) },
                         onDelete: { blk in
                             vm.blockToDelete = blk
@@ -237,7 +225,7 @@ struct InlineReflectionsSection: View {
 
                 if index < vm.sortedReflections.count - 1 {
                     Divider()
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, Spacing.lg)
                 }
             }
         }
@@ -251,7 +239,7 @@ struct GhostPrompts: View {
     var focusTrigger: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
             ghostPromptChip(
                 label: "Key claim?",
                 icon: ReflectionBlockType.keyInsight.systemImage,
@@ -274,19 +262,19 @@ struct GhostPrompts: View {
         Button {
             vm.openReflectionEditor(type: blockType, content: "", highlight: nil, focusTrigger: focusTrigger)
         } label: {
-            HStack(spacing: 5) {
+            HStack(spacing: Spacing.xs) {
                 Image(systemName: icon)
                     .font(.groveMeta)
                 Text(label)
                     .font(.groveBodySecondary)
             }
             .foregroundStyle(Color.textTertiary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.xsm)
             .background(Color.bgCard)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.control))
             .overlay(
-                RoundedRectangle(cornerRadius: 4)
+                RoundedRectangle(cornerRadius: Radius.control)
                     .strokeBorder(
                         Color.borderTagDashed,
                         style: StrokeStyle(lineWidth: 1, dash: [4, 3])
@@ -317,12 +305,12 @@ private struct DraggableReflectionRow<Row: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 4) {
+        HStack(alignment: .top, spacing: Spacing.xs) {
             Image(systemName: "line.3.horizontal")
                 .font(.caption2)
                 .foregroundStyle(Color.textTertiary)
                 .frame(width: 12, height: 20)
-                .padding(.top, 12)
+                .padding(.top, Spacing.md)
                 .opacity(handleOpacity)
                 .animation(.easeInOut(duration: 0.15), value: isHovered)
                 .onDrag(onDragStart)

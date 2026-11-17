@@ -15,15 +15,9 @@ struct InboxCard: View {
     var onFileToBoard: ((Board) -> Void)?
     /// Open the full board picker for this item.
     var onMoreBoards: (() -> Void)?
-    /// Display domain of a site that publishes a feed the user isn't following
-    /// yet. Set only when following is actually offerable — the chip renders
-    /// whenever this and `onFollowSite` are both present.
-    var followableSite: String? = nil
-    /// Subscribe to `followableSite`'s feed.
-    var onFollowSite: (() -> Void)?
 
     private var isFetchingMetadata: Bool {
-        item.metadata["fetchingMetadata"] != nil
+        item.isFetchingMetadata
     }
 
     var body: some View {
@@ -34,7 +28,7 @@ struct InboxCard: View {
                     imageData: thumbnailData,
                     height: 140,
                     showPlayOverlay: item.type == .video,
-                    cornerRadius: 6
+                    cornerRadius: Radius.control
                 )
             }
 
@@ -45,14 +39,14 @@ struct InboxCard: View {
                     .foregroundStyle(Color.textMuted)
                     .frame(width: 24, height: 24)
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: Spacing.xs) {
                     if isFetchingMetadata {
                         // URL title not yet resolved — show raw URL in mono
                         Text(item.title)
                             .font(.groveMeta)
                             .foregroundStyle(Color.textSecondary)
                             .lineLimit(2)
-                        HStack(spacing: 4) {
+                        HStack(spacing: Spacing.xs) {
                             ProgressView()
                                 .controlSize(.small)
                             Text("Fetching title…")
@@ -67,16 +61,12 @@ struct InboxCard: View {
                     }
 
                     // Source domain and capture date
-                    HStack(spacing: 8) {
+                    HStack(spacing: Spacing.sm) {
                         if let url = item.sourceURL, !url.isEmpty {
                             Label(domainFrom(url), systemImage: "link")
                                 .font(.groveMeta)
                                 .foregroundStyle(Color.textSecondary)
                                 .lineLimit(1)
-                        }
-
-                        if let followableSite, let onFollowSite {
-                            FollowSiteButton(site: followableSite, action: onFollowSite)
                         }
 
                         Text(item.createdAt.formatted(.relative(presentation: .named)))
@@ -89,14 +79,14 @@ struct InboxCard: View {
             }
 
             // One-line summary if available
-            if let summary = item.metadata["summary"], !summary.isEmpty {
+            if let summary = item.summary, !summary.isEmpty {
                 Text(summary)
                     .font(.groveBodySecondary)
                     .foregroundStyle(Color.textSecondary)
                     .lineLimit(3)
-            } else if let content = item.content, !content.isEmpty {
+            } else if let preview = item.previewText {
                 // Fall back to content preview
-                Text(content)
+                Text(preview)
                     .font(.groveBodySecondary)
                     .foregroundStyle(Color.textSecondary)
                     .lineLimit(3)
@@ -104,7 +94,7 @@ struct InboxCard: View {
 
             // Auto-tags with confirm/dismiss actions
             if !item.tags.isEmpty {
-                FlowLayout(spacing: 4) {
+                FlowLayout(spacing: Spacing.xs) {
                     ForEach(item.tags.prefix(5)) { tag in
                         TagChip(tag: tag, mode: .autoTag(
                             onConfirm: { onConfirmTag?(tag) },
@@ -132,11 +122,8 @@ struct InboxCard: View {
                     onKeep()
                 } label: {
                     Label("Keep unfiled", systemImage: "checkmark.circle")
-                        .font(.groveBodyMedium)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.textPrimary)
-                .controlSize(.small)
+                .buttonStyle(.grove(.primary, size: .compact))
                 .help("Keep without filing to a board. Shortcut: 1")
 
                 Menu {
@@ -149,10 +136,10 @@ struct InboxCard: View {
                     }
                 } label: {
                     Label("Later", systemImage: "clock")
-                        .font(.groveBodyMedium)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .menuStyle(.button)
+                .menuIndicator(.hidden)
+                .buttonStyle(.grove(.secondary, size: .compact))
                 .disabled(onQueue == nil)
                 .help("Shortcut: 3 queues until tomorrow morning")
 
@@ -160,16 +147,14 @@ struct InboxCard: View {
                     onDrop()
                 } label: {
                     Label("Drop", systemImage: "xmark.circle")
-                        .font(.groveBodyMedium)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(.grove(.secondary, size: .compact))
                 .help("Shortcut: 2")
             }
         }
         .padding(Spacing.lg)
         .background(Color.bgCard)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card))
         .selectedItemStyle(isSelected)
     }
 
@@ -188,7 +173,7 @@ struct InboxCard: View {
     }
 
     private var chipFlow: some View {
-        FlowLayout(spacing: 6) {
+        FlowLayout(spacing: Spacing.xsm) {
             ForEach(Array(suggestedBoards.prefix(3).enumerated()), id: \.element.id) { index, board in
                 BoardFilingChip(
                     title: board.title,
@@ -227,42 +212,6 @@ struct InboxCard: View {
     }
 }
 
-// MARK: - Follow Site Button
-
-/// Quiet inline "+ Follow" that sits in the meta row and reads as meta text:
-/// no fill, no border, secondary ink that darkens on hover. Following happens
-/// where the user is already looking at the site's work, not in Settings.
-private struct FollowSiteButton: View {
-    let site: String
-    let action: () -> Void
-
-    @State private var isHovering = false
-
-    /// The label is small by design, so iOS pads the hit region out to the
-    /// 44pt minimum without changing how the text looks.
-    #if os(iOS)
-    private static let minTapTarget: CGFloat = 44
-    #else
-    private static let minTapTarget: CGFloat = 0
-    #endif
-
-    var body: some View {
-        Button(action: action) {
-            Text("+ Follow")
-                .font(.groveMeta)
-                .foregroundStyle(isHovering ? Color.textPrimary : Color.textSecondary)
-                .lineLimit(1)
-                .fixedSize()
-                .frame(minWidth: Self.minTapTarget, minHeight: Self.minTapTarget)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .help("Follow \(site) \u{2014} new posts appear in Following")
-        .accessibilityLabel("Follow \(site)")
-    }
-}
-
 // MARK: - Filing Chip
 
 /// Quiet monochrome chip. The recommended board reads in full ink with a
@@ -287,13 +236,13 @@ private struct BoardFilingChip: View {
                 .font(.groveBodySmall)
                 .foregroundStyle(ink)
                 .lineLimit(1)
-                .padding(.horizontal, 8)
+                .padding(.horizontal, Spacing.sm)
                 .padding(.vertical, Self.verticalPadding)
                 #if os(iOS)
                 .frame(minHeight: LayoutDimensions.minTouchTarget)
                 #endif
                 .overlay(
-                    RoundedRectangle(cornerRadius: 3)
+                    RoundedRectangle(cornerRadius: Radius.tag)
                         .stroke(
                             isRecommended || isHovering ? Color.borderPrimary : Color.borderTag,
                             lineWidth: 1

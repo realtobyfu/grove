@@ -42,7 +42,7 @@ struct SyncSettingsSections: View {
                         .font(.groveBodySmall)
                         .foregroundStyle(Color.textSecondary)
                 } else {
-                    HStack(spacing: 6) {
+                    HStack(spacing: Spacing.xsm) {
                         Image(systemName: "lock")
                             .font(.groveBodySmall)
                             .foregroundStyle(Color.textSecondary)
@@ -66,7 +66,7 @@ struct SyncSettingsSections: View {
                     .buttonStyle(.bordered)
                 }
 
-                HStack(spacing: 8) {
+                HStack(spacing: Spacing.sm) {
                     Image(systemName: "exclamationmark.triangle")
                         .foregroundStyle(Color.textPrimary)
                         .font(.groveBodySmall)
@@ -78,7 +78,7 @@ struct SyncSettingsSections: View {
             }
 
             Section("Status") {
-                HStack(spacing: 8) {
+                HStack(spacing: Spacing.sm) {
                     Image(systemName: syncEnabled ? "icloud" : "icloud.slash")
                         .foregroundStyle(syncEnabled ? Color.textPrimary : Color.textSecondary)
                     Text(syncEnabled != syncService.isSyncConfigured
@@ -94,7 +94,7 @@ struct SyncSettingsSections: View {
             }
 
             Section("How Sync Works") {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Spacing.sm) {
                     infoRow(icon: "arrow.triangle.2.circlepath", text: "Syncs automatically when connected")
                     infoRow(icon: "wifi.slash", text: "Offline changes sync later")
                     infoRow(icon: "arrow.merge", text: "Each device’s reviews are preserved")
@@ -127,7 +127,7 @@ struct SyncSettingsSections: View {
     }
 
     private func infoRow(icon: String, text: String) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.xsm) {
             Image(systemName: icon)
                 .font(.groveBodySmall)
                 .foregroundStyle(Color.textSecondary)

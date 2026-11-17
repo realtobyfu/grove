@@ -25,7 +25,7 @@ struct ItemCardView: View {
     private var noteCardBody: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             // Type icon + title
-            HStack(alignment: .top, spacing: 6) {
+            HStack(alignment: .top, spacing: Spacing.xsm) {
                 Image(systemName: item.type.iconName)
                     .font(.groveBadge)
                     .foregroundStyle(Color.textTertiary)
@@ -45,7 +45,7 @@ struct ItemCardView: View {
 
             // Tags row
             if showTags && !item.tags.isEmpty {
-                HStack(spacing: 4) {
+                HStack(spacing: Spacing.xs) {
                     ForEach(item.tags.prefix(3)) { tag in
                         TagChip(tag: tag, mode: .display)
                     }
@@ -99,30 +99,21 @@ struct ItemCardView: View {
         VStack(alignment: .leading, spacing: Spacing.md) {
             sourceCover
 
-            HStack(alignment: .top, spacing: 8) {
+            HStack(alignment: .top, spacing: Spacing.sm) {
                 Image(systemName: item.type.iconName)
                     .font(.groveMeta)
                     .foregroundStyle(Color.textMuted)
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: Spacing.xs) {
                     Text(item.title)
                         .font(.groveItemTitle)
                         .lineLimit(2)
                         .foregroundStyle(Color.textPrimary)
                         .frame(maxWidth: .infinity, alignment: .leading)
-
-                    if item.metadata["isAIGenerated"] == "true" {
-                        Label(
-                            item.metadata["isAIEdited"] == "true" ? "Edited" : "AI Draft",
-                            systemImage: item.metadata["isAIEdited"] == "true" ? "pencil" : "sparkles"
-                        )
-                        .font(.groveBadge)
-                        .foregroundStyle(Color.textSecondary)
-                    }
                 }
             }
 
-            if let summary = item.metadata["summary"], !summary.isEmpty {
+            if let summary = item.summary, !summary.isEmpty {
                 Text(summary)
                     .font(.groveBodySecondary)
                     .foregroundStyle(Color.textSecondary)
@@ -130,7 +121,7 @@ struct ItemCardView: View {
             }
 
             if showTags && !item.tags.isEmpty {
-                HStack(spacing: 4) {
+                HStack(spacing: Spacing.xs) {
                     ForEach(item.tags.prefix(2)) { tag in
                         TagChip(tag: tag, mode: .capsule)
                     }
@@ -170,7 +161,7 @@ struct ItemCardView: View {
 
                 Spacer(minLength: 0)
 
-                if item.metadata["videoLocalFile"] == "true" {
+                if item.isVideoLocalFile {
                     Text("Local")
                         .font(.groveBadge)
                         .foregroundStyle(Color.textTertiary)
@@ -204,7 +195,7 @@ struct ItemCardView: View {
         }
         .padding(Spacing.md)
         .frame(maxWidth: .infinity, minHeight: 280, alignment: .topLeading)
-        .cardStyle(cornerRadius: 12)
+        .cardStyle(cornerRadius: Radius.card)
     }
 
     @ViewBuilder
@@ -214,7 +205,7 @@ struct ItemCardView: View {
                 imageData: thumbnailData,
                 height: 132,
                 showPlayOverlay: item.type == .video,
-                cornerRadius: 8
+                cornerRadius: Radius.control
             )
 
             if usesContainerReadAction || onReadInApp == nil {
