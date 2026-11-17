@@ -202,9 +202,9 @@ struct InboxFocusCard: View {
     // MARK: Slip (Grove)
 
     /// The focused arrival as an index slip, in three bands: where it came
-    /// from, what it is, what to do with it. It is the only item on the page
-    /// shown at this size, so it carries no selection mark — only a hairline
-    /// outline. The cover runs flush to the slip's edge at the body's height.
+    /// from, what it is, what to do with it. A hairline outlines it and an
+    /// ink line in the margin marks it as the one in hand. The cover runs
+    /// flush to the slip's edge at the body's height.
     private var slip: some View {
         VStack(alignment: .leading, spacing: 0) {
             metaLine
@@ -246,6 +246,20 @@ struct InboxFocusCard: View {
             RoundedRectangle(cornerRadius: Radius.card)
                 .stroke(Color.borderInput, lineWidth: 1)
         )
+        .overlay(alignment: .leading) { emphasisMark(inset: Radius.card) }
+    }
+
+    /// The mark that says "this one": a straight ink line standing in the
+    /// margin beside the slip. It is drawn outside the slip, clear of its
+    /// rounded corners, so it stays a line rather than bending into a
+    /// coloured border.
+    private func emphasisMark(inset: CGFloat) -> some View {
+        Rectangle()
+            .fill(Color.accentSelection)
+            .frame(width: 2)
+            .padding(.vertical, inset)
+            .offset(x: -Spacing.md)
+            .accessibilityHidden(true)
     }
 
     private var hasSideCover: Bool {
@@ -298,6 +312,7 @@ struct InboxFocusCard: View {
         .padding(.vertical, Spacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(alignment: .bottom) { SlipRule() }
+        .overlay(alignment: .leading) { emphasisMark(inset: Spacing.lg) }
     }
 
     // MARK: Cover
