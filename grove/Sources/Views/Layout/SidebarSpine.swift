@@ -24,16 +24,13 @@ struct SidebarSpine: View {
     var body: some View {
         VStack(spacing: Spacing.xs) {
             SpineButton(title: "Today", isSelected: selection == .home, action: { go(.home) }) {
-                Image(systemName: "sun.max")
-                    .font(.system(size: 13, weight: .medium))
+                mark(symbol: "sun.max", letter: "T")
             }
             SpineButton(title: "Library", isSelected: selection == .library, action: { go(.library) }) {
-                Image(systemName: "books.vertical")
-                    .font(.system(size: 13, weight: .medium))
+                mark(symbol: "books.vertical", letter: "L")
             }
             SpineButton(title: "Following", isSelected: selection == .newsletters, action: { go(.newsletters) }) {
-                Image(systemName: "newspaper")
-                    .font(.system(size: 13, weight: .medium))
+                mark(symbol: "newspaper", letter: "F")
             }
 
             Rectangle()
@@ -75,6 +72,18 @@ struct SidebarSpine: View {
         .accessibilityLabel("Contents")
     }
 
+    /// A destination's mark: its symbol in Grove, its initial in Commonplace.
+    @ViewBuilder
+    private func mark(symbol: String, letter: String) -> some View {
+        if ThemeStore.shared.theme.usesGlyphs {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .medium))
+        } else {
+            Text(letter)
+                .font(.groveMeta)
+        }
+    }
+
     private func go(_ destination: SidebarItem) {
         selection = destination
         onNavigate()
@@ -96,7 +105,10 @@ private struct SpineButton<Glyph: View>: View {
         RoundedRectangle(cornerRadius: Radius.control)
     }
 
+    private var usesRules: Bool { ThemeStore.shared.theme.usesRules }
+
     private var fillColor: Color {
+        if usesRules { return Color.clear }
         if isSelected { return Color.bgCard }
         if isHovering { return Color.bgCardHover.opacity(0.6) }
         return Color.clear
@@ -109,8 +121,16 @@ private struct SpineButton<Glyph: View>: View {
                 .frame(width: 28, height: 28)
                 .background(shape.fill(fillColor))
                 .overlay {
-                    if isSelected {
+                    if isSelected && !usesRules {
                         shape.stroke(Color.borderPrimary, lineWidth: 1)
+                    }
+                }
+                .overlay(alignment: .leading) {
+                    if isSelected && usesRules {
+                        Rectangle()
+                            .fill(Color.accentSelection)
+                            .frame(width: 2)
+                            .padding(.vertical, Spacing.xs)
                     }
                 }
                 .contentShape(Rectangle())

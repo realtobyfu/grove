@@ -15,22 +15,51 @@ typealias PlatformInkColor = UIColor
 /// rendered markdown and the rest of the app share one set of inks and follow
 /// any change made to the assets.
 ///
-/// Each colour is created once: the live editor diffs attribute runs to find
-/// the paragraphs that actually changed, and identical instances make that
-/// comparison exact.
+/// Each colour is created once per theme: the live editor diffs attribute
+/// runs to find the paragraphs that actually changed, and identical instances
+/// make that comparison exact. An editor that is already open takes a newly
+/// chosen theme's ink the next time it restyles.
 @MainActor
 enum EditorInk {
-    static let primary = named("textPrimary", fallback: systemPrimary)
-    static let secondary = named("textSecondary", fallback: systemSecondary)
-    static let tertiary = named("textTertiary", fallback: systemTertiary)
-    static let muted = named("textMuted", fallback: systemTertiary)
-    /// Hairlines drawn in the text: the quote rail and dividers.
-    static let rule = named("borderPrimary", fallback: systemTertiary)
-    /// The inset wash behind inline code and code blocks.
-    static let codeWash = named("bgInput", fallback: systemWash)
+    private struct Palette {
+        let primary: PlatformInkColor
+        let secondary: PlatformInkColor
+        let tertiary: PlatformInkColor
+        let muted: PlatformInkColor
+        let rule: PlatformInkColor
+        let codeWash: PlatformInkColor
 
-    private static func named(_ name: String, fallback: PlatformInkColor) -> PlatformInkColor {
-        PlatformInkColor(named: name) ?? fallback
+        init(theme: GroveTheme) {
+            primary = EditorInk.named("textPrimary", in: theme, fallback: EditorInk.systemPrimary)
+            secondary = EditorInk.named("textSecondary", in: theme, fallback: EditorInk.systemSecondary)
+            tertiary = EditorInk.named("textTertiary", in: theme, fallback: EditorInk.systemTertiary)
+            muted = EditorInk.named("textMuted", in: theme, fallback: EditorInk.systemTertiary)
+            rule = EditorInk.named("borderPrimary", in: theme, fallback: EditorInk.systemTertiary)
+            codeWash = EditorInk.named("bgInput", in: theme, fallback: EditorInk.systemWash)
+        }
+    }
+
+    private static let grovePalette = Palette(theme: .grove)
+    private static let commonplacePalette = Palette(theme: .commonplace)
+
+    private static var palette: Palette {
+        switch ThemeStore.shared.theme {
+        case .grove: grovePalette
+        case .commonplace: commonplacePalette
+        }
+    }
+
+    static var primary: PlatformInkColor { palette.primary }
+    static var secondary: PlatformInkColor { palette.secondary }
+    static var tertiary: PlatformInkColor { palette.tertiary }
+    static var muted: PlatformInkColor { palette.muted }
+    /// Hairlines drawn in the text: the quote rail and dividers.
+    static var rule: PlatformInkColor { palette.rule }
+    /// The inset wash behind inline code and code blocks.
+    static var codeWash: PlatformInkColor { palette.codeWash }
+
+    private static func named(_ token: String, in theme: GroveTheme, fallback: PlatformInkColor) -> PlatformInkColor {
+        PlatformInkColor(named: theme.assetName(token)) ?? fallback
     }
 
     #if os(macOS)

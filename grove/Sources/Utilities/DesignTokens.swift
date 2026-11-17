@@ -4,36 +4,41 @@ import UIKit
 #endif
 
 // MARK: - Color Tokens
+//
+// Each token resolves through the current theme (`ThemeStore`): the Grove
+// theme reads the asset of the same name, Commonplace its warm counterpart
+// ("bgPrimaryCommonplace"). They are computed so that a view which reads one
+// is redrawn when the theme changes.
 
 extension Color {
     // Background
-    static let bgPrimary = Color("bgPrimary")
-    static let bgSidebar = Color("bgSidebar")
-    static let bgInspector = Color("bgInspector")
-    static let bgCard = Color("bgCard")
-    static let bgCardHover = Color("bgCardHover")
-    static let bgInput = Color("bgInput")
-    static let bgTagActive = Color("bgTagActive")
+    static var bgPrimary: Color { ThemeStore.color("bgPrimary") }
+    static var bgSidebar: Color { ThemeStore.color("bgSidebar") }
+    static var bgInspector: Color { ThemeStore.color("bgInspector") }
+    static var bgCard: Color { ThemeStore.color("bgCard") }
+    static var bgCardHover: Color { ThemeStore.color("bgCardHover") }
+    static var bgInput: Color { ThemeStore.color("bgInput") }
+    static var bgTagActive: Color { ThemeStore.color("bgTagActive") }
 
     // Text
-    static let textPrimary = Color("textPrimary")
-    static let textSecondary = Color("textSecondary")
-    static let textTertiary = Color("textTertiary")
-    static let textMuted = Color("textMuted")
-    static let textInverse = Color("textInverse")
+    static var textPrimary: Color { ThemeStore.color("textPrimary") }
+    static var textSecondary: Color { ThemeStore.color("textSecondary") }
+    static var textTertiary: Color { ThemeStore.color("textTertiary") }
+    static var textMuted: Color { ThemeStore.color("textMuted") }
+    static var textInverse: Color { ThemeStore.color("textInverse") }
 
     // Border
-    static let borderPrimary = Color("borderPrimary")
-    static let borderInput = Color("borderInput")
-    static let borderTag = Color("borderTag")
-    static let borderTagDashed = Color("borderTagDashed")
+    static var borderPrimary: Color { ThemeStore.color("borderPrimary") }
+    static var borderInput: Color { ThemeStore.color("borderInput") }
+    static var borderTag: Color { ThemeStore.color("borderTag") }
+    static var borderTagDashed: Color { ThemeStore.color("borderTagDashed") }
 
     // Accent
-    static let accentSelection = Color("accentSelection")
-    static let accentBadge = Color("accentBadge")
-    static let barFillHigh = Color("barFillHigh")
-    static let barFillMid = Color("barFillMid")
-    static let barFillLow = Color("barFillLow")
+    static var accentSelection: Color { ThemeStore.color("accentSelection") }
+    static var accentBadge: Color { ThemeStore.color("accentBadge") }
+    static var barFillHigh: Color { ThemeStore.color("barFillHigh") }
+    static var barFillMid: Color { ThemeStore.color("barFillMid") }
+    static var barFillLow: Color { ThemeStore.color("barFillLow") }
 }
 
 // MARK: - Platform Detection

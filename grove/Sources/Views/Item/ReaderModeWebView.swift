@@ -805,13 +805,48 @@ enum ReaderTemplate {
     /// structure, not prose, and readers expect keywords, strings, and
     /// comments to separate. The hues are muted print inks rather than the
     /// saturated terminal palette, so a block still sits quietly on the page.
-    private static func paletteCSS(dark: Bool) -> String {
-        dark ? """
+    private static func paletteCSS(dark: Bool, theme: GroveTheme) -> String {
+        surfaceCSS(dark: dark, theme: theme) + "\n" + inkCSS(dark: dark)
+    }
+
+    /// Paper, ink and rules — the part of the palette a theme changes. The
+    /// values mirror the theme's asset colours (bgPrimary, textPrimary, …).
+    private static func surfaceCSS(dark: Bool, theme: GroveTheme) -> String {
+        switch (theme, dark) {
+        case (.grove, true): """
             --bg: #111111;
             --fg: #E8E8E8;
             --fg-secondary: #9E9E9E;
             --border: #222222;
             --code-bg: #1C1C1C;
+        """
+        case (.grove, false): """
+            --bg: #FAFAFA;
+            --fg: #1A1A1A;
+            --fg-secondary: #666666;
+            --border: #EBEBEB;
+            --code-bg: #F0F0EE;
+        """
+        case (.commonplace, true): """
+            --bg: #13110E;
+            --fg: #E7E5E0;
+            --fg-secondary: #A39F97;
+            --border: #25221E;
+            --code-bg: #1E1C18;
+        """
+        case (.commonplace, false): """
+            --bg: #F9F7F1;
+            --fg: #1C1A17;
+            --fg-secondary: #66625B;
+            --border: #E2DDD2;
+            --code-bg: #F0EDE5;
+        """
+        }
+    }
+
+    /// Highlight wash and syntax inks: the same in every theme.
+    private static func inkCSS(dark: Bool) -> String {
+        dark ? """
             --highlight-wash: rgba(255, 255, 255, 0.14);
             --tok-com: #7C8078;
             --tok-str: #A3C98C;
@@ -822,11 +857,6 @@ enum ReaderTemplate {
             --tok-attr: #C8B98F;
             --tok-meta: #B3A6E0;
         """ : """
-            --bg: #FAFAFA;
-            --fg: #1A1A1A;
-            --fg-secondary: #666666;
-            --border: #EBEBEB;
-            --code-bg: #F0F0EE;
             --highlight-wash: rgba(0, 0, 0, 0.08);
             --tok-com: #8C8C84;
             --tok-str: #4A7A3F;
@@ -861,7 +891,8 @@ enum ReaderTemplate {
         article: ReadableArticle,
         typography: ReaderTypographySettings,
         isDark: Bool,
-        readMinutes: Int
+        readMinutes: Int,
+        theme: GroveTheme = .grove
     ) -> String {
         let title = escapeHTML(article.title)
         let byline = article.byline.flatMap { $0.isEmpty ? nil : escapeHTML($0) }
@@ -883,18 +914,18 @@ enum ReaderTemplate {
             --reader-size: \(typography.fontSizePx)px;
             --reader-measure: \(typography.measureCh)ch;
             --reader-font: \(typography.bodyFontStack);
-        \(paletteCSS(dark: false))
+        \(paletteCSS(dark: false, theme: theme))
         }
         @media (prefers-color-scheme: dark) {
             :root {
-            \(paletteCSS(dark: true))
+            \(paletteCSS(dark: true, theme: theme))
             }
         }
         :root[data-grove-theme="light"] {
-        \(paletteCSS(dark: false))
+        \(paletteCSS(dark: false, theme: theme))
         }
         :root[data-grove-theme="dark"] {
-        \(paletteCSS(dark: true))
+        \(paletteCSS(dark: true, theme: theme))
         }
         * { box-sizing: border-box; }
         html { -webkit-text-size-adjust: 100%; }
@@ -1552,7 +1583,10 @@ enum ReaderModeSupport {
             article: article,
             typography: typography,
             isDark: isDark,
-            readMinutes: article.readMinutes
+            readMinutes: article.readMinutes,
+            // The page takes the theme it is loaded under; an article already
+            // open keeps its paper until it is next loaded.
+            theme: ThemeStore.shared.theme
         )
         // Base URL comes from the <base> tag in the template, so relative
         // image paths in article HTML resolve against the original site

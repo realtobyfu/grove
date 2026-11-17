@@ -321,11 +321,11 @@ private struct PDFDocumentView {
 
     #if os(macOS)
     private static var paneBackground: NSColor {
-        NSColor(named: "bgPrimary") ?? .textBackgroundColor
+        NSColor(named: ThemeStore.shared.theme.assetName("bgPrimary")) ?? .textBackgroundColor
     }
     #else
     private static var paneBackground: UIColor {
-        UIColor(named: "bgPrimary") ?? .systemBackground
+        UIColor(named: ThemeStore.shared.theme.assetName("bgPrimary")) ?? .systemBackground
     }
     #endif
 

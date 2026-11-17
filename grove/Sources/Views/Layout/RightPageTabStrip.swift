@@ -83,24 +83,34 @@ private struct RightPageTabButton: View {
     @Environment(\.isEnabled) private var isEnabled
     @State private var isHovering = false
 
+    private var theme: GroveTheme { ThemeStore.shared.theme }
+
     private var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: Radius.control)
+    }
+
+    /// Grove marks the active tab the way the sidebar marks a selection: a
+    /// soft card and a hairline. Commonplace sets the tabs as tracked mono
+    /// capitals and underlines the active one.
+    private var showsPill: Bool {
+        isActive && !theme.usesRules
     }
 
     var body: some View {
         Button(action: action) {
             Text(tab.title)
-                .font(.groveBodySmall)
+                .font(theme.usesRules ? .groveSectionHeader : .groveBodySmall)
+                .tracking(theme.usesRules ? 1.2 : 0)
+                .underline(theme.usesRules && isActive)
+                .textCase(theme.usesRules ? .uppercase : nil)
                 .foregroundStyle(isActive || isHovering ? Color.textPrimary : Color.textSecondary)
                 .lineLimit(1)
                 .fixedSize()
                 .padding(.horizontal, Spacing.sm)
                 .frame(height: 24)
-                // Same selection voice as the sidebar: a soft card fill and a
-                // hairline, no accent colour.
-                .background(shape.fill(isActive ? Color.bgCard : Color.clear))
+                .background(shape.fill(showsPill ? Color.bgCard : Color.clear))
                 .overlay {
-                    if isActive {
+                    if showsPill {
                         shape.stroke(Color.borderPrimary, lineWidth: 1)
                     }
                 }
