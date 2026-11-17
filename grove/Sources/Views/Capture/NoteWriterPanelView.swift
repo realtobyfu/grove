@@ -45,8 +45,10 @@ struct NoteWriterPanelView: View {
                 }
                 // The side panel shares the window's one rail, so chat or the
                 // inspector can take it over mid-draft; keep what was written.
+                // Also covers a sheet swiped away, which never reaches `dismiss()`.
+                // After `dismiss()` this finds nothing left to write.
                 .onDisappear {
-                    if isSidePanel { draft.finish() }
+                    draft.finish()
                 }
             } else {
                 editorContent

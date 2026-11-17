@@ -301,6 +301,9 @@ struct MarkdownUITextView: UIViewRepresentable {
                     },
                     replaceActiveWikiQuery: { [weak textView] title in
                         textView?.replaceActiveWikiQuery(with: title)
+                    },
+                    focus: { [weak textView] in
+                        _ = textView?.becomeFirstResponder()
                     }
                 )
             )

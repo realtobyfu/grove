@@ -113,6 +113,32 @@ struct NoteDraftTests {
         #expect(stored.count == 1)
     }
 
+    @Test func aRenameMadeElsewhereSurvivesTheNextSave() throws {
+        let context = try makeContext()
+        let note = Item(title: "Before", type: .note)
+        note.content = "  body with stray whitespace  "
+        context.insert(note)
+        try context.save()
+        let stamp = note.updatedAt
+
+        let draft = NoteDraft()
+        draft.configure(item: note, boardID: nil, modelContext: context)
+        // Untrimmed stored text is not, by itself, an edit.
+        draft.textDidChange()
+        #expect(draft.state == .saved)
+        #expect(note.updatedAt == stamp)
+
+        // The inspector renames the note while the page is open…
+        note.title = "After"
+        // …and the writer carries on in the body.
+        draft.content = "body, continued"
+        #expect(draft.save()?.id == note.id)
+
+        #expect(note.title == "After")
+        #expect(draft.title == "After")
+        #expect(note.content == "body, continued")
+    }
+
     private func makeContext() throws -> ModelContext {
         let schema = SharedModelContainer.schema
         let config = ModelConfiguration("NoteDraftTests", schema: schema, isStoredInMemoryOnly: true, cloudKitDatabase: .none)

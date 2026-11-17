@@ -101,11 +101,11 @@ struct RichMarkdownEditor: View {
             textInset: proseMode
                 ? NSSize(width: LayoutDimensions.writingGutter, height: Spacing.sm)
                 : NSSize(width: Spacing.sm, height: Spacing.sm),
-            onAssistTrigger: applyAssist,
+            onAssistTrigger: { applyAssist($0, anchor: $1) },
             onSelectionAnchor: { selectionAnchor = $0 },
-            onAssistKey: handleAssistKey,
+            onAssistKey: { handleAssistKey($0) },
             onFocusChange: { isFocused = $0 },
-            onOpenLink: openLink,
+            onOpenLink: { openLink($0) },
             editorProxy: editingProxy
         )
     }
@@ -178,7 +178,8 @@ struct RichMarkdownEditor: View {
                 )
                 .frame(width: FloatingMetrics.popupWidth, height: height)
                 .offset(popupOffset(anchor: assistAnchor, height: height, in: geo.size))
-            } else if isFocused, let selectionAnchor {
+            } else if proseMode, isFocused, let selectionAnchor {
+                // The boxed editor keeps its fixed strip instead.
                 EditorFormatControls(proxy: editingProxy)
                     .editorFloatingPanel()
                     .fixedSize()
@@ -274,11 +275,15 @@ struct RichMarkdownEditor: View {
         let rows = assistRows
 
         switch key {
+        // With nothing to pick, the arrows belong to the text: a stray `[[`
+        // must not trap the caret on its line.
         case .down:
-            if !rows.isEmpty { assistHighlight = (assistHighlight + 1) % rows.count }
+            guard !rows.isEmpty else { return false }
+            assistHighlight = (assistHighlight + 1) % rows.count
             return true
         case .up:
-            if !rows.isEmpty { assistHighlight = (assistHighlight - 1 + rows.count) % rows.count }
+            guard !rows.isEmpty else { return false }
+            assistHighlight = (assistHighlight - 1 + rows.count) % rows.count
             return true
         case .commit:
             guard rows.indices.contains(assistHighlight) else { return false }
@@ -578,6 +583,16 @@ struct MarkdownNSTextView: NSViewRepresentable {
 
         scrollView.documentView = textView
 
+        // The popup and the selection bar are placed in this view's space, so
+        // they have to follow the text when it scrolls.
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            coordinator,
+            selector: #selector(Coordinator.clipViewBoundsDidChange(_:)),
+            name: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView
+        )
+
         // Set initial text
         textView.string = text
         coordinator.applyHighlighting(textView)
@@ -595,16 +610,18 @@ struct MarkdownNSTextView: NSViewRepresentable {
             let selectedRanges = textView.selectedRanges
             context.coordinator.beginProgrammaticUpdate()
             textView.string = text
-            // Replacing the string dropped every attribute, so nothing that
-            // was styled before can be assumed still styled.
-            context.coordinator.invalidateStyling()
-            context.coordinator.applyHighlighting(textView)
+            // Put the caret back first, so the markers are styled for where
+            // it really is.
             let length = (textView.string as NSString).length
             textView.selectedRanges = selectedRanges.map { value in
                 let range = value.rangeValue
                 let location = min(range.location, length)
                 return NSValue(range: NSRange(location: location, length: min(range.length, length - location)))
             }
+            // Replacing the string dropped every attribute, so nothing that
+            // was styled before can be assumed still styled.
+            context.coordinator.invalidateStyling()
+            context.coordinator.applyHighlighting(textView)
             context.coordinator.endProgrammaticUpdate()
         }
     }
@@ -702,6 +719,11 @@ struct MarkdownNSTextView: NSViewRepresentable {
             isUpdating = false
         }
 
+        @objc func clipViewBoundsDidChange(_ notification: Notification) {
+            guard !isUpdating, let textView else { return }
+            publishCaretState(for: textView, force: true)
+        }
+
         func focusDidChange(_ focused: Bool) {
             Task { @MainActor [weak self] in
                 self?.parent.onFocusChange?(focused)
@@ -714,7 +736,7 @@ struct MarkdownNSTextView: NSViewRepresentable {
         /// popup and the selection bar can sit beside the text they act on.
         /// Delivered a turn later: a delegate callback can arrive while
         /// SwiftUI is mid-update.
-        private func publishCaretState(for textView: NSTextView) {
+        private func publishCaretState(for textView: NSTextView, force: Bool = false) {
             let nsText = textView.string as NSString
             let selection = textView.selectedRange()
             let caret = min(max(0, selection.location), nsText.length)
@@ -730,7 +752,7 @@ struct MarkdownNSTextView: NSViewRepresentable {
                     anchor = editorRect(for: NSRange(location: tokenStart, length: 0), in: textView) ?? .zero
                 }
             }
-            if trigger != lastTrigger {
+            if trigger != lastTrigger || (force && trigger != nil) {
                 lastTrigger = trigger
                 let reportedTrigger = trigger
                 let reportedAnchor = anchor
@@ -787,7 +809,9 @@ struct MarkdownNSTextView: NSViewRepresentable {
             let location = min(max(0, selectedRange.location), length)
             let selection = NSRange(location: location, length: min(selectedRange.length, length - location))
 
-            let textUnchanged = styleCache?.source == text
+            // Literal comparison: Swift's `==` calls canonically equivalent
+            // strings equal, and their UTF-16 lengths can differ.
+            let textUnchanged = styleCache.map { ($0.source as NSString).isEqual(to: text) } ?? false
             let cache: StyleCache
             if textUnchanged, let styleCache {
                 cache = styleCache
@@ -809,7 +833,9 @@ struct MarkdownNSTextView: NSViewRepresentable {
             // compares the whole note.
             var window = NSRange(location: 0, length: length)
             if textUnchanged, let previous = lastStyledSelection, NSMaxRange(previous) <= length {
-                window = nsText.lineRange(for: NSUnionRange(previous, selection))
+                // `paragraphRange`, not `lineRange`: the parser's lines end at
+                // a newline only, and so must the window.
+                window = nsText.paragraphRange(for: NSUnionRange(previous, selection))
             }
 
             var dirty: [NSRange] = []
@@ -904,7 +930,7 @@ struct MarkdownNSTextView: NSViewRepresentable {
                         apply(reveal ? visibleMarker : invisible, to: line.prefixRange)
                         apply([.foregroundColor: secondary], to: line.contentRange)
                         apply([.groveQuotePrefix: true], to: line.prefixRange)
-                        restyleParagraph(of: line.lineRange, quoteParagraphStyle)
+                        restyleParagraph(of: line.lineRange) { self.quoteParagraphStyle(from: $0, isProse: $1) }
                     }
 
                 case .bulletList(let list):
@@ -934,7 +960,7 @@ struct MarkdownNSTextView: NSViewRepresentable {
                         } else {
                             apply([.groveListPrefix: true], to: item.prefixRange)
                         }
-                        restyleParagraph(of: item.lineRange, listParagraphStyle)
+                        restyleParagraph(of: item.lineRange) { self.listParagraphStyle(from: $0, isProse: $1) }
                     }
 
                 case .orderedList(let list):
@@ -942,7 +968,7 @@ struct MarkdownNSTextView: NSViewRepresentable {
                     // gets the same indent rhythm as a bullet line.
                     for item in list.items {
                         apply([.font: fonts.mono, .foregroundColor: secondary], to: item.prefixRange)
-                        restyleParagraph(of: item.lineRange, listParagraphStyle)
+                        restyleParagraph(of: item.lineRange) { self.listParagraphStyle(from: $0, isProse: $1) }
                     }
 
                 case .codeBlock(let codeBlock):
@@ -1097,8 +1123,8 @@ struct MarkdownNSTextView: NSViewRepresentable {
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             // An open popup takes the navigation keys before the text does.
-            if let assistKey = assistKey(for: commandSelector),
-               parent.onAssistKey?(assistKey) == true {
+            if let key = assistKey(for: commandSelector),
+               parent.onAssistKey?(key) == true {
                 return true
             }
 

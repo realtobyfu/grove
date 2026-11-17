@@ -49,6 +49,14 @@ final class NoteDraft {
     @ObservationIgnored private var isConfigured = false
     /// True when `item` was created by this draft rather than opened.
     @ObservationIgnored private var createdItem = false
+    /// The title and content as last read from or written to the store. The
+    /// draft only writes a field it changed relative to these, so a rename in
+    /// the inspector or a sync arriving mid-session is taken in, not undone.
+    @ObservationIgnored private var baselineTitle = NoteDraft.untitledTitle
+    @ObservationIgnored private var baselineContent: String?
+    /// The last save threw; the next one must reach the store even if the
+    /// model already holds the draft's text.
+    @ObservationIgnored private var needsStoreSave = false
 
     var hasText: Bool {
         !trimmedTitle.isEmpty || !trimmedContent.isEmpty
@@ -85,13 +93,42 @@ final class NoteDraft {
         if let item {
             title = item.title == Self.untitledTitle ? "" : item.title
             content = item.content ?? ""
+            baselineTitle = Self.normalizedTitle(item.title)
+            baselineContent = Self.normalizedContent(item.content)
             state = .saved
+        }
+    }
+
+    private static func normalizedTitle(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? untitledTitle : trimmed
+    }
+
+    private static func normalizedContent(_ raw: String?) -> String? {
+        let trimmed = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// Takes in a title or body that changed in the store (inspector, sync)
+    /// while the draft's own copy of that field was untouched.
+    private func pullExternalChanges() {
+        guard let item, !isItemDeleted else { return }
+        let itemTitle = Self.normalizedTitle(item.title)
+        if itemTitle != baselineTitle, storedTitle == baselineTitle {
+            baselineTitle = itemTitle
+            title = itemTitle == Self.untitledTitle ? "" : itemTitle
+        }
+        let itemContent = Self.normalizedContent(item.content)
+        if itemContent != baselineContent, storedContent == baselineContent {
+            baselineContent = itemContent
+            content = item.content ?? ""
         }
     }
 
     /// Call when the title or the body changes.
     func textDidChange() {
         guard isConfigured, !isItemDeleted else { return }
+        pullExternalChanges()
         guard hasUnsavedChanges else {
             saveTask?.cancel()
             saveTask = nil
@@ -109,8 +146,8 @@ final class NoteDraft {
     }
 
     private var hasUnsavedChanges: Bool {
-        guard let item else { return hasText }
-        return item.title != storedTitle || item.content != storedContent
+        guard item != nil else { return hasText }
+        return needsStoreSave || storedTitle != baselineTitle || storedContent != baselineContent
     }
 
     private var storedTitle: String {
@@ -135,13 +172,20 @@ final class NoteDraft {
         guard let modelContext, !isItemDeleted else { return nil }
 
         if let note = item {
-            if note.title != storedTitle || note.content != storedContent {
-                note.title = storedTitle
-                note.content = storedContent
-                note.updatedAt = .now
+            pullExternalChanges()
+            let titleChanged = storedTitle != baselineTitle
+            let contentChanged = storedContent != baselineContent
+            if titleChanged || contentChanged || needsStoreSave {
+                if titleChanged { note.title = storedTitle }
+                if contentChanged { note.content = storedContent }
+                if titleChanged || contentChanged { note.updatedAt = .now }
+                baselineTitle = storedTitle
+                baselineContent = storedContent
                 do {
                     try modelContext.save()
+                    needsStoreSave = false
                 } catch {
+                    needsStoreSave = true
                     state = .failed
                     return nil
                 }
@@ -176,6 +220,8 @@ final class NoteDraft {
         }
         item = note
         createdItem = true
+        baselineTitle = storedTitle
+        baselineContent = storedContent
         state = .saved
         if syncLinks { WikiLinkSync.sync(item: note, modelContext: modelContext) }
         return note
@@ -185,7 +231,10 @@ final class NoteDraft {
     /// ended up with nothing in it — removes the empty note again.
     @discardableResult
     func finish() -> Item? {
-        if createdItem, !hasText, let note = item, !isItemDeleted, let modelContext {
+        // Only a note that is truly blank: one that was given tags or links
+        // through the inspector is kept even without text.
+        if createdItem, !hasText, let note = item, !isItemDeleted, let modelContext,
+           note.tags.isEmpty, note.outgoingConnections.isEmpty, note.incomingConnections.isEmpty {
             saveTask?.cancel()
             saveTask = nil
             item = nil
