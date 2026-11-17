@@ -5,10 +5,40 @@ import SwiftUI
 extension Notification.Name {
     /// Puts the keyboard in the Library's find field. Posted by the window;
     /// observed by `LibraryFindField`, which exists only while the Library
-    /// page is on screen. A post made before the page is mounted is not seen,
-    /// so a window that has to switch to the Library first posts on the next
-    /// main-actor turn. No object, no userInfo.
+    /// page is on screen. No object, no userInfo.
+    ///
+    /// A bare post made before the page is mounted is not seen. A window that
+    /// has to bring the Library on screen first posts through
+    /// `NotificationCenter.postFocusLibrarySearch()`, which also leaves the
+    /// request for a field that mounts a moment later.
     static let groveFocusLibrarySearch = Notification.Name("groveFocusLibrarySearch")
+}
+
+extension NotificationCenter {
+    /// Posts `groveFocusLibrarySearch` and remembers the request briefly, so
+    /// that it still lands when the Library page is only now coming on screen
+    /// (the window has just switched to it, or closed the reader over it).
+    @MainActor
+    func postFocusLibrarySearch() {
+        LibraryFindFocusRequest.madeAt = .now
+        post(name: .groveFocusLibrarySearch, object: nil)
+    }
+}
+
+/// A focus request the find field has not acted on yet.
+@MainActor
+private enum LibraryFindFocusRequest {
+    static var madeAt: Date?
+
+    /// How long a request waits for the page to mount before it lapses.
+    static let grace: TimeInterval = 1
+
+    /// True, once, if a request was made within the grace period.
+    static func take() -> Bool {
+        defer { madeAt = nil }
+        guard let madeAt else { return false }
+        return Date.now.timeIntervalSince(madeAt) < grace
+    }
 }
 
 // MARK: - Find Field
@@ -89,7 +119,17 @@ struct LibraryFindField: View {
                 .stroke(isFocused ? Color.borderInput : Color.borderPrimary, lineWidth: 1)
         )
         .onReceive(NotificationCenter.default.publisher(for: .groveFocusLibrarySearch)) { _ in
+            LibraryFindFocusRequest.madeAt = nil
             isFocused = true
+        }
+        .onAppear {
+            // A request made while the page was on its way in. Focus has to
+            // wait a turn for the field to be in the window, as in the overlay.
+            guard LibraryFindFocusRequest.take() else { return }
+            Task { @MainActor in
+                await Task.yield()
+                isFocused = true
+            }
         }
     }
 
