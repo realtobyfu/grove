@@ -201,6 +201,9 @@ struct ModelSimplifyTests {
         #expect(BoardColor.normalized(nil) == nil)
         #expect(BoardColor.normalized("") == nil)
         #expect(BoardColor.normalized("green") == nil)
+        #expect(BoardColor.normalized("+12345") == nil)
+        // Full-width digits count as hex digits to `Character`, but not here.
+        #expect(BoardColor.normalized("１２３４５６") == nil)
         #expect(BoardColor.color(for: "34C759") != nil)
         #expect(BoardColor.color(for: "not a color") == nil)
         #expect(Board(title: "Moss").iconTint == nil)

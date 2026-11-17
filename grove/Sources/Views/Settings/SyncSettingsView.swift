@@ -97,7 +97,6 @@ struct SyncSettingsSections: View {
                 VStack(alignment: .leading, spacing: Spacing.sm) {
                     infoRow(icon: "arrow.triangle.2.circlepath", text: "Syncs automatically when connected")
                     infoRow(icon: "wifi.slash", text: "Offline changes sync later")
-                    infoRow(icon: "arrow.merge", text: "Each device’s reviews are preserved")
                     infoRow(icon: "clock", text: "Updates may reach each device at different times")
                     infoRow(icon: "lock.shield", text: "Uses your private iCloud storage")
                 }

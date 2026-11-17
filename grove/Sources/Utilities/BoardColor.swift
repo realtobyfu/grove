@@ -39,7 +39,13 @@ enum BoardColor {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "#", with: "")
             .uppercased()
-        guard hex.count == 6, hex.allSatisfy(\.isHexDigit) else { return nil }
+        // ASCII only: `Character.isHexDigit` also accepts full-width digits,
+        // which `color(for:)` could not then parse.
+        let digits: ClosedRange<Unicode.Scalar> = "0"..."9"
+        let letters: ClosedRange<Unicode.Scalar> = "A"..."F"
+        let scalars = hex.unicodeScalars
+        guard scalars.count == 6,
+              scalars.allSatisfy({ digits.contains($0) || letters.contains($0) }) else { return nil }
         return hex
     }
 

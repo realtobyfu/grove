@@ -21,8 +21,13 @@ struct GroveApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
-        modelContainer = SharedModelContainer.makeForApp()
-        _syncService = State(initialValue: SyncService(syncEnabled: SyncSettings.syncEnabled))
+        if TestHost.isActive {
+            do { modelContainer = try TestHost.makeContainer() }
+            catch { fatalError("Could not create the test host's library: \(error)") }
+        } else {
+            modelContainer = SharedModelContainer.makeForApp()
+        }
+        _syncService = State(initialValue: SyncService(syncEnabled: !TestHost.isActive && SyncSettings.syncEnabled))
         #if !SHARE_EXTENSION
         GroveIntentModelStore.configure(with: modelContainer)
         #endif
@@ -31,6 +36,7 @@ struct GroveApp: App {
     /// Following pipeline: fetch new issues from the feeds the user follows
     /// (4h interval enforced inside the service).
     private func refreshFeedPipeline() async {
+        guard !TestHost.isActive else { return }
         await feedFetchService.refreshIfNeeded(in: modelContainer.mainContext)
     }
 
@@ -49,6 +55,7 @@ struct GroveApp: App {
                 .task {
                     Self.clearLegacyNotifications()
                     let context = modelContainer.mainContext
+                    guard !TestHost.isActive else { return }
                     AnnotationMigrationService.migrateIfNeeded(context: context)
                     OverviewMigrationService.migrateItems(context: context)
                     SmartBoardMigrationService.migrateBoards(context: context)
@@ -62,7 +69,7 @@ struct GroveApp: App {
                     await refreshFeedPipeline()
                 }
                 .onChange(of: scenePhase) { _, phase in
-                    guard phase == .active else { return }
+                    guard phase == .active, !TestHost.isActive else { return }
                     Task { await refreshFeedPipeline() }
                 }
                 .environment(syncService)
@@ -125,6 +132,7 @@ struct GroveApp: App {
                 .task {
                     Self.clearLegacyNotifications()
                     let context = modelContainer.mainContext
+                    guard !TestHost.isActive else { return }
                     AnnotationMigrationService.migrateIfNeeded(context: context)
                     OverviewMigrationService.migrateItems(context: context)
                     SmartBoardMigrationService.migrateBoards(context: context)
@@ -139,7 +147,7 @@ struct GroveApp: App {
                     await refreshFeedPipeline()
                 }
                 .onChange(of: scenePhase) { _, phase in
-                    guard phase == .active else { return }
+                    guard phase == .active, !TestHost.isActive else { return }
                     Task { await refreshFeedPipeline() }
                 }
                 .environment(syncService)

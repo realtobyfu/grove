@@ -9,6 +9,9 @@ struct BoardEditorSheet: View {
     @State private var selectedColorHex: String?
 
     private let isEditing: Bool
+    /// The colour the board had when the sheet opened, so a colour from
+    /// outside the palette stays on offer while other swatches are tried.
+    private let originalColorHex: String?
     /// Title, icon, colour.
     private let onSave: (String, String?, String?) -> Void
 
@@ -22,11 +25,14 @@ struct BoardEditorSheet: View {
             self.isEditing = true
             _title = State(initialValue: board.title)
             _selectedIcon = State(initialValue: board.icon ?? Self.defaultIcon)
-            _selectedColorHex = State(initialValue: BoardColor.normalized(board.color))
+            let colorHex = BoardColor.normalized(board.color)
+            self.originalColorHex = colorHex
+            _selectedColorHex = State(initialValue: colorHex)
         } else {
             self.isEditing = false
             _title = State(initialValue: "")
             _selectedIcon = State(initialValue: Self.defaultIcon)
+            self.originalColorHex = nil
             _selectedColorHex = State(initialValue: nil)
         }
         self.onSave = onSave
@@ -187,14 +193,14 @@ struct BoardEditorSheet: View {
         BoardColor.color(for: selectedColorHex)
     }
 
-    /// The palette, plus the board's current colour when it isn't one of the
-    /// palette's (an imported board, say), so editing never drops it unasked.
+    /// The palette, plus the colour the board came in with when it isn't one
+    /// of the palette's (an imported board, say), so it can always be put back.
     private var colorOptions: [BoardColor.Option] {
-        guard let selectedColorHex,
-              !BoardColor.options.contains(where: { $0.hex == selectedColorHex }) else {
+        guard let originalColorHex,
+              !BoardColor.options.contains(where: { $0.hex == originalColorHex }) else {
             return BoardColor.options
         }
-        return BoardColor.options + [BoardColor.Option(hex: selectedColorHex, name: "Custom")]
+        return BoardColor.options + [BoardColor.Option(hex: originalColorHex, name: "Custom")]
     }
 
     /// "None" first — plain ink, and what a new board starts with — then the
