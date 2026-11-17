@@ -121,6 +121,17 @@ final class SearchViewModel {
         clearSemanticResults()
     }
 
+    /// Forgets the cached corpus, so the next search reads the store again.
+    ///
+    /// The corpus is loaded once and kept, which suits the search overlay: it
+    /// builds a new view model each time it opens and never calls this. A host
+    /// that stays on screen (the Library's find field) calls it before each
+    /// search, so that models added or deleted since the last one are not
+    /// searched from a stale list.
+    func invalidateCorpus() {
+        cachedCorpus = nil
+    }
+
     /// Preserve compatibility for existing call sites that trigger an immediate search.
     func search() {
         flushPendingSearch()
