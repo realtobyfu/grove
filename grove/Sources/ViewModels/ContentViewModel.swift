@@ -251,6 +251,21 @@ final class ContentViewModel {
         openedItem = note
     }
 
+    /// A note has become the open page by some route that set `openedItem`
+    /// directly (a list row, Today's Continue, a link) rather than through
+    /// `openNotePage`. If it is the note the rail writer has, the rail lets
+    /// go of it: one note must not be open in two editors at once.
+    func releaseRailNoteIfOpenAsPage() {
+        guard let note = openedItem, note.type == .note else { return }
+        guard railNoteInProgress?.id == note.id || writePanelEditItem?.id == note.id else { return }
+        if showWritePanel {
+            withAnimation(RightRailMetrics.widthChange) { showWritePanel = false }
+        }
+        railNoteInProgress = nil
+        writePanelEditItem = nil
+        writePanelPrompt = nil
+    }
+
     /// Bring the inspector forward (the note page's "links" control).
     func showInspector() {
         withAnimation(RightRailMetrics.widthChange) {

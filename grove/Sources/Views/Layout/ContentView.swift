@@ -164,6 +164,7 @@ struct ContentView: View {
                 // sidebar and rail back first.
                 viewModel.isArticleWebViewActive = false
                 viewModel.isPDFReaderActive = false
+                viewModel.releaseRailNoteIfOpenAsPage()
                 if viewModel.savedColumnVisibility != nil {
                     viewModel.exitFocusMode()
                 }

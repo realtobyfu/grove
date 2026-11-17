@@ -294,3 +294,51 @@ struct ReadingFocusTests {
         #expect(viewModel.activeRightPageTab == .info)
     }
 }
+
+/// A note must not be open in the rail writer and as a page at once.
+@MainActor
+struct RailNoteHandoverTests {
+
+    private func makeWindow() throws -> (viewModel: ContentViewModel, context: ModelContext) {
+        let schema = SharedModelContainer.schema
+        let config = ModelConfiguration(
+            "RailNoteHandoverTests",
+            schema: schema,
+            isStoredInMemoryOnly: true,
+            cloudKitDatabase: .none
+        )
+        let context = ModelContext(try ModelContainer(for: schema, configurations: [config]))
+        return (ContentViewModel(), context)
+    }
+
+    @Test func aRailNoteOpenedFromAListLeavesTheRail() throws {
+        let (viewModel, context) = try makeWindow()
+        let note = Item(title: "Half a thought", type: .note)
+        context.insert(note)
+        viewModel.selectRightPageTab(.note)
+        viewModel.railNoteInProgress = note
+
+        // Opened the way a list row opens it: straight through the binding.
+        viewModel.openedItem = note
+        viewModel.releaseRailNoteIfOpenAsPage()
+
+        #expect(!viewModel.showWritePanel)
+        #expect(viewModel.railNoteInProgress == nil)
+    }
+
+    @Test func anotherNoteOpeningLeavesTheRailNoteAlone() throws {
+        let (viewModel, context) = try makeWindow()
+        let railNote = Item(title: "In the rail", type: .note)
+        let other = Item(title: "Something else", type: .note)
+        context.insert(railNote)
+        context.insert(other)
+        viewModel.selectRightPageTab(.note)
+        viewModel.railNoteInProgress = railNote
+
+        viewModel.openedItem = other
+        viewModel.releaseRailNoteIfOpenAsPage()
+
+        #expect(viewModel.showWritePanel)
+        #expect(viewModel.railNoteInProgress?.id == railNote.id)
+    }
+}
