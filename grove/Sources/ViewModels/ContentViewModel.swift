@@ -20,7 +20,15 @@ final class ContentViewModel {
     /// The note "New Note" created empty a moment ago. Its page removes it
     /// again if it is left with nothing in it.
     var freshNoteID: UUID?
+    /// The note the rail writer is in the middle of, once it exists. Kept
+    /// while another tab has the right page so that coming back to Note
+    /// continues it; cleared when the writer is closed with Done.
+    var railNoteInProgress: Item?
     var showChatPanel = false
+    /// Whether the open reader's own rail (the reflections list, a reflection
+    /// being written, a flashcard draft) is on screen. Reported by
+    /// `ItemReaderView`; it is what makes Reflections the active tab.
+    var isReaderRailActive = false
     // The write, chat and inspector widths live in `RightRailContainer` — the
     // rail owns one width per mode so a panel can't animate a width of its own.
 
@@ -69,15 +77,122 @@ final class ContentViewModel {
 
     /// Single source of truth for the window's one trailing column.
     ///
-    /// Writing wins, then Dialectics, then the inspector. Writing sits on top
-    /// without clearing the chat or inspector state underneath it, so closing
-    /// the writer hands the rail back to whatever it was showing before (or
-    /// to nothing, if the rail was closed).
+    /// Writing wins, then Dialectics, then the inspector. The tab routes
+    /// (`selectRightPageTab`) keep at most one of these set at a time, so the
+    /// order only matters for routes that set a flag directly (a deep link
+    /// into chat while the writer is up, the inspector following a selection).
     var rightRailMode: RightRailMode {
         if showWritePanel { return .writing }
         if showChatPanel { return .dialectics }
         if isInspectorVisible, inspectorItem != nil { return .inspector }
         return .hidden
+    }
+
+    // MARK: - Right Page Tabs
+
+    /// The tabs on offer. Reflections belongs to a source open in the reader.
+    var rightPageTabs: [RightPageTab] {
+        isReadingSource ? [.reflections, .note, .chat, .info] : [.note, .chat, .info]
+    }
+
+    /// The tab the right page is showing, or nil when the page is closed.
+    var activeRightPageTab: RightPageTab? {
+        switch rightRailMode {
+        case .writing: return .note
+        case .dialectics: return .chat
+        case .inspector: return .info
+        default: return isReadingSource && isReaderRailActive ? .reflections : nil
+        }
+    }
+
+    /// Info needs something to describe; Reflections needs a source.
+    func isRightPageTabAvailable(_ tab: RightPageTab) -> Bool {
+        switch tab {
+        case .info: inspectorItem != nil
+        case .reflections: isReadingSource
+        case .note, .chat: true
+        }
+    }
+
+    /// A tab was picked. The one already showing closes the page; any other
+    /// takes the page over. Nothing is lost either way: the note is saved and
+    /// resumed, the conversation stays selected.
+    func selectRightPageTab(_ tab: RightPageTab) {
+        guard isRightPageTabAvailable(tab) else { return }
+        if activeRightPageTab == tab {
+            closeRightPage()
+            return
+        }
+        switch tab {
+        case .note: showNoteTab()
+        case .chat: showChatTab()
+        case .info: showInspector()
+        case .reflections: showReflectionsTab()
+        }
+    }
+
+    /// Close the right page — all of it. Nothing waiting underneath (the
+    /// inspector for the selection, the reader's reflections) slides in to
+    /// take its place; the next tab picked opens it again.
+    func closeRightPage() {
+        withAnimation(RightRailMetrics.widthChange) {
+            showWritePanel = false
+            showChatPanel = false
+            inspectorUserOverride = false
+        }
+        if isReadingSource {
+            NotificationCenter.default.post(name: .groveSetReaderRailVisible, object: false)
+        }
+    }
+
+    /// The note the Note tab should pick up again, if there is one that can
+    /// be: still in the store, and not the note open as a page beside it.
+    private var resumableRailNote: Item? {
+        guard let note = railNoteInProgress,
+              !note.isDeleted,
+              note.modelContext != nil,
+              note.id != openedItem?.id else { return nil }
+        return note
+    }
+
+    private func showNoteTab() {
+        withAnimation(RightRailMetrics.widthChange) {
+            let resumed = resumableRailNote
+            writePanelEditItem = resumed
+            if resumed == nil { railNoteInProgress = nil }
+            showChatPanel = false
+            showWritePanel = true
+        }
+    }
+
+    private func showChatTab() {
+        withAnimation(RightRailMetrics.widthChange) {
+            showWritePanel = false
+            showChatPanel = true
+        }
+    }
+
+    private func showReflectionsTab() {
+        // The window's page steps aside; the reader brings its own panel up
+        // (and opens a new reflection if there are none to list).
+        withAnimation(RightRailMetrics.widthChange) {
+            showWritePanel = false
+            showChatPanel = false
+            inspectorUserOverride = false
+        }
+        NotificationCenter.default.post(name: .groveSetReaderRailVisible, object: true)
+    }
+
+    /// The writer was closed from inside (Done, Esc, ⌘↩): that ends the
+    /// writing session, so the next Note is a blank one. Another tab taking
+    /// the page only sets `showWritePanel` and leaves the session resumable.
+    func endNoteSession() {
+        withAnimation(RightRailMetrics.widthChange) {
+            showWritePanel = false
+        }
+        writePanelPrompt = nil
+        writePanelEditItem = nil
+        railNoteInProgress = nil
     }
 
     /// What ⌘F means right now: the open reader's find bar while an item is up
@@ -116,16 +231,7 @@ final class ContentViewModel {
         }
     }
 
-    // MARK: - Rail Toggles
-
-    /// Toolbar / menu "Write". Opening replaces the rail's current mode;
-    /// closing returns it to the previous one.
-    func toggleWritePanel() {
-        withAnimation(RightRailMetrics.widthChange) {
-            writePanelPrompt = nil
-            showWritePanel.toggle()
-        }
-    }
+    // MARK: - Rail Routes
 
     /// Open a note as a page in the detail column. The rail writer steps
     /// aside if it was holding the rail: the page is the writing surface now.
@@ -134,6 +240,13 @@ final class ContentViewModel {
         showCaptureOverlay = false
         if showWritePanel {
             withAnimation(RightRailMetrics.widthChange) { showWritePanel = false }
+        }
+        // The rail's note going to a page ("Page") is the end of its rail
+        // session: one note must not be open in two editors at once.
+        if railNoteInProgress?.id == note.id {
+            railNoteInProgress = nil
+            writePanelEditItem = nil
+            writePanelPrompt = nil
         }
         selectedItem = note
         openedItem = note
@@ -148,38 +261,31 @@ final class ContentViewModel {
         }
     }
 
-    /// Open the writer, optionally seeded with a prompt.
+    /// Open the writer on a new note, optionally answering a prompt ("New
+    /// Note", "start writing"). Unlike picking the Note tab this never
+    /// resumes: whatever the rail was writing before is already saved.
     func openWritePanel(prompt: String? = nil) {
         withAnimation(RightRailMetrics.widthChange) {
+            // A writer already up on the same prompt is the session asked
+            // for; anything else starts a fresh one.
+            if !showWritePanel || prompt != writePanelPrompt {
+                railNoteInProgress = nil
+                writePanelEditItem = nil
+            }
             writePanelPrompt = prompt
+            showChatPanel = false
             showWritePanel = true
         }
     }
 
-    /// Asking for chat while the writer holds the rail means "show chat",
-    /// never "toggle the chat hidden underneath the writer".
+    /// Menu "Toggle Chat" (⇧⌘D): the Chat tab.
     func toggleChatPanel() {
-        withAnimation(RightRailMetrics.widthChange) {
-            if showWritePanel {
-                showWritePanel = false
-                showChatPanel = true
-            } else {
-                showChatPanel.toggle()
-            }
-        }
+        selectRightPageTab(.chat)
     }
 
-    /// Same rule as chat: while writing, the inspector toggle shows the
-    /// inspector rather than flipping state the user can't see.
+    /// Menu "Toggle Inspector" (⌘]): the Info tab.
     func toggleInspector() {
-        withAnimation(RightRailMetrics.widthChange) {
-            if showWritePanel {
-                showWritePanel = false
-                inspectorUserOverride = true
-            } else {
-                inspectorUserOverride = !isInspectorVisible
-            }
-        }
+        selectRightPageTab(.info)
     }
 
     // MARK: - Focus Mode

@@ -111,8 +111,9 @@ extension RightRailMode {
         let hardCap: CGFloat = switch self {
         case .hidden: 0
         case .inspector: 520
-        case .dialectics: 560
-        case .reflections, .reflectionEditor, .flashcardEditor, .writing: 720
+        // Chat is a page in its own right, not a side strip: it may run as
+        // wide as the writing surfaces.
+        case .dialectics, .reflections, .reflectionEditor, .flashcardEditor, .writing: 720
         }
         guard let available, available > 0 else { return hardCap }
         return max(minWidth, min(hardCap, available - RightRailMetrics.minContentWidth))

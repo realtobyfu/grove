@@ -20,6 +20,10 @@ extension Notification.Name {
     static let groveStartConversationWithPrompt = Notification.Name("groveStartConversationWithPrompt")
     static let groveDiscussItem = Notification.Name("groveDiscussItem")
     static let groveOpenReflectMode = Notification.Name("groveOpenReflectMode")
+    /// Object: Bool — show (true) or put away (false) the open reader's own
+    /// rail. Posted by the window when the Reflections tab is picked or the
+    /// right page is closed; the reader owns that panel and its state.
+    static let groveSetReaderRailVisible = Notification.Name("groveSetReaderRailVisible")
     /// ⌘F, from the menu. The menu does not know what is on screen, so it only
     /// asks: the window decides whether that means the open reader's find bar
     /// (`groveFindInArticle`) or library search (see

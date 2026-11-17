@@ -169,6 +169,9 @@ struct ContentViewNotificationHandlers: ViewModifier {
             viewModel.writePanelEditItem = nil
             viewModel.showWritePanel = false
         }
+        if viewModel.railNoteInProgress?.id == id {
+            viewModel.railNoteInProgress = nil
+        }
         if viewModel.selectedItem?.id == id {
             viewModel.selectedItem = nil
         }

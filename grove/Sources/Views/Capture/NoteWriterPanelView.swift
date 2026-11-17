@@ -24,6 +24,10 @@ struct NoteWriterPanelView: View {
     var onCreated: ((Item) -> Void)?
     /// When set, the top bar offers to continue the note as a full page.
     var onOpenAsPage: ((Item) -> Void)? = nil
+    /// Reports the note this session is writing as soon as it exists (and nil
+    /// if it is removed again). The macOS rail uses it to pick the same note
+    /// back up after another tab has had the right page.
+    var onDraftItemChange: ((Item?) -> Void)? = nil
 
     @State private var draft = NoteDraft()
     @State private var editorProxy = MarkdownEditingProxy()
@@ -66,6 +70,7 @@ struct NoteWriterPanelView: View {
         }
         .onChange(of: draft.title) { draft.textDidChange() }
         .onChange(of: draft.content) { draft.textDidChange() }
+        .onChange(of: draft.item?.id) { onDraftItemChange?(draft.item) }
         #if os(macOS)
         .onExitCommand {
             dismiss()

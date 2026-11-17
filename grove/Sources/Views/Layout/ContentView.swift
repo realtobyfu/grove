@@ -188,12 +188,6 @@ struct ContentView: View {
         .onChange(of: viewModel.selectedConversation) {
             if viewModel.selectedConversation != nil { closeWritePanelForRail() }
         }
-        .onChange(of: viewModel.showWritePanel) {
-            if !viewModel.showWritePanel {
-                viewModel.writePanelPrompt = nil
-                viewModel.writePanelEditItem = nil
-            }
-        }
         .onAppear {
             refreshOnboardingState()
         }
@@ -242,50 +236,20 @@ struct ContentView: View {
                     .help("Back to list")
                 }
             }
-            ToolbarItemGroup(placement: .primaryAction) {
-                // Reflecting is for a source open in the reader. Over a list or
-                // a note page the pencil is the quick writer in the rail.
-                Button {
-                    if viewModel.isReadingSource {
-                        NotificationCenter.default.post(name: .groveOpenReflectMode, object: nil)
-                    } else {
-                        viewModel.toggleWritePanel()
-                    }
-                } label: {
-                    Image(systemName: viewModel.isReadingSource
-                        ? "square.and.pencil"
-                        : (viewModel.showWritePanel ? "square.and.pencil.circle.fill" : "square.and.pencil"))
-                }
-                .help(viewModel.isReadingSource ? "Reflect on this item" : viewModel.showWritePanel ? "Close Write Panel" : "Write a quick note")
-                chatToolbarButton
-                inspectorToolbarButton
+            // The right page's tabs, directly above the page they switch.
+            // One strip in place of the write, chat and inspector toggles.
+            ToolbarItem(placement: .primaryAction) {
+                RightPageTabStrip(
+                    tabs: viewModel.rightPageTabs,
+                    active: viewModel.activeRightPageTab,
+                    isAvailable: { viewModel.isRightPageTabAvailable($0) },
+                    onSelect: { viewModel.selectRightPageTab($0) }
+                )
             }
         }
         #if os(macOS)
         .toolbar(hidesWindowToolbar ? .hidden : .automatic, for: .windowToolbar)
         #endif
-    }
-
-    private var chatToolbarButton: some View {
-        let chatShown = viewModel.rightRailMode == .dialectics
-        return Button {
-            viewModel.toggleChatPanel()
-        } label: {
-            Image(systemName: chatShown ? "bubble.left.and.bubble.right.fill" : "bubble.left.and.bubble.right")
-        }
-        .help(chatShown ? "Hide Chat" : "Show Chat")
-    }
-
-    private var inspectorToolbarButton: some View {
-        Button {
-            viewModel.toggleInspector()
-        } label: {
-            Image(systemName: "sidebar.trailing")
-        }
-        // Nothing to inspect means no rail at all, so the toggle has nothing
-        // to show — don't offer it.
-        .disabled(viewModel.inspectorItem == nil)
-        .help(viewModel.rightRailMode == .inspector ? "Hide Inspector" : "Show Inspector")
     }
 
     // MARK: - Overlays
@@ -369,25 +333,31 @@ struct ContentView: View {
         return RightRailContainer(
             mode: viewModel.rightRailMode,
             availableWidth: availableWidth,
-            onCollapse: {
-                switch viewModel.rightRailMode {
-                case .writing: viewModel.showWritePanel = false
-                case .dialectics: viewModel.showChatPanel = false
-                default: viewModel.inspectorUserOverride = false
-                }
-            }
+            // Dragging the divider shut is the same as picking the active tab.
+            onCollapse: { viewModel.closeRightPage() }
         ) { mode in
             switch mode {
             case .writing:
                 NoteWriterPanelView(
-                    isPresented: $vm.showWritePanel,
+                    // The writer only ever closes itself (Done, Esc, ⌘↩), and
+                    // that ends the writing session. Another tab taking the
+                    // page goes through the view model and leaves the note
+                    // resumable.
+                    isPresented: Binding(
+                        get: { viewModel.showWritePanel },
+                        set: { isShown in
+                            if isShown {
+                                viewModel.showWritePanel = true
+                            } else {
+                                viewModel.endNoteSession()
+                            }
+                        }
+                    ),
                     currentBoardID: currentBoardID,
                     prompt: viewModel.writePanelPrompt,
                     editingItem: viewModel.writePanelEditItem,
                     isSidePanel: true,
                     onCreated: { note in
-                        viewModel.writePanelPrompt = nil
-                        viewModel.writePanelEditItem = nil
                         // Beside a note page the selection belongs to the page.
                         if !viewModel.isNotePageOpen {
                             viewModel.selectedItem = note
@@ -395,6 +365,9 @@ struct ContentView: View {
                     },
                     onOpenAsPage: { note in
                         viewModel.openNotePage(note)
+                    },
+                    onDraftItemChange: { note in
+                        viewModel.railNoteInProgress = note
                     }
                 )
                 // A different note or prompt is a different writing session:
@@ -403,7 +376,18 @@ struct ContentView: View {
             case .dialectics:
                 DialecticalChatPanel(
                     selectedConversation: $vm.selectedConversation,
-                    isVisible: $vm.showChatPanel,
+                    // The panel's own close button closes the page, the same
+                    // as picking the Chat tab again.
+                    isVisible: Binding(
+                        get: { viewModel.showChatPanel },
+                        set: { isShown in
+                            if isShown {
+                                viewModel.showChatPanel = true
+                            } else {
+                                viewModel.closeRightPage()
+                            }
+                        }
+                    ),
                     currentBoard: searchScopeBoard,
                     onNavigateToItem: { item in
                         viewModel.selectedItem = item
@@ -452,6 +436,7 @@ struct ContentView: View {
                 isPDFSurfaceActive: $vm.isPDFReaderActive,
                 railYields: viewModel.readerRailYields,
                 onClaimRail: { viewModel.claimRailForReader() },
+                isRailActive: $vm.isReaderRailActive,
                 onNavigateToItem: { item in
                     viewModel.selectedItem = item
                     viewModel.openedItem = item

@@ -17,6 +17,9 @@ struct ItemReaderView: View {
     var railYields: Bool = false
     /// Asks the host to clear its rail when the reader needs its own.
     var onClaimRail: (() -> Void)? = nil
+    /// Told whether the reader's own rail is on screen, so the window can
+    /// show Reflections as the active tab of its right page.
+    var isRailActive: Binding<Bool>? = nil
     var onNavigateToItem: ((Item) -> Void)?
     @Environment(\.modelContext) private var modelContext
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -106,6 +109,18 @@ struct ItemReaderView: View {
             isPDFSurfaceActive?.wrappedValue = vm.showPDFReader
             if !vm.showPDFReader { vm.find.dismiss() }
         }
+        .onChange(of: shouldShowSplitLayout(vm) && !railYields, initial: true) { _, isShowing in
+            isRailActive?.wrappedValue = isShowing
+        }
+        .onDisappear {
+            isRailActive?.wrappedValue = false
+        }
+        // The window's Reflections tab (show) and closing its right page
+        // (put away). The panel and everything in it stay the reader's.
+        .onReceive(NotificationCenter.default.publisher(for: .groveSetReaderRailVisible)) { note in
+            guard let isVisible = note.object as? Bool else { return }
+            setRailVisible(isVisible, vm: vm)
+        }
         .onChange(of: vm.isPDFItem) { _, isPDF in
             // The metadata enricher can discover a PDF after the reader has
             // already opened the web pane (an extension-less URL reads as an
@@ -173,6 +188,29 @@ struct ItemReaderView: View {
             vm.find.findNext()
         } else {
             vm.find.findPrevious()
+        }
+    }
+
+    /// Bring the reader's rail up or put it away, as the window asked.
+    private func setRailVisible(_ isVisible: Bool, vm: ItemReaderViewModel) {
+        if isVisible {
+            let hasPanelContent = alwaysShowReflectionPanel
+                || !vm.sortedReflections.isEmpty
+                || vm.showReflectionEditor
+                || vm.flashcardSelection != nil
+            if hasPanelContent {
+                vm.expandReflectionPanel()
+            } else {
+                // Nothing to list yet: Reflections opens on a new one.
+                vm.toggleReflectionEditor(focusTrigger: focusReflectionEditor)
+            }
+        } else {
+            // The same as dragging the rail shut.
+            vm.closeFlashcardEditor()
+            if vm.showReflectionEditor {
+                vm.closeReflectionEditor()
+            }
+            vm.isReflectionPanelCollapsed = true
         }
     }
 
