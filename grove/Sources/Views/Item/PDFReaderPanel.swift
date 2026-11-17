@@ -17,12 +17,16 @@ import UIKit
 /// silently dead there, which is the whole reason this exists.
 struct PDFReaderPanel: View {
     let item: Item
+    /// The reader's find session, on hosts that offer find-in-document (the
+    /// macOS reader). Nil elsewhere, and the pane then has no find bar.
+    var find: ReaderFindSession? = nil
     /// Back to the item overview. Absent on surfaces that already carry their
     /// own navigation (iOS pushes the reader as a screen of its own).
     var onExit: (() -> Void)? = nil
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private enum LoadState {
         case loading
@@ -53,6 +57,12 @@ struct PDFReaderPanel: View {
         VStack(spacing: 0) {
             navBar
             Divider()
+            // Same place as in the web panel: under the pane's own strip, so
+            // it is still there when full screen hides the window toolbar.
+            if let find, find.isPresented {
+                ReaderFindBar(find: find, placeholder: "Find in document")
+                    .transition(ReaderFindBar.revealTransition(reduceMotion: reduceMotion))
+            }
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -171,6 +181,12 @@ struct PDFReaderPanel: View {
                     if persist {
                         recordProgress(pageIndex: index, pageCount: count)
                     }
+                },
+                findQuery: find?.activeQuery ?? "",
+                findForwardToken: find?.forwardToken ?? 0,
+                findBackwardToken: find?.backwardToken ?? 0,
+                onFindResult: { query, status in
+                    find?.report(status, for: query)
                 }
             )
         }
@@ -257,6 +273,13 @@ private struct PDFDocumentView {
     /// is still settling — the page counter may follow those reports, reading
     /// progress must not.
     var onPageChanged: ((Int, Int, Bool) -> Void)?
+    /// Find-in-document: the query to show ("" for none) and the tokens that
+    /// step to the next / previous match. Results come back as
+    /// `(query, status)`.
+    var findQuery: String = ""
+    var findForwardToken: Int = 0
+    var findBackwardToken: Int = 0
+    var onFindResult: ((String, ReaderFind.Status) -> Void)?
 
     @MainActor
     fileprivate func makePDFView(coordinator: Coordinator) -> PDFView {
@@ -272,6 +295,7 @@ private struct PDFDocumentView {
         view.document = document
 
         coordinator.onPageChanged = onPageChanged
+        coordinator.onFindResult = onFindResult
         coordinator.attach(view)
         coordinator.restore(progress: initialProgress, in: view)
         return view
@@ -280,10 +304,19 @@ private struct PDFDocumentView {
     @MainActor
     fileprivate func updatePDFView(_ view: PDFView, coordinator: Coordinator) {
         coordinator.onPageChanged = onPageChanged
+        coordinator.onFindResult = onFindResult
         if view.document !== document {
             view.document = document
             coordinator.restore(progress: initialProgress, in: view)
+            // Matches found in the old document mean nothing in this one.
+            coordinator.resetFind()
         }
+        coordinator.updateFind(
+            in: view,
+            query: findQuery,
+            forwardToken: findForwardToken,
+            backwardToken: findBackwardToken
+        )
     }
 
     #if os(macOS)
@@ -390,6 +423,109 @@ private struct PDFDocumentView {
         private func reportPage() {
             guard let view, let document = view.document else { return }
             onPageChanged?(currentIndex(in: view), document.pageCount, mayPersistProgress)
+        }
+
+        // MARK: Find
+
+        /// `(query, status)`. Delivered a turn after the view update that
+        /// asked for the search, never from inside it.
+        var onFindResult: ((String, ReaderFind.Status) -> Void)?
+        private var findQuery = ""
+        private var findForwardToken = 0
+        private var findBackwardToken = 0
+        /// Every match of `findQuery`, in document order, from PDFKit's own
+        /// search. Owning the whole list is what lets this surface report a
+        /// position ("3 of 12") and stand behind it.
+        private var findMatches: [PDFSelection] = []
+        private var findIndex: Int?
+
+        private enum FindAction: Sendable {
+            case search(String)
+            case step(forward: Bool)
+            case clear
+        }
+
+        /// Forget the current search, so the next update runs it afresh.
+        func resetFind() {
+            findQuery = ""
+            findMatches = []
+            findIndex = nil
+        }
+
+        func updateFind(in view: PDFView, query: String, forwardToken: Int, backwardToken: Int) {
+            let queryChanged = query != findQuery
+            let steppedForward = forwardToken != findForwardToken
+            let steppedBackward = backwardToken != findBackwardToken
+            findQuery = query
+            findForwardToken = forwardToken
+            findBackwardToken = backwardToken
+
+            let action: FindAction
+            if queryChanged {
+                action = query.isEmpty ? .clear : .search(query)
+            } else if !query.isEmpty, steppedForward || steppedBackward {
+                action = .step(forward: steppedForward)
+            } else {
+                return
+            }
+            // A turn later: a search moves the selection and the page, both of
+            // which report back into view state, and none of that may happen
+            // inside the update pass that asked for it.
+            Task { @MainActor [weak self, weak view] in
+                guard let self, let view else { return }
+                self.performFind(action, in: view)
+            }
+        }
+
+        private func performFind(_ action: FindAction, in view: PDFView) {
+            switch action {
+            case .clear:
+                // Find is over: drop the match it left selected.
+                let hadMatch = findIndex != nil
+                findMatches = []
+                findIndex = nil
+                if hadMatch { view.clearSelection() }
+
+            case .search(let query):
+                // Superseded while it waited its turn.
+                guard query == findQuery else { return }
+                let hadMatch = findIndex != nil
+                findMatches = []
+                findIndex = nil
+                guard let document = view.document else { return }
+                findMatches = document.findString(query, withOptions: [.caseInsensitive])
+                guard !findMatches.isEmpty else {
+                    if hadMatch { view.clearSelection() }
+                    onFindResult?(query, .noMatches)
+                    return
+                }
+                // Start from where the reader is, not from page one.
+                let currentPage = currentIndex(in: view)
+                let fromHere = findMatches.firstIndex { selection in
+                    guard let page = selection.pages.first else { return false }
+                    return document.index(for: page) >= currentPage
+                }
+                findIndex = fromHere ?? 0
+                revealCurrentMatch(in: view)
+
+            case .step(let forward):
+                guard !findMatches.isEmpty else { return }
+                findIndex = ReaderFind.steppedIndex(
+                    from: findIndex,
+                    count: findMatches.count,
+                    forward: forward
+                )
+                revealCurrentMatch(in: view)
+            }
+        }
+
+        /// Selects the current match, scrolls to it and reports its position.
+        private func revealCurrentMatch(in view: PDFView) {
+            guard let findIndex, findMatches.indices.contains(findIndex) else { return }
+            let selection = findMatches[findIndex]
+            view.setCurrentSelection(selection, animate: false)
+            view.go(to: selection)
+            onFindResult?(findQuery, .matches(count: findMatches.count, current: findIndex + 1))
         }
     }
 }

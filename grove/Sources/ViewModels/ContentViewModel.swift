@@ -62,6 +62,17 @@ final class ContentViewModel {
         return .hidden
     }
 
+    /// What ⌘F means right now: the open reader's find bar while an item is up
+    /// on a surface that can search itself, library search everywhere else.
+    /// The rule itself lives in `ReaderFind.shortcutTarget`.
+    var findShortcutTarget: ReaderFind.ShortcutTarget {
+        ReaderFind.shortcutTarget(
+            readerIsOpen: openedItem != nil,
+            surfaceCanFind: isArticleWebViewActive || isPDFReaderActive,
+            overlayIsUp: showSearch || showCaptureOverlay
+        )
+    }
+
     /// Whether the open reader must keep its own reflections rail out of view.
     ///
     /// The reader's reflections rail is a second `RightRailContainer` inside

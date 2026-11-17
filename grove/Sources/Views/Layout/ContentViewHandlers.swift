@@ -42,15 +42,19 @@ struct ContentViewNotificationHandlers: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .groveNewNoteWithPrompt)) { notification in
                 viewModel.openWritePanel(prompt: notification.object as? String)
             }
-            .onReceive(NotificationCenter.default.publisher(for: .groveToggleSearch)) { _ in
-                if viewModel.isArticleWebViewActive {
+            .onReceive(NotificationCenter.default.publisher(for: .groveFind)) { _ in
+                // ⌘F: the one place that decides between the open reader's
+                // find bar and library search.
+                switch viewModel.findShortcutTarget {
+                case .article:
                     NotificationCenter.default.post(name: .groveFindInArticle, object: nil)
-                } else {
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        if !viewModel.showSearch { viewModel.showCaptureOverlay = false }
-                        viewModel.showSearch.toggle()
-                    }
+                case .library:
+                    toggleLibrarySearch()
                 }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .groveToggleSearch)) { _ in
+                // ⌘⇧F and the sidebar's search field: always the library.
+                toggleLibrarySearch()
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveToggleInspector)) { _ in
                 viewModel.toggleInspector()
@@ -118,6 +122,13 @@ struct ContentViewNotificationHandlers: ViewModifier {
                 viewModel.readLaterScheduler?.stop()
                 viewModel.readLaterScheduler = nil
             }
+    }
+
+    private func toggleLibrarySearch() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            if !viewModel.showSearch { viewModel.showCaptureOverlay = false }
+            viewModel.showSearch.toggle()
+        }
     }
 
     /// Drop every reference to an item that is about to be deleted.
