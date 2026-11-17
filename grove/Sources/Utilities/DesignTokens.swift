@@ -183,6 +183,15 @@ extension Font {
     @MainActor static let groveListTitle = Font.custom("Newsreader-Medium", size: Platform.isIPad ? 16 : 17, relativeTo: .headline)
     #endif
 
+    /// IBM Plex Mono 11pt (macOS/iPad), 12pt (iPhone) — Folio line under a
+    /// writing surface (word count, saved state). Apply `.tracking(0.8)` and
+    /// uppercase the text at the call site, like `groveSectionHeader`.
+    #if os(macOS)
+    static let groveFolio = Font.custom("IBMPlexMono-Regular", size: 11)
+    #else
+    @MainActor static let groveFolio = Font.custom("IBMPlexMono-Regular", size: Platform.isIPad ? 11 : 12, relativeTo: .caption2)
+    #endif
+
     /// Newsreader SemiBold 20pt (macOS/iPad), 18pt (iPhone) — Emphasized item title
     #if os(macOS)
     static let groveItemTitleBold = Font.custom("Newsreader-SemiBold", size: 20)
@@ -252,6 +261,9 @@ enum LayoutDimensions {
 
     static let contentPaddingTop: CGFloat = 24
     static let inspectorPaddingH: CGFloat = 16
+    /// The margin a writing surface keeps either side of its prose: the note
+    /// page, the rail writer and the reflection editor all set text on it.
+    static let writingGutter: CGFloat = 40
     static let inspectorPaddingTop: CGFloat = 24
 
     /// Minimum touch target size on iOS (44x44pt per HIG)

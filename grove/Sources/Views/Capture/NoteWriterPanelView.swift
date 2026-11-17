@@ -3,7 +3,11 @@ import SwiftData
 
 // MARK: - NoteWriterPanelView
 
-/// Note writer panel used both in the side write panel and the modal sheet flow.
+/// The quick note writer: the rail's writing mode on macOS (a note beside
+/// whatever is in the main column, or an answer to a prompt) and the sheet on
+/// iOS. A note that outgrows the rail opens as a page (`NotePageView`).
+///
+/// The draft saves itself as it is written; closing only ends the session.
 struct NoteWriterPanelView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -14,14 +18,21 @@ struct NoteWriterPanelView: View {
     var prompt: String? = nil
     var editingItem: Item? = nil
     var isSidePanel: Bool = false
+    // Declared before `onOpenAsPage` on purpose: call sites pass this one as
+    // a trailing closure, and a trailing closure binds to the first closure
+    // parameter.
     var onCreated: ((Item) -> Void)?
+    /// When set, the top bar offers to continue the note as a full page.
+    var onOpenAsPage: ((Item) -> Void)? = nil
 
-    @State private var title = ""
-    @State private var content = ""
-    @State private var savedDraftItem: Item?
+    @State private var draft = NoteDraft()
+    @State private var editorProxy = MarkdownEditingProxy()
     @State private var flashcardItem: Item?
-    @State private var saveError: String?
     @FocusState private var isTitleFocused: Bool
+
+    private var saveError: String? {
+        draft.state == .failed ? "Your note could not be saved. Please try again." : nil
+    }
 
     var body: some View {
         Group {
@@ -34,8 +45,10 @@ struct NoteWriterPanelView: View {
                 }
                 // The side panel shares the window's one rail, so chat or the
                 // inspector can take it over mid-draft; keep what was written.
+                // Also covers a sheet swiped away, which never reaches `dismiss()`.
+                // After `dismiss()` this finds nothing left to write.
                 .onDisappear {
-                    if isSidePanel { saveContent(notifyCreated: false) }
+                    draft.finish()
                 }
             } else {
                 editorContent
@@ -51,9 +64,16 @@ struct NoteWriterPanelView: View {
                 }
             }
         }
+        .onChange(of: draft.title) { draft.textDidChange() }
+        .onChange(of: draft.content) { draft.textDidChange() }
         #if os(macOS)
         .onExitCommand {
             dismiss()
+        }
+        // Quitting does not run `onDisappear`; write whatever the autosave
+        // has not reached yet.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+            draft.save()
         }
         #endif
         .background {
@@ -91,15 +111,13 @@ struct NoteWriterPanelView: View {
                 Text(saveError)
                     .font(.groveBodySmall)
                     .foregroundStyle(Color.textSecondary)
-                    .padding(.horizontal, 40)
+                    .padding(.horizontal, LayoutDimensions.writingGutter)
                     .accessibilityLabel("Note save failed: \(saveError)")
             }
             if let prompt {
                 promptCallout(prompt)
             }
             titleField
-            Divider()
-                .padding(.horizontal, 40)
             bodyEditor
         }
     }
@@ -115,14 +133,14 @@ struct NoteWriterPanelView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.bgInput)
             .clipShape(RoundedRectangle(cornerRadius: Radius.control))
-            .padding(.horizontal, 40)
+            .padding(.horizontal, LayoutDimensions.writingGutter)
             .padding(.bottom, Spacing.sm)
     }
 
     // MARK: - Top Bar
 
     private var topBar: some View {
-        HStack {
+        HStack(spacing: Spacing.md) {
             Text(editingItem != nil ? "EDIT" : prompt != nil ? "WRITE" : "NOTE")
                 .font(.groveMeta)
                 .foregroundStyle(Color.textTertiary)
@@ -133,83 +151,125 @@ struct NoteWriterPanelView: View {
                 Menu {
                     ForEach(referenceItems) { source in
                         Button(source.title) {
-                            let reference = "[[\(source.title)]]"
-                            if !content.contains(reference) {
-                                content += content.isEmpty ? reference : "\n\n\(reference)"
-                            }
+                            insertReference(to: source)
                         }
                     }
                 } label: {
-                    Image(systemName: "link")
+                    barLabel("Cite", systemImage: "link")
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
-                .help("Insert a reference from this board")
+                .help("Insert a reference from this board at the cursor")
                 .accessibilityLabel("Insert a source reference")
             }
 
             Button {
-                guard let note = saveContent(notifyCreated: false) else { return }
+                guard let note = draft.save(syncLinks: true) else { return }
                 flashcardItem = note
             } label: {
-                Image(systemName: "rectangle.on.rectangle")
-                    .foregroundStyle(Color.textSecondary)
+                barLabel("Card", systemImage: "rectangle.on.rectangle")
             }
             .buttonStyle(.plain)
-            .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .help("Save this note and make a flashcard from it")
             .accessibilityLabel("Make a flashcard from this note")
+
+            if let onOpenAsPage {
+                Button {
+                    guard let note = draft.save(syncLinks: true) else { return }
+                    onOpenAsPage(note)
+                } label: {
+                    barLabel("Page", systemImage: "arrow.up.left.and.arrow.down.right")
+                }
+                .buttonStyle(.plain)
+                .disabled(!draft.hasText && draft.item == nil)
+                .help("Continue this note as a full page")
+                .accessibilityLabel("Open this note as a page")
+            }
 
             Button {
                 dismiss()
             } label: {
-                Image(systemName: "xmark")
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textMuted)
+                barLabel("Done", systemImage: "xmark")
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Close note writer")
             .accessibilityHint("Saves and closes this panel.")
         }
-        .padding(.horizontal, 40)
+        .padding(.horizontal, LayoutDimensions.writingGutter)
         .padding(.top, Spacing.xl)
         .padding(.bottom, Spacing.sm)
+    }
+
+    /// In the rail the bar is set as words in the meta face, like the label
+    /// it shares a line with. The sheet keeps the icons its toolbar had.
+    @ViewBuilder
+    private func barLabel(_ word: String, systemImage: String) -> some View {
+        if isSidePanel {
+            Text(word.uppercased())
+                .font(.groveMeta)
+                .foregroundStyle(Color.textSecondary)
+                .lineLimit(1)
+                .fixedSize()
+                .contentShape(Rectangle())
+        } else {
+            Image(systemName: systemImage)
+                .font(.groveBody)
+                .foregroundStyle(Color.textSecondary)
+                .frame(minWidth: LayoutDimensions.minTouchTarget, minHeight: LayoutDimensions.minTouchTarget)
+                .contentShape(Rectangle())
+        }
+    }
+
+    /// Puts `[[Title]]` where the caret is. Appends only when no editor is
+    /// mounted to take it.
+    private func insertReference(to source: Item) {
+        let reference = "[[\(source.title)]]"
+        if editorProxy.isConnected {
+            editorProxy.insertText(reference, cursorOffset: 0)
+        } else if !draft.content.contains(reference) {
+            draft.content += draft.content.isEmpty ? reference : "\n\n\(reference)"
+        }
     }
 
     // MARK: - Title Field
 
     private var titleField: some View {
-        TextField("", text: $title, prompt:
-            Text("Title…")
+        TextField("", text: $draft.title, prompt:
+            Text("Title")
                 .foregroundStyle(Color.textMuted)
         )
         .textFieldStyle(.plain)
-        .font(.groveItemTitle)
+        .font(.groveTitleLarge)
         .foregroundStyle(Color.textPrimary)
         .focused($isTitleFocused)
-        .padding(.horizontal, 40)
-        .padding(.vertical, Spacing.md)
+        // Return in the title carries on into the body.
+        .onSubmit { editorProxy.focus() }
+        .padding(.horizontal, LayoutDimensions.writingGutter)
+        .padding(.top, Spacing.sm)
+        .padding(.bottom, Spacing.md)
     }
 
     // MARK: - Body Editor
 
     private var bodyEditor: some View {
-        RichMarkdownEditor(text: $content, sourceItem: nil, minHeight: 200, proseMode: true)
-            .frame(maxHeight: .infinity)
+        RichMarkdownEditor(
+            text: $draft.content,
+            // Nil until the note exists; `[[links]]` typed before that are
+            // turned into connections when the session ends.
+            sourceItem: draft.item,
+            minHeight: 200,
+            proseMode: true,
+            proxy: editorProxy,
+            status: draft.state.label
+        )
+        .frame(maxHeight: .infinity)
     }
 
     // MARK: - Actions
 
-    /// True once the item being edited has been deleted out from under the
-    /// panel. Writing to (or wiki-link syncing) a deleted model resurrects
-    /// garbage in the store, so every save path bails on this.
-    private var isEditingDeletedItem: Bool {
-        guard let note = editingItem ?? savedDraftItem else { return false }
-        return note.isDeleted || note.modelContext == nil
-    }
-
     private var referenceItems: [Item] {
-        let note = editingItem ?? savedDraftItem
+        let note = draft.item ?? editingItem
         let sourceBoards: [Board]
         if let currentBoardID, let board = boards.first(where: { $0.id == currentBoardID }) {
             sourceBoards = [board]
@@ -224,71 +284,18 @@ struct NoteWriterPanelView: View {
             .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
 
-    /// Persist content if non-empty. Called automatically on dismiss.
-    @discardableResult
-    private func saveContent(notifyCreated: Bool = true) -> Item? {
-        guard !isEditingDeletedItem else { return nil }
-
-        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTitle.isEmpty || !trimmedContent.isEmpty else { return nil }
-
-        let noteTitle = trimmedTitle.isEmpty ? "Untitled Note" : trimmedTitle
-        let noteContent = trimmedContent.isEmpty ? nil : trimmedContent
-
-        if let existingNote = editingItem ?? savedDraftItem {
-            existingNote.title = noteTitle
-            existingNote.content = noteContent
-            existingNote.updatedAt = .now
-            do {
-                try modelContext.save()
-                saveError = nil
-            } catch {
-                saveError = "Your note could not be saved. Please try again."
-                return nil
-            }
-            // The editor runs with `sourceItem: nil`, so autocomplete never creates
-            // connections here — sync typed [[wiki links]] into connections on save.
-            WikiLinkSync.sync(item: existingNote, modelContext: modelContext)
-            if notifyCreated { onCreated?(existingNote) }
-            return existingNote
-        } else {
-            let board: Board? = currentBoardID.flatMap { id in
-                boards.first(where: { $0.id == id })
-            }
-            let note = Item(title: noteTitle, type: .note)
-            note.status = .active
-            note.content = noteContent
-            note.updatedAt = .now
-            modelContext.insert(note)
-            if let board { note.boards.append(board) }
-            do {
-                try modelContext.save()
-                saveError = nil
-            } catch {
-                modelContext.delete(note)
-                saveError = "Your note could not be saved. Please try again."
-                return nil
-            }
-            savedDraftItem = note
-            WikiLinkSync.sync(item: note, modelContext: modelContext)
-            if notifyCreated { onCreated?(note) }
-            return note
-        }
-    }
-
     private func configureInitialContent() {
-        if let editingItem {
-            title = editingItem.title
-            content = editingItem.content ?? ""
-        }
+        draft.configure(item: editingItem, boardID: currentBoardID, modelContext: modelContext)
         isTitleFocused = true
     }
 
     private func dismiss() {
-        let hasContent = !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if hasContent, !isEditingDeletedItem, saveContent() == nil { return }
+        if draft.hasText || draft.item != nil {
+            let note = draft.finish()
+            // A failed save keeps the panel open with the text still in it.
+            if draft.state == .failed { return }
+            if let note { onCreated?(note) }
+        }
         // Resign first responder before animating out so macOS doesn't leave
         // the window in a state where clicks stop reaching underlying views.
         #if os(macOS)
