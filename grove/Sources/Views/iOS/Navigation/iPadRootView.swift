@@ -75,11 +75,6 @@ struct iPadRootView: View {
     @State private var readerCoordinator = iPadReaderCoordinator()
     @State private var detailPath = NavigationPath()
     @State private var pendingDetailRoute: DetailRoute?
-    private struct ReviewSession: Identifiable {
-        let id = UUID()
-        let boardID: UUID?
-    }
-    @State private var reviewSession: ReviewSession?
     @State private var writeSheetSession: WriteSheetSession?
 
     // Board suggestion state (same behavior as TabRootView).
@@ -88,6 +83,7 @@ struct iPadRootView: View {
     @State private var showBoardSuggestion = false
     @State private var showBoardPicker = false
     @State private var showNewBoardSheet = false
+    @State private var boardToEdit: Board?
     @State private var suggestionDismissTask: Task<Void, Never>?
 
     private var inboxCount: Int {
@@ -247,8 +243,16 @@ struct iPadRootView: View {
         }
         .sheet(isPresented: $showNewBoardSheet) {
             BoardEditorSheet(
-                onSave: { title, icon in
-                    boardViewModel.createBoard(title: title, icon: icon)
+                onSave: { title, icon, color in
+                    boardViewModel.createBoard(title: title, icon: icon, color: color)
+                }
+            )
+        }
+        .sheet(item: $boardToEdit) { board in
+            BoardEditorSheet(
+                board: board,
+                onSave: { title, icon, color in
+                    boardViewModel.updateBoard(board, title: title, icon: icon, color: color)
                 }
             )
         }
@@ -267,9 +271,6 @@ struct iPadRootView: View {
                     pendingSearchResultBoardID = board.id
                 }
             )
-        }
-        .sheet(item: $reviewSession) { session in
-            NavigationStack { LearningReviewView(boardID: session.boardID) }
         }
         .sheet(item: $writeSheetSession) { session in
             NoteWriterPanelView(
@@ -316,11 +317,27 @@ struct iPadRootView: View {
 
             Section {
                 ForEach(boards) { board in
-                    Label(board.title, systemImage: board.icon ?? "folder")
+                    Label {
+                        Text(board.title)
+                    } icon: {
+                        // Only a board that was given a colour overrides the
+                        // sidebar's own icon ink.
+                        if let tint = board.iconTint {
+                            Image(systemName: board.icon ?? "folder")
+                                .foregroundStyle(tint)
+                        } else {
+                            Image(systemName: board.icon ?? "folder")
+                        }
+                    }
                         #if os(iOS)
                         .padding(.leading, Spacing.md)
                         #endif
                         .tag(SidebarSelection.board(board.id))
+                        .contextMenu {
+                            Button("Edit Board...") {
+                                boardToEdit = board
+                            }
+                        }
                 }
             } header: {
                 HStack(spacing: Spacing.sm) {
@@ -481,10 +498,6 @@ struct iPadRootView: View {
         case .capture(let prefillURL):
             capturePrefillURL = prefillURL
             showCaptureSheet = true
-
-        case .review(let boardID):
-            sidebarSelection = .home
-            reviewSession = ReviewSession(boardID: boardID)
 
         case .search(let query):
             sidebarSelection = .library

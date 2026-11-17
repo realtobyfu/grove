@@ -14,7 +14,6 @@ struct ShortcutsSettingsView: View {
                 shortcutRow("Go to Today", shortcut: "⌘0")
                 shortcutRow("Go to Board 1–9", shortcut: "⌘1 – ⌘9")
                 shortcutRow("New Board", shortcut: "⌘⇧B")
-                shortcutRow("Review flashcards", shortcut: "⌘⇧R")
             }
 
             Section("View") {

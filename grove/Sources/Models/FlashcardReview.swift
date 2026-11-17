@@ -28,6 +28,9 @@ enum RecallRating: String, Codable, CaseIterable, Sendable, Identifiable {
     }
 }
 
+/// Retired with flashcards (Nov 2026): nothing creates or reads these; kept
+/// for the same reason as `UserFlashcard`. Don't change its stored properties.
+///
 /// Append-only learning evidence. Retries reuse `id`; model reconciliation
 /// deduplicates that event key rather than relying on CloudKit uniqueness.
 @Model
@@ -74,6 +77,5 @@ final class UserFlashcardReview {
     }
 }
 
-/// The stored entity is named `UserFlashcardReview` so it sorts after every 2.0 entity.
-/// Read "Migration Limits" in SharedModelContainer.swift before adding a model.
-typealias FlashcardReview = UserFlashcardReview
+// The entity is named `UserFlashcardReview` so it sorts after every 2.0 entity.
+// Read "Migration Limits" in SharedModelContainer.swift before adding a model.

@@ -7,7 +7,7 @@ import WebKit
 /// when the page extracts, the live page otherwise or on request.
 /// Notes: navigates to MobileNoteEditorView.
 /// Toolbar: back, Reader | Live, Reflections, and (iPhone) an overflow menu
-/// with Info, Discuss, Share, Find, Text size and Flashcards. iPad has room
+/// with Info, Discuss, Share, Find and Text size. iPad has room
 /// for every action directly.
 ///
 /// This is the compact-width reader: iPhone, and iPad in compact width (Slide
@@ -37,8 +37,6 @@ struct MobileItemReaderView: View {
     @State private var findCurrentMatch = 0
     @State private var findTotalMatches = 0
     @State private var selectedText: String?
-    @State private var flashcardSession: LearningEditorSession?
-    @State private var showFlashcards = false
     /// Where the selection sits in the web view's viewport, for anchoring the
     /// highlight bar next to it rather than at the bottom of the screen.
     @State private var selectionGeometry: WebSelectionGeometry?
@@ -212,14 +210,6 @@ struct MobileItemReaderView: View {
             .sheet(isPresented: $showReflections) {
                 reflectionSheetContent
             }
-            .sheet(item: $flashcardSession) { session in
-                NavigationStack {
-                    FlashcardEditorView(item: session.item, sourceQuote: session.sourceQuote)
-                }
-            }
-            .sheet(isPresented: $showFlashcards) {
-                NavigationStack { FlashcardLibraryView(itemID: readingItem.id) }
-            }
             .sheet(isPresented: $showInfoSheet) {
                 infoSheetContent
             }
@@ -259,8 +249,7 @@ struct MobileItemReaderView: View {
     private var highlightActionOverlay: some View {
         if item.type != .note, let selection = trimmedSelection {
             let bar = HighlightActionBar(
-                onHighlight: { addHighlight(selection) },
-                onRemember: { remember(selection) }
+                onHighlight: { addHighlight(selection) }
             )
             Group {
                 if let selectionGeometry {
@@ -276,15 +265,6 @@ struct MobileItemReaderView: View {
             }
             .animation(.easeOut(duration: 0.15), value: trimmedSelection != nil)
         }
-    }
-
-    private func remember(_ selection: String) {
-        // Saving a question is a durable annotation, so linked pages must be
-        // captured just as they are when making a highlight.
-        flashcardSession = LearningEditorSession(item: resolveWritingHost(), sourceQuote: selection)
-        selectedText = nil
-        selectionGeometry = nil
-        clearSelectionToken += 1
     }
 
     @discardableResult
@@ -843,7 +823,6 @@ struct MobileItemReaderView: View {
                 }
 
                 if showsFullToolbar {
-                    flashcardsMenu
                     // Text size in Reader, page zoom on the live page, and
                     // find (web pages only)
                     if showsWebPageControls {
@@ -867,7 +846,7 @@ struct MobileItemReaderView: View {
     }
 
     /// iPhone's overflow, in a fixed order: Info, Discuss, Share, Find,
-    /// Text size, then Flashcards. Menus inside it open as submenus.
+    /// then Text size. Menus inside it open as submenus.
     private var overflowMenu: some View {
         Menu {
             Button {
@@ -883,7 +862,6 @@ struct MobileItemReaderView: View {
                 findButton
                 textSizeMenu
             }
-            flashcardsMenu
         } label: {
             Label("More", systemImage: "ellipsis")
                 .labelStyle(.iconOnly)
@@ -909,18 +887,6 @@ struct MobileItemReaderView: View {
             infoPanel
                 .frame(width: 380, height: 620)
         }
-    }
-
-    private var flashcardsMenu: some View {
-        Menu {
-            Button("New flashcard", systemImage: "plus.rectangle.on.rectangle") {
-                flashcardSession = LearningEditorSession(item: resolveWritingHost(), sourceQuote: trimmedSelection)
-            }
-            Button("Manage flashcards", systemImage: "rectangle.on.rectangle") { showFlashcards = true }
-        } label: {
-            Label("Flashcards", systemImage: "rectangle.on.rectangle")
-        }
-        .accessibilityLabel("Flashcards")
     }
 
     /// Text size in Reader, page zoom on the live page.

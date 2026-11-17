@@ -2,6 +2,11 @@ import CryptoKit
 import Foundation
 import SwiftData
 
+/// Retired with flashcards (Nov 2026): nothing creates or reads these. The
+/// model stays so a store that already holds the entity opens without a
+/// migration, and so any cards already saved are still there if flashcards
+/// return. Don't change its stored properties.
+///
 /// A small, explicitly chosen question with a durable snapshot of its source.
 /// Source references are identifiers rather than cascading relationships: a
 /// deleted article must not erase the passage a person learned from.
@@ -69,6 +74,5 @@ final class UserFlashcard {
     }
 }
 
-/// The stored entity is named `UserFlashcard` so it sorts after every 2.0 entity.
-/// Read "Migration Limits" in SharedModelContainer.swift before adding a model.
-typealias Flashcard = UserFlashcard
+// The entity is named `UserFlashcard` so it sorts after every 2.0 entity.
+// Read "Migration Limits" in SharedModelContainer.swift before adding a model.

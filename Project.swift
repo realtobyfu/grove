@@ -52,14 +52,10 @@ let project = Project(
             ]),
             buildableFolders: [
                 "grove/Sources",
-                "grove/SharedLearning",
                 "grove/Resources",
             ],
             entitlements: .file(path: "grove/grove-ios.entitlements"),
-            dependencies: [
-                .target(name: "GroveShareExtension"),
-                .target(name: "GroveLearningWidget"),
-            ],
+            dependencies: [.target(name: "GroveShareExtension")],
             settings: .settings(base: [
                 "SWIFT_STRICT_CONCURRENCY": "complete",
                 "SWIFT_VERSION": "6.0",
@@ -69,39 +65,6 @@ let project = Project(
                 "DEVELOPMENT_TEAM": "679K683SQ5",
                 // iOS ships as 1.0; the macOS app is on 2.x. The share
                 // extension below must always match this target exactly.
-                "MARKETING_VERSION": "1.0",
-                "CURRENT_PROJECT_VERSION": "5",
-            ])
-        ),
-        // MARK: - GroveLearningWidget (local snapshot + review deep link)
-        .target(
-            name: "GroveLearningWidget",
-            destinations: [.iPhone, .iPad],
-            product: .appExtension,
-            bundleId: "dev.tuist.grove.learning-widget",
-            deploymentTargets: .iOS("18.0"),
-            infoPlist: .extendingDefault(with: [
-                "CFBundleDisplayName": "Grove Learning",
-                "CFBundleShortVersionString": "$(MARKETING_VERSION)",
-                "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
-                "NSExtension": ["NSExtensionPointIdentifier": "com.apple.widgetkit-extension"],
-                "UIAppFonts": [
-                    "IBMPlexMono-Medium.ttf", "IBMPlexSans-Medium.ttf",
-                    "IBMPlexSans-Regular.ttf", "Newsreader-Medium.ttf",
-                ],
-            ]),
-            buildableFolders: [
-                "grove/WidgetExtension",
-                "grove/SharedLearning",
-                "grove/Resources/Fonts",
-            ],
-            entitlements: .file(path: "grove/widget-extension.entitlements"),
-            dependencies: [],
-            settings: .settings(base: [
-                "SWIFT_STRICT_CONCURRENCY": "complete",
-                "SWIFT_VERSION": "6.0",
-                "CODE_SIGN_STYLE": "Automatic",
-                "DEVELOPMENT_TEAM": "679K683SQ5",
                 "MARKETING_VERSION": "1.0",
                 "CURRENT_PROJECT_VERSION": "5",
             ])
@@ -129,7 +92,6 @@ let project = Project(
             ]),
             buildableFolders: [
                 "grove/Sources",
-                "grove/SharedLearning",
                 "grove/ShareExtension",
                 "grove/Resources",
             ],
@@ -155,11 +117,6 @@ let project = Project(
             infoPlist: .extendingDefault(with: [
                 "CFBundleDisplayName": "Grove",
                 "CFBundleName": "Grove",
-                "CFBundleURLTypes": [[
-                    "CFBundleTypeRole": "Editor",
-                    "CFBundleURLName": "dev.tuist.grove",
-                    "CFBundleURLSchemes": ["grove"],
-                ]],
                 "CFBundleIconName": "AppIcon",
                 "CFBundleShortVersionString": "$(MARKETING_VERSION)",
                 "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
@@ -173,7 +130,6 @@ let project = Project(
             ]),
             buildableFolders: [
                 "grove/Sources",
-                "grove/SharedLearning",
                 "grove/Resources",
             ],
             entitlements: .file(path: "grove/grove.entitlements"),
@@ -213,7 +169,6 @@ let project = Project(
             ]),
             buildableFolders: [
                 "grove/Sources",
-                "grove/SharedLearning",
                 "grove/Resources",
             ],
             entitlements: .file(path: "grove/groveDemo.entitlements"),

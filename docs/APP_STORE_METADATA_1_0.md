@@ -28,7 +28,6 @@ Read comfortably:
 Organize naturally:
 - Group related ideas into Boards
 - Connect notes with wiki-links and see backlinks everywhere
-- Turn highlights into flashcards and review them when they come due
 
 Think better:
 - Chat with an assistant grounded in your own library

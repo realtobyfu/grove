@@ -24,6 +24,7 @@
 
 ## Design System
 - Monochromatic. No accent colors. Hierarchy through typography weight/size/contrast.
+- One exception: a board's icon may carry a color its owner picked (`BoardColor`, stored in `Board.color`). Only the icon is tinted — never text, fills or controls.
 - Min touch target: 44x44pt on iOS
 - Fonts: Newsreader (titles), IBM Plex Sans (body), IBM Plex Mono (meta)
 - Font tokens: `Font.custom(_:size:relativeTo:)` for Dynamic Type. `@ScaledMetric` for non-font CGFloat values (spacing, sizes).

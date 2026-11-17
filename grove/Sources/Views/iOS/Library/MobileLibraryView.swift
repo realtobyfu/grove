@@ -103,9 +103,9 @@ struct MobileLibraryView: View {
         }
         .sheet(isPresented: $showNewBoardSheet) {
             BoardEditorSheet(
-                onSave: { title, icon in
+                onSave: { title, icon, color in
                     let viewModel = BoardViewModel(modelContext: modelContext)
-                    viewModel.createBoard(title: title, icon: icon)
+                    viewModel.createBoard(title: title, icon: icon, color: color)
                 }
             )
         }

@@ -109,8 +109,8 @@ struct OnboardingFlowView: View {
                     description: "Read distraction-free and keep highlights"
                 )
                 featureRow(
-                    icon: "rectangle.on.rectangle",
-                    description: "Turn a highlight into a reflection, then a flashcard"
+                    icon: "highlighter",
+                    description: "Turn a highlight into a reflection in your own words"
                 )
                 featureRow(
                     icon: "bubble.left.and.bubble.right",

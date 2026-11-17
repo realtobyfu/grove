@@ -23,19 +23,14 @@ enum BoardSortOption: String, CaseIterable, Sendable {
 }
 
 struct BoardDetailView: View {
-    private static let maxDiscussionSuggestions = 2
-
     let board: Board
     @Binding var selectedItem: Item?
     @Binding var openedItem: Item?
     @Environment(\.modelContext) private var modelContext
-    @Query private var allItems: [Item]
     @State private var viewMode: BoardViewMode = .grid
     @State private var sortOption: BoardSortOption = .manual
     @State private var draggingItemID: UUID?
     @State private var itemToDelete: Item?
-    @State private var isSuggestionsCollapsed = false
-    @State private var starterService = ConversationStarterService.shared
     @State private var paywallPresentation: PaywallPresentation?
 
     /// The active items that belong to this board.
@@ -52,28 +47,15 @@ struct BoardDetailView: View {
         return WeekSection.group(sortedFilteredItems)
     }
 
-    private var boardDiscussionSuggestions: [PromptBubble] {
-        starterService.bubbles(for: board.id, maxResults: Self.maxDiscussionSuggestions)
-    }
-
     // MARK: - Header Helper
 
     private var headerView: BoardDetailHeaderView {
         BoardDetailHeaderView(
             board: board,
             displayedItems: sortedFilteredItems,
-            boardDiscussionSuggestions: boardDiscussionSuggestions,
             sortOption: sortOption,
             viewMode: $viewMode,
-            sortOptionBinding: $sortOption,
-            isSuggestionsCollapsed: $isSuggestionsCollapsed,
-            onOpenChat: { startDialectic(with: $0) },
-            onStartWriting: { startWriting(with: $0.prompt) },
-            onRefreshSuggestions: {
-                Task {
-                    await starterService.forceRefreshBoard(board.id, items: allItems)
-                }
-            }
+            sortOptionBinding: $sortOption
         )
     }
 
@@ -83,15 +65,9 @@ struct BoardDetailView: View {
         VStack(spacing: 0) {
             CaptureBarView(currentBoardID: board.id)
 
-            LearningInvitationView(boardID: board.id)
-                .padding(.horizontal, LayoutDimensions.contentPaddingH)
-                .padding(.vertical, Spacing.md)
-
             if effectiveItems.isEmpty {
                 headerView.emptyState
             } else {
-                headerView.suggestionsBar
-
                 BoardItemListView(
                     board: board,
                     sortedFilteredItems: sortedFilteredItems,
@@ -125,15 +101,6 @@ struct BoardDetailView: View {
             openSelectedItem()
             return .handled
         }
-        .task(id: board.id) {
-            await starterService.refreshBoard(board.id, items: allItems)
-        }
-        .onChange(of: allItems.count) { _, newCount in
-            guard newCount > 0, boardDiscussionSuggestions.isEmpty else { return }
-            Task {
-                await starterService.refreshBoard(board.id, items: allItems)
-            }
-        }
         .onChange(of: board.id, initial: true) {
             sortOption = .dateAdded
         }
@@ -160,41 +127,6 @@ struct BoardDetailView: View {
                 Text("Are you sure you want to delete \"\(item.title)\"? This cannot be undone.")
             }
         }
-    }
-
-    // MARK: - Suggestions
-
-    private func startDialectic(with bubble: PromptBubble) {
-        let prompt = bubble.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !prompt.isEmpty else {
-            openConversation(with: "")
-            return
-        }
-        openConversation(with: prompt, seedItemIDs: scopedSeedItemIDs(for: bubble))
-    }
-
-    private func startWriting(with prompt: String?) {
-        guard let prompt, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            NotificationCenter.default.post(name: .groveNewNote, object: nil)
-            return
-        }
-        NotificationCenter.default.post(name: .groveNewNoteWithPrompt, object: prompt)
-    }
-
-    private func openConversation(with prompt: String, seedItemIDs: [UUID] = []) {
-        NotificationCenter.default.postConversationPrompt(
-            ConversationPromptPayload(
-                prompt: prompt,
-                seedItemIDs: seedItemIDs,
-                injectionMode: .asAssistantGreeting
-            )
-        )
-    }
-
-    private func scopedSeedItemIDs(for bubble: PromptBubble) -> [UUID] {
-        let boardItemIDs = Set(effectiveItems.map(\.id))
-        let scopedSeedIDs = bubble.clusterItemIDs.filter { boardItemIDs.contains($0) }
-        return scopedSeedIDs.isEmpty ? bubble.clusterItemIDs : scopedSeedIDs
     }
 
     // MARK: - Keyboard Handlers

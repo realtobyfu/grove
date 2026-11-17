@@ -19,7 +19,6 @@ struct NoteWriterPanelView: View {
     @State private var title = ""
     @State private var content = ""
     @State private var savedDraftItem: Item?
-    @State private var flashcardItem: Item?
     @State private var saveError: String?
     @FocusState private var isTitleFocused: Bool
 
@@ -62,14 +61,6 @@ struct NoteWriterPanelView: View {
                 .keyboardShortcut(.return, modifiers: .command)
                 .frame(width: 0, height: 0)
                 .opacity(0)
-        }
-        .sheet(item: $flashcardItem) { note in
-            NavigationStack {
-                FlashcardEditorView(item: note, sourceQuote: note.content)
-            }
-            #if os(macOS)
-            .frame(minWidth: 440, idealWidth: 500, minHeight: 520)
-            #endif
         }
     }
 
@@ -147,18 +138,6 @@ struct NoteWriterPanelView: View {
                 .help("Insert a reference from this board")
                 .accessibilityLabel("Insert a source reference")
             }
-
-            Button {
-                guard let note = saveContent(notifyCreated: false) else { return }
-                flashcardItem = note
-            } label: {
-                Image(systemName: "rectangle.on.rectangle")
-                    .foregroundStyle(Color.textSecondary)
-            }
-            .buttonStyle(.plain)
-            .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .help("Save this note and make a flashcard from it")
-            .accessibilityLabel("Make a flashcard from this note")
 
             Button {
                 dismiss()

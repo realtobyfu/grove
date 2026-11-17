@@ -1,8 +1,7 @@
 import SwiftUI
 import SwiftData
 
-/// iOS Today screen — capture, flashcards when due, the inbox, then the one
-/// Think Next card.
+/// iOS Today screen — capture, the inbox, then the one Think Next card.
 struct MobileHomeView: View {
     private static let maxDiscussionCards = 1
 
@@ -36,22 +35,13 @@ struct MobileHomeView: View {
     var body: some View {
         List {
             Section {
-                // One row, so the flashcards view stays mounted when it hides:
-                // a List row can't collapse to nothing, and removing the view
-                // would stop its due-date refresh and close its review sheet.
-                VStack(spacing: 0) {
-                    InlineCaptureBar()
-                    LearningInvitationView(
-                        showsOnlyWhenDue: true,
-                        rowInsets: EdgeInsets(top: Spacing.sm, leading: 0, bottom: 0, trailing: 0)
-                    )
-                }
-                .listRowInsets(EdgeInsets(
-                    top: Spacing.sm,
-                    leading: LayoutDimensions.contentPaddingH,
-                    bottom: Spacing.sm,
-                    trailing: LayoutDimensions.contentPaddingH
-                ))
+                InlineCaptureBar()
+                    .listRowInsets(EdgeInsets(
+                        top: Spacing.sm,
+                        leading: LayoutDimensions.contentPaddingH,
+                        bottom: Spacing.sm,
+                        trailing: LayoutDimensions.contentPaddingH
+                    ))
             }
             .listRowSeparator(.hidden)
             .listSectionSeparator(.hidden)

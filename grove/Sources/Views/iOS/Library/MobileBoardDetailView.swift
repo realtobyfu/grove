@@ -5,11 +5,9 @@ import UIKit
 #endif
 
 /// iOS board detail.
-/// - iPad regular width: mac-like board workspace with grid/list toggle, suggestions, and reorder.
+/// - iPad regular width: mac-like board workspace with grid/list toggle and reorder.
 /// - iPhone/compact width: simplified adaptive grid with navigation pushes.
 struct MobileBoardDetailView: View {
-    private static let maxDiscussionSuggestions = 2
-
 #if os(iOS)
     @MainActor
     private enum Device {
@@ -25,21 +23,13 @@ struct MobileBoardDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openURL) private var openURL
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @Environment(EntitlementService.self) private var entitlement
-    @Environment(PaywallCoordinator.self) private var paywallCoordinator
     @Environment(iPadReaderCoordinator.self) private var readerCoordinator: iPadReaderCoordinator?
-
-    @Query private var allItems: [Item]
 
     @State private var localSelectedItem: Item?
     @State private var viewMode: BoardViewMode = .grid
     @State private var sortOption: BoardSortOption = .dateAdded
     @State private var draggingItemID: UUID?
     @State private var itemToDelete: Item?
-    @State private var isSuggestionsCollapsed = false
-    @State private var starterService = ConversationStarterService.shared
-    @State private var paywallPresentation: PaywallPresentation?
-    @State private var showFlashcards = false
     @State private var showCapture = false
 
     private var isRegularSplitMode: Bool {
@@ -85,10 +75,6 @@ struct MobileBoardDetailView: View {
         return WeekSection.group(sortedFilteredItems)
     }
 
-    private var boardDiscussionSuggestions: [PromptBubble] {
-        starterService.bubbles(for: board.id, maxResults: Self.maxDiscussionSuggestions)
-    }
-
     private var compactColumns: [GridItem] {
         if usesMacStyleCompactCards {
             return [
@@ -131,9 +117,6 @@ struct MobileBoardDetailView: View {
         .toolbar {
             toolbarCluster
             ToolbarItem(placement: .secondaryAction) {
-                Button("Flashcards", systemImage: "rectangle.on.rectangle") { showFlashcards = true }
-            }
-            ToolbarItem(placement: .secondaryAction) {
                 Button("Copy as Markdown", systemImage: "doc.on.doc") {
                     let markdown = BoardExportService.markdownForBoard(
                         board,
@@ -145,27 +128,12 @@ struct MobileBoardDetailView: View {
                 .disabled(sortedFilteredItems.isEmpty)
             }
         }
-        .sheet(isPresented: $showFlashcards) {
-            NavigationStack { FlashcardLibraryView(boardID: board.id) }
-        }
         .sheet(isPresented: $showCapture) {
             CaptureSheetView(initialBoardID: board.id)
-        }
-        .task(id: board.id) {
-            await starterService.refreshBoard(board.id, items: allItems)
-        }
-        .onChange(of: allItems.count) { _, newCount in
-            guard newCount > 0, boardDiscussionSuggestions.isEmpty else { return }
-            Task {
-                await starterService.refreshBoard(board.id, items: allItems)
-            }
         }
         .onChange(of: board.id, initial: true) {
             sortOption = .dateAdded
             viewMode = .grid
-        }
-        .sheet(item: $paywallPresentation) { presentation in
-            ProPaywallView(presentation: presentation)
         }
         .alert(
             "Delete Item",
@@ -207,20 +175,6 @@ struct MobileBoardDetailView: View {
             if effectiveItems.isEmpty {
                 emptyState
             } else {
-                if !boardDiscussionSuggestions.isEmpty {
-                    BoardSuggestionsView(
-                        suggestions: boardDiscussionSuggestions,
-                        isSuggestionsCollapsed: $isSuggestionsCollapsed,
-                        onOpenChat: { startDialectic(with: $0) },
-                        onStartWriting: { startWriting(with: $0.prompt) },
-                        onRefresh: {
-                            Task {
-                                await starterService.forceRefreshBoard(board.id, items: allItems)
-                            }
-                        }
-                    )
-                }
-
                 switch viewMode {
                 case .grid:
                     BoardGridView(
@@ -381,43 +335,6 @@ struct MobileBoardDetailView: View {
         } label: {
             Label("Delete Item", systemImage: "trash")
         }
-    }
-
-    // MARK: - Suggestions
-
-    private func startDialectic(with bubble: PromptBubble) {
-        guard entitlement.canUse(.dialectics) else {
-            paywallPresentation = paywallCoordinator.present(
-                feature: .dialectics,
-                source: .dialecticsLimit
-            )
-            return
-        }
-
-        let prompt = bubble.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        let seedIDs = scopedSeedItemIDs(for: bubble)
-        NotificationCenter.default.postConversationPrompt(
-            ConversationPromptPayload(
-                prompt: prompt,
-                seedItemIDs: seedIDs,
-                injectionMode: .asAssistantGreeting
-            )
-        )
-    }
-
-    private func startWriting(with prompt: String?) {
-        let cleanedPrompt = prompt?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let cleanedPrompt, !cleanedPrompt.isEmpty else {
-            NotificationCenter.default.post(name: .groveNewNote, object: nil)
-            return
-        }
-        NotificationCenter.default.post(name: .groveNewNoteWithPrompt, object: cleanedPrompt)
-    }
-
-    private func scopedSeedItemIDs(for bubble: PromptBubble) -> [UUID] {
-        let boardItemIDs = Set(effectiveItems.map(\.id))
-        let scopedSeedIDs = bubble.clusterItemIDs.filter { boardItemIDs.contains($0) }
-        return scopedSeedIDs.isEmpty ? bubble.clusterItemIDs : scopedSeedIDs
     }
 
     private func openItem(_ item: Item) {

@@ -23,7 +23,6 @@ struct MobileReflectionSheet: View {
     @State private var newBlockType: ReflectionBlockType = .keyInsight
     @State private var newBlockContent = ""
     @State private var isAddingNew = false
-    @State private var flashcardSession: LearningEditorSession?
     @FocusState private var isEditorFocused: Bool
 
     /// The Mac rail's ghost prompts, in its order: each starts a reflection
@@ -76,11 +75,6 @@ struct MobileReflectionSheet: View {
             .onAppear { consumeRequestedEditBlock() }
             .onChange(of: requestedEditBlock?.wrappedValue?.id) {
                 consumeRequestedEditBlock()
-            }
-            .sheet(item: $flashcardSession) { session in
-                NavigationStack {
-                    FlashcardEditorView(item: session.item, reflection: session.reflection, sourceQuote: session.sourceQuote)
-                }
             }
         }
     }
@@ -233,17 +227,6 @@ struct MobileReflectionSheet: View {
                     .font(.groveBody)
                     .foregroundStyle(Color.textPrimary)
             }
-
-            Button {
-                makeFlashcard(from: block)
-            } label: {
-                Label("Make a flashcard", systemImage: "rectangle.on.rectangle")
-                    .font(.groveBodySmall)
-                    .foregroundStyle(Color.textSecondary)
-                    .frame(minHeight: LayoutDimensions.minTouchTarget)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
         }
         .padding(.leading, Spacing.md)
         .padding(.vertical, Spacing.xs)
@@ -263,9 +246,6 @@ struct MobileReflectionSheet: View {
             }
             Menu("Change Type") {
                 typeOptions(for: block)
-            }
-            Button("Make a flashcard", systemImage: "rectangle.on.rectangle") {
-                makeFlashcard(from: block)
             }
             if let highlight = block.highlight, !highlight.isEmpty, let onHighlightTap {
                 Button("Show in article", systemImage: "text.magnifyingglass") {
@@ -435,10 +415,6 @@ struct MobileReflectionSheet: View {
         editingBlock = nil
         isAddingNew = true
         isEditorFocused = true
-    }
-
-    private func makeFlashcard(from block: ReflectionBlock) {
-        flashcardSession = LearningEditorSession(item: item, reflection: block, sourceQuote: block.highlight ?? block.content)
     }
 
     /// Autosave: creates the reflection when the editor loses focus (if non-empty).

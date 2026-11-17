@@ -63,7 +63,7 @@ struct MobileOnboardingView: View {
                 featureRow(icon: "square.and.arrow.down", text: "Capture on Today, or share from any app")
                 featureRow(icon: "tray.2", text: "Swipe inbox items left to keep or file, right to drop")
                 featureRow(icon: "square.grid.2x2", text: "Group what you keep into boards by project or topic")
-                featureRow(icon: "rectangle.on.rectangle", text: "Turn a highlight into a reflection, then a flashcard")
+                featureRow(icon: "highlighter", text: "Highlight as you read, and reflect in your own words")
                 featureRow(icon: "bubble.left.and.bubble.right", text: "Think it through in Chat with Grove")
             }
             .padding(.horizontal, Spacing.xl)

@@ -18,6 +18,8 @@ enum SharedModelContainer {
     static let schema = Schema(models)
 
     /// Every model type. Read "Migration Limits" below before adding one.
+    /// The three after 2.0 belong to flashcards, which are retired: nothing
+    /// uses them, but they stay registered so stores that hold them still open.
     static var models: [any PersistentModel.Type] {
         versionTwoModels + [
             UserFlashcard.self,
@@ -163,8 +165,7 @@ enum SharedModelContainer {
 //   their cached model. Migrating one while an entity in a many-to-many
 //   relationship changes number fails (`no such column: Z_9ITEMSSTORAGE`).
 //   So a new model's class name must sort after every existing one — the
-//   learning models are `User…` for that reason, with typealiases for call
-//   sites.
+//   (retired) learning models are `User…` for that reason.
 //
 // `SchemaMigrationTests` checks both. Stores from before 2.0 are handled by
 // `LegacyStoreMigration`.

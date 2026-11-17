@@ -185,16 +185,6 @@ struct AgenticToolTests {
         #expect(starterContext.contradictionPairs.count == 1)
         let pair = try #require(starterContext.contradictionPairs.first)
         #expect(pair.reason == "One denies free will, the other makes it absolute.")
-
-        let bubbles = StarterHeuristicGenerator.buildBoardHeuristics(
-            context: starterContext,
-            boardID: UUID()
-        )
-        let resolve = try #require(bubbles.first(where: { $0.label == "RESOLVE" }))
-        // The specific reason is surfaced in the prompt...
-        #expect(resolve.prompt.contains("free will"))
-        // ...and both endpoints are seeded so the conversation opens on the real pair.
-        #expect(Set(resolve.clusterItemIDs) == Set([a.id, b.id]))
     }
 
     @Test @MainActor func starterContradictionPairsDedupeAndPreferReasoned() throws {

@@ -75,7 +75,7 @@ final class ContentViewModel {
     }
 
     /// The reader asked for its rail (Reflect, a reflection opened for
-    /// editing, a flashcard draft, or the reflections panel expanded). Give it
+    /// editing, or the reflections panel expanded). Give it
     /// the trailing column by closing whatever the window's rail was showing.
     /// The writer saves its draft when it leaves the rail.
     func claimRailForReader() {

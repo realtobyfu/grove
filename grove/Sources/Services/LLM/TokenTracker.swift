@@ -46,7 +46,6 @@ final class TokenTracker {
         case "dialectics": return "Chat"
         case "conversationStarter": return "Conversation Starters"
         case "tensionDetection": return "Tension Detection"
-        case "flashcardDraft": return "Flashcard Drafts"
         default:
             var words = ""
             for character in service {

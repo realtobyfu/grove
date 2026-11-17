@@ -9,7 +9,6 @@ import UserNotifications
 struct GroveApp: App {
     let modelContainer: ModelContainer
     @State private var syncService: SyncService
-    @State private var learningLaunch = LearningLaunchCoordinator.shared
     @State private var entitlementService = EntitlementService.shared
     @State private var onboardingService = OnboardingService.shared
     @State private var paywallCoordinator = PaywallCoordinator.shared
@@ -22,13 +21,13 @@ struct GroveApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
-        if LearningDemo.isEnabled {
-            do { modelContainer = try LearningDemo.makeContainer() }
-            catch { fatalError("Could not create learning preview: \(error)") }
+        if TestHost.isActive {
+            do { modelContainer = try TestHost.makeContainer() }
+            catch { fatalError("Could not create the test host's library: \(error)") }
         } else {
             modelContainer = SharedModelContainer.makeForApp()
         }
-        _syncService = State(initialValue: SyncService(syncEnabled: !LearningDemo.isEnabled && SyncSettings.syncEnabled))
+        _syncService = State(initialValue: SyncService(syncEnabled: !TestHost.isActive && SyncSettings.syncEnabled))
         #if !SHARE_EXTENSION
         GroveIntentModelStore.configure(with: modelContainer)
         #endif
@@ -37,7 +36,7 @@ struct GroveApp: App {
     /// Following pipeline: fetch new issues from the feeds the user follows
     /// (4h interval enforced inside the service).
     private func refreshFeedPipeline() async {
-        guard !LearningDemo.isEnabled else { return }
+        guard !TestHost.isActive else { return }
         await feedFetchService.refreshIfNeeded(in: modelContainer.mainContext)
     }
 
@@ -53,18 +52,10 @@ struct GroveApp: App {
         #if os(macOS)
         WindowGroup {
             ContentView(syncService: syncService)
-                .sheet(item: $learningLaunch.review) { route in
-                    NavigationStack {
-                        LearningReviewView(boardID: route.boardID)
-                    }
-                    .frame(width: 680, height: 500)
-                }
-                .onOpenURL { url in learningLaunch.handle(url) }
                 .task {
                     Self.clearLegacyNotifications()
                     let context = modelContainer.mainContext
-                    guard !LearningDemo.isEnabled else { return }
-                    LearningWidgetSnapshotStore.refresh(modelContext: context)
+                    guard !TestHost.isActive else { return }
                     AnnotationMigrationService.migrateIfNeeded(context: context)
                     OverviewMigrationService.migrateItems(context: context)
                     SmartBoardMigrationService.migrateBoards(context: context)
@@ -78,8 +69,7 @@ struct GroveApp: App {
                     await refreshFeedPipeline()
                 }
                 .onChange(of: scenePhase) { _, phase in
-                    guard phase == .active, !LearningDemo.isEnabled else { return }
-                    LearningWidgetSnapshotStore.refresh(modelContext: modelContainer.mainContext)
+                    guard phase == .active, !TestHost.isActive else { return }
                     Task { await refreshFeedPipeline() }
                 }
                 .environment(syncService)
@@ -139,16 +129,10 @@ struct GroveApp: App {
         // iOS: four native tabs in compact width; a split sidebar on regular iPad.
         WindowGroup {
             MobileRootView()
-                .sheet(item: $learningLaunch.review) { route in
-                    NavigationStack {
-                        LearningReviewView(boardID: route.boardID)
-                    }
-                }
                 .task {
                     Self.clearLegacyNotifications()
                     let context = modelContainer.mainContext
-                    guard !LearningDemo.isEnabled else { return }
-                    LearningWidgetSnapshotStore.refresh(modelContext: context)
+                    guard !TestHost.isActive else { return }
                     AnnotationMigrationService.migrateIfNeeded(context: context)
                     OverviewMigrationService.migrateItems(context: context)
                     SmartBoardMigrationService.migrateBoards(context: context)
@@ -163,8 +147,7 @@ struct GroveApp: App {
                     await refreshFeedPipeline()
                 }
                 .onChange(of: scenePhase) { _, phase in
-                    guard phase == .active, !LearningDemo.isEnabled else { return }
-                    LearningWidgetSnapshotStore.refresh(modelContext: modelContainer.mainContext)
+                    guard phase == .active, !TestHost.isActive else { return }
                     Task { await refreshFeedPipeline() }
                 }
                 .environment(syncService)
@@ -214,13 +197,6 @@ struct GroveMenuCommands: Commands {
         }
 
         CommandMenu("Navigate") {
-            Button("Review flashcards") {
-                LearningLaunchCoordinator.shared.openReview()
-            }
-            .keyboardShortcut("r", modifiers: [.command, .shift])
-
-            Divider()
-
             Button("Search") {
                 NotificationCenter.default.post(name: .groveToggleSearch, object: nil)
             }
