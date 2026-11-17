@@ -35,9 +35,9 @@ private enum LibraryFindFocusRequest {
 
     /// True, once, if a request was made within the grace period.
     static func take() -> Bool {
-        defer { madeAt = nil }
-        guard let madeAt else { return false }
-        return Date.now.timeIntervalSince(madeAt) < grace
+        guard let requestedAt = madeAt else { return false }
+        madeAt = nil
+        return Date.now.timeIntervalSince(requestedAt) < grace
     }
 }
 
