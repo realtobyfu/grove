@@ -92,6 +92,18 @@ enum LibraryIndex {
         Date.FormatStyle(locale: locale, calendar: calendar, timeZone: calendar.timeZone)
     }
 
+    // MARK: - Board Label
+
+    /// The board column of a row: the board's name, or "Unfiled". The column
+    /// is set in mono, so a limit in characters is a limit in width; a longer
+    /// name is cut and marked rather than left to squeeze the title.
+    static func boardLabel(_ boardTitle: String?, limit: Int = 24) -> String {
+        guard let boardTitle, !boardTitle.isEmpty else { return "Unfiled" }
+        guard limit > 1, boardTitle.count > limit else { return boardTitle }
+        let kept = boardTitle.prefix(limit - 1).trimmingCharacters(in: .whitespaces)
+        return kept + "\u{2026}"
+    }
+
     // MARK: - Type Label
 
     /// The word set in the type column for a reflection found by the find
@@ -110,5 +122,61 @@ extension ItemType {
         case .courseLecture: "Lecture"
         default: displayName
         }
+    }
+}
+
+// MARK: - Empty States
+
+/// What the Library says when it has no rows to list.
+enum LibraryEmptyState: Equatable, Sendable {
+    /// A query was typed and its results have not landed yet.
+    case searching
+    case message(title: String, detail: String)
+
+    /// The state for an empty list.
+    ///
+    /// - `query`: the text in the find field.
+    /// - `isSearching`: the results for `query` are still on their way.
+    /// - `boardTitle`: the board the list is filtered to, if any.
+    static func resolve(
+        query: String,
+        isSearching: Bool,
+        boardTitle: String?,
+        showingArchived: Bool
+    ) -> LibraryEmptyState {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            if isSearching { return .searching }
+            let isFiltered = boardTitle != nil || showingArchived
+            return .message(
+                title: nothingMatches(trimmed),
+                detail: isFiltered
+                    ? "Try different words, or clear the filter."
+                    : "Try a shorter word or a different spelling."
+            )
+        }
+        if showingArchived {
+            return .message(
+                title: "Nothing archived.",
+                detail: boardTitle == nil
+                    ? "Items you archive are kept here."
+                    : "No archived items on this board."
+            )
+        }
+        if boardTitle != nil {
+            return .message(
+                title: "Nothing on this board yet.",
+                detail: "Items you file under it are listed here."
+            )
+        }
+        return .message(
+            title: "Nothing saved yet.",
+            detail: "Capture items to start building your knowledge base."
+        )
+    }
+
+    /// The same sentence the search overlay uses.
+    static func nothingMatches(_ query: String) -> String {
+        "Nothing matches \u{201C}\(query)\u{201D}."
     }
 }

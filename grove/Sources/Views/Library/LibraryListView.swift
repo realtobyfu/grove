@@ -1,12 +1,53 @@
 import SwiftUI
 import SwiftData
 
-/// The main list of items in the library with multi-select support.
+// MARK: - List Model
+
+/// One row of the Library list: an item, and how this row presents it.
+/// The index lists each item once; find results may list an item again
+/// under another heading (once for its title, once for a reflection on it).
+struct LibraryListRow: Identifiable {
+    /// Unique per row, not per item.
+    let id: String
+    /// The item the row selects and opens.
+    let item: Item
+    /// The word in the type column ("Article", "Note", "Reflect.").
+    let typeLabel: String
+    /// A note the user wrote: its type is set in stronger ink.
+    let isOwn: Bool
+    /// The line under the title, around the match. Nil in the index.
+    let snippet: LibraryFind.Snippet?
+    /// The date at the right of the row.
+    let date: Date
+    /// False under a month heading, which already carries the year.
+    let dateCarriesYear: Bool
+    let showsBoard: Bool
+}
+
+/// A run of rows under one heading: a month of the index, or a group of
+/// find results. With no title the rows are listed without a heading.
+struct LibraryListSection: Identifiable {
+    let id: String
+    let title: String?
+    /// Set beside the heading as a badge. Nil for months.
+    let count: Int?
+    let rows: [LibraryListRow]
+}
+
+// MARK: - Library List View
+
+/// The Library's list: the index by month, or the grouped find results.
+/// Selection, multi-select, the row menu and the hover action are the same
+/// for both.
 struct LibraryListView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let displayedItems: [Item]
-    let searchQuery: String
+    let sections: [LibraryListSection]
+    /// What to say when there are no sections.
+    let emptyState: LibraryEmptyState
+    /// A quiet line set above the first heading, when there is something
+    /// to say about the rows as a whole.
+    let leadLine: String?
     let isMultiSelectMode: Bool
     let selectedIDs: Set<UUID>
     @Binding var selectedItem: Item?
@@ -16,28 +57,86 @@ struct LibraryListView: View {
     let onDeleteRequest: (Item) -> Void
 
     var body: some View {
-        if displayedItems.isEmpty {
-            emptyState
+        if sections.isEmpty {
+            emptyView
         } else {
             ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(displayedItems) { item in
-                        selectableRow(for: item)
-                        Divider()
-                            .padding(.leading, isMultiSelectMode ? 68 : 40)
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if let leadLine {
+                        quietLine(leadLine)
+                            .padding(.top, Spacing.lg)
+                    }
+                    ForEach(sections) { section in
+                        if let title = section.title {
+                            sectionHeader(title: title, count: section.count)
+                        }
+                        ForEach(section.rows) { row in
+                            selectableRow(for: row)
+                            if row.id != section.rows.last?.id {
+                                rowRule
+                            }
+                        }
                     }
                 }
-                .padding(.vertical, Spacing.xs)
+                .padding(.horizontal, LayoutDimensions.contentPaddingH)
+                .padding(.top, Spacing.xs)
+                .padding(.bottom, Spacing.lg)
                 if isMultiSelectMode && !selectedIDs.isEmpty {
-                    Spacer().frame(height: 52)
+                    Spacer().frame(height: LibraryMetrics.actionBarClearance)
                 }
             }
         }
     }
 
+    // MARK: - Headings
+
+    /// A heading over a run of rows: the month, or the kind of match with
+    /// its count.
+    private func sectionHeader(title: String, count: Int?) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+            Text(title)
+                .sectionHeaderStyle()
+                .lineLimit(1)
+
+            if let count {
+                Text("\(count)")
+                    .font(.groveBadge)
+                    .monospacedDigit()
+                    .foregroundStyle(Color.textPrimary)
+                    .padding(.horizontal, Spacing.xsm)
+                    .background {
+                        RoundedRectangle(cornerRadius: Radius.tag)
+                            .fill(Color.accentBadge)
+                            .padding(.vertical, -LibraryMetrics.badgeInsetV)
+                    }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.top, Spacing.lg)
+        .padding(.bottom, Spacing.sm)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    private var rowRule: some View {
+        Rectangle()
+            .fill(Color.borderPrimary)
+            .frame(height: 1)
+            .accessibilityHidden(true)
+    }
+
+    private func quietLine(_ text: String) -> some View {
+        Text(text)
+            .font(.groveGhostText)
+            .foregroundStyle(Color.textMuted)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     // MARK: - Selectable Row
 
-    private func selectableRow(for item: Item) -> some View {
+    private func selectableRow(for row: LibraryListRow) -> some View {
+        let item = row.item
         let isItemSelected = selectedIDs.contains(item.id)
         let isHighlighted = isMultiSelectMode ? isItemSelected : selectedItem?.id == item.id
 
@@ -50,7 +149,7 @@ struct LibraryListView: View {
                     .padding(.leading, Spacing.sm)
                     .transition(reduceMotion ? .opacity : .move(edge: .leading).combined(with: .opacity))
             }
-            LibraryRowView(item: item)
+            LibraryRowView(row: row)
         }
         .contentShape(Rectangle())
         .onTapGesture(count: 1) {
@@ -118,120 +217,49 @@ struct LibraryListView: View {
 
     // MARK: - Empty State
 
-    private var emptyState: some View {
-        VStack(spacing: Spacing.md) {
-            Image(systemName: searchQuery.isEmpty ? "books.vertical" : "magnifyingglass")
-                .font(.system(size: 40))
-                .foregroundStyle(Color.textTertiary)
-
-            if searchQuery.isEmpty {
-                Text("Your Library")
-                    .font(.groveItemTitle)
-                    .foregroundStyle(Color.textPrimary)
-                Text("Capture items to start building your knowledge base.")
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
-            } else {
-                Text("No results for \"\(searchQuery)\"")
-                    .font(.groveItemTitle)
-                    .foregroundStyle(Color.textPrimary)
-                Text("Try different keywords or clear the board filter.")
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textSecondary)
-                    .multilineTextAlignment(.center)
+    /// Set at the top of the page on the list's margin, where the first
+    /// heading would be.
+    private var emptyView: some View {
+        Group {
+            switch emptyState {
+            case .searching:
+                quietLine("Searching\u{2026}")
+                    .padding(.vertical, Spacing.xl)
+            case .message(let title, let detail):
+                GroveEmptyState(title: title, detail: detail)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, LayoutDimensions.contentPaddingH)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
 // MARK: - Library Row View
 
+/// One line of the index: type, title, board, date. A find result adds a
+/// second line, the snippet around its match, and gives up the board.
 struct LibraryRowView: View {
-    let item: Item
+    let row: LibraryListRow
     @State private var isHovered = false
+    @ScaledMetric(relativeTo: .caption) private var typeColumnWidth: CGFloat = LibraryMetrics.typeColumnWidth
+    @ScaledMetric(relativeTo: .caption) private var dateColumnMinWidth: CGFloat = LibraryMetrics.dateColumnMinWidth
+
+    private var item: Item { row.item }
 
     var body: some View {
-        HStack(spacing: Spacing.sm) {
-            Image(systemName: item.type.iconName)
-                .font(.groveMeta)
-                .foregroundStyle(Color.textMuted)
-                .frame(width: 20)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.title)
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textPrimary)
-                    .lineLimit(1)
-
-                HStack(spacing: Spacing.xs) {
-                    if let firstBoard = item.boards.first {
-                        Text(firstBoard.title)
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                    } else {
-                        Text("Unfiled")
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                    }
-                    if !item.tags.isEmpty {
-                        Text("\u{00B7}")
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                    }
-                    ForEach(Array(item.tags.prefix(2)), id: \.id) { tag in
-                        Text(tag.name)
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textSecondary)
-                    }
-                    if item.tags.count > 2 {
-                        Text("+\(item.tags.count - 2)")
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                    }
-                }
-            }
-
-            Spacer()
+        HStack(alignment: .firstTextBaseline, spacing: Spacing.md) {
+            typeLabel
+            titleAndSnippet
 
             // Discuss button — visible on hover
             if isHovered {
-                Button {
-                    NotificationCenter.default.postDiscussItem(DiscussItemPayload(item: item))
-                } label: {
-                    Label("Discuss", systemImage: "bubble.left.and.bubble.right")
-                        .font(.groveBadge)
-                        .foregroundStyle(Color.textSecondary)
-                        .padding(.horizontal, Spacing.sm)
-                        .padding(.vertical, 3)
-                        .background(Color.bgCard)
-                        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: Radius.control)
-                                .stroke(Color.borderPrimary, lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
-                .transition(.opacity)
+                discussButton
             }
 
-            Text(item.updatedAt.relativeShort)
-                .font(.groveMeta)
-                .foregroundStyle(Color.textTertiary)
-
-            let connectionCount = item.outgoingConnections.count + item.incomingConnections.count
-            if connectionCount > 0 {
-                Label("\(connectionCount)", systemImage: "link")
-                    .font(.groveMeta)
-                    .foregroundStyle(Color.textSecondary)
+            if row.showsBoard {
+                boardLabel
             }
-            if item.reflections.count > 0 {
-                Label("\(item.reflections.count)", systemImage: "text.alignleft")
-                    .font(.groveMeta)
-                    .foregroundStyle(Color.textSecondary)
-            }
+            dateLabel
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
@@ -240,6 +268,89 @@ struct LibraryRowView: View {
                 isHovered = hovering
             }
         }
+    }
+
+    /// The type as a word in mono capitals. A note of the user's own is set
+    /// apart by weight and ink.
+    private var typeLabel: some View {
+        Text(row.typeLabel)
+            .font(row.isOwn ? .groveBadge : .groveFolio)
+            .tracking(LibraryMetrics.typeLabelTracking)
+            .textCase(.uppercase)
+            .foregroundStyle(row.isOwn ? Color.textPrimary : Color.textMuted)
+            .lineLimit(1)
+            .frame(width: typeColumnWidth, alignment: .leading)
+    }
+
+    private var titleAndSnippet: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs / 2) {
+            Text(item.title)
+                .font(.groveListTitle)
+                .foregroundStyle(Color.textPrimary)
+                .lineLimit(1)
+
+            if let snippet = row.snippet {
+                snippetLine(snippet)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The snippet on one line, its match marked by weight and ink. The
+    /// lead-in is short, so the match stays in view when the tail is cut.
+    private func snippetLine(_ snippet: LibraryFind.Snippet) -> some View {
+        let match: Text = Text(snippet.match)
+            .font(.groveSnippetMatch)
+            .foregroundStyle(Color.textPrimary)
+
+        return Text("\(Text(snippet.before))\(match)\(Text(snippet.after))")
+            .font(.groveBodySecondary)
+            .foregroundStyle(Color.textSecondary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+    }
+
+    private var discussButton: some View {
+        Button {
+            NotificationCenter.default.postDiscussItem(DiscussItemPayload(item: item))
+        } label: {
+            Label("Discuss", systemImage: "bubble.left.and.bubble.right")
+                .font(.groveBadge)
+                .foregroundStyle(Color.textSecondary)
+                .padding(.horizontal, Spacing.sm)
+                // The chip is drawn past the label's own height, so showing
+                // it on hover does not change the height of the row.
+                .background {
+                    RoundedRectangle(cornerRadius: Radius.control)
+                        .fill(Color.bgCard)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Radius.control)
+                                .stroke(Color.borderPrimary, lineWidth: 1)
+                        )
+                        .padding(.vertical, -LibraryMetrics.badgeInsetV)
+                }
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .transition(.opacity)
+    }
+
+    private var boardLabel: some View {
+        Text(LibraryIndex.boardLabel(item.boards.first?.title))
+            .font(.groveMeta)
+            .foregroundStyle(Color.textTertiary)
+            .lineLimit(1)
+            .fixedSize()
+    }
+
+    private var dateLabel: some View {
+        Text(LibraryIndex.dateLabel(for: row.date, carriesYear: row.dateCarriesYear))
+            .font(.groveMeta)
+            .monospacedDigit()
+            .foregroundStyle(Color.textTertiary)
+            .lineLimit(1)
+            .fixedSize()
+            .frame(minWidth: dateColumnMinWidth, alignment: .trailing)
     }
 }
 

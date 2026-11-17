@@ -1,71 +1,137 @@
 import SwiftUI
 
-/// Search bar for the library with text field, sort menu, and multi-select toggle.
-struct LibrarySearchBar: View {
-    @Binding var searchQuery: String
-    @Binding var sortOption: LibrarySortOption
-    let isSearching: Bool
-    let isMultiSelectMode: Bool
-    let onToggleMultiSelect: () -> Void
+// MARK: - Focus Request
+
+extension Notification.Name {
+    /// Puts the keyboard in the Library's find field. Posted by the window;
+    /// observed by `LibraryFindField`, which exists only while the Library
+    /// page is on screen. A post made before the page is mounted is not seen,
+    /// so a window that has to switch to the Library first posts on the next
+    /// main-actor turn. No object, no userInfo.
+    static let groveFocusLibrarySearch = Notification.Name("groveFocusLibrarySearch")
+}
+
+// MARK: - Find Field
+
+/// The Library's find field: always on the page, searching as you type.
+/// It owns the text and the keyboard focus only; `LibraryView` runs the search.
+struct LibraryFindField: View {
+    @Binding var query: String
+    /// Rows the list is showing for the query. Nil shows no count.
+    let resultCount: Int?
+    /// Return was pressed in the field.
+    let onSubmit: () -> Void
+
+    @FocusState private var isFocused: Bool
+    @ScaledMetric(relativeTo: .body) private var fieldHeight: CGFloat = LibraryMetrics.findFieldHeight
+
+    private let placeholder = "Find in the library"
 
     var body: some View {
         HStack(spacing: Spacing.sm) {
-            Image(systemName: isSearching ? "hourglass" : "magnifyingglass")
-                .font(.groveBody)
-                .foregroundStyle(Color.textSecondary)
-                .animation(.easeInOut(duration: 0.15), value: isSearching)
+            Image(systemName: "magnifyingglass")
+                .font(.groveBodySmall)
+                .foregroundStyle(Color.textTertiary)
+                .accessibilityHidden(true)
 
-            TextField("Search titles, content, tags, reflections\u{2026}", text: $searchQuery)
-                .textFieldStyle(.plain)
-                .font(.groveBody)
-                .foregroundStyle(Color.textPrimary)
+            TextField(
+                "",
+                text: $query,
+                prompt: Text(placeholder)
+                    .font(.groveBody)
+                    .foregroundStyle(Color.textMuted)
+            )
+            .textFieldStyle(.plain)
+            .font(.groveBody)
+            .foregroundStyle(Color.textPrimary)
+            .focused($isFocused)
+            #if os(iOS)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            #endif
+            .onSubmit { onSubmit() }
+            #if os(macOS)
+            // Esc empties the field; pressed again, it gives the keyboard back.
+            .onExitCommand { handleEscape() }
+            #endif
+            .accessibilityLabel(placeholder)
 
-            if !searchQuery.isEmpty {
+            if let resultCount {
+                Text(LibraryFind.countLabel(resultCount))
+                    .font(.groveMeta)
+                    .monospacedDigit()
+                    .foregroundStyle(Color.textMuted)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+
+            if !query.isEmpty {
                 Button {
-                    searchQuery = ""
+                    query = ""
+                    isFocused = true
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.groveBodySecondary)
+                    Image(systemName: "xmark")
+                        .font(.groveMeta)
                         .foregroundStyle(Color.textMuted)
+                        .padding(Spacing.xs)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Clear")
+                .accessibilityHint("Empties the find field and shows the whole library.")
             }
-
-            // Sort order menu
-            Menu {
-                Picker("Sort by", selection: $sortOption) {
-                    ForEach(LibrarySortOption.allCases) { option in
-                        Text(option.label).tag(option)
-                    }
-                }
-            } label: {
-                Image(systemName: "arrow.up.arrow.down")
-                    .font(.groveBodySmall)
-                    .foregroundStyle(Color.textSecondary)
-            }
-            .menuIndicator(.hidden)
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-            .fixedSize()
-            .help("Sort: \(sortOption.label)")
-
-            // Select mode toggle
-            Button {
-                onToggleMultiSelect()
-            } label: {
-                Text(isMultiSelectMode ? "Cancel" : "Select")
-                    .font(.groveBodySmall)
-                    .foregroundStyle(isMultiSelectMode ? Color.textPrimary : Color.textSecondary)
-            }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.md)
-        .background(Color.bgPrimary)
+        .frame(minHeight: fieldHeight)
+        .background(Color.bgCard, in: RoundedRectangle(cornerRadius: Radius.card))
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.card)
+                .stroke(isFocused ? Color.borderInput : Color.borderPrimary, lineWidth: 1)
+        )
+        .onReceive(NotificationCenter.default.publisher(for: .groveFocusLibrarySearch)) { _ in
+            isFocused = true
+        }
+    }
+
+    private func handleEscape() {
+        if query.isEmpty {
+            isFocused = false
+        } else {
+            query = ""
+        }
     }
 }
 
-/// Horizontal board chip filter bar for the library.
+// MARK: - Sort Menu
+
+/// The sort order, set as a quiet mono label that opens the three options.
+struct LibrarySortMenu: View {
+    @Binding var sortOption: LibrarySortOption
+
+    var body: some View {
+        Menu {
+            Picker("Sort by", selection: $sortOption) {
+                ForEach(LibrarySortOption.allCases) { option in
+                    Text(option.label).tag(option)
+                }
+            }
+        } label: {
+            Text("\(sortOption.label) \u{2193}")
+                .font(.groveMeta)
+                .foregroundStyle(Color.textSecondary)
+        }
+        .menuIndicator(.hidden)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .fixedSize()
+        .help("Sort: \(sortOption.label)")
+    }
+}
+
+// MARK: - Board Filter
+
+/// Horizontal board chip filter bar for the library. It carries no side
+/// inset of its own: the Library's header sets it on the page margin.
 struct LibraryBoardFilterBar: View {
     let boards: [Board]
     @Binding var selectedBoardID: UUID?
@@ -86,7 +152,6 @@ struct LibraryBoardFilterBar: View {
 
                 archivedChip
             }
-            .padding(.horizontal, Spacing.md)
             .padding(.vertical, Spacing.sm)
         }
         .background(Color.bgPrimary)

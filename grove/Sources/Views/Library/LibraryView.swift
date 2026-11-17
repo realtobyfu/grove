@@ -35,12 +35,31 @@ enum LibrarySortOption: String, CaseIterable, Identifiable {
             items.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
         }
     }
+
+    /// The two date sorts read as a chronicle and are set under month
+    /// headings. Title A–Z is one alphabetical run with no headings.
+    var groupsByMonth: Bool {
+        self != .titleAZ
+    }
+
+    /// The date an index row shows, and the one its month heading is taken
+    /// from: the date the list is sorted by, or the last update for A–Z.
+    func date(for item: Item) -> Date {
+        switch self {
+        case .dateAdded: item.createdAt
+        case .recentlyUpdated, .titleAZ: item.updatedAt
+        }
+    }
 }
 
 // MARK: - LibraryView
 
-/// Full library: persistent search bar + all items in reverse-chronological order.
-/// Boards act as filter chips to narrow the item list.
+/// The Library: the index of everything saved, and the place you search it.
+///
+/// With nothing in the find field the page lists every item one to a line,
+/// under month headings for the two date sorts. With a query it lists what
+/// `SearchViewModel` finds, grouped by where the match is (`LibraryFind`).
+/// Boards act as filter chips on both.
 struct LibraryView: View {
     @Binding var selectedItem: Item?
     @Binding var openedItem: Item?
@@ -52,10 +71,11 @@ struct LibraryView: View {
     @Query(sort: \Board.sortOrder) private var allBoards: [Board]
 
     @State private var searchQuery: String = ""
+    /// The search behind the find field: the same view model the search
+    /// overlay drives, scoped to the items the filters show. Built when the
+    /// page appears.
+    @State private var searchViewModel: SearchViewModel?
     @State private var selectedBoardID: UUID? = nil
-    @State private var searchTask: Task<Void, Never>? = nil
-    @State private var filteredResults: [Item] = []
-    @State private var isSearching = false
     @State private var showingArchived = false
     @State private var itemToDelete: Item?
 
@@ -69,11 +89,31 @@ struct LibraryView: View {
 
     // MARK: - Computed
 
+    private var trimmedQuery: String {
+        searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// True while there is a query: the list shows find results, not the index.
+    private var isFinding: Bool {
+        !trimmedQuery.isEmpty
+    }
+
+    /// True from a keystroke until the results for it have landed.
+    private var isFindPending: Bool {
+        guard let searchViewModel else { return true }
+        return searchViewModel.isSearching || searchViewModel.query != searchQuery
+    }
+
+    /// The board the chips filter to, looked up live so a deleted board reads as none.
+    private var selectedBoard: Board? {
+        guard let selectedBoardID else { return nil }
+        return allBoards.first { $0.id == selectedBoardID }
+    }
+
     /// Items scoped to the board filter (if any), before text search
     private var boardFilteredItems: [Item] {
         let base: [Item]
-        if let boardID = selectedBoardID,
-           let board = allBoards.first(where: { $0.id == boardID }) {
+        if let board = selectedBoard {
             base = board.items
         } else {
             base = allItems
@@ -94,13 +134,149 @@ struct LibraryView: View {
         return sortOption.sorted(statusFiltered)
     }
 
-    /// Displayed items: search-filtered or default
+    /// Displayed items: every item with a row in the list. A find result
+    /// that lists an item under two headings counts it once.
     private var displayedItems: [Item] {
-        let trimmed = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            return boardFilteredItems
+        let scope = boardFilteredItems
+        guard isFinding else { return scope }
+        var seen = Set<UUID>()
+        return findSections(in: scope).flatMap(\.rows).compactMap { row in
+            seen.insert(row.item.id).inserted ? row.item : nil
         }
-        return filteredResults
+    }
+
+    /// The list: find results while there is a query, otherwise the index.
+    private var listSections: [LibraryListSection] {
+        let scope = boardFilteredItems
+        return isFinding ? findSections(in: scope) : indexSections(for: scope)
+    }
+
+    // MARK: - Index
+
+    /// The index: one row per item, under month headings for the date sorts.
+    private func indexSections(for items: [Item]) -> [LibraryListSection] {
+        guard !items.isEmpty else { return [] }
+        let option = sortOption
+
+        guard option.groupsByMonth else {
+            return [LibraryListSection(
+                id: "index",
+                title: nil,
+                count: nil,
+                rows: items.map { indexRow(for: $0, date: option.date(for: $0), underMonth: false) }
+            )]
+        }
+
+        return LibraryIndex.monthSections(items) { option.date(for: $0) }.map { month in
+            LibraryListSection(
+                id: month.id,
+                title: month.title,
+                count: nil,
+                rows: month.elements.map { indexRow(for: $0, date: option.date(for: $0), underMonth: true) }
+            )
+        }
+    }
+
+    private func indexRow(for item: Item, date: Date, underMonth: Bool) -> LibraryListRow {
+        LibraryListRow(
+            id: item.id.uuidString,
+            item: item,
+            typeLabel: item.type.indexLabel,
+            isOwn: item.type == .note,
+            snippet: nil,
+            date: date,
+            dateCarriesYear: !underMonth,
+            showsBoard: true
+        )
+    }
+
+    // MARK: - Find Results
+
+    /// What the search found, under the Library's headings, kept to the items
+    /// the Library is showing (`scope`: board filter, archived toggle).
+    private func findSections(in scope: [Item]) -> [LibraryListSection] {
+        guard let searchViewModel else { return [] }
+
+        let exactResults = (searchViewModel.results[.item] ?? []) + (searchViewModel.results[.reflection] ?? [])
+        let exact = exactResults.compactMap { findCandidate(for: $0, readsBody: true) }
+        let related = searchViewModel.semanticResults.compactMap { findCandidate(for: $0, readsBody: false) }
+
+        let groups = LibraryFind.groups(
+            query: searchViewModel.query,
+            exact: exact,
+            related: related,
+            allowedItemIDs: Set(scope.map(\.id))
+        )
+
+        return groups.compactMap { group -> LibraryListSection? in
+            let rows = group.rows.compactMap { findRow(for: $0) }
+            guard !rows.isEmpty else { return nil }
+            return LibraryListSection(id: group.id, title: group.kind.title, count: rows.count, rows: rows)
+        }
+    }
+
+    /// A search result as a grouping candidate. Results outlive the search
+    /// that made them, so one whose item or reflection has since been deleted
+    /// is dropped before anything is read from it.
+    private func findCandidate(
+        for result: SearchResult,
+        readsBody: Bool
+    ) -> LibraryFind.Candidate<SearchResult>? {
+        guard let item = result.item, !item.isDeleted, item.modelContext != nil else { return nil }
+
+        if result.type == .reflection {
+            guard let block = result.reflection, !block.isDeleted, block.modelContext != nil else { return nil }
+            return LibraryFind.Candidate(
+                id: result.id.uuidString,
+                itemID: item.id,
+                source: .reflection,
+                title: item.title,
+                isNote: false,
+                body: block.content,
+                score: result.score,
+                payload: result
+            )
+        }
+
+        return LibraryFind.Candidate(
+            id: result.id.uuidString,
+            itemID: item.id,
+            source: .item,
+            title: item.title,
+            isNote: item.type == .note,
+            body: readsBody ? item.retrievalText : "",
+            score: result.score,
+            payload: result
+        )
+    }
+
+    private func findRow(for row: LibraryFind.Row<SearchResult>) -> LibraryListRow? {
+        guard let item = row.payload.item else { return nil }
+
+        switch row.source {
+        case .reflection:
+            return LibraryListRow(
+                id: row.id,
+                item: item,
+                typeLabel: LibraryIndex.reflectionLabel,
+                isOwn: false,
+                snippet: row.snippet,
+                date: row.payload.reflection?.createdAt ?? item.updatedAt,
+                dateCarriesYear: true,
+                showsBoard: false
+            )
+        case .item:
+            return LibraryListRow(
+                id: row.id,
+                item: item,
+                typeLabel: item.type.indexLabel,
+                isOwn: item.type == .note,
+                snippet: row.snippet,
+                date: item.updatedAt,
+                dateCarriesYear: true,
+                showsBoard: row.snippet == nil
+            )
+        }
     }
 
     // MARK: - Body
@@ -126,35 +302,29 @@ struct LibraryView: View {
     }
 
     private var libraryLayout: some View {
-        VStack(spacing: 0) {
-            LibrarySearchBar(
-                searchQuery: $searchQuery,
-                sortOption: $sortOption,
-                isSearching: isSearching,
-                isMultiSelectMode: isMultiSelectMode,
-                onToggleMultiSelect: {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        if isMultiSelectMode {
-                            exitMultiSelect()
-                        } else {
-                            isMultiSelectMode = true
-                        }
-                    }
-                }
-            )
+        let sections = listSections
+        let rowCount = sections.reduce(0) { $0 + $1.rows.count }
+        // Only "Related in meaning" has rows: say so before it, as the overlay does.
+        let onlyRelated = isFinding && !isFindPending
+            && sections.first?.id == LibraryFind.GroupKind.related.rawValue
 
-            LibraryBoardFilterBar(
-                boards: allBoards,
-                selectedBoardID: $selectedBoardID,
-                showingArchived: $showingArchived
-            )
+        return VStack(alignment: .leading, spacing: 0) {
+            header(resultCount: isFinding && rowCount > 0 ? rowCount : nil)
 
-            Divider()
+            Rectangle()
+                .fill(Color.borderPrimary)
+                .frame(height: 1)
 
             ZStack(alignment: .bottom) {
                 LibraryListView(
-                    displayedItems: displayedItems,
-                    searchQuery: searchQuery,
+                    sections: sections,
+                    emptyState: LibraryEmptyState.resolve(
+                        query: searchQuery,
+                        isSearching: isFindPending,
+                        boardTitle: selectedBoard?.title,
+                        showingArchived: showingArchived
+                    ),
+                    leadLine: onlyRelated ? LibraryEmptyState.nothingMatches(trimmedQuery) : nil,
                     isMultiSelectMode: isMultiSelectMode,
                     selectedIDs: selectedIDs,
                     selectedItem: $selectedItem,
@@ -176,23 +346,84 @@ struct LibraryView: View {
             }
         }
         .navigationTitle("Library")
-        .onChange(of: searchQuery) { _, newValue in
-            scheduleSearch(query: newValue)
+        .onAppear {
+            startFind()
+        }
+        .onChange(of: searchQuery) { _, _ in
+            runFind()
         }
         .onChange(of: selectedBoardID) { _, _ in
-            scheduleSearch(query: searchQuery)
+            runFind()
         }
         .onChange(of: showingArchived) { _, _ in
-            scheduleSearch(query: searchQuery)
+            runFind()
         }
         .onChange(of: allItems.count) { _, _ in
-            scheduleSearch(query: searchQuery)
+            runFind()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .groveItemWillDelete)) { _ in
+            forgetFindResults()
         }
         .onKeyPress(.escape) {
             guard isMultiSelectMode else { return .ignored }
             exitMultiSelect()
             return .handled
         }
+    }
+
+    // MARK: - Header
+
+    /// The fixed top of the page: title, find field, then the board filter
+    /// with the sort order and the select toggle at its end.
+    private func header(resultCount: Int?) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Library")
+                .font(.groveTitle)
+                .foregroundStyle(Color.textPrimary)
+                .accessibilityAddTraits(.isHeader)
+
+            LibraryFindField(
+                query: $searchQuery,
+                resultCount: resultCount,
+                onSubmit: { searchViewModel?.flushPendingSearch() }
+            )
+            .padding(.top, Spacing.md)
+
+            HStack(spacing: Spacing.md) {
+                LibraryBoardFilterBar(
+                    boards: allBoards,
+                    selectedBoardID: $selectedBoardID,
+                    showingArchived: $showingArchived
+                )
+
+                LibrarySortMenu(sortOption: $sortOption)
+
+                selectToggle
+            }
+            .padding(.top, Spacing.xs)
+        }
+        .padding(.horizontal, LayoutDimensions.contentPaddingH)
+        .padding(.top, Spacing.lg)
+        .background(Color.bgPrimary)
+    }
+
+    /// Select mode toggle
+    private var selectToggle: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                if isMultiSelectMode {
+                    exitMultiSelect()
+                } else {
+                    isMultiSelectMode = true
+                }
+            }
+        } label: {
+            Text(isMultiSelectMode ? "Cancel" : "Select")
+                .font(.groveMeta)
+                .foregroundStyle(isMultiSelectMode ? Color.textPrimary : Color.textSecondary)
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
     }
 
     private var deleteAlertBinding: Binding<Bool> {
@@ -351,73 +582,41 @@ struct LibraryView: View {
         )
     }
 
-    // MARK: - Debounced Search
+    // MARK: - Find
+    //
+    // The find field drives `SearchViewModel` the way the search overlay does:
+    // every change of text goes through `updateQuery` (the view model
+    // debounces, then looks up semantic matches), and return runs the pending
+    // search at once. Two things differ, because this page stays up and has
+    // filters of its own. The scope is the set of items the Library is
+    // showing (`scopeItemIDs`) rather than a board, so the board chips, the
+    // archived toggle and the rule that keeps unkept feed items out all hold
+    // while searching. And each search reads the store afresh, where the
+    // overlay loads its corpus once per presentation.
 
-    private func scheduleSearch(query: String) {
-        searchTask?.cancel()
-        searchTask = nil
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            filteredResults = []
-            isSearching = false
-            return
-        }
-
-        isSearching = true
-        let candidates = boardFilteredItems
-        let ctx = modelContext
-
-        searchTask = MainActorTaskScheduler.schedule(after: .milliseconds(300)) {
-            filteredResults = performSearch(query: trimmed, candidates: candidates, context: ctx)
-            isSearching = false
-        }
+    private func startFind() {
+        guard searchViewModel == nil else { return }
+        searchViewModel = SearchViewModel(modelContext: modelContext)
+        runFind()
     }
 
-    private func performSearch(query: String, candidates: [Item], context: ModelContext) -> [Item] {
-        let lower = query.lowercased()
+    /// Hands the field's text to the search, inside the Library's current
+    /// filters. An empty field clears the results.
+    private func runFind() {
+        guard let searchViewModel else { return }
+        guard isFinding || !searchViewModel.query.isEmpty else { return }
+        searchViewModel.scopeItemIDs = Set(boardFilteredItems.map(\.id))
+        searchViewModel.invalidateCorpus()
+        searchViewModel.updateQuery(searchQuery)
+    }
 
-        // Score each item
-        var scored: [(item: Item, score: Double)] = []
-
-        // Fetch reflection content for content matching
-        let reflectionDescriptor = FetchDescriptor<ReflectionBlock>()
-        let allReflections = (try? context.fetch(reflectionDescriptor)) ?? []
-        let reflectionsByItem: [UUID: [ReflectionBlock]] = Dictionary(grouping: allReflections) { block in
-            block.item?.id ?? UUID()
-        }
-
-        for item in candidates {
-            var score: Double = 0
-
-            // Title match (highest weight)
-            let titleScore = FuzzySearchScorer.score(normalizedQuery: lower, in: item.title.lowercased()) * 1.0
-            score = max(score, titleScore)
-
-            // Content match
-            let contentScore = FuzzySearchScorer.score(normalizedQuery: lower, in: item.retrievalText.lowercased()) * 0.7
-            score = max(score, contentScore)
-
-            // Tag match
-            for tag in item.tags {
-                let tagScore = FuzzySearchScorer.score(normalizedQuery: lower, in: tag.name.lowercased()) * 0.8
-                score = max(score, tagScore)
-            }
-
-            // Reflection content match
-            if let reflections = reflectionsByItem[item.id] {
-                for block in reflections {
-                    let reflScore = FuzzySearchScorer.score(normalizedQuery: lower, in: block.content.lowercased()) * 0.6
-                    score = max(score, reflScore)
-                }
-            }
-
-            if score > 0 {
-                scored.append((item: item, score: score))
-            }
-        }
-
-        return scored
-            .sorted { $0.score > $1.score }
-            .map(\.item)
+    /// An item is about to be deleted. Results hold their items, so drop them
+    /// all while the model is still valid; the search runs again after its
+    /// usual pause, by which time the item has left the store.
+    private func forgetFindResults() {
+        guard let searchViewModel, isFinding else { return }
+        searchViewModel.clearSearch()
+        searchViewModel.invalidateCorpus()
+        searchViewModel.updateQuery(searchQuery)
     }
 }

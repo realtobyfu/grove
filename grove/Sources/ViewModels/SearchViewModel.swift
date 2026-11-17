@@ -73,6 +73,20 @@ final class SearchViewModel {
         }
     }
 
+    /// Optional item scope — when set, item/reflection results (semantic ones
+    /// included) are restricted to these items, and the result limits apply
+    /// inside that set. Nil, the default, searches everything: the search
+    /// overlay never sets it. The Library sets it to the items its filters
+    /// are showing.
+    var scopeItemIDs: Set<UUID>? {
+        didSet {
+            if oldValue != scopeItemIDs {
+                cachedCorpus = nil
+                cancelSemanticSearch()
+            }
+        }
+    }
+
     private var modelContext: ModelContext
     private let debounceNanoseconds: UInt64
     private let semanticDebounceNanoseconds: UInt64
@@ -494,6 +508,14 @@ final class SearchViewModel {
             reflections = reflections.filter { block in
                 guard let parentItem = block.item else { return false }
                 return parentItem.boards.contains(where: { $0.id == boardScopeID })
+            }
+        }
+
+        if let scopeItemIDs {
+            items = items.filter { scopeItemIDs.contains($0.id) }
+            reflections = reflections.filter { block in
+                guard let parentItem = block.item else { return false }
+                return scopeItemIDs.contains(parentItem.id)
             }
         }
 

@@ -67,7 +67,7 @@ enum LibraryFind {
         let payload: Payload
     }
 
-    struct Group<Payload>: Identifiable {
+    struct ResultGroup<Payload>: Identifiable {
         let kind: GroupKind
         let rows: [Row<Payload>]
 
@@ -91,7 +91,7 @@ enum LibraryFind {
         exact: [Candidate<Payload>],
         related: [Candidate<Payload>],
         allowedItemIDs: Set<UUID>? = nil
-    ) -> [Group<Payload>] {
+    ) -> [ResultGroup<Payload>] {
         func isAllowed(_ candidate: Candidate<Payload>) -> Bool {
             allowedItemIDs?.contains(candidate.itemID) ?? true
         }
@@ -134,9 +134,11 @@ enum LibraryFind {
             (.text, text),
             (.related, relatedRows),
         ]
-        return all.compactMap { kind, rows in
-            rows.isEmpty ? nil : Group(kind: kind, rows: rows)
+        var result: [ResultGroup<Payload>] = []
+        for (kind, rows) in all where !rows.isEmpty {
+            result.append(ResultGroup(kind: kind, rows: rows))
         }
+        return result
     }
 
     private enum Placement {
@@ -195,14 +197,15 @@ enum LibraryFind {
 
     /// One line of text around a match, in three parts so the view can set
     /// the match in a heavier weight. Whitespace runs are collapsed to single
-    /// spaces, and an ellipsis marks each end that is not the end of the text.
+    /// spaces, and an ellipsis marks an end that was cut in the middle of a
+    /// line (an end that is the end of its line is whole, and carries none).
     struct Snippet: Equatable, Sendable {
-        /// Up to the match, with a leading "…" when text was left out before it.
+        /// Up to the match, with a leading "…" when the line was cut before it.
         let before: String
         /// The matched words as they are written in the text. Empty for an
         /// `excerpt`, which shows how the text opens without marking anything.
         let match: String
-        /// After the match, with a trailing "…" when text was left out after it.
+        /// After the match, with a trailing "…" when the line was cut after it.
         let after: String
 
         var text: String { before + match + after }
@@ -229,35 +232,50 @@ enum LibraryFind {
         guard !needle.isEmpty, !text.isEmpty,
               let match = matchRange(of: needle, in: text) else { return nil }
 
-        var start = text.index(match.lowerBound, offsetBy: -max(lead, 0), limitedBy: text.startIndex)
+        let windowStart = text.index(match.lowerBound, offsetBy: -max(lead, 0), limitedBy: text.startIndex)
             ?? text.startIndex
-        var end = text.index(match.upperBound, offsetBy: max(trail, 0), limitedBy: text.endIndex)
+        let windowEnd = text.index(match.upperBound, offsetBy: max(trail, 0), limitedBy: text.endIndex)
             ?? text.endIndex
 
-        let leadIn = text[start..<match.lowerBound]
+        var start = windowStart
+        var cutBefore = false
+        let leadIn = text[windowStart..<match.lowerBound]
         if let lineBreak = leadIn.lastIndex(where: \.isNewline) {
             start = text.index(after: lineBreak)
-        } else if start > text.startIndex, let space = leadIn.firstIndex(where: \.isWhitespace) {
-            start = text.index(after: space)
+        } else if windowStart > text.startIndex {
+            let previous = text[text.index(before: windowStart)]
+            if !previous.isNewline {
+                cutBefore = true
+                // The window opens inside a word: begin at the next whole one.
+                if !previous.isWhitespace, let space = leadIn.firstIndex(where: \.isWhitespace) {
+                    start = text.index(after: space)
+                }
+            }
         }
 
-        let leadOut = text[match.upperBound..<end]
+        var end = windowEnd
+        var cutAfter = false
+        let leadOut = text[match.upperBound..<windowEnd]
         if let lineBreak = leadOut.firstIndex(where: \.isNewline) {
             end = lineBreak
-        } else if end < text.endIndex, let space = leadOut.lastIndex(where: \.isWhitespace) {
-            end = space
+        } else if windowEnd < text.endIndex {
+            let next = text[windowEnd]
+            if !next.isNewline {
+                cutAfter = true
+                // The window closes inside a word: end at the last whole one.
+                if !next.isWhitespace, let space = leadOut.lastIndex(where: \.isWhitespace) {
+                    end = space
+                }
+            }
         }
-
-        let textBefore = text[..<start].contains { !$0.isWhitespace }
-        let textAfter = text[end...].contains { !$0.isWhitespace }
 
         let before = collapsingWhitespace(text[start..<match.lowerBound], trimmingStart: true)
         let after = collapsingWhitespace(text[match.upperBound..<end], trimmingEnd: true)
 
         return Snippet(
-            before: (textBefore ? ellipsis : "") + before,
+            before: (cutBefore ? ellipsis : "") + before,
             match: collapsingWhitespace(text[match]),
-            after: after + (textAfter ? ellipsis : "")
+            after: after + (cutAfter ? ellipsis : "")
         )
     }
 
@@ -268,13 +286,21 @@ enum LibraryFind {
         guard let first = text.firstIndex(where: { !$0.isWhitespace }) else { return nil }
         let lineEnd = text[first...].firstIndex(where: \.isNewline) ?? text.endIndex
         var end = text.index(first, offsetBy: max(length, 1), limitedBy: lineEnd) ?? lineEnd
-        if end < lineEnd, let space = text[first..<end].lastIndex(where: \.isWhitespace) {
+        let isCut = end < lineEnd
+        if isCut, !text[end].isWhitespace,
+           let space = text[first..<end].lastIndex(where: \.isWhitespace) {
             end = space
         }
 
-        let textAfter = text[end...].contains { !$0.isWhitespace }
         let opening = collapsingWhitespace(text[first..<end], trimmingEnd: true)
-        return Snippet(before: opening + (textAfter ? ellipsis : ""), match: "", after: "")
+        return Snippet(before: opening + (isCut ? ellipsis : ""), match: "", after: "")
+    }
+
+    // MARK: - Count
+
+    /// "1 result", "6 results": the count shown inside the find field.
+    static func countLabel(_ count: Int) -> String {
+        count == 1 ? "1 result" : "\(count) results"
     }
 
     // MARK: - Helpers
