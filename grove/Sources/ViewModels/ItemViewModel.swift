@@ -11,17 +11,8 @@ final class ItemViewModel {
         self.modelContext = modelContext
     }
 
-    func createNote(title: String = "Untitled Note") -> Item {
-        let item = Item(title: title, type: .note)
-        item.status = .active
-        modelContext.insert(item)
-        try? modelContext.save()
-        return item
-    }
-
     func assignToBoard(_ item: Item, board: Board) {
-        if !board.isSmart,
-           !item.boards.contains(where: { $0.id == board.id }) {
+        if !item.boards.contains(where: { $0.id == board.id }) {
             item.boards.append(board)
         }
         item.promoteFromFeedSuggestionIfNeeded()
@@ -49,7 +40,7 @@ final class ItemViewModel {
     func assignPendingItem(_ itemID: UUID, to board: Board) {
         guard let item = fetchItem(itemID) else { return }
 
-        BoardSuggestionMetadata.recordSelection(board, on: item)
+        BoardSuggestionMetadata.clearPendingSuggestion(on: item)
         assignToBoard(item, board: board)
     }
 
@@ -70,7 +61,7 @@ final class ItemViewModel {
             modelContext.insert(board)
         }
 
-        BoardSuggestionMetadata.recordSelection(board, on: item)
+        BoardSuggestionMetadata.clearPendingSuggestion(on: item)
         assignToBoard(item, board: board)
     }
 
@@ -89,20 +80,11 @@ final class ItemViewModel {
         for item in items {
             item.boards.removeAll()
             if let board {
-                if !board.isSmart {
-                    item.boards.append(board)
-                }
+                item.boards.append(board)
                 item.status = .active
             }
             item.updatedAt = .now
         }
-        try? modelContext.save()
-    }
-
-    func updateItem(_ item: Item, title: String, content: String?) {
-        item.title = title
-        item.content = content
-        item.updatedAt = .now
         try? modelContext.save()
     }
 

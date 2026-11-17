@@ -52,7 +52,7 @@ final class ArticleReaderService: ArticleReaderServiceProtocol, Sendable {
 
     /// Extractions shorter than this (characters) are treated as failures —
     /// typically paywall shells or navigation-only pages.
-    private static let minimumExtractedLength = 500
+    nonisolated static let minimumExtractedLength = 500
 
     private init() {}
 
@@ -69,7 +69,7 @@ final class ArticleReaderService: ArticleReaderServiceProtocol, Sendable {
     }
 
     /// Bundled Readability.js source, loaded once.
-    private static let readabilitySource: String? = {
+    nonisolated static let readabilitySource: String? = {
         guard let url = Bundle.main.url(forResource: "Readability", withExtension: "js"),
               let source = try? String(contentsOf: url, encoding: .utf8) else {
             return nil
@@ -81,10 +81,23 @@ final class ArticleReaderService: ArticleReaderServiceProtocol, Sendable {
     func extractArticle(from webView: WKWebView, sourceURL: URL?) async -> ReadableArticle? {
         guard let readability = Self.readabilitySource else { return nil }
 
-        // Wrap the library in an IIFE so it never pollutes the page's global
-        // scope, clone the document so extraction cannot mutate the live page,
-        // and marshal the result back as a JSON string.
-        let script = """
+        let script = Self.extractionScript(readability: readability)
+
+        let json: String? = await withCheckedContinuation { continuation in
+            webView.evaluateJavaScript(script) { result, _ in
+                continuation.resume(returning: result as? String)
+            }
+        }
+
+        return Self.article(fromExtractionResult: json, sourceURL: sourceURL, extractedAt: .now)
+    }
+
+    /// The script evaluated in the loaded page. Wraps the library in an IIFE
+    /// so it never pollutes the page's global scope, clones the document so
+    /// extraction cannot mutate the live page, and marshals the result back
+    /// as a JSON string — or null when Readability throws or finds nothing.
+    nonisolated static func extractionScript(readability: String) -> String {
+        """
         (function() {
             try {
                 \(readability)
@@ -103,13 +116,17 @@ final class ArticleReaderService: ArticleReaderServiceProtocol, Sendable {
             }
         })();
         """
+    }
 
-        let json: String? = await withCheckedContinuation { continuation in
-            webView.evaluateJavaScript(script) { result, _ in
-                continuation.resume(returning: result as? String)
-            }
-        }
-
+    /// Turns the extraction script's JSON result into an article. Nil when
+    /// the script returned nothing, the JSON doesn't decode, content or text
+    /// is missing, or the trimmed text is shorter than
+    /// `minimumExtractedLength`.
+    nonisolated static func article(
+        fromExtractionResult json: String?,
+        sourceURL: URL?,
+        extractedAt: Date
+    ) -> ReadableArticle? {
         guard let json, let data = json.data(using: .utf8),
               let payload = try? JSONDecoder().decode(ReadabilityPayload.self, from: data),
               let contentHTML = payload.content,
@@ -130,7 +147,7 @@ final class ArticleReaderService: ArticleReaderServiceProtocol, Sendable {
             length: payload.length ?? trimmed.count,
             excerpt: payload.excerpt,
             sourceURLString: sourceURL?.absoluteString,
-            extractedAt: .now,
+            extractedAt: extractedAt,
             wordCount: wordCount
         )
     }

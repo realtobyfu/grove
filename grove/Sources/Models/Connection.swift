@@ -1,6 +1,9 @@
 import Foundation
 import SwiftData
 
+/// Raw values are persisted in `Connection.type`, so every case stays even
+/// after it stops being offered. `.inspiredBy` and `.sameTopic` are no longer
+/// selectable or produced; connections that already hold them keep their label.
 enum ConnectionType: String, Codable, CaseIterable {
     case related
     case contradicts
@@ -35,9 +38,10 @@ enum ConnectionType: String, Codable, CaseIterable {
 
     /// Types a person can choose when creating a connection by hand.
     /// `.linkedFrom` is earned by browsing, so offering it in a picker would
-    /// let the user assert a provenance that never happened.
+    /// let the user assert a provenance that never happened. Listed rather than
+    /// filtered so a new case is never offered by default.
     static var userSelectableCases: [ConnectionType] {
-        allCases.filter { $0 != .linkedFrom }
+        [.related, .contradicts, .buildsOn]
     }
 }
 

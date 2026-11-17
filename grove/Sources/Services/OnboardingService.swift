@@ -33,23 +33,17 @@ final class OnboardingService {
 
     nonisolated private static let completedVersionKey = "grove.onboarding.completedVersion"
     nonisolated private static let skippedAtKey = "grove.onboarding.skippedAt"
-    nonisolated private static let homeTeaserDismissedKey = "grove.onboarding.homeTeaserDismissed"
 
     private let defaults: UserDefaults
     private var didEvaluateAutoPresentation = false
-    private var skippedInCurrentSession = false
 
     private(set) var isPresented = false
-    private(set) var isHomeTeaserDismissed: Bool
     private(set) var progress: OnboardingProgress
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         let completedVersion = defaults.integer(forKey: Self.completedVersionKey)
         let skippedAt = defaults.object(forKey: Self.skippedAtKey) as? Date
-        let teaserDismissed = defaults.object(forKey: Self.homeTeaserDismissedKey) as? Bool ?? false
-
-        self.isHomeTeaserDismissed = teaserDismissed
         self.progress = OnboardingProgress(
             currentStep: .capture,
             captureCompleted: false,
@@ -64,17 +58,13 @@ final class OnboardingService {
         progress.completedVersion >= Self.currentVersion
     }
 
-    var shouldShowHomeTeaser: Bool {
-        hasCompletedCurrentVersion && !isHomeTeaserDismissed
-    }
-
     func evaluateAutoPresentation(itemCount: Int, boardCount: Int) {
         guard !didEvaluateAutoPresentation else { return }
         didEvaluateAutoPresentation = true
 
         guard progress.completedVersion < Self.currentVersion else { return }
+        guard progress.skippedAt == nil else { return }
         guard itemCount == 0, boardCount == 0 else { return }
-        guard !skippedInCurrentSession else { return }
 
         progress.currentStep = .capture
         isPresented = true
@@ -101,7 +91,6 @@ final class OnboardingService {
     func skip() {
         progress.skippedAt = .now
         defaults.set(progress.skippedAt, forKey: Self.skippedAtKey)
-        skippedInCurrentSession = true
         isPresented = false
     }
 
@@ -111,27 +100,5 @@ final class OnboardingService {
         progress.skippedAt = nil
         defaults.removeObject(forKey: Self.skippedAtKey)
         isPresented = false
-    }
-
-    func goBackStep() {
-        guard let currentIndex = OnboardingStep.allCases.firstIndex(of: progress.currentStep),
-              currentIndex > 0 else { return }
-        progress.currentStep = OnboardingStep.allCases[currentIndex - 1]
-    }
-
-    func goForwardStep() {
-        guard let currentIndex = OnboardingStep.allCases.firstIndex(of: progress.currentStep),
-              currentIndex < OnboardingStep.allCases.count - 1 else { return }
-        progress.currentStep = OnboardingStep.allCases[currentIndex + 1]
-    }
-
-    func dismissHomeTeaser() {
-        isHomeTeaserDismissed = true
-        defaults.set(true, forKey: Self.homeTeaserDismissedKey)
-    }
-
-    func resetHomeTeaserDismissal() {
-        isHomeTeaserDismissed = false
-        defaults.set(false, forKey: Self.homeTeaserDismissedKey)
     }
 }

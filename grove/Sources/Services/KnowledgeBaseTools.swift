@@ -6,9 +6,14 @@ import SwiftData
 @MainActor
 final class KnowledgeBaseTools {
     private let modelContext: ModelContext
+    private let conversationID: UUID
 
-    init(modelContext: ModelContext) {
+    /// The board `create_board` proposed during this turn, if any.
+    private(set) var boardProposal: BoardProposal?
+
+    init(modelContext: ModelContext, conversationID: UUID) {
         self.modelContext = modelContext
+        self.conversationID = conversationID
     }
 
     /// Dispatch a tool call by name. Returns the result string or nil if unknown tool.
@@ -27,19 +32,23 @@ final class KnowledgeBaseTools {
         case "get_board_items":
             return getBoardItems(boardName: args["board_name"] ?? "")
         case "create_board":
-            return createBoard(
+            return proposeBoard(
                 boardName: args["board_name"] ?? "",
-                itemTitles: (args["item_titles"] ?? "").components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-            )
-        case "create_synthesis":
-            return await createSynthesis(
-                itemTitles: (args["item_titles"] ?? "").components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty },
-                focusPrompt: args["focus_prompt"] ?? "",
-                synthesisTitle: args["title"] ?? ""
+                itemReferences: (args["item_titles"] ?? "").components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
             )
         default:
             return nil
         }
+    }
+
+    /// Opening words of `toolDescriptions`, in every version a conversation may have stored.
+    private static let toolDescriptionsMarker = "You have access to the user's knowledge base."
+
+    /// Conversations keep the system prompt they started with, so older ones
+    /// carry retired tool wording. The tool section is always the prompt's tail.
+    static func withCurrentToolDescriptions(_ prompt: String) -> String {
+        guard let marker = prompt.range(of: toolDescriptionsMarker) else { return prompt }
+        return prompt[..<marker.lowerBound] + toolDescriptions
     }
 
     /// Available tool descriptions for the system prompt.
@@ -67,18 +76,11 @@ final class KnowledgeBaseTools {
     List all items in a specific board/collection.
 
     {"tool_call": {"name": "create_board", "args": {"board_name": "New Board Name", "item_titles": "Title 1, Title 2, Title 3"}}}
-    Create a new board and assign the listed items to it. item_titles is a comma-separated list of exact item titles. \
-    Use this when the user confirms they want to organize a group of items into a new board.
+    Propose a new board containing the listed items. item_titles is a comma-separated list of exact item titles. \
+    This does not create the board: the user confirms it in the app and nothing is written until they do, so never \
+    say the board exists. Use this when the user wants to organize a group of items into a new board.
 
-    {"tool_call": {"name": "create_synthesis", "args": {"item_titles": "Title 1, Title 2, Title 3", "focus_prompt": "What unifies these?", "title": "Synthesis: My Topic"}}}
-    Generate a synthesis note from the listed items and save it as a new Item in the knowledge base. \
-    item_titles is a comma-separated list of exact item titles (2-30 items required). \
-    focus_prompt describes what angle or question the synthesis should address. \
-    title is the title for the new synthesis item. \
-    Use this when the user asks to synthesize, summarize across, or integrate multiple items. \
-    Returns the created item's wiki-link, title, and ID.
-
-    Only use tool calls when you need to look up specific information or perform a write action. Most of the time, \
+    Only use tool calls when you need to look up specific information or propose a new board. Most of the time, \
     respond directly in conversational markdown.
     """
 
@@ -117,13 +119,8 @@ final class KnowledgeBaseTools {
         ),
         LLMToolSpec(
             name: "create_board",
-            description: "Create a new board and assign the listed items to it. Use when the user confirms they want to organize items into a new board.",
+            description: "Propose a new board containing the listed items. This does not create the board: the user confirms it in the app and nothing is written until they do, so never say the board exists. Use when the user wants to organize items into a new board.",
             parametersJSON: #"{"type":"object","properties":{"board_name":{"type":"string"},"item_titles":{"type":"string","description":"Comma-separated item ids or exact titles"}},"required":["board_name","item_titles"]}"#
-        ),
-        LLMToolSpec(
-            name: "create_synthesis",
-            description: "Generate a synthesis note from 2-30 items and save it as a new item. Use when the user asks to synthesize, summarize across, or integrate multiple items. Returns the created item's wiki-link, title, and id.",
-            parametersJSON: #"{"type":"object","properties":{"item_titles":{"type":"string","description":"Comma-separated item ids or exact titles (2-30)"},"focus_prompt":{"type":"string","description":"What angle or question the synthesis should address"},"title":{"type":"string","description":"Title for the new synthesis item"}},"required":["item_titles"]}"#
         ),
     ]
 
@@ -135,13 +132,17 @@ final class KnowledgeBaseTools {
 
         let keywordMatches = allItems.filter { item in
             item.title.lowercased().contains(queryLower) ||
-            (item.content ?? "").lowercased().contains(queryLower) ||
+            item.retrievalText.lowercased().contains(queryLower) ||
             item.tags.contains(where: { $0.name.lowercased().contains(queryLower) })
         }
 
         // Semantic matches from the embedding index, merged after keyword hits
         await EmbeddingIndexService.shared.indexItems(allItems.map(EmbeddingIndexService.snapshot))
-        let semanticHits = await EmbeddingIndexService.shared.search(query: query, limit: limit)
+        let semanticHits = await EmbeddingIndexService.shared.search(
+            query: query,
+            limit: limit,
+            minScore: SearchViewModel.semanticScoreThreshold
+        )
         let itemsByID = Dictionary(uniqueKeysWithValues: allItems.map { ($0.id, $0) })
         let semanticMatches = semanticHits.compactMap { itemsByID[$0.id] }
 
@@ -160,7 +161,7 @@ final class KnowledgeBaseTools {
             var line = "- \(item.title) (id: \(item.id.uuidString))"
             let tags = item.tags.map(\.name).joined(separator: ", ")
             if !tags.isEmpty { line += " [tags: \(tags)]" }
-            if let summary = item.metadata["summary"], !summary.isEmpty {
+            if let summary = item.summary, !summary.isEmpty {
                 line += " — \(String(summary.prefix(120)))"
             }
             return line
@@ -178,6 +179,9 @@ final class KnowledgeBaseTools {
         if let url = item.sourceURL { result += "\nSource: \(url)" }
         if let content = item.content {
             result += "\nContent excerpt: \(String(content.prefix(800)))"
+        }
+        if let overview = item.overview, !overview.isEmpty {
+            result += "\nAI overview: \(String(overview.prefix(800)))"
         }
 
         if !item.reflections.isEmpty {
@@ -269,79 +273,49 @@ final class KnowledgeBaseTools {
         }.joined(separator: "\n")
     }
 
-    private func createBoard(boardName: String, itemTitles: [String]) -> String {
-        guard !boardName.isEmpty else {
+    /// Records a proposal for the user to confirm. Writes nothing.
+    private func proposeBoard(boardName: String, itemReferences: [String]) -> String {
+        let name = boardName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
             return "Error: board_name is required."
         }
 
         let allBoards: [Board] = modelContext.fetchAll()
         // Avoid creating duplicate boards
-        if allBoards.contains(where: { $0.title.lowercased() == boardName.lowercased() }) {
-            return "Board \"\(boardName)\" already exists. Items were not reassigned."
-        }
-
-        let board = Board(title: boardName)
-        modelContext.insert(board)
-
-        // Assign listed items to the new board
-        let allItems = fetchAllItems()
-        var assignedTitles: [String] = []
-        for title in itemTitles {
-            if let item = ItemResolver.resolve(title, in: allItems) {
-                item.boards.append(board)
-                board.items.append(item)
-                assignedTitles.append(item.title)
-            }
-        }
-
-        try? modelContext.save()
-
-        if assignedTitles.isEmpty {
-            return "Board \"\(boardName)\" created with no items (none of the specified titles matched)."
-        }
-
-        return "Board \"\(boardName)\" created and \(assignedTitles.count) item(s) assigned: \(assignedTitles.joined(separator: ", "))."
-    }
-
-    private func createSynthesis(itemTitles: [String], focusPrompt: String, synthesisTitle: String) async -> String {
-        guard itemTitles.count >= AppConstants.Activity.synthesisMinItems else {
-            return "Error: create_synthesis requires at least \(AppConstants.Activity.synthesisMinItems) item titles. Got \(itemTitles.count)."
-        }
-        guard itemTitles.count <= AppConstants.Activity.synthesisMaxItems else {
-            return "Error: Too many items (\(itemTitles.count)). Synthesis works best with \(AppConstants.Activity.synthesisMinItems)-\(AppConstants.Activity.synthesisMaxItems) items."
+        if allBoards.contains(where: { $0.title.lowercased() == name.lowercased() }) {
+            return "Board \"\(name)\" already exists. Items were not reassigned."
         }
 
         let allItems = fetchAllItems()
         var matchedItems: [Item] = []
-        var missingTitles: [String] = []
-        for title in itemTitles {
-            if let item = ItemResolver.resolve(title, in: allItems) {
+        var unmatchedTitles: [String] = []
+        for reference in itemReferences {
+            guard let item = ItemResolver.resolve(reference, in: allItems) else {
+                unmatchedTitles.append(reference)
+                continue
+            }
+            if !matchedItems.contains(where: { $0.id == item.id }) {
                 matchedItems.append(item)
-            } else {
-                missingTitles.append(title)
             }
         }
 
-        guard matchedItems.count >= AppConstants.Activity.synthesisMinItems else {
-            return "Error: Could not find enough matching items. Missing: \(missingTitles.joined(separator: ", ")). Found: \(matchedItems.map(\.title).joined(separator: ", "))."
+        boardProposal = BoardProposal(
+            boardName: name,
+            itemIDs: matchedItems.map(\.id),
+            itemTitles: matchedItems.map(\.title),
+            unmatchedTitles: unmatchedTitles,
+            conversationID: conversationID
+        )
+
+        var result = "Board \"\(name)\" has NOT been created. It is waiting for the user's confirmation in the app. "
+            + "Do not claim it exists; tell the user they can confirm it below."
+        if !matchedItems.isEmpty {
+            result += " Items it would contain: \(matchedItems.map(\.title).joined(separator: ", "))."
         }
-
-        let scopeTitle = focusPrompt.isEmpty ? synthesisTitle : focusPrompt
-        let resolvedTitle = synthesisTitle.isEmpty ? "Synthesis: \(scopeTitle)" : synthesisTitle
-
-        let service = SynthesisService(modelContext: modelContext)
-        guard let result = await service.generateSynthesis(items: matchedItems, scopeTitle: scopeTitle) else {
-            return "Error: Synthesis generation failed."
+        if !unmatchedTitles.isEmpty {
+            result += " Not found: \(unmatchedTitles.joined(separator: ", "))."
         }
-
-        let newItem = service.createSynthesisItem(from: result, title: resolvedTitle, inBoard: nil)
-
-        var response = "Synthesis note created: [[\(newItem.title)]] (ID: \(newItem.id.uuidString))\n"
-        response += "Sources: \(matchedItems.map { "[[\($0.title)]]" }.joined(separator: ", "))\n"
-        if !missingTitles.isEmpty {
-            response += "Note: \(missingTitles.count) item(s) not found and skipped: \(missingTitles.joined(separator: ", "))."
-        }
-        return response
+        return result
     }
 
     // MARK: - Helpers

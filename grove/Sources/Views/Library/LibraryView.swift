@@ -6,11 +6,14 @@ import Combine
 
 /// User-selectable sort order for the library list.
 /// Search-result ranking (fuzzy score) is unaffected.
+///
+/// Persisted by raw value through `@AppStorage("librarySortOption")`. A stored
+/// value with no matching case (e.g. "depth", from the removed Depth sort)
+/// fails to decode and `@AppStorage` falls back to the default sort.
 enum LibrarySortOption: String, CaseIterable, Identifiable {
     case recentlyUpdated
     case dateAdded
     case titleAZ
-    case depth
 
     var id: String { rawValue }
 
@@ -19,7 +22,6 @@ enum LibrarySortOption: String, CaseIterable, Identifiable {
         case .recentlyUpdated: "Recently updated"
         case .dateAdded: "Date added"
         case .titleAZ: "Title A\u{2013}Z"
-        case .depth: "Depth"
         }
     }
 
@@ -31,8 +33,6 @@ enum LibrarySortOption: String, CaseIterable, Identifiable {
             items.sorted { $0.createdAt > $1.createdAt }
         case .titleAZ:
             items.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        case .depth:
-            items.sorted { $0.depthScore > $1.depthScore }
         }
     }
 }
@@ -46,6 +46,7 @@ struct LibraryView: View {
     @Binding var openedItem: Item?
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @Query(sort: \Item.updatedAt, order: .reverse) private var allItems: [Item]
     @Query(sort: \Board.sortOrder) private var allBoards: [Board]
@@ -55,7 +56,6 @@ struct LibraryView: View {
     @State private var searchTask: Task<Void, Never>? = nil
     @State private var filteredResults: [Item] = []
     @State private var isSearching = false
-    @State private var showingRevisitFilter = false
     @State private var showingArchived = false
     @State private var itemToDelete: Item?
 
@@ -69,27 +69,12 @@ struct LibraryView: View {
 
     // MARK: - Computed
 
-    /// Non-smart boards available as move targets
-    private var moveTargetBoards: [Board] {
-        allBoards.filter { !$0.isSmart }
-    }
-
-    /// Items overdue for resurfacing (spaced repetition queue)
-    private var overdueItems: [Item] {
-        allItems.filter { $0.isResurfacingEligible && $0.isResurfacingOverdue }
-    }
-
     /// Items scoped to the board filter (if any), before text search
     private var boardFilteredItems: [Item] {
-        if showingRevisitFilter {
-            return overdueItems
-        }
         let base: [Item]
         if let boardID = selectedBoardID,
            let board = allBoards.first(where: { $0.id == boardID }) {
-            base = board.isSmart
-                ? BoardViewModel.smartBoardItems(for: board, from: allItems)
-                : board.items
+            base = board.items
         } else {
             base = allItems
         }
@@ -158,22 +143,11 @@ struct LibraryView: View {
                 }
             )
 
-            if !overdueItems.isEmpty {
-                LibraryRevisitBanner(
-                    overdueCount: overdueItems.count,
-                    showingRevisitFilter: $showingRevisitFilter,
-                    selectedBoardID: $selectedBoardID,
-                    searchQuery: $searchQuery
-                )
-            }
-
-            if !showingRevisitFilter {
-                LibraryBoardFilterBar(
-                    boards: allBoards,
-                    selectedBoardID: $selectedBoardID,
-                    showingArchived: $showingArchived
-                )
-            }
+            LibraryBoardFilterBar(
+                boards: allBoards,
+                selectedBoardID: $selectedBoardID,
+                showingArchived: $showingArchived
+            )
 
             Divider()
 
@@ -197,7 +171,7 @@ struct LibraryView: View {
 
                 if isMultiSelectMode && !selectedIDs.isEmpty {
                     multiSelectToolbar
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                 }
             }
         }
@@ -303,10 +277,10 @@ struct LibraryView: View {
             Text("\(selectedIDs.count) selected")
                 .font(.groveBadge)
                 .foregroundStyle(Color.textSecondary)
-                .padding(.horizontal, 8)
+                .padding(.horizontal, Spacing.sm)
                 .padding(.vertical, 3)
                 .background(Color.accentBadge)
-                .clipShape(Capsule())
+                .clipShape(RoundedRectangle(cornerRadius: Radius.control))
 
             Spacer()
 
@@ -349,9 +323,13 @@ struct LibraryView: View {
             .buttonStyle(.plain)
         }
         .padding(.horizontal, Spacing.md)
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial)
-        .overlay(alignment: .top) { Divider() }
+        .padding(.vertical, Spacing.md)
+        .background(Color.bgCard)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(Color.borderPrimary)
+                .frame(height: 1)
+        }
     }
 
     // MARK: - Board Picker Sheet
@@ -360,7 +338,7 @@ struct LibraryView: View {
     /// `moveItemsToBoard`) and offers Unfiled as an explicit target.
     private var boardPickerSheet: some View {
         BoardPickerView(
-            boards: moveTargetBoards,
+            boards: allBoards,
             mode: .move,
             onSelect: { board in
                 showBoardPicker = false
@@ -416,10 +394,8 @@ struct LibraryView: View {
             score = max(score, titleScore)
 
             // Content match
-            if let content = item.content {
-                let contentScore = FuzzySearchScorer.score(normalizedQuery: lower, in: content.lowercased()) * 0.7
-                score = max(score, contentScore)
-            }
+            let contentScore = FuzzySearchScorer.score(normalizedQuery: lower, in: item.retrievalText.lowercased()) * 0.7
+            score = max(score, contentScore)
 
             // Tag match
             for tag in item.tags {

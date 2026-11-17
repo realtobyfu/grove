@@ -103,7 +103,7 @@ struct ResizablePaneTests {
 
     @Test func layoutSettingsRoundTripsStoredWidth() {
         let defaults = UserDefaults.standard
-        let key = LayoutSettings.PaneWidthKey.boardPrompt
+        let key = LayoutSettings.PaneWidthKey.readerReflections
         let originalValue = defaults.object(forKey: key.rawValue)
 
         defer {

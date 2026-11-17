@@ -17,6 +17,13 @@ struct MobileSearchView: View {
     /// Optional board scope — when set, shows a removable chip and restricts results.
     var scopeBoard: Board?
     var initialQuery: String? = nil
+    /// Set where items open somewhere other than this sheet's own stack — the
+    /// regular-width iPad, whose detail column is the reader. The sheet
+    /// dismisses and hands the item over. Nil pushes the compact reader here.
+    var onOpenItem: ((Item) -> Void)? = nil
+    /// Same hand-over for boards: the regular-width iPad selects the board in
+    /// its sidebar instead of pushing a compact board view inside the sheet.
+    var onOpenBoard: ((Board) -> Void)? = nil
 
     var body: some View {
         NavigationStack {
@@ -26,8 +33,13 @@ struct MobileSearchView: View {
                         emptyPrompt
                     } else if searchVM.isSearching {
                         ProgressView("Searching…")
-                    } else if searchVM.totalResultCount == 0 {
-                        ContentUnavailableView.search(text: searchText)
+                    } else if !searchVM.hasAnyResults {
+                        GroveEmptyState(
+                            title: "Nothing matches \u{201C}\(searchText)\u{201D}.",
+                            detail: "Try a shorter word or a different spelling."
+                        )
+                        .padding(.horizontal, LayoutDimensions.contentPaddingH)
+                        .frame(maxHeight: .infinity, alignment: .top)
                     } else {
                         resultsList(searchVM)
                     }
@@ -35,6 +47,8 @@ struct MobileSearchView: View {
                     ProgressView()
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.bgPrimary)
             .navigationTitle("Search")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -76,7 +90,7 @@ struct MobileSearchView: View {
     // MARK: - Empty prompt
 
     private var emptyPrompt: some View {
-        VStack(spacing: Spacing.lg) {
+        VStack(alignment: .leading, spacing: Spacing.lg) {
             if let scopeBoard {
                 // Show board scope chip
                 HStack(spacing: Spacing.sm) {
@@ -92,16 +106,16 @@ struct MobileSearchView: View {
                 }
                 .padding(.horizontal, Spacing.md)
                 .padding(.vertical, Spacing.sm)
-                .background(Color.bgCard)
-                .clipShape(Capsule())
+                .background(Color.bgCard, in: RoundedRectangle(cornerRadius: Radius.control))
             }
 
-            ContentUnavailableView {
-                Label("Search Grove", systemImage: "magnifyingglass")
-            } description: {
-                Text("Find items, boards, tags, and reflections.")
-            }
+            GroveEmptyState(
+                title: "Search your library.",
+                detail: "Items, boards, tags and reflections all turn up here."
+            )
         }
+        .padding(.horizontal, LayoutDimensions.contentPaddingH)
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 
     // MARK: - Filter picker
@@ -120,23 +134,9 @@ struct MobileSearchView: View {
     }
 
     private func filterChip(label: String, type: SearchResultType?) -> some View {
-        let isSelected = filterType == type
-        return Button {
+        FilterChip(label: label, isActive: filterType == type) {
             filterType = type
-        } label: {
-            Text(label)
-                .font(.groveBodySecondary)
-                .foregroundStyle(isSelected ? Color.textPrimary : Color.textTertiary)
-                .padding(.horizontal, Spacing.md)
-                .padding(.vertical, 6)
-                .background(isSelected ? Color.bgCardHover : Color.bgCard)
-                .clipShape(Capsule())
-                .overlay(
-                    Capsule()
-                        .strokeBorder(isSelected ? Color.borderPrimary : Color.clear, lineWidth: 1)
-                )
         }
-        .buttonStyle(.plain)
     }
 
     // MARK: - Results list
@@ -144,7 +144,7 @@ struct MobileSearchView: View {
     private func resultsList(_ vm: SearchViewModel) -> some View {
         VStack(spacing: 0) {
             filterPicker
-                .padding(.vertical, Spacing.sm)
+                .padding(.vertical, Spacing.xs)
 
             List {
                 let sections = filteredSections(vm)
@@ -160,9 +160,22 @@ struct MobileSearchView: View {
                         }
                     }
                 }
+
+                if showsSemanticSection(vm) {
+                    Section {
+                        ForEach(vm.semanticResults) { result in
+                            resultRow(result)
+                        }
+                    } header: {
+                        Text("Related by meaning")
+                            .sectionHeaderStyle()
+                    }
+                }
             }
             .listStyle(.plain)
+            .scrollContentBackground(.hidden)
         }
+        .background(Color.bgPrimary)
     }
 
     private func filteredSections(_ vm: SearchViewModel) -> [SearchResultType] {
@@ -170,6 +183,12 @@ struct MobileSearchView: View {
             return vm.orderedSections.filter { $0 == filterType }
         }
         return vm.orderedSections
+    }
+
+    /// Semantic rows are items, so they belong under "All" and "Items" only.
+    private func showsSemanticSection(_ vm: SearchViewModel) -> Bool {
+        guard !vm.semanticResults.isEmpty else { return false }
+        return filterType == nil || filterType == .item
     }
 
     private func resultRow(_ result: SearchResult) -> some View {
@@ -202,19 +221,37 @@ struct MobileSearchView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .listRowBackground(Color.bgPrimary)
+        .alignmentGuide(.listRowSeparatorLeading) { dimensions in
+            dimensions[.leading]
+        }
     }
 
     // MARK: - Navigation
+
+    private func openItem(_ item: Item) {
+        if let onOpenItem {
+            onOpenItem(item)
+            dismiss()
+        } else {
+            navigateToItemRoute = MobileItemRoute(id: item.id)
+        }
+    }
 
     private func navigateToResult(_ result: SearchResult) {
         switch result.type {
         case .item, .reflection:
             if let item = result.item {
-                navigateToItemRoute = MobileItemRoute(id: item.id)
+                openItem(item)
             }
         case .board:
             if let board = result.board {
-                navigateToBoard = board
+                if let onOpenBoard {
+                    onOpenBoard(board)
+                    dismiss()
+                } else {
+                    navigateToBoard = board
+                }
             }
         case .tag:
             guard let tag = result.tag else {
@@ -223,7 +260,7 @@ struct MobileSearchView: View {
             }
 
             if let mostRecentTaggedItem = tag.items.max(by: { $0.updatedAt < $1.updatedAt }) {
-                navigateToItemRoute = MobileItemRoute(id: mostRecentTaggedItem.id)
+                openItem(mostRecentTaggedItem)
             } else {
                 searchText = tag.name
                 searchVM?.updateQuery(tag.name)

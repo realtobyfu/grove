@@ -4,20 +4,13 @@ import Foundation
 /// Possessive framing for notes ("your note") vs neutral for external content.
 extension ItemType {
     var llmLabel: String {
-        switch self {
-        case .note: "your note"
-        case .article: "article"
-        case .video: "video"
-        case .codebase: "codebase"
-        case .courseLecture: "course lecture"
-        }
+        self == .note ? "your note" : displayName.lowercased()
     }
 }
 
 /// Shared utilities for building LLM prompt context from Item data.
-/// Eliminates duplicated item-description and item-list formatting
-/// across ConnectionSuggestionService, SynthesisService, DialecticsService,
-/// ReflectionPromptService, SmartNudgeService, and WeeklyDigestService.
+/// Keeps item-description and item-list formatting in one place for the
+/// services that send library context to a model.
 enum LLMContextBuilder {
     /// Build a text description of a single item for LLM context.
     /// - Parameters:
@@ -42,12 +35,16 @@ enum LLMContextBuilder {
             if !tags.isEmpty { desc += "\nTags: \(tags)" }
         }
 
-        if let summary = item.metadata["summary"], !summary.isEmpty {
+        if let summary = item.summary, !summary.isEmpty {
             desc += "\nSummary: \(summary)"
         }
 
         if includeContent, let content = item.content, !content.isEmpty {
             desc += "\nContent excerpt: \(String(content.prefix(contentLimit)))"
+        }
+
+        if includeContent, let overview = item.overview, !overview.isEmpty {
+            desc += "\nAI overview: \(String(overview.prefix(contentLimit)))"
         }
 
         if includeReflections && !item.reflections.isEmpty {
@@ -76,7 +73,7 @@ enum LLMContextBuilder {
     ) -> String {
         items.prefix(maxItems).enumerated().map { index, item in
             let tags = item.tags.map(\.name).joined(separator: ", ")
-            let summary = item.metadata["summary"] ?? ""
+            let summary = item.summary ?? ""
             return "\(index + 1). (\(item.type.llmLabel)) \"\(item.title)\" [tags: \(tags.isEmpty ? "none" : tags)]\(summary.isEmpty ? "" : " — \(summary)")"
         }.joined(separator: "\n")
     }

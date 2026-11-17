@@ -1,9 +1,8 @@
 import SwiftUI
 import SwiftData
 
-/// Manages newsletter/RSS subscriptions: existing FeedSources, feeds
-/// discovered from the user's library (suggestions), manual feed adds,
-/// and an entry point into the curated newsletter directory.
+/// Manages newsletter/RSS subscriptions: the feeds the user follows, manual
+/// feed adds, and an entry point into the curated newsletter directory.
 ///
 /// Presented three ways: as a sheet from the newsletter inbox (`showsHeader`
 /// true, so it carries its own title bar and close button), as a macOS
@@ -25,12 +24,7 @@ struct SubscriptionsSettingsView: View {
     /// Sources the user owns: manually added or explicitly subscribed. Keyed on
     /// the explicit isUserSubscribed flag so disabling a feed doesn't move it.
     private var subscriptions: [FeedSource] {
-        allSources.filter { $0.isUserSubscribed || !$0.isAutoDiscovered }
-    }
-
-    /// Discovered-but-never-subscribed feeds, surfaced as quiet suggestions.
-    private var suggestedSources: [FeedSource] {
-        allSources.filter { $0.isAutoDiscovered && !$0.isUserSubscribed }
+        allSources.filter(\.isExplicitSubscription)
     }
 
     var body: some View {
@@ -43,11 +37,6 @@ struct SubscriptionsSettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: LayoutDimensions.sectionSpacing) {
                     subscriptionsSection
-
-                    if !suggestedSources.isEmpty {
-                        suggestedSection
-                    }
-
                     addFeedSection
                     directorySection
                 }
@@ -133,56 +122,6 @@ struct SubscriptionsSettingsView: View {
         .cardStyle()
     }
 
-    // MARK: - Suggested From Library
-
-    private var suggestedSection: some View {
-        section(
-            title: "From your library",
-            footnote: "Posts are fetched only after you subscribe."
-        ) {
-            rowStack(suggestedSources) { source in
-                HStack(spacing: Spacing.md) {
-                    FeedMonogram(source: source)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(source.title ?? source.domain)
-                            .font(.groveBodyMedium)
-                            .foregroundStyle(Color.textPrimary)
-                            .lineLimit(1)
-                        Text(source.domain)
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                            .lineLimit(1)
-                    }
-
-                    Spacer(minLength: Spacing.sm)
-
-                    Button("Subscribe") {
-                        subscribe(source)
-                    }
-                    .buttonStyle(GroveCompactButtonStyle(prominent: true))
-
-                    Button {
-                        dismissSuggestion(source)
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                            .frame(width: 22, height: 22)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    #if os(iOS)
-                    .frame(minWidth: LayoutDimensions.minTouchTarget, minHeight: LayoutDimensions.minTouchTarget)
-                    #endif
-                    .accessibilityLabel("Dismiss suggestion")
-                }
-                .padding(.horizontal, Spacing.md)
-                .padding(.vertical, Spacing.md)
-            }
-        }
-    }
-
     // MARK: - Add Feed
 
     private var addFeedSection: some View {
@@ -217,7 +156,7 @@ struct SubscriptionsSettingsView: View {
                         Button("Add") {
                             addFeed()
                         }
-                        .buttonStyle(GroveCompactButtonStyle(prominent: true))
+                        .buttonStyle(.grove(.primary, size: .compact))
                         .disabled(trimmedFeedURL.isEmpty)
                         .opacity(trimmedFeedURL.isEmpty ? 0.4 : 1)
                     }
@@ -326,21 +265,8 @@ struct SubscriptionsSettingsView: View {
 
     // MARK: - Actions
 
-    private func subscribe(_ source: FeedSource) {
-        FeedSubscriptionService.subscribe(source, in: modelContext)
-    }
-
-    private func dismissSuggestion(_ source: FeedSource) {
-        FeedPreferencesStore.dismissDiscovery(source.feedURL)
-        modelContext.delete(source)
-        try? modelContext.save()
-    }
-
     private func delete(_ source: FeedSource) {
-        // Remember the URL so discovery doesn't silently resurrect the feed.
-        FeedPreferencesStore.dismissDiscovery(source.feedURL)
-        modelContext.delete(source)
-        try? modelContext.save()
+        FeedSubscriptionService.delete(source, in: modelContext)
     }
 
     private func addFeed() {
@@ -471,7 +397,7 @@ private struct FeedMonogram: View {
             .foregroundStyle(Color.textSecondary)
             .frame(width: 28, height: 28)
             .background(Color.bgTagActive)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.control))
             .accessibilityHidden(true)
     }
 }

@@ -28,10 +28,10 @@ Read comfortably:
 Organize naturally:
 - Group related ideas into Boards
 - Connect notes with wiki-links and see backlinks everywhere
-- Browse by tags and relationships
+- Turn highlights into flashcards and review them when they come due
 
 Think better:
-- Revisit and refine earlier thoughts
+- Chat with an assistant grounded in your own library
 - Use conversation-style reflection tools to clarify what you know
 
 Stay in control:

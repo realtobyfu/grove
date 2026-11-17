@@ -1,25 +1,24 @@
 import SwiftUI
 import SwiftData
 
-/// iOS Home screen — inbox triage, discussion suggestions, recent items, and nudge banners.
+/// iOS Today screen — capture, flashcards when due, the inbox, then the one
+/// Think Next card.
 struct MobileHomeView: View {
-    private static let maxDiscussionCards = 3
+    private static let maxDiscussionCards = 1
 
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(EntitlementService.self) private var entitlement
     @Environment(PaywallCoordinator.self) private var paywallCoordinator
-    @Query(sort: \Item.lastEngagedAt, order: .reverse) private var allItems: [Item]
+    /// Recently touched items for starter generation. Sorted by `updatedAt`:
+    /// `lastEngagedAt` stopped being written when resurfacing was retired.
+    @Query(sort: \Item.updatedAt, order: .reverse) private var allItems: [Item]
     @Query(sort: \Item.createdAt, order: .reverse) private var allItemsByDate: [Item]
     @Query(sort: \Board.sortOrder) private var boards: [Board]
-    @Query(sort: \Nudge.createdAt, order: .reverse) private var allNudges: [Nudge]
 
     @Environment(ConversationStarterService.self) private var starterService
     @Environment(iPadReaderCoordinator.self) private var readerCoordinator: iPadReaderCoordinator?
-    @State private var showSearch = false
-    @State private var showBoardPicker = false
     @State private var itemToAssign: Item?
-    @State private var selectedSuggestion: PromptBubble?
     @State private var paywallPresentation: PaywallPresentation?
 
     var onOpenItem: ((Item) -> Void)? = nil
@@ -30,41 +29,40 @@ struct MobileHomeView: View {
         allItemsByDate.filter { $0.status == .inbox && !$0.isFeedSuggestion }
     }
 
-    private var pendingNudges: [Nudge] {
-        allNudges.filter { $0.status == .pending || $0.status == .shown }
-    }
-
     private var discussionBubbles: [PromptBubble] {
-        let dynamicSlotCount = max(0, Self.maxDiscussionCards - 1)
-        return Array(starterService.bubbles.prefix(dynamicSlotCount))
-    }
-
-    private var newConversationBubble: PromptBubble {
-        PromptBubble(
-            prompt: "New Conversation",
-            label: "CHAT"
-        )
+        Array(starterService.bubbles.prefix(Self.maxDiscussionCards))
     }
 
     var body: some View {
         List {
             Section {
-                InlineCaptureBar()
+                // One row, so the flashcards view stays mounted when it hides:
+                // a List row can't collapse to nothing, and removing the view
+                // would stop its due-date refresh and close its review sheet.
+                VStack(spacing: 0) {
+                    InlineCaptureBar()
+                    LearningInvitationView(
+                        showsOnlyWhenDue: true,
+                        rowInsets: EdgeInsets(top: Spacing.sm, leading: 0, bottom: 0, trailing: 0)
+                    )
+                }
+                .listRowInsets(EdgeInsets(
+                    top: Spacing.sm,
+                    leading: LayoutDimensions.contentPaddingH,
+                    bottom: Spacing.sm,
+                    trailing: LayoutDimensions.contentPaddingH
+                ))
             }
             .listRowSeparator(.hidden)
             .listSectionSeparator(.hidden)
-
-            Section {
-                LearningInvitationView()
-            }
-            .listRowSeparator(.hidden)
-            .listSectionSeparator(.hidden)
+            .listRowBackground(Color.bgPrimary)
 
             inboxSection
             discussionSuggestionsSection
-            nudgesSection
         }
         .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Color.bgPrimary)
         .navigationTitle("Today")
         .navigationDestination(for: MobileItemRoute.self) { route in
             MobileItemRouteDestinationView(route: route)
@@ -72,7 +70,8 @@ struct MobileHomeView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    showSearch = true
+                    // The root view owns the one search sheet.
+                    NotificationCenter.default.post(name: .groveToggleSearch, object: nil)
                 } label: {
                     Image(systemName: "magnifyingglass")
                 }
@@ -80,26 +79,11 @@ struct MobileHomeView: View {
                 .keyboardShortcut("f", modifiers: .command)
             }
         }
-        .sheet(isPresented: $showSearch) {
-            MobileSearchView()
-        }
-        .sheet(isPresented: $showBoardPicker) {
-            boardPickerSheet
+        .sheet(item: $itemToAssign) { item in
+            boardPickerSheet(for: item)
         }
         .sheet(item: $paywallPresentation) { presentation in
             ProPaywallView(presentation: presentation)
-        }
-        .sheet(item: $selectedSuggestion) { suggestion in
-            MobilePromptActionSheet(
-                contextTitle: "Home",
-                suggestion: suggestion,
-                onOpenDialectics: {
-                    startConversation(with: suggestion)
-                },
-                onStartWriting: {
-                    startWriting(with: suggestion.prompt)
-                }
-            )
         }
         .task {
             await starterService.refresh(items: allItems)
@@ -120,12 +104,12 @@ struct MobileHomeView: View {
             Section {
                 ForEach(inboxItems) { item in
                     openItemRow(item: item) {
-                        MobileInboxCard(
-                            item: item,
-                            onConfirmTag: { tag in confirmTag(tag) },
-                            onDismissTag: { tag in dismissTag(tag, from: item) }
-                        )
+                        MobileInboxCard(item: item)
                     }
+                    .alignmentGuide(.listRowSeparatorLeading) { dimensions in
+                        dimensions[.leading]
+                    }
+                    .listRowBackground(Color.bgPrimary)
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                         Button {
                             keepItem(item)
@@ -136,7 +120,6 @@ struct MobileHomeView: View {
 
                         Button {
                             itemToAssign = item
-                            showBoardPicker = true
                         } label: {
                             Label("Board", systemImage: "folder")
                         }
@@ -148,6 +131,7 @@ struct MobileHomeView: View {
                         } label: {
                             Label("Drop", systemImage: "xmark")
                         }
+                        .tint(Color.textTertiary)
                     }
                 }
             } header: {
@@ -161,54 +145,17 @@ struct MobileHomeView: View {
 
     @ViewBuilder
     private var discussionSuggestionsSection: some View {
-        Section {
-            if let bubble = discussionBubbles.first {
-                MobileStarterCard(
-                    bubble: bubble,
-                    showsDisclosureIndicator: horizontalSizeClass == .regular
-                ) {
-                    if horizontalSizeClass == .regular {
-                        selectedSuggestion = bubble
-                    } else {
-                        startConversation(with: bubble)
-                    }
-                }
-            } else {
-                MobileStarterCard(bubble: newConversationBubble) {
-                    startNewConversation()
-                }
-            }
-        } header: {
-            Text("Think Next")
-                .sectionHeaderStyle()
-        }
-    }
-
-    // MARK: - Nudge banners
-
-    @ViewBuilder
-    private var nudgesSection: some View {
-        if !pendingNudges.isEmpty {
+        if let bubble = discussionBubbles.first {
             Section {
-                ForEach(pendingNudges.prefix(1)) { nudge in
-                    MobileNudgeBanner(
-                        nudge: nudge,
-                        onOpen: {
-                            nudge.status = .actedOn
-                            NudgeSettings.recordAction(type: nudge.type, actedOn: true)
-                            try? modelContext.save()
-                        },
-                        onDismiss: {
-                            withAnimation {
-                                nudge.status = .dismissed
-                                NudgeSettings.recordAction(type: nudge.type, actedOn: false)
-                                try? modelContext.save()
-                            }
-                        }
-                    )
-                }
+                StarterCard(
+                    bubble: bubble,
+                    onOpenChat: { startConversation(with: bubble) },
+                    onStartWriting: { startWriting(with: bubble.prompt) },
+                    onDismiss: { starterService.dismiss(bubble, in: modelContext) }
+                )
+                .listRowBackground(Color.bgPrimary)
             } header: {
-                Text("Nudges")
+                Text("Think Next")
                     .sectionHeaderStyle()
             }
         }
@@ -216,36 +163,22 @@ struct MobileHomeView: View {
 
     // MARK: - Board picker sheet
 
-    @ViewBuilder
-    private var boardPickerSheet: some View {
-        NavigationStack {
-            List {
-                ForEach(boards) { board in
-                    Button {
-                        if let item = itemToAssign {
-                            assignToBoard(item, board: board)
-                        }
-                        showBoardPicker = false
-                        itemToAssign = nil
-                    } label: {
-                        Label(board.title, systemImage: board.icon ?? "folder")
-                            .foregroundStyle(Color.textPrimary)
-                    }
-                }
+    /// The app's one board picker, led by the item's stored suggestion.
+    private func boardPickerSheet(for item: Item) -> some View {
+        let decision = BoardSuggestionMetadata.decision(from: item)
+        return BoardPickerView(
+            boards: boards,
+            mode: .add,
+            suggestedName: decision?.suggestedName ?? item.suggestedBoard ?? "",
+            recommendedBoardID: decision?.recommendedBoardID,
+            alternativeBoardIDs: decision?.alternativeBoardIDs ?? [],
+            onSelect: { board in
+                assignToBoard(item, board: board)
+            },
+            onCreate: { name in
+                createBoard(named: name, for: item)
             }
-            .navigationTitle("Move to Board")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        showBoardPicker = false
-                        itemToAssign = nil
-                    }
-                }
-            }
-        }
+        )
     }
 
     // MARK: - Inbox triage actions
@@ -255,7 +188,7 @@ struct MobileHomeView: View {
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
         #endif
-        withAnimation {
+        withAnimation(reduceMotion ? nil : .default) {
             item.status = .active
             item.updatedAt = .now
             try? modelContext.save()
@@ -267,7 +200,7 @@ struct MobileHomeView: View {
         let generator = UIImpactFeedbackGenerator(style: .rigid)
         generator.impactOccurred()
         #endif
-        withAnimation {
+        withAnimation(reduceMotion ? nil : .default) {
             item.status = .dismissed
             item.updatedAt = .now
             try? modelContext.save()
@@ -279,19 +212,23 @@ struct MobileHomeView: View {
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.success)
         #endif
+        BoardSuggestionMetadata.clearPendingSuggestion(on: item)
         let viewModel = ItemViewModel(modelContext: modelContext)
         viewModel.assignToBoard(item, board: board)
     }
 
-    private func confirmTag(_ tag: Tag) {
-        tag.isAutoGenerated = false
-        try? modelContext.save()
-    }
-
-    private func dismissTag(_ tag: Tag, from item: Item) {
-        item.tags.removeAll { $0.id == tag.id }
-        item.updatedAt = .now
-        try? modelContext.save()
+    private func createBoard(named name: String, for item: Item) {
+        let cleaned = BoardSuggestionEngine.cleanedBoardName(name)
+        guard !cleaned.isEmpty else { return }
+        if let existing = boards.first(where: {
+            $0.title.localizedCaseInsensitiveCompare(cleaned) == .orderedSame
+        }) {
+            assignToBoard(item, board: existing)
+        } else {
+            let board = Board(title: cleaned)
+            modelContext.insert(board)
+            assignToBoard(item, board: board)
+        }
     }
 
     // MARK: - Conversation actions
@@ -301,10 +238,6 @@ struct MobileHomeView: View {
             with: bubble.prompt,
             seedItemIDs: bubble.clusterItemIDs
         )
-    }
-
-    private func startNewConversation() {
-        openConversation(with: "")
     }
 
     private func startWriting(with prompt: String?) {
@@ -324,7 +257,6 @@ struct MobileHomeView: View {
             )
             return
         }
-        entitlement.recordUse(.dialectics)
 
         NotificationCenter.default.postConversationPrompt(
             ConversationPromptPayload(

@@ -61,8 +61,8 @@ struct MobileItemContextMenu: ViewModifier {
                             .foregroundStyle(Color.textMuted)
                     }
 
-                    if let content = item.content, !content.isEmpty {
-                        Text(content)
+                    if let preview = item.previewText {
+                        Text(preview)
                             .font(.groveBodySecondary)
                             .foregroundStyle(Color.textSecondary)
                             .lineLimit(3)

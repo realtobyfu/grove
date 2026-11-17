@@ -139,7 +139,7 @@ struct ConversationListPopover: View {
             Button("Unlock Pro") {
                 onUnlockPro()
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.grove(.secondary, size: .compact))
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.xs)
@@ -162,14 +162,9 @@ struct ConversationListPopover: View {
                                             .font(.groveBody)
                                             .foregroundStyle(Color.textPrimary)
                                             .lineLimit(1)
-                                        HStack(spacing: 4) {
-                                            Text(conv.trigger.rawValue)
-                                                .font(.groveBadge)
-                                                .foregroundStyle(Color.textTertiary)
-                                            Text(conv.updatedAt.formatted(date: .abbreviated, time: .shortened))
-                                                .font(.groveMeta)
-                                                .foregroundStyle(Color.textTertiary)
-                                        }
+                                        Text(conv.updatedAt.formatted(date: .abbreviated, time: .shortened))
+                                            .font(.groveMeta)
+                                            .foregroundStyle(Color.textTertiary)
                                     }
                                     Spacer()
                                     Text("\(conv.visibleMessages.count) msgs")

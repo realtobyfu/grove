@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 /// Top-level iOS entry point.
 /// iPad (regular width): 3-column NavigationSplitView via iPadRootView.
@@ -8,7 +9,15 @@ struct MobileRootView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(OnboardingService.self) private var onboarding
     @State private var showOnboarding = false
-    @State private var nudgeEngine: NudgeEngine?
+    @State private var readLaterScheduler: ReadLaterRestoreScheduler?
+
+    init() {
+        #if os(iOS) && !SHARE_EXTENSION
+        // Before the first bar is built, so titles and the badge never flash
+        // in system type or red.
+        MobileChromeAppearance.apply()
+        #endif
+    }
 
     var body: some View {
         Group {
@@ -26,16 +35,23 @@ struct MobileRootView: View {
         .onChange(of: onboarding.isPresented) { _, isPresented in
             showOnboarding = isPresented
         }
-        .mobileNudgeHandler()
         .onAppear {
+            evaluateOnboarding()
             showOnboarding = onboarding.isPresented
-            // Configure push notifications and start nudge engine
-            NudgeNotificationService.shared.configure()
-            if nudgeEngine == nil {
-                let engine = NudgeEngine(modelContext: modelContext)
-                engine.startSchedule()
-                nudgeEngine = engine
+            if readLaterScheduler == nil {
+                let scheduler = ReadLaterRestoreScheduler(modelContext: modelContext)
+                scheduler.start()
+                readLaterScheduler = scheduler
             }
         }
+    }
+
+    /// One-shot count rather than `@Query`: the service only evaluates once per
+    /// launch, so the root view needn't re-render on every library change. A
+    /// failed fetch leaves the welcome hidden instead of showing it over content.
+    private func evaluateOnboarding() {
+        guard let itemCount = try? modelContext.fetchCount(FetchDescriptor<Item>()),
+              let boardCount = try? modelContext.fetchCount(FetchDescriptor<Board>()) else { return }
+        onboarding.evaluateAutoPresentation(itemCount: itemCount, boardCount: boardCount)
     }
 }

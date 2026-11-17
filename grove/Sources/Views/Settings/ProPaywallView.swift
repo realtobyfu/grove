@@ -9,7 +9,7 @@ struct ProPaywallView: View {
 
     @State private var didDismiss = false
 
-    private static let defaultHeroFeatures: [ProFeature] = [.automations, .sync, .fullHistory, .dialectics]
+    private static let defaultHeroFeatures: [ProFeature] = [.sync, .dialectics, .fullHistory, .smartRouting]
 
     private var heroFeatures: [ProFeature] {
         var features = Self.defaultHeroFeatures
@@ -20,12 +20,13 @@ struct ProPaywallView: View {
         return Array(features.prefix(4))
     }
 
+    /// Names every Pro feature the hero rows do not show, so the page lists
+    /// exactly what Pro includes and nothing more.
     private var remainingFeaturesLine: String {
         let shown = Set(heroFeatures)
-        let remaining = ProFeature.allCases.filter { !shown.contains($0) }
-        let names = remaining.prefix(3).map { $0.title.lowercased() }
+        let names = ProFeature.allCases.filter { !shown.contains($0) }.map(\.title)
         guard !names.isEmpty else { return "" }
-        return "Plus \(names.joined(separator: ", ")), and everything else in Pro."
+        return "Plus \(ListFormatter.localizedString(byJoining: names))."
     }
 
     private var overlineText: String {
@@ -46,7 +47,7 @@ struct ProPaywallView: View {
         if let feature = presentation.feature {
             return "\(feature.summary) Included with everything else in Pro."
         }
-        return "Automate busywork, search your full history, and stay in sync on every device."
+        return "Sync every device, keep every conversation, and think with your library without monthly limits."
     }
 
     private var isPurchasing: Bool {
@@ -108,7 +109,7 @@ struct ProPaywallView: View {
         .frame(width: 440, height: 600)
 #endif
 #if os(iOS)
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.large])
         .presentationDragIndicator(.visible)
 #endif
     }
@@ -213,19 +214,11 @@ struct ProPaywallView: View {
 
     private func icon(for feature: ProFeature) -> String {
         switch feature {
-        case .automations: return "clock.arrow.circlepath"
-        case .batchActions: return "square.stack.3d.up.fill"
-        case .savedWorkflows: return "bookmark.fill"
         case .sync: return "arrow.triangle.2.circlepath.icloud"
+        case .dialectics: return "bubble.left.and.bubble.right.fill"
         case .fullHistory: return "text.magnifyingglass"
         case .smartRouting: return "point.3.connected.trianglepath.dotted"
-        case .dialectics: return "bubble.left.and.bubble.right.fill"
-        case .reflectionPrompts: return "sparkles.rectangle.stack"
         case .autoTagging: return "tag.fill"
-        case .connectionSuggestions: return "point.3.filled.connected.trianglepath.dotted"
-        case .synthesis: return "wand.and.stars"
-        case .weeklyDigest: return "newspaper.fill"
-        case .suggestedArticles: return "doc.text.image.fill"
         }
     }
 
@@ -249,12 +242,10 @@ struct ProPaywallView: View {
                     }
 
                     Text(isPurchasing ? "Purchasing..." : purchaseButtonTitle)
-                        .font(.groveBodyMedium)
                         .frame(maxWidth: .infinity)
                 }
-                .frame(minHeight: LayoutDimensions.minTouchTarget)
             }
-            .buttonStyle(PaywallFilledButtonStyle())
+            .buttonStyle(.grove(.primary))
             .disabled(isPurchasing)
 
             Text(renewalFootnote)
@@ -386,21 +377,5 @@ struct ProPaywallView: View {
             return true
         }
         return false
-    }
-}
-
-private struct PaywallFilledButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
-
-    var background: Color = .textPrimary
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(Color.textInverse)
-            .padding(.horizontal, Spacing.md)
-            .background(isEnabled ? background : Color.textSecondary)
-            .clipShape(.rect(cornerRadius: max(LayoutDimensions.cardCornerRadius, 12)))
-            .opacity(configuration.isPressed ? 0.85 : 1.0)
-            .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
     }
 }

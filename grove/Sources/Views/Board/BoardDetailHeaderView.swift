@@ -3,11 +3,12 @@ import AppKit
 #endif
 import SwiftUI
 
-/// Extracted from BoardDetailView — toolbar cluster, empty state, and prompt mode panel.
+/// Extracted from BoardDetailView — toolbar cluster, empty state, and suggestions bar.
 @MainActor
 struct BoardDetailHeaderView {
     let board: Board
-    let effectiveItems: [Item]
+    /// The board's active items in the order they are currently displayed.
+    let displayedItems: [Item]
     let boardDiscussionSuggestions: [PromptBubble]
     let sortOption: BoardSortOption
 
@@ -15,7 +16,8 @@ struct BoardDetailHeaderView {
     @Binding var sortOptionBinding: BoardSortOption
     @Binding var isSuggestionsCollapsed: Bool
 
-    let onSelectSuggestion: (PromptBubble) -> Void
+    let onOpenChat: (PromptBubble) -> Void
+    let onStartWriting: (PromptBubble) -> Void
     let onRefreshSuggestions: () -> Void
 
 
@@ -23,34 +25,15 @@ struct BoardDetailHeaderView {
 
     var emptyState: some View {
         VStack(spacing: Spacing.md) {
-            Image(systemName: board.isSmart ? "sparkles.rectangle.stack" : (board.icon ?? "square.grid.2x2"))
+            Image(systemName: board.icon ?? "square.grid.2x2")
                 .font(.system(size: 48))
                 .foregroundStyle(Color.textTertiary)
             Text(board.title)
                 .font(.groveItemTitle)
                 .foregroundStyle(Color.textPrimary)
-            if board.isSmart {
-                Text("No items match these tags.")
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
-
-                if !board.smartRuleTags.isEmpty {
-                    HStack(spacing: 4) {
-                        Text("Rules:")
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textTertiary)
-                        Text(board.smartRuleTags.map(\.name).joined(separator: board.smartRuleLogic == .and ? " AND " : " OR "))
-                            .font(.groveMeta)
-                            .foregroundStyle(Color.textSecondary)
-                    }
-                }
-            } else {
-                Text("Add an item to this board.")
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textSecondary)
-            }
+            Text("Add an item to this board.")
+                .font(.groveBody)
+                .foregroundStyle(Color.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -60,15 +43,13 @@ struct BoardDetailHeaderView {
     var sortPicker: some View {
         Menu {
             ForEach(BoardSortOption.allCases, id: \.self) { option in
-                if option == .manual && board.isSmart { EmptyView() } else {
-                    Button {
-                        sortOptionBinding = option
-                    } label: {
-                        HStack {
-                            Text(option.rawValue)
-                            if sortOption == option {
-                                Image(systemName: "checkmark")
-                            }
+                Button {
+                    sortOptionBinding = option
+                } label: {
+                    HStack {
+                        Text(option.rawValue)
+                        if sortOption == option {
+                            Image(systemName: "checkmark")
                         }
                     }
                 }
@@ -76,7 +57,9 @@ struct BoardDetailHeaderView {
         } label: {
             Label("Sort", systemImage: "arrow.up.arrow.down")
         }
-        .buttonStyle(.bordered)
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .buttonStyle(.grove(.secondary, size: .compact))
         .help("Sort items (\(sortOption.rawValue))")
     }
 
@@ -86,8 +69,24 @@ struct BoardDetailHeaderView {
         } label: {
             Label(viewMode == .grid ? "List" : "Grid", systemImage: viewMode.iconName)
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(.grove(.secondary, size: .compact))
         .help(viewMode == .grid ? "Switch to list view" : "Switch to grid view")
+    }
+
+    var copyMarkdownButton: some View {
+        Button {
+            let markdown = BoardExportService.markdownForBoard(
+                board,
+                items: displayedItems,
+                options: BoardExportOptions()
+            )
+            BoardExportService.copyToClipboard(markdown)
+        } label: {
+            Label("Copy as Markdown", systemImage: "doc.on.doc")
+        }
+        .buttonStyle(.grove(.secondary, size: .compact))
+        .disabled(displayedItems.isEmpty)
+        .help("Copy this board's items as Markdown")
     }
 
     @ViewBuilder
@@ -95,10 +94,7 @@ struct BoardDetailHeaderView {
         HStack(spacing: Spacing.sm) {
             sortPicker
             viewModeButton
-            if board.isSmart && !board.smartRuleTags.isEmpty {
-                Image(systemName: "gearshape.2")
-                    .help("Smart board rules: \(board.smartRuleTags.map(\.name).joined(separator: board.smartRuleLogic == .and ? " AND " : " OR "))")
-            }
+            copyMarkdownButton
         }
     }
 
@@ -110,113 +106,10 @@ struct BoardDetailHeaderView {
             BoardSuggestionsView(
                 suggestions: boardDiscussionSuggestions,
                 isSuggestionsCollapsed: $isSuggestionsCollapsed,
-                onSelectSuggestion: onSelectSuggestion,
+                onOpenChat: onOpenChat,
+                onStartWriting: onStartWriting,
                 onRefresh: onRefreshSuggestions
             )
         }
-    }
-}
-
-// MARK: - Prompt Mode Panel
-
-struct BoardPromptModePanel: View {
-    let label: String
-    let prompt: String
-    let onClose: () -> Void
-    let onDialectic: () -> Void
-    let onWrite: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.lg) {
-            HStack(spacing: Spacing.sm) {
-                Text("PROMPT ACTIONS")
-                    .sectionHeaderStyle()
-
-                Spacer()
-
-                Button {
-                    onClose()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.textSecondary)
-                        .padding(8)
-                        .background(Color.bgCard)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color.borderPrimary, lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close prompt actions")
-                .accessibilityHint("Return to board without opening an action.")
-            }
-            .padding(.horizontal, Spacing.md)
-            .padding(.top, Spacing.md)
-
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                Text(label.uppercased())
-                    .font(.groveBadge)
-                    .tracking(0.8)
-                    .foregroundStyle(Color.textSecondary)
-
-                Text(prompt)
-                    .font(.groveBody)
-                    .foregroundStyle(Color.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(Spacing.md)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.bgCard)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.borderPrimary, lineWidth: 1)
-            )
-            .padding(.horizontal, Spacing.md)
-
-            VStack(spacing: Spacing.sm) {
-                Button {
-                    onDialectic()
-                } label: {
-                    Label("Open Dialectics", systemImage: "bubble.left.and.bubble.right")
-                        .font(.groveBody)
-                        .foregroundStyle(Color.textPrimary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, Spacing.md)
-                        .padding(.vertical, Spacing.sm)
-                        .background(Color.bgCard)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.borderPrimary, lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    onWrite()
-                } label: {
-                    Label("Start Writing", systemImage: "square.and.pencil")
-                        .font(.groveBody)
-                        .foregroundStyle(Color.textPrimary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, Spacing.md)
-                        .padding(.vertical, Spacing.sm)
-                        .background(Color.bgCard)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.borderPrimary, lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, Spacing.md)
-
-            Spacer(minLength: 0)
-        }
-        .background(Color.bgInspector)
     }
 }

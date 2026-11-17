@@ -34,7 +34,6 @@ extension Color {
     static let barFillHigh = Color("barFillHigh")
     static let barFillMid = Color("barFillMid")
     static let barFillLow = Color("barFillLow")
-    static let barTrack = Color("barTrack")
 }
 
 // MARK: - Platform Detection
@@ -196,6 +195,8 @@ extension Font {
 
 enum Spacing {
     static let xs: CGFloat = 4
+    /// Half-step for the insides of chips, keycaps and compact rows.
+    static let xsm: CGFloat = 6
     static let sm: CGFloat = 8
     static let md: CGFloat = 12
     static let lg: CGFloat = 16
@@ -204,12 +205,24 @@ enum Spacing {
     static let xxxl: CGFloat = 28
 }
 
+// MARK: - Radius
+
+/// The whole corner-radius scale. Nothing in the app is rounder than `card`.
+enum Radius {
+    /// 3pt — tags, keycaps, inline marks
+    static let tag: CGFloat = 3
+    /// 4pt — buttons, inputs, chips, rows
+    static let control: CGFloat = 4
+    /// 8pt — cards, sheets, popovers, bubbles
+    static let card: CGFloat = 8
+}
+
 // MARK: - Layout
 //
 // Layout dimensions per platform (from mobile-spec.md §6):
 //   Dimension            | macOS     | iPhone           | iPad
 //   Content padding H    | 28pt      | 16pt             | 28pt
-//   Card corner radius   | 8pt       | 12pt             | 10pt
+//   Card corner radius   | 8pt       | 8pt              | 8pt   (Radius.card)
 //   Section spacing      | 24pt      | 20pt             | 24pt
 //
 // Right-rail widths (inspector/chat/reflections panels) live in
@@ -224,13 +237,13 @@ enum LayoutDimensions {
 
     #if os(macOS)
     static let contentPaddingH: CGFloat = 28
-    static let cardCornerRadius: CGFloat = 8
+    static let cardCornerRadius: CGFloat = Radius.card
     static let sectionSpacing: CGFloat = 24
     #else
     /// 28pt (iPad) / 16pt (iPhone) — tighter on iPhone to maximize content area
     @MainActor static let contentPaddingH: CGFloat = Platform.isIPad ? 28 : 16
-    /// 10pt (iPad) / 12pt (iPhone) — slightly larger on iPhone for thumb-friendliness
-    @MainActor static let cardCornerRadius: CGFloat = Platform.isIPad ? 10 : 12
+    /// 8pt everywhere — the top of the radius scale
+    static let cardCornerRadius: CGFloat = Radius.card
     /// 24pt (iPad) / 20pt (iPhone)
     @MainActor static let sectionSpacing: CGFloat = Platform.isIPad ? 24 : 20
     #endif
@@ -258,7 +271,7 @@ struct SectionHeaderStyle: ViewModifier {
     }
 }
 
-/// Selected item modifier: left-border + card background + subtle shadow
+/// Selected item modifier: 2pt left rule + card wash. Flat, like ink on paper.
 struct SelectedItemStyle: ViewModifier {
     let isSelected: Bool
 
@@ -272,12 +285,11 @@ struct SelectedItemStyle: ViewModifier {
                         .frame(width: 2)
                 }
             }
-            .shadow(color: isSelected ? .black.opacity(0.04) : .clear, radius: 2, y: 1)
     }
 }
 
-/// Card container modifier: rounded background + border overlay
-/// Default corner radius adapts per platform (8pt macOS, 10pt iPad, 12pt iPhone).
+/// Card container modifier: rounded background + 1pt border, no shadow.
+/// Default corner radius is `Radius.card` on every platform.
 struct CardStyle: ViewModifier {
     var cornerRadius: CGFloat
     var background: Color
@@ -307,8 +319,7 @@ extension View {
         modifier(CardStyle(cornerRadius: cornerRadius, background: background))
     }
     #else
-    /// On iOS the default corner radius adapts to device (12pt iPhone, 10pt iPad).
-    /// Pass an explicit value to override.
+    /// Default corner radius is `Radius.card`. Pass a `Radius` token to override.
     @MainActor
     func cardStyle(cornerRadius: CGFloat? = nil, background: Color = .bgCard) -> some View {
         modifier(CardStyle(cornerRadius: cornerRadius ?? LayoutDimensions.cardCornerRadius, background: background))

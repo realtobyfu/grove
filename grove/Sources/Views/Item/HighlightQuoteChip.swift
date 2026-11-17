@@ -47,7 +47,7 @@ struct HighlightQuoteChip: View {
 
                 quoteText
             }
-            .padding(.leading, 10)
+            .padding(.leading, Spacing.md)
             .frame(maxWidth: .infinity, alignment: .leading)
 
             trailingAffordances
@@ -134,6 +134,6 @@ struct HighlightQuoteChip: View {
                 .accessibilityLabel("Show highlight in source")
             }
         }
-        .padding(.leading, 6)
+        .padding(.leading, Spacing.xsm)
     }
 }

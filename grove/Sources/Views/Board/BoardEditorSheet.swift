@@ -5,53 +5,30 @@ struct BoardEditorSheet: View {
 
     @State private var title: String
     @State private var selectedIcon: String
-    @State private var nudgeFrequencyHours: Int
 
     private let isEditing: Bool
-    private let wasSmartBoard: Bool
-    /// The board's stored color, passed straight back through on save.
-    /// Boards are monochrome now, but existing colors are data — editing a
-    /// board must not quietly repaint it, and new boards get `nil`, which is
-    /// the neutral every board surface already falls back to.
-    private let preservedColorHex: String?
-    private let onSave: (String, String?, String?, Int) -> Void
+    private let onSave: (String, String?) -> Void
 
     private static let defaultIcon = "folder"
 
-    /// Nudge frequency options: 0 = global default, -1 = disabled, or custom hours
-    private static let nudgeFrequencyOptions: [(label: String, value: Int)] = [
-        ("Use Global Default", 0),
-        ("Every 2 Hours", 2),
-        ("Every 4 Hours", 4),
-        ("Every 8 Hours", 8),
-        ("Every 12 Hours", 12),
-        ("Once a Day", 24),
-        ("Disabled", -1)
-    ]
-
     init(
         board: Board? = nil,
-        onSave: @escaping (String, String?, String?, Int) -> Void
+        onSave: @escaping (String, String?) -> Void
     ) {
         if let board {
             self.isEditing = true
-            self.wasSmartBoard = board.isSmart
             _title = State(initialValue: board.title)
             _selectedIcon = State(initialValue: board.icon ?? Self.defaultIcon)
-            self.preservedColorHex = board.color
-            _nudgeFrequencyHours = State(initialValue: board.nudgeFrequencyHours)
         } else {
             self.isEditing = false
-            self.wasSmartBoard = false
             _title = State(initialValue: "")
             _selectedIcon = State(initialValue: Self.defaultIcon)
-            self.preservedColorHex = nil
-            _nudgeFrequencyHours = State(initialValue: 0)
         }
         self.onSave = onSave
     }
 
     var body: some View {
+        #if os(macOS)
         VStack(spacing: 0) {
             header
             Divider()
@@ -65,29 +42,6 @@ struct BoardEditorSheet: View {
                 Section("Icon") {
                     iconPicker
                 }
-
-                Section("Nudges") {
-                    Picker("Nudge Frequency", selection: $nudgeFrequencyHours) {
-                        ForEach(Self.nudgeFrequencyOptions, id: \.value) { option in
-                            Text(option.label).tag(option.value)
-                        }
-                    }
-                    .help("How often nudges can be generated for items in this board")
-
-                    if nudgeFrequencyHours == -1 {
-                        Text("Nudges are disabled for this board. Items in this board won't trigger resurfacing or streak nudges.")
-                            .font(.groveBodySmall)
-                            .foregroundStyle(Color.textSecondary)
-                    }
-                }
-
-                if wasSmartBoard {
-                    Section {
-                        Text("This board was previously smart. Saving now converts it to a standard board.")
-                            .font(.groveBodySmall)
-                            .foregroundStyle(Color.textSecondary)
-                    }
-                }
             }
             .formStyle(.grouped)
             .scrollContentBackground(.hidden)
@@ -95,9 +49,39 @@ struct BoardEditorSheet: View {
             Divider()
             footer
         }
-        .frame(width: 420, height: 470)
+        .frame(width: 420, height: 400)
+        #else
+        NavigationStack {
+            Form {
+                Section("Board Name") {
+                    TextField("Enter board name", text: $title)
+                        .font(.groveBody)
+                }
+
+                Section("Icon") {
+                    iconPicker
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(Color.bgPrimary)
+            .navigationTitle(isEditing ? "Edit Board" : "New Board")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    confirmButton
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        #endif
     }
 
+    #if os(macOS)
     private var header: some View {
         HStack {
             Text(isEditing ? "Edit Board" : "New Board")
@@ -117,15 +101,20 @@ struct BoardEditorSheet: View {
 
             Spacer()
 
-            Button(isEditing ? "Save" : "Create") {
-                let icon = selectedIcon.isEmpty ? nil : selectedIcon
-                onSave(title, icon, preservedColorHex, nudgeFrequencyHours)
-                dismiss()
-            }
-            .keyboardShortcut(.defaultAction)
-            .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
+            confirmButton
+                .keyboardShortcut(.defaultAction)
         }
         .padding()
+    }
+    #endif
+
+    private var confirmButton: some View {
+        Button(isEditing ? "Save" : "Create") {
+            let icon = selectedIcon.isEmpty ? nil : selectedIcon
+            onSave(title, icon)
+            dismiss()
+        }
+        .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
     }
 
     // MARK: - Icon Picker
@@ -141,11 +130,22 @@ struct BoardEditorSheet: View {
         "person.2", "map", "flag", "bookmark"
     ]
 
+    #if os(macOS)
+    private let iconCellSize: CGFloat = 32
+    private let iconGridSpacing: CGFloat = 8
+    private let iconColumns = Array(repeating: GridItem(.fixed(36), spacing: Spacing.sm), count: 8)
+    #else
+    /// Fills whatever width the sheet gives it, at the 44pt touch minimum.
+    private let iconCellSize = LayoutDimensions.minTouchTarget
+    private let iconGridSpacing: CGFloat = 4
+    private let iconColumns = [GridItem(.adaptive(minimum: LayoutDimensions.minTouchTarget), spacing: Spacing.xs)]
+    #endif
+
     /// Icons read in ink, never in color. The selected one steps up to full
     /// ink inside a 3pt-radius outline — the same weight-and-rule hierarchy
     /// the rest of the app uses instead of a tint.
     private var iconPicker: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.fixed(36), spacing: 8), count: 8), spacing: 8) {
+        LazyVGrid(columns: iconColumns, spacing: iconGridSpacing) {
             ForEach(Self.iconOptions, id: \.self) { icon in
                 let isSelected = selectedIcon == icon
                 Button {
@@ -154,9 +154,9 @@ struct BoardEditorSheet: View {
                     Image(systemName: icon)
                         .font(.system(size: 16, weight: isSelected ? .medium : .regular))
                         .foregroundStyle(isSelected ? Color.textPrimary : Color.textSecondary)
-                        .frame(width: 32, height: 32)
+                        .frame(width: iconCellSize, height: iconCellSize)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 3)
+                            RoundedRectangle(cornerRadius: Radius.tag)
                                 .stroke(Color.textPrimary, lineWidth: isSelected ? 1 : 0)
                         )
                         .contentShape(Rectangle())

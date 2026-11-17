@@ -48,7 +48,7 @@ struct BoardListView: View {
                                 staticListRow(item: item)
                             }
                         }
-                        .cardStyle(cornerRadius: 6)
+                        .cardStyle(cornerRadius: Radius.card)
                         .padding(.horizontal)
                     }
                 }
@@ -59,7 +59,7 @@ struct BoardListView: View {
                         staticListRow(item: item)
                     }
                 }
-                .cardStyle(cornerRadius: 6)
+                .cardStyle(cornerRadius: Radius.card)
                 .animation(.easeInOut(duration: 0.2), value: items.map(\.id))
                 .padding()
             }
@@ -78,7 +78,7 @@ struct BoardListView: View {
     }
 
     private func listRow(item: Item) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Spacing.sm) {
             Image(systemName: item.type.iconName)
                 .font(.groveMeta)
                 .foregroundStyle(Color.textMuted)
@@ -94,7 +94,7 @@ struct BoardListView: View {
                         .lineLimit(1)
                 }
                 if !item.tags.isEmpty {
-                    HStack(spacing: 4) {
+                    HStack(spacing: Spacing.xs) {
                         ForEach(item.tags.prefix(2)) { tag in
                             TagChip(tag: tag, mode: .capsule)
                         }
@@ -122,8 +122,8 @@ struct BoardListView: View {
                     .foregroundStyle(Color.textSecondary)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.xsm)
     }
 
     private func openItem(_ item: Item) {

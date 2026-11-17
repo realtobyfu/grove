@@ -1,17 +1,5 @@
 import Foundation
 
-/// Protocol for creating LLM providers — enables test injection.
-protocol LLMProviderFactory: Sendable {
-    func makeProvider() -> LLMProvider
-}
-
-/// Default factory that reads from LLMServiceConfig.
-struct DefaultLLMProviderFactory: LLMProviderFactory {
-    func makeProvider() -> LLMProvider {
-        LLMServiceConfig.makeProvider()
-    }
-}
-
 /// Which LLM backend to use.
 enum LLMProviderType: String, CaseIterable, Sendable {
     case appleIntelligence = "appleIntelligence"

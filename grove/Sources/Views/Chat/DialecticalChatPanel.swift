@@ -186,7 +186,7 @@ struct DialecticalChatPanel: View {
 
     private var headerBar: some View {
         HStack(spacing: Spacing.sm) {
-            Text("DIALECTICS")
+            Text("CHAT")
                 .font(.groveSectionHeader)
                 .textCase(.uppercase)
                 .tracking(1.2)
@@ -296,11 +296,11 @@ struct DialecticalChatPanel: View {
                 paywallCoordinator: paywallCoordinator
             )
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
                 Image(systemName: "plus")
                     .font(.groveBody)
                     .foregroundStyle(Color.textMuted)
-                if !entitlement.isPro {
+                if entitlement.hasUsageLimits {
                     Text("\(entitlement.remaining(.dialectics))/\(MeteredFeature.dialectics.freeLimit)")
                         .font(.groveBadge)
                         .foregroundStyle(Color.textTertiary)
@@ -310,7 +310,7 @@ struct DialecticalChatPanel: View {
         .buttonStyle(.plain)
         .help("New conversation")
         .accessibilityLabel("New conversation")
-        .accessibilityHint("Starts a fresh Dialectics conversation.")
+        .accessibilityHint("Starts a new conversation.")
     }
 
     private var closeButton: some View {
@@ -322,18 +322,18 @@ struct DialecticalChatPanel: View {
             Image(systemName: "xmark")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Color.textMuted)
-                .padding(6)
+                .padding(Spacing.xsm)
                 .background(Color.bgCard)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.control))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: Radius.control)
                         .stroke(Color.borderPrimary, lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)
         .help("Close chat")
-        .accessibilityLabel("Close Dialectics")
-        .accessibilityHint("Hides the Dialectics panel.")
+        .accessibilityLabel("Close Chat")
+        .accessibilityHint("Hides the Chat panel.")
     }
 
     // MARK: - Chat View
@@ -351,6 +351,8 @@ struct DialecticalChatPanel: View {
             ScrollView {
                 LazyVStack(spacing: Spacing.md) {
                     if let vm = viewModel {
+                        let proposal = vm.dialecticsService.pendingBoardProposal(for: conversation)
+                        let proposalAnchorID = Self.proposalAnchorID(for: proposal, in: conversation)
                         ForEach(conversation.visibleMessages) { message in
                             ChatMessageBubble(
                                 message: message,
@@ -371,6 +373,11 @@ struct DialecticalChatPanel: View {
                                 }
                             )
                             .id(message.id)
+
+                            // Under the reply that proposed it, once.
+                            if let proposal, proposalAnchorID == message.id {
+                                boardProposalCard(proposal, conversation: conversation, service: vm.dialecticsService)
+                            }
                         }
 
                         if vm.dialecticsService.isGenerating {
@@ -380,17 +387,59 @@ struct DialecticalChatPanel: View {
                         if let error = vm.dialecticsService.lastError {
                             ChatErrorBubble(message: error)
                         }
+
+                        if let proposal, proposalAnchorID == nil {
+                            boardProposalCard(proposal, conversation: conversation, service: vm.dialecticsService)
+                        }
                     }
                 }
                 .padding(.horizontal, Spacing.md)
                 .padding(.vertical, Spacing.sm)
             }
             .onChange(of: conversation.messages.count) {
-                if let lastID = conversation.visibleMessages.last?.id {
-                    withAnimation {
-                        proxy.scrollTo(lastID, anchor: .bottom)
-                    }
-                }
+                scrollToEnd(of: conversation, proxy: proxy)
+            }
+            .onChange(of: viewModel?.dialecticsService.pendingBoardProposal(for: conversation)?.id) {
+                scrollToEnd(of: conversation, proxy: proxy)
+            }
+        }
+    }
+
+    /// The visible reply a pending proposal belongs to, if it is shown.
+    private static func proposalAnchorID(for proposal: BoardProposal?, in conversation: Conversation) -> UUID? {
+        guard let messageID = proposal?.messageID,
+              conversation.visibleMessages.contains(where: { $0.id == messageID }) else { return nil }
+        return messageID
+    }
+
+    private func boardProposalCard(
+        _ proposal: BoardProposal,
+        conversation: Conversation,
+        service: DialecticsService
+    ) -> some View {
+        BoardProposalCard(
+            proposal: proposal,
+            onCreate: {
+                service.confirmBoardProposal(for: conversation, context: modelContext)
+            },
+            onDecline: {
+                service.declineBoardProposal(for: conversation, context: modelContext)
+            }
+        )
+        .id(BoardProposalCard.scrollID)
+    }
+
+    private func scrollToEnd(of conversation: Conversation, proxy: ScrollViewProxy) {
+        let proposal = viewModel?.dialecticsService.pendingBoardProposal(for: conversation)
+        let anchorID = Self.proposalAnchorID(for: proposal, in: conversation)
+        // The card is the last thing shown only while nothing came after its reply.
+        if proposal != nil, anchorID == nil || anchorID == conversation.visibleMessages.last?.id {
+            withAnimation {
+                proxy.scrollTo(BoardProposalCard.scrollID, anchor: .bottom)
+            }
+        } else if let lastID = conversation.visibleMessages.last?.id {
+            withAnimation {
+                proxy.scrollTo(lastID, anchor: .bottom)
             }
         }
     }
@@ -429,10 +478,10 @@ struct DialecticalChatPanel: View {
             Image(systemName: "bubble.left.and.bubble.right")
                 .font(.system(size: 36))
                 .foregroundStyle(Color.textTertiary)
-            Text("Dialectics")
+            Text("Chat")
                 .font(.groveItemTitle)
                 .foregroundStyle(Color.textPrimary)
-            Text("Start a conversation to explore your ideas through dialectical reasoning.")
+            Text("Ask about what you have saved, or test an idea against it.")
                 .font(.groveBody)
                 .foregroundStyle(Color.textSecondary)
                 .multilineTextAlignment(.center)
@@ -452,8 +501,7 @@ struct DialecticalChatPanel: View {
             Label("New Conversation", systemImage: "plus")
                 .font(.groveBodyMedium)
         }
-        .buttonStyle(.bordered)
-        .controlSize(.regular)
+        .buttonStyle(.grove(.primary))
     }
 
     @ViewBuilder
@@ -578,18 +626,18 @@ struct SaveReflectionSheet: View {
                     Button {
                         selectedBlockType = type
                     } label: {
-                        HStack(spacing: 4) {
+                        HStack(spacing: Spacing.xs) {
                             Image(systemName: type.systemImage)
                                 .font(.groveBadge)
                             Text(type.displayName)
                                 .font(.groveBadge)
                         }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, Spacing.sm)
+                        .padding(.vertical, Spacing.xs)
                         .background(selectedBlockType == type ? Color.accentBadge : Color.bgCard)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 4)
+                            RoundedRectangle(cornerRadius: Radius.control)
                                 .stroke(Color.borderPrimary, lineWidth: 1)
                         )
                     }
@@ -610,9 +658,9 @@ struct SaveReflectionSheet: View {
                 .frame(minHeight: 100, maxHeight: 200)
                 .padding(Spacing.xs)
                 .background(Color.bgInput)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.control))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: Radius.control)
                         .stroke(Color.borderInput, lineWidth: 1)
                 )
         }
@@ -623,7 +671,7 @@ struct SaveReflectionSheet: View {
             Button("Cancel") {
                 onDismiss()
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.grove(.secondary))
 
             Spacer()
 
@@ -636,8 +684,7 @@ struct SaveReflectionSheet: View {
             Button("Save Reflection") {
                 saveReflection()
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Color.accentSelection)
+            .buttonStyle(.grove(.primary))
             .disabled(selectedItemID == nil || editedContent.trimmingCharacters(in: .whitespaces).isEmpty)
         }
     }
@@ -701,9 +748,9 @@ struct SaveNoteSheet: View {
                 .font(.groveBody)
                 .padding(Spacing.xs)
                 .background(Color.bgInput)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.control))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: Radius.control)
                         .stroke(Color.borderInput, lineWidth: 1)
                 )
         }
@@ -723,9 +770,9 @@ struct SaveNoteSheet: View {
             .frame(maxHeight: 150)
             .padding(Spacing.xs)
             .background(Color.bgCard)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.control))
             .overlay(
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: Radius.control)
                     .stroke(Color.borderInput, lineWidth: 1)
             )
         }
@@ -736,7 +783,7 @@ struct SaveNoteSheet: View {
             Button("Cancel") {
                 onDismiss()
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.grove(.secondary))
 
             Spacer()
 
@@ -749,8 +796,7 @@ struct SaveNoteSheet: View {
             Button("Save Note") {
                 saveNote()
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Color.accentSelection)
+            .buttonStyle(.grove(.primary))
             .disabled(editedTitle.trimmingCharacters(in: .whitespaces).isEmpty)
         }
     }

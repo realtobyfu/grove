@@ -9,6 +9,8 @@ struct MobileBoardSuggestionBanner: View {
     let onChoose: () -> Void
     let onDismiss: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     private var headline: String {
         switch decision.mode {
         case .existing:
@@ -103,6 +105,8 @@ struct MobileBoardSuggestionBanner: View {
         }
         .shadow(color: .black.opacity(0.08), radius: 8, y: 4)
         .padding(.horizontal, Spacing.lg)
-        .transition(.opacity.combined(with: .move(edge: .top)))
+        // Floats over content, so it keeps one soft shadow; slides in only
+        // when motion is allowed.
+        .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
     }
 }

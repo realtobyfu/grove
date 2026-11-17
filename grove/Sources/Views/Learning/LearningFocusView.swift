@@ -37,8 +37,11 @@ struct LearningFocusView: View {
                     .foregroundStyle(Color.textTertiary)
             } header: { Text("Session") }
             if let errorMessage { Text(errorMessage).font(.groveBodySmall) }
-            Button("Save focus", action: save)
-                .buttonStyle(LearningPrimaryButtonStyle())
+            Button(action: save) {
+                Text("Save focus")
+                    .frame(maxWidth: .infinity)
+            }
+                .buttonStyle(.grove(.primary))
         }
         .navigationTitle("Your focus")
         .toolbar {

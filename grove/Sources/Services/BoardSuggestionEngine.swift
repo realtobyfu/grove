@@ -16,73 +16,31 @@ struct BoardSuggestionDecision: Equatable {
 }
 
 enum BoardSuggestionMetadata {
-    private static let suggestedBoard = "suggestedBoard"
-    private static let pendingBoardSuggestion = "pendingBoardSuggestion"
-    private static let mode = "suggestedBoardMode"
-    private static let boardID = "suggestedBoardID"
-    private static let confidence = "suggestedBoardConfidence"
-    private static let reason = "suggestedBoardReason"
-    private static let alternatives = "suggestedBoardAlternatives"
-
     static func apply(_ decision: BoardSuggestionDecision, to item: Item) {
-        item.metadata[suggestedBoard] = decision.suggestedName
-        item.metadata[pendingBoardSuggestion] = decision.suggestedName
-        item.metadata[mode] = decision.mode.rawValue
-        item.metadata[confidence] = decision.confidence.formatted(.number.precision(.fractionLength(2)))
-
-        if let recommendedBoardID = decision.recommendedBoardID {
-            item.metadata[boardID] = recommendedBoardID.uuidString
-        } else {
-            item.metadata[boardID] = nil
-        }
-
-        if decision.reason.isEmpty {
-            item.metadata[reason] = nil
-        } else {
-            item.metadata[reason] = decision.reason
-        }
-
-        if decision.alternativeBoardIDs.isEmpty {
-            item.metadata[alternatives] = nil
-        } else {
-            item.metadata[alternatives] = decision.alternativeBoardIDs.map(\.uuidString).joined(separator: ",")
-        }
+        item.suggestedBoard = decision.suggestedName
+        item.pendingBoardSuggestion = decision.suggestedName
+        item.suggestedBoardMode = decision.mode
+        item.suggestedBoardConfidence = decision.confidence
+        item.suggestedBoardID = decision.recommendedBoardID
+        item.suggestedBoardReason = decision.reason.isEmpty ? nil : decision.reason
+        item.suggestedBoardAlternativeIDs = decision.alternativeBoardIDs
     }
 
     static func clearPendingSuggestion(on item: Item) {
-        item.metadata[pendingBoardSuggestion] = nil
-    }
-
-    /// Preserve a local, privacy-safe correction signal before resolving the
-    /// pending suggestion. These fields can seed OS 27 evaluation datasets
-    /// without storing prompt text or sending analytics off-device.
-    static func recordSelection(_ board: Board, on item: Item) {
-        let decision = decision(from: item)
-        item.metadata["boardSuggestionOutcome"] = "selected"
-        item.metadata["boardSuggestionSelectedBoardID"] = board.id.uuidString
-        item.metadata["boardSuggestionMatchedRecommendation"] =
-            decision?.recommendedBoardID == board.id ? "true" : "false"
-        item.metadata["boardSuggestionResolvedAt"] = Date.now.ISO8601Format()
-        clearPendingSuggestion(on: item)
+        item.pendingBoardSuggestion = nil
     }
 
     static func decision(from item: Item) -> BoardSuggestionDecision? {
         let suggestedName = cleanedSuggestionName(from: item)
         guard !suggestedName.isEmpty else { return nil }
 
-        let suggestionMode = BoardSuggestionMode(rawValue: item.metadata[mode] ?? "") ?? .create
-        let recommendedBoardID = item.metadata[boardID].flatMap(UUID.init(uuidString:))
-        let confidenceValue = item.metadata[confidence].flatMap(Double.init) ?? 0
-        let reasonText = item.metadata[reason] ?? ""
-        let alternativeIDs = parseAlternativeIDs(item.metadata[alternatives])
-
         return BoardSuggestionDecision(
             suggestedName: suggestedName,
-            mode: suggestionMode,
-            recommendedBoardID: recommendedBoardID,
-            confidence: confidenceValue,
-            reason: reasonText,
-            alternativeBoardIDs: alternativeIDs
+            mode: item.suggestedBoardMode ?? .create,
+            recommendedBoardID: item.suggestedBoardID,
+            confidence: item.suggestedBoardConfidence ?? 0,
+            reason: item.suggestedBoardReason ?? "",
+            alternativeBoardIDs: item.suggestedBoardAlternativeIDs
         )
     }
 
@@ -156,11 +114,11 @@ enum BoardSuggestionMetadata {
     }
 
     private static func cleanedSuggestionName(from item: Item) -> String {
-        let raw = item.metadata[pendingBoardSuggestion] ?? item.metadata[suggestedBoard] ?? ""
+        let raw = item.pendingBoardSuggestion ?? item.suggestedBoard ?? ""
         return BoardSuggestionEngine.cleanedBoardName(raw)
     }
 
-    private static func parseAlternativeIDs(_ rawValue: String?) -> [UUID] {
+    static func parseAlternativeIDs(_ rawValue: String?) -> [UUID] {
         guard let rawValue, !rawValue.isEmpty else { return [] }
         return rawValue
             .split(separator: ",")
@@ -288,7 +246,7 @@ struct BoardSuggestionEngine: BoardSuggestionEngineProtocol {
         suggestedName: String,
         itemTagNames: Set<String>
     ) -> Candidate {
-        let titleSimilarity = TagService.nameSimilarity(suggestedName, board.title)
+        let titleSimilarity = Self.nameSimilarity(suggestedName, board.title)
         let tokenOverlap = jaccard(tokens(from: suggestedName), tokens(from: board.title))
 
         let boardTagNames = Set(
@@ -383,5 +341,56 @@ struct BoardSuggestionEngine: BoardSuggestionEngineProtocol {
 
     private func jaccard(_ a: Set<String>, _ b: Set<String>) -> Double {
         TextTokenizer.jaccardSimilarity(a, b)
+    }
+
+    /// String similarity between two names using normalized edit distance
+    /// (1.0 = identical once case and separators are ignored).
+    nonisolated static func nameSimilarity(_ a: String, _ b: String) -> Double {
+        let s1 = normalizeName(a)
+        let s2 = normalizeName(b)
+
+        if s1 == s2 { return 1.0 }
+        if s1.isEmpty || s2.isEmpty { return 0.0 }
+
+        let distance = levenshteinDistance(s1, s2)
+        let maxLen = max(s1.count, s2.count)
+        return 1.0 - Double(distance) / Double(maxLen)
+    }
+
+    /// Lowercase and strip separators so "machine-learning" matches "Machine Learning".
+    private nonisolated static func normalizeName(_ name: String) -> String {
+        name.lowercased()
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "/", with: "")
+            .replacingOccurrences(of: " ", with: "")
+    }
+
+    private nonisolated static func levenshteinDistance(_ s1: String, _ s2: String) -> Int {
+        let a = Array(s1)
+        let b = Array(s2)
+        let m = a.count
+        let n = b.count
+
+        if m == 0 { return n }
+        if n == 0 { return m }
+
+        var prev = Array(0...n)
+        var curr = Array(repeating: 0, count: n + 1)
+
+        for i in 1...m {
+            curr[0] = i
+            for j in 1...n {
+                let cost = a[i - 1] == b[j - 1] ? 0 : 1
+                curr[j] = min(
+                    prev[j] + 1,       // deletion
+                    curr[j - 1] + 1,   // insertion
+                    prev[j - 1] + cost // substitution
+                )
+            }
+            prev = curr
+        }
+
+        return prev[n]
     }
 }
