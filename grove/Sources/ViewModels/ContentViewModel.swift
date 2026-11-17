@@ -42,8 +42,6 @@ final class ContentViewModel {
     // MARK: - Internal State
     var readLaterScheduler: ReadLaterRestoreScheduler?
     var savedColumnVisibility: NavigationSplitViewVisibility?
-    var savedInspectorOverride: Bool?
-    var savedChatPanel: Bool?
 
     // MARK: - Computed Properties
 
@@ -51,11 +49,12 @@ final class ContentViewModel {
         if let override = inspectorUserOverride {
             return override
         }
-        // A note opens as a page and nothing else. Its connections are one
-        // click away (the page's dateline, the toolbar, ⌘]) rather than a
-        // column that arrives uninvited beside the writing.
-        if isNotePageOpen { return false }
-        return selectedItem != nil || openedItem != nil
+        // A note page or a source in the reader opens as the page and
+        // nothing else. Info is one click away (its tab, ⌘]) rather than a
+        // column that arrives uninvited beside the reading or the writing.
+        // It follows the selection by itself only over a list.
+        if openedItem != nil { return false }
+        return selectedItem != nil
     }
 
     /// A note is open as a page in the detail column.
@@ -290,30 +289,23 @@ final class ContentViewModel {
 
     // MARK: - Focus Mode
 
-    /// Sidebar collapse and rail change are driven from a single
-    /// `withAnimation` on `RightRailMetrics.widthChange` — the same curve and
-    /// duration the rail uses for its own width — so the two reflows are one.
+    /// Reading a source folds the sidebar down to its spine, on the same
+    /// curve and duration the right page uses for its own width so the two
+    /// reflows are one. Only the sidebar: the right page is left as it is, so
+    /// a note or a conversation stays beside whatever is opened next.
     func enterFocusMode() {
         if savedColumnVisibility == nil {
             savedColumnVisibility = columnVisibility
-            savedInspectorOverride = inspectorUserOverride
-            savedChatPanel = showChatPanel
         }
         withAnimation(RightRailMetrics.widthChange) {
             columnVisibility = .detailOnly
-            inspectorUserOverride = false
-            showChatPanel = false
         }
     }
 
     func exitFocusMode() {
         withAnimation(RightRailMetrics.widthChange) {
             columnVisibility = savedColumnVisibility ?? .automatic
-            inspectorUserOverride = savedInspectorOverride
-            showChatPanel = savedChatPanel ?? false
         }
         savedColumnVisibility = nil
-        savedInspectorOverride = nil
-        savedChatPanel = nil
     }
 }

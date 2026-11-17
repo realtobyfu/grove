@@ -232,3 +232,65 @@ struct RightPageTests {
         #expect(RightPageTab.note.helpText(isActive: false) == "Show Note")
     }
 }
+
+/// Reading a source: the sidebar folds, the right page is left alone.
+@MainActor
+struct ReadingFocusTests {
+
+    private func makeWindow() throws -> (viewModel: ContentViewModel, context: ModelContext) {
+        let schema = SharedModelContainer.schema
+        let config = ModelConfiguration(
+            "ReadingFocusTests",
+            schema: schema,
+            isStoredInMemoryOnly: true,
+            cloudKitDatabase: .none
+        )
+        let context = ModelContext(try ModelContainer(for: schema, configurations: [config]))
+        return (ContentViewModel(), context)
+    }
+
+    @Test func focusFoldsTheSidebarAndLeavingRestoresIt() throws {
+        let (viewModel, _) = try makeWindow()
+        viewModel.columnVisibility = .all
+        viewModel.enterFocusMode()
+        #expect(viewModel.columnVisibility == .detailOnly)
+
+        // Entering again (a reflection editor opening) must not overwrite
+        // what there is to go back to.
+        viewModel.enterFocusMode()
+        viewModel.exitFocusMode()
+        #expect(viewModel.columnVisibility == .all)
+        #expect(viewModel.savedColumnVisibility == nil)
+    }
+
+    @Test func focusLeavesTheRightPageAsItIs() throws {
+        let (viewModel, _) = try makeWindow()
+        viewModel.selectRightPageTab(.chat)
+        viewModel.enterFocusMode()
+        #expect(viewModel.activeRightPageTab == .chat)
+        viewModel.exitFocusMode()
+        #expect(viewModel.activeRightPageTab == .chat)
+    }
+
+    @Test func infoDoesNotArriveUninvitedBesideAReader() throws {
+        let (viewModel, context) = try makeWindow()
+        let article = Item(title: "Moss", type: .article)
+        context.insert(article)
+
+        // Selected in a list: Info follows the selection.
+        viewModel.selectedItem = article
+        #expect(viewModel.activeRightPageTab == .info)
+
+        // Opened: the page is the article.
+        viewModel.openedItem = article
+        #expect(viewModel.activeRightPageTab == nil)
+
+        // Asked for, it shows; back at the list it follows the selection again.
+        viewModel.selectRightPageTab(.info)
+        #expect(viewModel.activeRightPageTab == .info)
+        viewModel.selectRightPageTab(.info)
+        viewModel.openedItem = nil
+        viewModel.inspectorUserOverride = nil
+        #expect(viewModel.activeRightPageTab == .info)
+    }
+}

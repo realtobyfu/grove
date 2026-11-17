@@ -116,6 +116,10 @@ struct ContentViewNotificationHandlers: ViewModifier {
                 viewModel.enterFocusMode()
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveExitFocusMode)) { _ in
+                // The reader posts this when a reflection or flashcard editor
+                // closes. While a source is still open the sidebar stays
+                // folded; leaving the reader is what unfolds it.
+                guard !viewModel.isReadingSource else { return }
                 viewModel.exitFocusMode()
             }
             .onAppear {

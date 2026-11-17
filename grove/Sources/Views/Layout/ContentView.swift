@@ -167,8 +167,9 @@ struct ContentView: View {
                 if viewModel.savedColumnVisibility != nil {
                     viewModel.exitFocusMode()
                 }
-            } else if let item = viewModel.openedItem, !item.reflections.isEmpty {
-                // Save current panel state and collapse for reader (only when item has reflections)
+            } else if viewModel.openedItem != nil {
+                // Any source in the reader: the sidebar folds to its spine so
+                // the article and the right page get the window's width.
                 viewModel.enterFocusMode()
             } else if viewModel.openedItem == nil {
                 viewModel.isArticleWebViewActive = false
@@ -216,13 +217,41 @@ struct ContentView: View {
         }
     }
 
+    /// The spine stands in for the sidebar whenever the sidebar is collapsed
+    /// — except in full-screen reading, which is the page and nothing else.
+    private var showsSidebarSpine: Bool {
+        #if os(macOS)
+        viewModel.columnVisibility == .detailOnly && !hidesWindowToolbar
+        #else
+        false
+        #endif
+    }
+
     private var mainContentArea: some View {
         GeometryReader { geo in
             HStack(spacing: 0) {
+                if showsSidebarSpine {
+                    SidebarSpine(
+                        selection: Binding(
+                            get: { viewModel.selection },
+                            set: { viewModel.selection = $0 }
+                        ),
+                        boards: boards,
+                        // Picking a destination leaves the reader, which is
+                        // also what brings the full sidebar back.
+                        onNavigate: { viewModel.openedItem = nil },
+                        onExpand: {
+                            withAnimation(RightRailMetrics.widthChange) {
+                                viewModel.columnVisibility = .all
+                            }
+                        }
+                    )
+                }
+
                 detailContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                sidePanel(availableWidth: geo.size.width)
+                sidePanel(availableWidth: geo.size.width - (showsSidebarSpine ? SidebarSpine.width : 0))
             }
         }
         .toolbar {
