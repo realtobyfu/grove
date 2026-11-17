@@ -414,21 +414,17 @@ struct InboxFocusCard: View {
 
     // MARK: Actions
 
-    /// Keep, Drop, Later and Read now, each with its key. They wrap onto a
-    /// second line in a narrow column rather than truncate.
+    /// Keep, Later, Drop and Read now, labelled as the inbox card always
+    /// labelled them. The keys (1, 2, 3, Return) still work and are named in
+    /// each button's tooltip; they are not printed on the buttons. They wrap
+    /// onto a second line in a narrow column rather than truncate.
     private var actions: some View {
-        FlowLayout(spacing: Spacing.xsm) {
+        FlowLayout(spacing: Spacing.sm) {
             Button(action: onKeep) {
-                KeyHintLabel(title: "Keep", key: "1", onInk: true)
+                actionLabel("Keep unfiled", systemImage: "checkmark.circle")
             }
             .buttonStyle(.grove(.primary, size: .compact))
             .help("Keep without filing to a board. Shortcut: 1")
-
-            Button(action: onDrop) {
-                KeyHintLabel(title: "Drop", key: "2")
-            }
-            .buttonStyle(.grove(.secondary, size: .compact))
-            .help("Shortcut: 2")
 
             Menu {
                 ForEach(ReadLaterPreset.allCases) { preset in
@@ -439,7 +435,7 @@ struct InboxFocusCard: View {
                     }
                 }
             } label: {
-                KeyHintLabel(title: "Later", key: "3")
+                actionLabel("Later", systemImage: "clock")
             }
             .menuStyle(.button)
             .menuIndicator(.hidden)
@@ -448,13 +444,29 @@ struct InboxFocusCard: View {
             .fixedSize()
             .help("Shortcut: 3 queues until tomorrow morning")
 
+            Button(action: onDrop) {
+                actionLabel("Drop", systemImage: "xmark.circle")
+            }
+            .buttonStyle(.grove(.secondary, size: .compact))
+            .help("Shortcut: 2")
+
             if let onOpen {
                 Button(action: onOpen) {
-                    KeyHintLabel(title: item.type == .note ? "Open" : "Read now", key: "\u{23CE}")
+                    Text(item.type == .note ? "Open" : "Read now")
                 }
                 .buttonStyle(.grove(.secondary, size: .compact))
                 .help("Open in the reader. Shortcut: Return")
             }
+        }
+    }
+
+    /// A button label with its symbol in Grove, the word alone in Commonplace.
+    @ViewBuilder
+    private func actionLabel(_ title: String, systemImage: String) -> some View {
+        if ThemeStore.shared.theme.usesGlyphs {
+            Label(title, systemImage: systemImage)
+        } else {
+            Text(title)
         }
     }
 }
