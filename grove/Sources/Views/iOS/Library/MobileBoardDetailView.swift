@@ -39,7 +39,6 @@ struct MobileBoardDetailView: View {
     @State private var isSuggestionsCollapsed = false
     @State private var starterService = ConversationStarterService.shared
     @State private var paywallPresentation: PaywallPresentation?
-    @State private var showFlashcards = false
     @State private var showCapture = false
 
     private var isRegularSplitMode: Bool {
@@ -131,9 +130,6 @@ struct MobileBoardDetailView: View {
         .toolbar {
             toolbarCluster
             ToolbarItem(placement: .secondaryAction) {
-                Button("Flashcards", systemImage: "rectangle.on.rectangle") { showFlashcards = true }
-            }
-            ToolbarItem(placement: .secondaryAction) {
                 Button("Copy as Markdown", systemImage: "doc.on.doc") {
                     let markdown = BoardExportService.markdownForBoard(
                         board,
@@ -144,9 +140,6 @@ struct MobileBoardDetailView: View {
                 }
                 .disabled(sortedFilteredItems.isEmpty)
             }
-        }
-        .sheet(isPresented: $showFlashcards) {
-            NavigationStack { FlashcardLibraryView(boardID: board.id) }
         }
         .sheet(isPresented: $showCapture) {
             CaptureSheetView(initialBoardID: board.id)

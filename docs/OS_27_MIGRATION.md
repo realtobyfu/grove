@@ -14,8 +14,8 @@ tested, and profiled rather than added speculatively.
      Compute when the user enables Enhanced intelligence;
    - Chat: a dynamic profile that changes tools and context without
      rebuilding conversation history.
-3. Replace manual JSON parsing in tagging, connections, flashcard drafts,
-   and conversation starters with `@Generable` response types.
+3. Replace manual JSON parsing in tagging, connections and conversation
+   starters with `@Generable` response types.
 4. Replace the text-based `tool_call` loop in Chat with Foundation Models
    `Tool` implementations. Keep write tools separately permissioned from search
    tools and require explicit confirmation for destructive or shared-data

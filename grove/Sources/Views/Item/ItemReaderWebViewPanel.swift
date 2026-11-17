@@ -1165,10 +1165,6 @@ struct HighlightActionBarOverlay: View {
             onHighlight: {
                 vm.addHighlight(selection)
                 onWrite?()
-            },
-            onRemember: {
-                vm.openFlashcardEditor(quote: selection)
-                onWrite?()
             }
         )
     }
@@ -1227,11 +1223,10 @@ struct SelectionAnchorLayout: Layout {
 }
 
 /// Quiet floating pill shown while a text selection is active in the reader.
-/// Save a passage as a highlight or use it to make a flashcard.
+/// Saves the passage as a highlight.
 /// Shared by the desktop web panel and the iOS mobile reader.
 struct HighlightActionBar: View {
     var onHighlight: () -> Void
-    var onRemember: (() -> Void)? = nil
 
     #if os(iOS)
     private static let minTargetSize: CGFloat = 44
@@ -1247,11 +1242,6 @@ struct HighlightActionBar: View {
                 action: onHighlight
             )
             .help("Save selection as a highlight")
-            if let onRemember {
-                Divider().frame(height: 16)
-                barButton(title: "Remember", systemImage: "rectangle.on.rectangle", action: onRemember)
-                    .help("Make a flashcard from this passage")
-            }
         }
         .background(Color.bgCard)
         .clipShape(RoundedRectangle(cornerRadius: Radius.control))

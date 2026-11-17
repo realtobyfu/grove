@@ -109,7 +109,6 @@ struct ReflectionsListPanel: View {
                     },
                     onNavigateToItemByTitle: { vm.navigateToItemByTitle($0) },
                     onHighlightTap: vm.articleURL != nil ? { vm.jumpToHighlight($0) } : nil,
-                    onRemember: { vm.openFlashcardEditor(reflection: $0) },
                     modelContext: vm.modelContext
                 )
             }
@@ -212,7 +211,6 @@ struct InlineReflectionsSection: View {
                         },
                         onNavigateToItemByTitle: { vm.navigateToItemByTitle($0) },
                         onHighlightTap: vm.articleURL != nil ? { vm.jumpToHighlight($0) } : nil,
-                        onRemember: { vm.openFlashcardEditor(reflection: $0) },
                         modelContext: vm.modelContext
                     )
                 }

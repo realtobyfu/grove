@@ -31,11 +31,6 @@ struct HomeView: View {
                 CaptureBarView()
                     .padding(.bottom, Spacing.lg)
 
-                LearningInvitationView(
-                    showsOnlyWhenDue: true,
-                    rowInsets: EdgeInsets(top: 0, leading: 0, bottom: Spacing.xl, trailing: 0)
-                )
-
                 HomeInboxSection(
                     selectedItem: $selectedItem,
                     openedItem: $openedItem,

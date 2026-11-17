@@ -27,8 +27,6 @@ enum RightRailMode: String, Hashable, CaseIterable, Sendable {
     case reflections
     /// Reader: the reflection editor.
     case reflectionEditor
-    /// Reader: a source-linked flashcard draft, beside the unchanged source.
-    case flashcardEditor
     /// The note writer. A mode of the rail rather than a column of its own, so
     /// opening it replaces whatever the rail was showing instead of adding a
     /// fourth column beside it.
@@ -90,7 +88,7 @@ extension RightRailMode {
         case .hidden: nil
         case .inspector: .contentInspector
         case .dialectics: .contentChat
-        case .reflections, .reflectionEditor, .flashcardEditor: .readerReflections
+        case .reflections, .reflectionEditor: .readerReflections
         case .writing: .contentWrite
         }
     }
@@ -99,7 +97,7 @@ extension RightRailMode {
         switch self {
         case .hidden: 0
         case .inspector, .dialectics: 300
-        case .reflections, .reflectionEditor, .flashcardEditor, .writing: 280
+        case .reflections, .reflectionEditor, .writing: 280
         }
     }
 
@@ -112,7 +110,7 @@ extension RightRailMode {
         case .hidden: 0
         case .inspector: 520
         case .dialectics: 560
-        case .reflections, .reflectionEditor, .flashcardEditor, .writing: 720
+        case .reflections, .reflectionEditor, .writing: 720
         }
         guard let available, available > 0 else { return hardCap }
         return max(minWidth, min(hardCap, available - RightRailMetrics.minContentWidth))
@@ -124,7 +122,7 @@ extension RightRailMode {
         switch self {
         case .hidden: 0
         case .inspector, .dialectics: RightRailMetrics.standardWidth
-        case .reflections, .reflectionEditor, .flashcardEditor, .writing: RightRailMetrics.readerWidth
+        case .reflections, .reflectionEditor, .writing: RightRailMetrics.readerWidth
         }
     }
 

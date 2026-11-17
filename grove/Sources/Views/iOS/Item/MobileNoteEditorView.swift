@@ -12,7 +12,6 @@ struct MobileNoteEditorView: View {
     @State private var title: String
     @State private var content: String
     @State private var showBoardPicker = false
-    @State private var flashcardSession: LearningEditorSession?
 
     init(item: Item) {
         self.item = item
@@ -64,32 +63,17 @@ struct MobileNoteEditorView: View {
         #endif
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    Button {
-                        saveChanges()
-                        flashcardSession = LearningEditorSession(item: item, sourceQuote: content)
-                    } label: {
-                        Label("Remember an insight", systemImage: "rectangle.on.rectangle")
-                    }
-                    Button {
-                        showBoardPicker = true
-                    } label: {
-                        Label("Add to Board", systemImage: "folder.badge.plus")
-                    }
+                Button {
+                    showBoardPicker = true
                 } label: {
-                    // Not an ellipsis: the reader hosting this editor already
-                    // has an overflow menu in the same toolbar.
-                    Image(systemName: "plus.circle")
+                    Image(systemName: "folder.badge.plus")
                         .fontWeight(.medium)
                 }
-                .accessibilityLabel("Add from this note")
+                .accessibilityLabel("Add to Board")
             }
         }
         .sheet(isPresented: $showBoardPicker) {
             boardPickerSheet
-        }
-        .sheet(item: $flashcardSession) { session in
-            NavigationStack { FlashcardEditorView(item: session.item, sourceQuote: session.sourceQuote) }
         }
         .onDisappear {
             saveChanges()

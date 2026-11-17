@@ -26,11 +26,6 @@ struct TabRootView: View {
     @State private var searchInitialQuery: String?
     @State private var deepLinkedConversationID: UUID?
     @State private var deepLinkedItemRoute: MobileItemRoute?
-    private struct ReviewSession: Identifiable {
-        let id = UUID()
-        let boardID: UUID?
-    }
-    @State private var reviewSession: ReviewSession?
     @State private var writeSheetSession: WriteSheetSession?
 
     // Board suggestion state
@@ -206,9 +201,6 @@ struct TabRootView: View {
         .sheet(isPresented: $showSearchSheet) {
             MobileSearchView(initialQuery: searchInitialQuery)
         }
-        .sheet(item: $reviewSession) { session in
-            NavigationStack { LearningReviewView(boardID: session.boardID) }
-        }
         .sheet(item: $writeSheetSession) { session in
             NoteWriterPanelView(
                 isPresented: Binding(
@@ -338,10 +330,6 @@ struct TabRootView: View {
             selectedTab = .home
             capturePrefillURL = prefillURL
             showCaptureSheet = true
-
-        case .review(let boardID):
-            selectedTab = .home
-            reviewSession = ReviewSession(boardID: boardID)
 
         case .search(let query):
             selectedTab = .library

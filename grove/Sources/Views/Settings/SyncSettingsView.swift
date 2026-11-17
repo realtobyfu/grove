@@ -38,7 +38,7 @@ struct SyncSettingsSections: View {
                     }
 
                 if entitlement.hasAccess(to: .sync) {
-                    Text("Sync your library, flashcards, reviews, and focus across devices.")
+                    Text("Sync your library across devices.")
                         .font(.groveBodySmall)
                         .foregroundStyle(Color.textSecondary)
                 } else {

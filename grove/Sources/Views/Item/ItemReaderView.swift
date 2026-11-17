@@ -136,7 +136,7 @@ struct ItemReaderView: View {
     }
 
     private func shouldShowSplitLayout(_ vm: ItemReaderViewModel) -> Bool {
-        let panelIsNeeded = alwaysShowReflectionPanel || !vm.sortedReflections.isEmpty || vm.showReflectionEditor || vm.flashcardSelection != nil
+        let panelIsNeeded = alwaysShowReflectionPanel || !vm.sortedReflections.isEmpty || vm.showReflectionEditor
         return panelIsNeeded && !vm.isReflectionPanelCollapsed
     }
 
@@ -144,7 +144,6 @@ struct ItemReaderView: View {
     /// window's rail holds the one trailing column.
     private func readerRailMode(_ vm: ItemReaderViewModel) -> RightRailMode {
         if railYields { return .hidden }
-        if vm.flashcardSelection != nil { return .flashcardEditor }
         return vm.showReflectionEditor ? .reflectionEditor : .reflections
     }
 
@@ -174,7 +173,6 @@ struct ItemReaderView: View {
                     mode: railMode,
                     availableWidth: geo.size.width,
                     onCollapse: {
-                        vm.closeFlashcardEditor()
                         if vm.showReflectionEditor {
                             vm.closeReflectionEditor()
                         }
@@ -182,8 +180,6 @@ struct ItemReaderView: View {
                     }
                 ) { mode in
                     switch mode {
-                    case .flashcardEditor:
-                        flashcardEditorPanel(vm: vm)
                     case .reflectionEditor:
                         reflectionEditorPanel(vm: vm)
                     case .reflections:
@@ -230,7 +226,6 @@ struct ItemReaderView: View {
                     mode: railMode,
                     availableWidth: geo.size.width,
                     onCollapse: {
-                        vm.closeFlashcardEditor()
                         if vm.showReflectionEditor {
                             vm.closeReflectionEditor()
                         }
@@ -238,8 +233,6 @@ struct ItemReaderView: View {
                     }
                 ) { mode in
                     switch mode {
-                    case .flashcardEditor:
-                        flashcardEditorPanel(vm: vm)
                     case .reflectionEditor:
                         reflectionEditorPanel(vm: vm)
                     case .reflections:
@@ -412,39 +405,6 @@ struct ItemReaderView: View {
     }
 
     // MARK: - Reflection Editor Panel (Mode C)
-
-    @ViewBuilder
-    private func flashcardEditorPanel(vm: ItemReaderViewModel) -> some View {
-        if let selection = vm.flashcardSelection {
-            VStack(spacing: 0) {
-                HStack {
-                    Text("NEW FLASHCARD")
-                        .sectionHeaderStyle()
-                    Spacer()
-                    Button {
-                        withAnimation(RightRailMetrics.widthChange) { vm.closeFlashcardEditor() }
-                    } label: {
-                        Image(systemName: "xmark")
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Close flashcard editor")
-                }
-                .padding(Spacing.lg)
-                Divider()
-                FlashcardEditorView(
-                    item: selection.item,
-                    reflection: selection.reflection,
-                    sourceQuote: selection.quote,
-                    onSaved: {
-                        ReadingCapture.promoteAfterWriting(selection.item, in: modelContext)
-                        vm.closeFlashcardEditor()
-                    },
-                    isEmbedded: true
-                )
-                .id(selection.id)
-            }
-        }
-    }
 
     @ViewBuilder
     private func reflectionEditorPanel(vm: ItemReaderViewModel) -> some View {

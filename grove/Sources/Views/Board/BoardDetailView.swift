@@ -83,10 +83,6 @@ struct BoardDetailView: View {
         VStack(spacing: 0) {
             CaptureBarView(currentBoardID: board.id)
 
-            LearningInvitationView(boardID: board.id)
-                .padding(.horizontal, LayoutDimensions.contentPaddingH)
-                .padding(.vertical, Spacing.md)
-
             if effectiveItems.isEmpty {
                 headerView.emptyState
             } else {

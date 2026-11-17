@@ -1,6 +1,9 @@
 import Foundation
 import SwiftData
 
+/// Retired with flashcards (Nov 2026): nothing creates or reads these; kept
+/// for the same reason as `UserFlashcard`. Don't change its stored properties.
+///
 /// Learning choices belong to the synced library. Notification delivery and
 /// transient window/session layout remain local to each device.
 @Model
@@ -24,6 +27,5 @@ final class UserLearningPreferences {
     }
 }
 
-/// The stored entity is named `UserLearningPreferences` so it sorts after every 2.0 entity.
-/// Read "Migration Limits" in SharedModelContainer.swift before adding a model.
-typealias LearningPreferences = UserLearningPreferences
+// The entity is named `UserLearningPreferences` so it sorts after every 2.0 entity.
+// Read "Migration Limits" in SharedModelContainer.swift before adding a model.
