@@ -115,6 +115,8 @@ struct MarkdownDocument: Sendable {
         case bulletList(BulletList)
         case orderedList(OrderedList)
         case codeBlock(CodeBlock)
+        /// A thematic break: a line of three or more `-`, `*` or `_`.
+        case divider
     }
 
     struct EmptyMarkerPair: Sendable {
@@ -150,11 +152,27 @@ struct MarkdownDocument: Sendable {
         let lines: [PrefixedLine]
     }
 
+    /// The `[ ]` / `[x]` at the start of a task item. It stays inside the
+    /// item's `contentRange` so renderers that know nothing about tasks keep
+    /// showing the literal brackets.
+    struct TaskMarker: Sendable, Equatable {
+        /// The three characters `[ ]` or `[x]`.
+        let range: Range<Int>
+        let isChecked: Bool
+    }
+
     struct ListItem: Sendable {
         let lineRange: Range<Int>
         let prefixRange: Range<Int>
         let contentRange: Range<Int>
         let indentation: Int
+        var taskMarker: TaskMarker? = nil
+
+        /// The item's text without the task marker and the space after it.
+        var textRange: Range<Int> {
+            guard let taskMarker else { return contentRange }
+            return min(taskMarker.range.upperBound + 1, contentRange.upperBound)..<contentRange.upperBound
+        }
     }
 
     struct BulletList: Sendable {
@@ -381,19 +399,27 @@ struct MarkdownDocument: Sendable {
                 continue
             }
 
+            if isDivider(line) {
+                blocks.append(Block(range: line.textRange, kind: .divider))
+                index += 1
+                continue
+            }
+
             if let heading = heading(for: line) {
                 blocks.append(Block(range: line.textRange, kind: .heading(heading)))
-                inlineSpans.append(contentsOf: parseInline(in: source, range: heading.contentRange))
+                inlineSpans.append(contentsOf: parseInline(in: line, range: heading.contentRange))
                 index += 1
                 continue
             }
 
             if let quoteLine = blockquoteLine(for: line) {
                 var quoteLines = [quoteLine]
+                var quoteRecords = [line]
                 index += 1
 
                 while index < lines.count, let nextQuoteLine = blockquoteLine(for: lines[index]) {
                     quoteLines.append(nextQuoteLine)
+                    quoteRecords.append(lines[index])
                     index += 1
                 }
 
@@ -404,8 +430,8 @@ struct MarkdownDocument: Sendable {
                             kind: .blockquote(Blockquote(lines: quoteLines))
                         )
                     )
-                    for quotedLine in quoteLines {
-                        inlineSpans.append(contentsOf: parseInline(in: source, range: quotedLine.contentRange))
+                    for (quotedLine, record) in zip(quoteLines, quoteRecords) {
+                        inlineSpans.append(contentsOf: parseInline(in: record, range: quotedLine.contentRange))
                     }
                 }
 
@@ -414,10 +440,12 @@ struct MarkdownDocument: Sendable {
 
             if let firstListItem = listItem(for: line) {
                 var items = [firstListItem]
+                var itemRecords = [line]
                 index += 1
 
-                while index < lines.count, let nextItem = listItem(for: lines[index]) {
+                while index < lines.count, !isDivider(lines[index]), let nextItem = listItem(for: lines[index]) {
                     items.append(nextItem)
+                    itemRecords.append(lines[index])
                     index += 1
                 }
 
@@ -428,8 +456,8 @@ struct MarkdownDocument: Sendable {
                             kind: .bulletList(BulletList(items: items))
                         )
                     )
-                    for item in items {
-                        inlineSpans.append(contentsOf: parseInline(in: source, range: item.contentRange))
+                    for (item, record) in zip(items, itemRecords) {
+                        inlineSpans.append(contentsOf: parseInline(in: record, range: item.textRange))
                     }
                 }
 
@@ -438,10 +466,12 @@ struct MarkdownDocument: Sendable {
 
             if let firstOrderedItem = orderedListItem(for: line) {
                 var items = [firstOrderedItem]
+                var itemRecords = [line]
                 index += 1
 
                 while index < lines.count, let nextItem = orderedListItem(for: lines[index]) {
                     items.append(nextItem)
+                    itemRecords.append(lines[index])
                     index += 1
                 }
 
@@ -452,8 +482,8 @@ struct MarkdownDocument: Sendable {
                             kind: .orderedList(OrderedList(items: items))
                         )
                     )
-                    for item in items {
-                        inlineSpans.append(contentsOf: parseInline(in: source, range: item.contentRange))
+                    for (item, record) in zip(items, itemRecords) {
+                        inlineSpans.append(contentsOf: parseInline(in: record, range: item.contentRange))
                     }
                 }
 
@@ -471,6 +501,7 @@ struct MarkdownDocument: Sendable {
             while index < lines.count {
                 let nextLine = lines[index]
                 if nextLine.isBlank
+                    || isDivider(nextLine)
                     || codeFence(for: nextLine) != nil
                     || heading(for: nextLine) != nil
                     || blockquoteLine(for: nextLine) != nil
@@ -489,8 +520,8 @@ struct MarkdownDocument: Sendable {
                     lineRanges: paragraphLines.map(\.textRange)
                 )
                 blocks.append(Block(range: paragraph.textRange, kind: .paragraph(paragraph)))
-                for lineRange in paragraph.lineRanges {
-                    inlineSpans.append(contentsOf: parseInline(in: source, range: lineRange))
+                for record in paragraphLines {
+                    inlineSpans.append(contentsOf: parseInline(in: record, range: record.textRange))
                 }
             }
         }
@@ -511,6 +542,18 @@ struct MarkdownDocument: Sendable {
             fenceRange: fenceRange,
             language: language.isEmpty ? nil : language
         )
+    }
+
+    /// `---`, `***` or `___` (three or more of one character, nothing else
+    /// but trailing whitespace). Checked before lists and paragraphs.
+    private static func isDivider(_ line: LineRecord) -> Bool {
+        var trimmed = Substring(line.text)
+        while let last = trimmed.last, last == " " || last == "\t" {
+            trimmed = trimmed.dropLast()
+        }
+        guard trimmed.count >= 3, let first = trimmed.first,
+              first == "-" || first == "*" || first == "_" else { return false }
+        return trimmed.allSatisfy { $0 == first }
     }
 
     private static func heading(for line: LineRecord) -> Heading? {
@@ -595,11 +638,27 @@ struct MarkdownDocument: Sendable {
         guard spacerCount > 0 else { return nil }
 
         let contentStart = line.textRange.lowerBound + index
+
+        // `[ ] ` / `[x] ` right after the bullet makes it a task. The marker
+        // needs a space (or the end of the line) after it, so `[x](url)` and
+        // `[[Wiki]]` are left alone.
+        var taskMarker: TaskMarker?
+        if index + 2 < characters.count,
+           characters[index] == "[", characters[index + 2] == "]",
+           characters[index + 1] == " " || characters[index + 1] == "x" || characters[index + 1] == "X",
+           index + 3 == characters.count || characters[index + 3] == " " {
+            taskMarker = TaskMarker(
+                range: contentStart..<(contentStart + 3),
+                isChecked: characters[index + 1] != " "
+            )
+        }
+
         return ListItem(
             lineRange: line.textRange,
             prefixRange: line.textRange.lowerBound..<contentStart,
             contentRange: contentStart..<line.textRange.upperBound,
-            indentation: indentation
+            indentation: indentation,
+            taskMarker: taskMarker
         )
     }
 
@@ -667,12 +726,17 @@ struct MarkdownDocument: Sendable {
         return pairs.sorted { $0.range.lowerBound < $1.range.lowerBound }
     }
 
-    private static func parseInline(in source: String, range: Range<Int>) -> [InlineSpan] {
-        guard range.lowerBound < range.upperBound else { return [] }
+    /// `range` must lie inside `line`. Slicing the line's own text keeps this
+    /// linear in the line: indexing the whole source from its start for every
+    /// line made parsing quadratic in the length of the note.
+    private static func parseInline(in line: LineRecord, range: Range<Int>) -> [InlineSpan] {
+        guard range.lowerBound < range.upperBound,
+              range.lowerBound >= line.textRange.lowerBound,
+              range.upperBound <= line.textRange.upperBound else { return [] }
 
-        let lower = source.index(source.startIndex, offsetBy: range.lowerBound)
-        let upper = source.index(source.startIndex, offsetBy: range.upperBound)
-        let substring = String(source[lower..<upper])
+        let lower = line.text.index(line.text.startIndex, offsetBy: range.lowerBound - line.textRange.lowerBound)
+        let upper = line.text.index(lower, offsetBy: range.count)
+        let substring = String(line.text[lower..<upper])
         guard !substring.isEmpty else { return [] }
 
         var spans: [InlineSpan] = []

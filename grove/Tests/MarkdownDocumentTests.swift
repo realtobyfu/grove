@@ -284,4 +284,66 @@ struct MarkdownDocumentTests {
             Issue.record("Expected closing fence range")
         }
     }
+
+    @Test func taskItemsCarryAMarkerAndKeepItInsideTheContent() {
+        let source = "- [ ] open\n- [x] done\n- plain\n- [x](https://example.com)\n- [[Wiki]]"
+        let document = MarkdownDocument(source)
+
+        guard case .bulletList(let list) = document.blocks.first?.kind else {
+            Issue.record("Expected bullet list")
+            return
+        }
+
+        #expect(list.items.count == 5)
+        #expect(list.items[0].taskMarker == MarkdownDocument.TaskMarker(range: 2..<5, isChecked: false))
+        #expect(list.items[1].taskMarker?.isChecked == true)
+        #expect(document.text(in: list.items[1].taskMarker!.range) == "[x]")
+        // The marker stays inside the content, so task-unaware renderers
+        // still show the brackets; `textRange` is the text after it.
+        #expect(document.text(in: list.items[0].contentRange) == "[ ] open")
+        #expect(document.text(in: list.items[0].textRange) == "open")
+        #expect(list.items[2].taskMarker == nil)
+        #expect(document.text(in: list.items[2].textRange) == "plain")
+        // A link or wiki link that happens to open the item is not a task.
+        #expect(list.items[3].taskMarker == nil)
+        #expect(list.items[4].taskMarker == nil)
+    }
+
+    @Test func emptyTaskItemStillParsesAsATask() {
+        let document = MarkdownDocument("- [ ]")
+        guard case .bulletList(let list) = document.blocks.first?.kind else {
+            Issue.record("Expected bullet list")
+            return
+        }
+        #expect(list.items[0].taskMarker?.isChecked == false)
+        #expect(list.items[0].textRange.isEmpty)
+    }
+
+    @Test func dividersAreTheirOwnBlockAndSplitWhatSurroundsThem() {
+        let source = "above\n---\nbelow\n\n***\n- item\n___  \n--\n- - -"
+        let document = MarkdownDocument(source)
+        let kinds = document.blocks.map { block -> String in
+            switch block.kind {
+            case .divider: return "divider"
+            case .paragraph: return "paragraph"
+            case .bulletList: return "list"
+            default: return "other"
+            }
+        }
+
+        // `--` is too short to be a rule, and `- - -` stays a list item.
+        #expect(kinds == ["paragraph", "divider", "paragraph", "divider", "list", "divider", "paragraph", "list"])
+        #expect(document.text(in: document.blocks[1].range) == "---")
+    }
+
+    @Test func inlineSpansKeepSourceOffsetsOnLaterLinesAndAfterEmoji() {
+        let source = "first 🌲 line\n> quoted **bold** text\n- item with `code`\n1. see [[Target]]"
+        let document = MarkdownDocument(source)
+
+        #expect(document.inlineSpans.count == 3)
+        let texts = document.inlineSpans.map { document.text(in: $0.contentRange) }
+        #expect(texts == ["bold", "code", "Target"])
+        let fulls = document.inlineSpans.map { document.text(in: $0.fullRange) }
+        #expect(fulls == ["**bold**", "`code`", "[[Target]]"])
+    }
 }

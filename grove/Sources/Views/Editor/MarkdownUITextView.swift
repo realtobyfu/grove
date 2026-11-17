@@ -309,7 +309,7 @@ struct MarkdownUITextView: UIViewRepresentable {
         func baseTypingAttributes() -> [NSAttributedString.Key: Any] {
             var attributes: [NSAttributedString.Key: Any] = [
                 .font: bodyFont(),
-                .foregroundColor: UIColor.label,
+                .foregroundColor: EditorInk.primary,
             ]
             if let paragraphStyle = proseParagraphStyle() {
                 attributes[.paragraphStyle] = paragraphStyle
@@ -323,10 +323,10 @@ struct MarkdownUITextView: UIViewRepresentable {
             selectionState: MarkdownDocument.SelectionState
         ) {
             let document = MarkdownDocument(text)
-            let primaryColor = UIColor.label
-            let secondaryColor = UIColor.secondaryLabel
-            let tertiaryColor = UIColor.tertiaryLabel
-            let codeBackground = UIColor.quaternaryLabel.withAlphaComponent(0.15)
+            let primaryColor = EditorInk.primary
+            let secondaryColor = EditorInk.secondary
+            let tertiaryColor = EditorInk.tertiary
+            let codeBackground = EditorInk.codeWash
             let hiddenDelimiterAttrs: [NSAttributedString.Key: Any] = [
                 .foregroundColor: UIColor.clear,
                 .font: UIFont.systemFont(ofSize: 0.1),
@@ -435,7 +435,7 @@ struct MarkdownUITextView: UIViewRepresentable {
                         )
                     }
 
-                case .paragraph:
+                case .paragraph, .divider:
                     break
                 }
             }

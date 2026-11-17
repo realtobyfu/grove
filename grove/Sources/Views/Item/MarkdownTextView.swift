@@ -76,6 +76,12 @@ struct MarkdownTextView: View {
 
         case .paragraph(let paragraph):
             renderInlineText(range: paragraph.textRange, style: .body)
+
+        case .divider:
+            Rectangle()
+                .fill(Color.borderPrimary)
+                .frame(height: 1)
+                .padding(.vertical, Spacing.xs)
         }
     }
 

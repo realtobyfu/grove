@@ -204,6 +204,22 @@ private struct SelectableMarkdownRepresentable: NSViewRepresentable {
 
         case .codeBlock(let codeBlock):
             return codeBlockAttributedString(codeBlock, document: document)
+
+        case .divider:
+            // A centred run of em dashes: one attributed string cannot hold a
+            // drawn rule, and the literal `---` reads as a typo.
+            let paragraphStyle = NSMutableParagraphStyle()
+            paragraphStyle.alignment = .center
+            paragraphStyle.paragraphSpacingBefore = 6
+            paragraphStyle.paragraphSpacing = 6
+            return NSAttributedString(
+                string: "\u{2014}\u{2009}\u{2014}\u{2009}\u{2014}",
+                attributes: [
+                    .font: inlineFonts(for: .body).regular,
+                    .foregroundColor: EditorInk.muted,
+                    .paragraphStyle: paragraphStyle,
+                ]
+            )
         }
     }
 
@@ -270,7 +286,7 @@ private struct SelectableMarkdownRepresentable: NSViewRepresentable {
                 attributed.addAttribute(.font, value: codeFont, range: nsRange)
                 attributed.addAttribute(
                     .backgroundColor,
-                    value: NSColor.windowBackgroundColor.withAlphaComponent(0.5),
+                    value: EditorInk.codeWash,
                     range: nsRange
                 )
             case .wikiLink(let title):
@@ -278,13 +294,13 @@ private struct SelectableMarkdownRepresentable: NSViewRepresentable {
                     attributed.addAttribute(.link, value: url, range: nsRange)
                 }
                 attributed.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: nsRange)
-                attributed.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: nsRange)
+                attributed.addAttribute(.foregroundColor, value: EditorInk.secondary, range: nsRange)
             case .link(let urlString):
                 if let url = URL(string: urlString) {
                     attributed.addAttribute(.link, value: url, range: nsRange)
                 }
                 attributed.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: nsRange)
-                attributed.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: nsRange)
+                attributed.addAttribute(.foregroundColor, value: EditorInk.secondary, range: nsRange)
             }
         }
 
@@ -310,7 +326,7 @@ private struct SelectableMarkdownRepresentable: NSViewRepresentable {
             attributes: [
                 .font: NSFont(name: markerFontName, size: MarkdownTypeSpec.Scale.compact.bodySize)
                     ?? NSFont.systemFont(ofSize: MarkdownTypeSpec.Scale.compact.bodySize),
-                .foregroundColor: NSColor.secondaryLabelColor,
+                .foregroundColor: EditorInk.secondary,
                 .paragraphStyle: paragraphStyle
             ]
         )
@@ -344,9 +360,9 @@ private struct SelectableMarkdownRepresentable: NSViewRepresentable {
             string: content,
             attributes: [
                 .font: codeFont,
-                .foregroundColor: NSColor.textColor,
+                .foregroundColor: EditorInk.primary,
                 .paragraphStyle: paragraphStyle,
-                .backgroundColor: NSColor.windowBackgroundColor.withAlphaComponent(0.5)
+                .backgroundColor: EditorInk.codeWash
             ]
         )
     }
@@ -360,7 +376,7 @@ private struct SelectableMarkdownRepresentable: NSViewRepresentable {
             paragraphStyle.paragraphSpacing = 8
             return [
                 .font: inlineFonts(for: style).regular,
-                .foregroundColor: NSColor.textColor,
+                .foregroundColor: EditorInk.primary,
                 .paragraphStyle: paragraphStyle
             ]
 
@@ -370,7 +386,7 @@ private struct SelectableMarkdownRepresentable: NSViewRepresentable {
             paragraphStyle.headIndent = 16
             return [
                 .font: inlineFonts(for: style).regular,
-                .foregroundColor: NSColor.secondaryLabelColor,
+                .foregroundColor: EditorInk.secondary,
                 .paragraphStyle: paragraphStyle
             ]
 
@@ -379,7 +395,7 @@ private struct SelectableMarkdownRepresentable: NSViewRepresentable {
             paragraphStyle.paragraphSpacing = 4
             return [
                 .font: inlineFonts(for: style).regular,
-                .foregroundColor: NSColor.textColor,
+                .foregroundColor: EditorInk.primary,
                 .paragraphStyle: paragraphStyle
             ]
         }
