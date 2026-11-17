@@ -17,6 +17,9 @@ final class ContentViewModel {
     var showWritePanel = false
     var writePanelPrompt: String?
     var writePanelEditItem: Item?
+    /// The note "New Note" created empty a moment ago. Its page removes it
+    /// again if it is left with nothing in it.
+    var freshNoteID: UUID?
     var showChatPanel = false
     // The write, chat and inspector widths live in `RightRailContainer` — the
     // rail owns one width per mode so a panel can't animate a width of its own.
@@ -40,7 +43,22 @@ final class ContentViewModel {
         if let override = inspectorUserOverride {
             return override
         }
+        // A note opens as a page and nothing else. Its connections are one
+        // click away (the page's dateline, the toolbar, ⌘]) rather than a
+        // column that arrives uninvited beside the writing.
+        if isNotePageOpen { return false }
         return selectedItem != nil || openedItem != nil
+    }
+
+    /// A note is open as a page in the detail column.
+    var isNotePageOpen: Bool {
+        openedItem?.type == .note
+    }
+
+    /// A source (article, video, document) is open in the reader — as
+    /// opposed to a list, or a note page.
+    var isReadingSource: Bool {
+        openedItem != nil && !isNotePageOpen
     }
 
     /// The item the inspector would describe. Nil means there is nothing to
@@ -95,6 +113,27 @@ final class ContentViewModel {
         withAnimation(RightRailMetrics.widthChange) {
             writePanelPrompt = nil
             showWritePanel.toggle()
+        }
+    }
+
+    /// Open a note as a page in the detail column. The rail writer steps
+    /// aside if it was holding the rail: the page is the writing surface now.
+    func openNotePage(_ note: Item, isFresh: Bool = false) {
+        freshNoteID = isFresh ? note.id : nil
+        showCaptureOverlay = false
+        if showWritePanel {
+            withAnimation(RightRailMetrics.widthChange) { showWritePanel = false }
+        }
+        selectedItem = note
+        openedItem = note
+    }
+
+    /// Bring the inspector forward (the note page's "links" control).
+    func showInspector() {
+        withAnimation(RightRailMetrics.widthChange) {
+            showWritePanel = false
+            showChatPanel = false
+            inspectorUserOverride = true
         }
     }
 

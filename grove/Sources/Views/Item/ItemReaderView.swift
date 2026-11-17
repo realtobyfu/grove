@@ -494,7 +494,7 @@ struct ItemReaderView: View {
                         kicker: vm.articleURL != nil ? "From article" : "From source",
                         onJump: vm.articleURL != nil ? { vm.jumpToHighlight(highlight) } : nil
                     )
-                    .padding(.horizontal, 40)
+                    .padding(.horizontal, LayoutDimensions.writingGutter)
                     .padding(.bottom, Spacing.md)
                 }
 

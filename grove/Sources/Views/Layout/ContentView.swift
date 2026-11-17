@@ -154,12 +154,18 @@ struct ContentView: View {
             modelContext: modelContext
         ))
         .onChange(of: viewModel.openedItem) {
-            if let item = viewModel.openedItem, item.type == .note {
-                viewModel.writePanelEditItem = item
-                viewModel.selectedItem = item
-                viewModel.openedItem = nil
-                withAnimation(RightRailMetrics.widthChange) {
-                    viewModel.showWritePanel = true
+            if viewModel.openedItem?.id != viewModel.freshNoteID {
+                viewModel.freshNoteID = nil
+            }
+            if viewModel.isNotePageOpen {
+                // A note opens as a page in the detail column (`NotePageView`),
+                // not in the rail: the rail stays free for chat or the
+                // inspector. Arriving from a reader in focus mode hands the
+                // sidebar and rail back first.
+                viewModel.isArticleWebViewActive = false
+                viewModel.isPDFReaderActive = false
+                if viewModel.savedColumnVisibility != nil {
+                    viewModel.exitFocusMode()
                 }
             } else if let item = viewModel.openedItem, !item.reflections.isEmpty {
                 // Save current panel state and collapse for reader (only when item has reflections)
@@ -237,18 +243,20 @@ struct ContentView: View {
                 }
             }
             ToolbarItemGroup(placement: .primaryAction) {
+                // Reflecting is for a source open in the reader. Over a list or
+                // a note page the pencil is the quick writer in the rail.
                 Button {
-                    if viewModel.openedItem != nil {
+                    if viewModel.isReadingSource {
                         NotificationCenter.default.post(name: .groveOpenReflectMode, object: nil)
                     } else {
                         viewModel.toggleWritePanel()
                     }
                 } label: {
-                    Image(systemName: viewModel.openedItem != nil
+                    Image(systemName: viewModel.isReadingSource
                         ? "square.and.pencil"
                         : (viewModel.showWritePanel ? "square.and.pencil.circle.fill" : "square.and.pencil"))
                 }
-                .help(viewModel.openedItem != nil ? "Reflect on this item" : viewModel.showWritePanel ? "Close Write Panel" : "Write a note")
+                .help(viewModel.isReadingSource ? "Reflect on this item" : viewModel.showWritePanel ? "Close Write Panel" : "Write a quick note")
                 chatToolbarButton
                 inspectorToolbarButton
             }
@@ -376,12 +384,19 @@ struct ContentView: View {
                     currentBoardID: currentBoardID,
                     prompt: viewModel.writePanelPrompt,
                     editingItem: viewModel.writePanelEditItem,
-                    isSidePanel: true
-                ) { note in
-                    viewModel.writePanelPrompt = nil
-                    viewModel.writePanelEditItem = nil
-                    viewModel.selectedItem = note
-                }
+                    isSidePanel: true,
+                    onCreated: { note in
+                        viewModel.writePanelPrompt = nil
+                        viewModel.writePanelEditItem = nil
+                        // Beside a note page the selection belongs to the page.
+                        if !viewModel.isNotePageOpen {
+                            viewModel.selectedItem = note
+                        }
+                    },
+                    onOpenAsPage: { note in
+                        viewModel.openNotePage(note)
+                    }
+                )
                 // A different note or prompt is a different writing session:
                 // rebuild the editor so it picks up the new content.
                 .id(WriteSessionKey(editItemID: viewModel.writePanelEditItem?.id, prompt: viewModel.writePanelPrompt))
@@ -418,7 +433,19 @@ struct ContentView: View {
     @ViewBuilder
     private var detailContent: some View {
         @Bindable var vm = viewModel
-        if let openedItemValue = viewModel.openedItem {
+        if let note = viewModel.openedItem, note.type == .note {
+            NotePageView(
+                item: note,
+                isFresh: viewModel.freshNoteID == note.id,
+                onNavigateToItem: { item in
+                    viewModel.selectedItem = item
+                    viewModel.openedItem = item
+                },
+                onShowLinks: { viewModel.showInspector() }
+            )
+            // One page per note: a different note is a different draft.
+            .id(note.id)
+        } else if let openedItemValue = viewModel.openedItem {
             ItemReaderView(
                 item: openedItemValue,
                 isWebViewActive: $vm.isArticleWebViewActive,

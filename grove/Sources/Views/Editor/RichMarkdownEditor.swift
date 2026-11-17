@@ -6,68 +6,77 @@ import AppKit
 private extension NSAttributedString.Key {
     static let groveListPrefix = NSAttributedString.Key("groveListPrefix")
     static let groveQuotePrefix = NSAttributedString.Key("groveQuotePrefix")
+    /// String — `wiki:<title>` or a URL. ⌘-click opens it.
+    static let groveLink = NSAttributedString.Key("groveLink")
+    /// Bool (is it checked) on the `[ ]` of a task item. A click toggles it.
+    static let groveTaskMarker = NSAttributedString.Key("groveTaskMarker")
+    /// Marks a hidden `---` line; the text view draws a hairline across it.
+    static let groveDivider = NSAttributedString.Key("groveDivider")
 }
 
 // MARK: - RichMarkdownEditor
 
-/// A rich text editor that stores markdown as the source of truth but renders
-/// live formatting (bold, italic, code, headings, wiki-links) via NSTextView.
-/// Includes a formatting toolbar and wiki-link autocomplete.
+/// A writing surface that stores markdown as the source of truth and renders
+/// it live (bold, italic, code, headings, lists, tasks, dividers, wiki-links)
+/// in an NSTextView.
+///
+/// Formatting is reached three ways, none of them a permanent strip in prose
+/// mode: the keyboard (⌘B/I/E/K), a bar that appears over a selection, and a
+/// `/` menu at the start of a line. `[[` opens a link picker at the caret.
+/// Both popups are driven from the keyboard without leaving the text.
 struct RichMarkdownEditor: View {
     @Binding var text: String
     var sourceItem: Item?
     var minHeight: CGFloat = 80
     var proseMode: Bool = false
+    /// A host that needs to reach the caret (insert a reference, move focus
+    /// into the body) passes its own proxy; otherwise the editor keeps one.
+    var proxy: MarkdownEditingProxy? = nil
+    /// Shown in the folio line beside the word count ("Saved", "Edited").
+    var status: String? = nil
+    /// Called when a `[[wiki link]]` is ⌘-clicked and resolves to an item.
+    var onNavigateToItem: ((Item) -> Void)? = nil
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.openURL) private var openURL
     @Query private var allItems: [Item]
 
-    @State private var editingProxy = MarkdownEditingProxy()
-    @State private var showWikiPopover = false
-    @State private var wikiSearchText = ""
+    @State private var ownedProxy = MarkdownEditingProxy()
+    @State private var assist: EditorAssistTrigger?
+    /// Where the token being completed starts, in the editor's own space.
+    @State private var assistAnchor: CGRect = .zero
+    @State private var assistHighlight = 0
+    /// Escape closes the popup for the token being typed; it stays closed
+    /// until that token ends.
+    @State private var assistDismissed = false
+    @State private var selectionAnchor: CGRect?
+    @State private var isFocused = false
 
-    private var wikiSearchResults: [Item] {
-        allItems.filter { candidate in
-            if let sourceItem, candidate.id == sourceItem.id { return false }
-            if wikiSearchText.isEmpty { return true }
-            return candidate.title.localizedStandardContains(wikiSearchText)
-        }.prefix(10).map { $0 }
-    }
+    private var editingProxy: MarkdownEditingProxy { proxy ?? ownedProxy }
 
     private var wordCountLabel: String {
         let wordCount = text.split { $0.isWhitespace || $0.isNewline }.count
-        return "\(wordCount) \(wordCount == 1 ? "Word" : "Words")"
+        return "\(wordCount) \(wordCount == 1 ? "word" : "words")"
     }
 
     var body: some View {
         Group {
             if proseMode {
                 VStack(spacing: 0) {
-                    // Fills the panel so the caret starts directly under the
-                    // quote chip instead of being centred in dead space.
-                    editorContent
+                    // Fills the panel so the caret starts at the top of the
+                    // page instead of being centred in dead space.
+                    textSurface
                         .frame(minHeight: minHeight, maxHeight: .infinity, alignment: .top)
-                    if showWikiPopover {
-                        wikiLinkDropdown
-                            .padding(.horizontal, 40)
-                    }
-                    proseToolbar
+                        .overlay(alignment: .topLeading) { floatingLayer }
+                    folio
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    formattingToolbar
-                        .padding(.horizontal, Spacing.sm)
-                        .padding(.vertical, Spacing.xs)
-                        .background(Color.bgCard)
-                        .clipShape(RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
-                                .stroke(Color.borderInput, lineWidth: 1)
-                        )
-                        .padding(.bottom, Spacing.xs)
+                VStack(alignment: .leading, spacing: Spacing.xs) {
+                    EditorFormatControls(proxy: editingProxy)
+                        .editorFloatingPanel()
 
-                    editorContent
+                    textSurface
                         .frame(minHeight: minHeight)
                         .background(Color.bgCard)
                         .clipShape(RoundedRectangle(cornerRadius: Radius.control))
@@ -75,10 +84,7 @@ struct RichMarkdownEditor: View {
                             RoundedRectangle(cornerRadius: Radius.control)
                                 .stroke(Color.borderInput, lineWidth: 1)
                         )
-
-                    if showWikiPopover {
-                        wikiLinkDropdown
-                    }
+                        .overlay(alignment: .topLeading) { floatingLayer }
                 }
             }
         }
@@ -87,252 +93,213 @@ struct RichMarkdownEditor: View {
         }
     }
 
-    // MARK: - Formatting Toolbar
-
-    private var formattingToolbar: some View {
-        HStack(spacing: 2) {
-            toolbarButton("Bold", icon: "bold", shortcut: "B") {
-                editingProxy.wrapSelection(prefix: "**", suffix: "**")
-            }
-            toolbarButton("Italic", icon: "italic", shortcut: "I") {
-                editingProxy.wrapSelection(prefix: "*", suffix: "*")
-            }
-            Divider()
-                .frame(height: 16)
-                .padding(.horizontal, Spacing.xs)
-
-            Menu {
-                Button("# Title") { editingProxy.setHeading(level: 1) }
-                Button("## Heading") { editingProxy.setHeading(level: 2) }
-                Button("### Subheading") { editingProxy.setHeading(level: 3) }
-                Divider()
-                Button("Clear Heading") { editingProxy.setHeading(level: 0) }
-            } label: {
-                Image(systemName: "number")
-                    .font(.system(size: 12, weight: .medium))
-                    .frame(width: 24, height: 24)
-                    .contentShape(Rectangle())
-            }
-            .menuStyle(.borderlessButton)
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.textSecondary)
-            .help("Heading")
-
-            toolbarButton("List", icon: "list.bullet", shortcut: nil) {
-                editingProxy.toggleListItem()
-            }
-            toolbarButton("Quote", icon: "text.quote", shortcut: nil) {
-                editingProxy.toggleBlockQuote()
-            }
-
-            Divider()
-                .frame(height: 16)
-                .padding(.horizontal, Spacing.xs)
-
-            Menu {
-                Button("Code") { editingProxy.wrapSelection(prefix: "`", suffix: "`") }
-                Button("Link") { editingProxy.insertLink() }
-                Button("Wiki Link") { editingProxy.insertWikiLink() }
-                Divider()
-                Button("Strikethrough") { editingProxy.wrapSelection(prefix: "~~", suffix: "~~") }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 12, weight: .medium))
-                    .frame(width: 24, height: 24)
-                    .contentShape(Rectangle())
-            }
-            .menuStyle(.borderlessButton)
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.textSecondary)
-            .help("More")
-            Spacer()
-            Text(wordCountLabel)
-                .font(.groveMeta)
-                .foregroundStyle(Color.textTertiary)
-                .padding(.trailing, Spacing.sm)
-        }
-    }
-
-    private func toolbarButton(_ label: String, icon: String, shortcut: String?, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 12, weight: .medium))
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(Color.textSecondary)
-        .help(shortcut != nil ? "\(label) (\u{2318}\(shortcut!))" : label)
-    }
-
-    // MARK: - Prose Toolbar
-
-    private var proseToolbar: some View {
-        HStack(spacing: Spacing.lg) {
-            toolbarButton("Bold", icon: "bold", shortcut: "B") {
-                editingProxy.wrapSelection(prefix: "**", suffix: "**")
-            }
-            toolbarButton("Italic", icon: "italic", shortcut: "I") {
-                editingProxy.wrapSelection(prefix: "*", suffix: "*")
-            }
-
-            Menu {
-                Button("# Title") { editingProxy.setHeading(level: 1) }
-                Button("## Heading") { editingProxy.setHeading(level: 2) }
-                Button("### Subheading") { editingProxy.setHeading(level: 3) }
-                Divider()
-                Button("Clear Heading") { editingProxy.setHeading(level: 0) }
-            } label: {
-                Image(systemName: "number")
-                    .font(.system(size: 12, weight: .medium))
-                    .frame(width: 24, height: 24)
-                    .contentShape(Rectangle())
-            }
-            .menuStyle(.borderlessButton)
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.textSecondary)
-            .help("Heading")
-
-            toolbarButton("List", icon: "list.bullet", shortcut: nil) {
-                editingProxy.toggleListItem()
-            }
-            toolbarButton("Quote", icon: "text.quote", shortcut: nil) {
-                editingProxy.toggleBlockQuote()
-            }
-
-            Menu {
-                Button("Code") { editingProxy.wrapSelection(prefix: "`", suffix: "`") }
-                Button("Link") { editingProxy.insertLink() }
-                Button("Wiki Link") { editingProxy.insertWikiLink() }
-                Divider()
-                Button("Strikethrough") { editingProxy.wrapSelection(prefix: "~~", suffix: "~~") }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 12, weight: .medium))
-                    .frame(width: 24, height: 24)
-                    .contentShape(Rectangle())
-            }
-            .menuStyle(.borderlessButton)
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.textSecondary)
-            .help("More")
-
-            Spacer()
-            Text(wordCountLabel)
-                .font(.groveMeta)
-                .foregroundStyle(Color.textTertiary)
-        }
-        .padding(.horizontal, 40)
-        .padding(.vertical, Spacing.sm)
-    }
-
-    private var editorContent: some View {
+    private var textSurface: some View {
         MarkdownNSTextView(
             text: $text,
             minHeight: minHeight,
             fontSize: proseMode ? MarkdownTypeSpec.proseBodySize : 15,
-            textInset: proseMode ? NSSize(width: 40, height: 8) : NSSize(width: 8, height: 8),
-            onWikiTrigger: handleWikiTrigger,
+            textInset: proseMode
+                ? NSSize(width: LayoutDimensions.writingGutter, height: Spacing.sm)
+                : NSSize(width: Spacing.sm, height: Spacing.sm),
+            onAssistTrigger: applyAssist,
+            onSelectionAnchor: { selectionAnchor = $0 },
+            onAssistKey: handleAssistKey,
+            onFocusChange: { isFocused = $0 },
+            onOpenLink: openLink,
             editorProxy: editingProxy
         )
     }
 
-    private func handleWikiTrigger(_ searchText: String?) {
-        Task { @MainActor in
-            applyWikiTrigger(searchText)
+    // MARK: - Folio
+
+    /// The line under the page: word count and saved state on the left, the
+    /// two things worth remembering on the right. Set like a folio — small,
+    /// mono, out of the way.
+    private var folio: some View {
+        HStack(spacing: Spacing.lg) {
+            Text(wordCountLabel)
+            if let status {
+                Text(status)
+                    .accessibilityLabel("Note \(status)")
+            }
+            Spacer(minLength: Spacing.sm)
+            Text("/ blocks")
+                .help("Type / at the start of a line for headings, lists, tasks, quotes, code and dividers")
+            Text("[[ link")
+                .help("Type [[ to link to another item")
+        }
+        .font(.groveFolio)
+        .textCase(.uppercase)
+        .tracking(0.8)
+        .lineLimit(1)
+        .foregroundStyle(Color.textMuted)
+        .padding(.vertical, Spacing.sm)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(Color.borderPrimary)
+                .frame(height: 1)
+        }
+        .padding(.horizontal, LayoutDimensions.writingGutter)
+    }
+
+    // MARK: - Floating Layer (assist popup, selection bar)
+
+    private enum FloatingMetrics {
+        static let popupWidth: CGFloat = 300
+        static let rowHeight: CGFloat = 26
+        static let maxRows = 8
+        static let gap: CGFloat = 4
+        static let edge: CGFloat = 8
+        /// The selection bar sizes itself; this is only used to keep it on
+        /// the page near the trailing edge.
+        static let barWidthEstimate: CGFloat = 400
+        static let barHeight: CGFloat = 30
+    }
+
+    private var isAssistVisible: Bool {
+        guard isFocused, let assist, !assistDismissed else { return false }
+        // A slash that matches nothing is just a slash.
+        return !(assist.isSlash && assistRows.isEmpty)
+    }
+
+    @ViewBuilder
+    private var floatingLayer: some View {
+        GeometryReader { geo in
+            if isAssistVisible {
+                let rows = assistRows
+                let shown = max(1, min(rows.count, FloatingMetrics.maxRows))
+                let height = CGFloat(shown) * FloatingMetrics.rowHeight + Spacing.xs * 2
+                EditorAssistPopup(
+                    rows: rows,
+                    highlighted: assistHighlight,
+                    emptyLabel: "No matching items",
+                    rowHeight: FloatingMetrics.rowHeight,
+                    onPick: { commitAssist($0) }
+                )
+                .frame(width: FloatingMetrics.popupWidth, height: height)
+                .offset(popupOffset(anchor: assistAnchor, height: height, in: geo.size))
+            } else if isFocused, let selectionAnchor {
+                EditorFormatControls(proxy: editingProxy)
+                    .editorFloatingPanel()
+                    .fixedSize()
+                    .offset(barOffset(anchor: selectionAnchor, in: geo.size))
+            }
         }
     }
 
-    @MainActor
-    private func applyWikiTrigger(_ searchText: String?) {
-        if let searchText {
-            if wikiSearchText != searchText {
-                wikiSearchText = searchText
+    /// Under the caret; above it when there is no room below.
+    private func popupOffset(anchor: CGRect, height: CGFloat, in size: CGSize) -> CGSize {
+        let maxX = max(FloatingMetrics.edge, size.width - FloatingMetrics.popupWidth - FloatingMetrics.edge)
+        let x = min(max(anchor.minX, FloatingMetrics.edge), maxX)
+        var y = anchor.maxY + FloatingMetrics.gap
+        let above = anchor.minY - FloatingMetrics.gap - height
+        if y + height > size.height, above >= 0 {
+            y = above
+        }
+        return CGSize(width: x, height: y)
+    }
+
+    /// Over the selection; under its first line when it starts at the top.
+    private func barOffset(anchor: CGRect, in size: CGSize) -> CGSize {
+        let maxX = max(FloatingMetrics.edge, size.width - FloatingMetrics.barWidthEstimate - FloatingMetrics.edge)
+        let x = min(max(anchor.minX, FloatingMetrics.edge), maxX)
+        var y = anchor.minY - FloatingMetrics.gap - FloatingMetrics.barHeight
+        if y < 0 {
+            y = anchor.maxY + FloatingMetrics.gap
+        }
+        return CGSize(width: x, height: y)
+    }
+
+    // MARK: - Assist
+
+    private var assistRows: [EditorAssistRow] {
+        switch assist {
+        case .wikiLink(let query):
+            return wikiCandidates(for: query).map { item in
+                EditorAssistRow(
+                    id: item.id.uuidString,
+                    title: item.title,
+                    hint: item.type.displayName,
+                    action: .item(item)
+                )
             }
-            if !showWikiPopover {
-                showWikiPopover = true
+        case .slash(let query):
+            return EditorBlockCommand.matching(query).map { command in
+                EditorAssistRow(id: command.id, title: command.title, hint: command.hint, action: .command(command))
             }
+        case nil:
+            return []
+        }
+    }
+
+    /// Titles that start with the query first, then titles that contain it;
+    /// most recently touched first within each. With nothing typed yet, the
+    /// most recent items — usually what a note is about to cite.
+    private func wikiCandidates(for query: String) -> [Item] {
+        let needle = query.trimmingCharacters(in: .whitespaces)
+        let pool = allItems.filter { candidate in
+            if let sourceItem, candidate.id == sourceItem.id { return false }
+            if candidate.title.isEmpty { return false }
+            return needle.isEmpty || candidate.title.localizedStandardContains(needle)
+        }
+        let ranked = pool.sorted { lhs, rhs in
+            if !needle.isEmpty {
+                let lhsPrefix = lhs.title.lowercased().hasPrefix(needle.lowercased())
+                let rhsPrefix = rhs.title.lowercased().hasPrefix(needle.lowercased())
+                if lhsPrefix != rhsPrefix { return lhsPrefix }
+            }
+            return lhs.updatedAt > rhs.updatedAt
+        }
+        return Array(ranked.prefix(FloatingMetrics.maxRows))
+    }
+
+    /// The text view reports what the caret is typing. Deferred a turn by the
+    /// coordinator, so this never runs inside a view update.
+    private func applyAssist(_ trigger: EditorAssistTrigger?, anchor: CGRect) {
+        if trigger == nil {
+            assistDismissed = false
         } else {
-            closeWikiPopover()
+            assistAnchor = anchor
+        }
+        if assist != trigger {
+            assist = trigger
+            assistHighlight = 0
         }
     }
 
-    private func closeWikiPopover() {
-        if showWikiPopover {
-            showWikiPopover = false
-        }
-        if !wikiSearchText.isEmpty {
-            wikiSearchText = ""
+    /// Arrow keys, Return/Tab and Escape while a popup is open. Returning
+    /// false hands the key back to the text view.
+    private func handleAssistKey(_ key: EditorAssistKey) -> Bool {
+        guard isAssistVisible else { return false }
+        let rows = assistRows
+
+        switch key {
+        case .down:
+            if !rows.isEmpty { assistHighlight = (assistHighlight + 1) % rows.count }
+            return true
+        case .up:
+            if !rows.isEmpty { assistHighlight = (assistHighlight - 1 + rows.count) % rows.count }
+            return true
+        case .commit:
+            guard rows.indices.contains(assistHighlight) else { return false }
+            commitAssist(rows[assistHighlight])
+            return true
+        case .cancel:
+            assistDismissed = true
+            return true
         }
     }
 
-    // MARK: - Wiki Link Dropdown
-
-    private var wikiLinkDropdown: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Image(systemName: "link")
-                    .font(.groveBadge)
-                    .foregroundStyle(Color.textSecondary)
-                Text("Link to item")
-                    .font(.groveBodySmall)
-                    .foregroundStyle(Color.textSecondary)
-                Spacer()
-                Button {
-                    closeWikiPopover()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.groveBadge)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Color.textTertiary)
-            }
-            .padding(.horizontal, Spacing.sm)
-            .padding(.top, Spacing.xsm)
-            .padding(.bottom, Spacing.xs)
-
-            Divider()
-
-            if wikiSearchResults.isEmpty {
-                Text("No matching items")
-                    .font(.groveBodySmall)
-                    .foregroundStyle(Color.textTertiary)
-                    .padding(Spacing.sm)
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(wikiSearchResults) { candidate in
-                            Button {
-                                insertWikiLink(for: candidate)
-                            } label: {
-                                HStack(spacing: Spacing.xsm) {
-                                    Image(systemName: candidate.type.iconName)
-                                        .font(.groveBadge)
-                                        .foregroundStyle(Color.textSecondary)
-                                        .frame(width: 14)
-                                    Text(candidate.title)
-                                        .font(.groveBodySmall)
-                                        .lineLimit(1)
-                                    Spacer()
-                                }
-                                .padding(.vertical, Spacing.xs)
-                                .padding(.horizontal, Spacing.sm)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-                .frame(maxHeight: 150)
-            }
+    private func commitAssist(_ row: EditorAssistRow) {
+        switch row.action {
+        case .item(let item):
+            insertWikiLink(for: item)
+        case .command(let command):
+            editingProxy.replaceActiveSlashQuery(with: command.insertion, cursorOffset: command.cursorOffset)
         }
-        .background(.background)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.control)
-                .stroke(Color.borderPrimary, lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
+        assist = nil
+        assistDismissed = false
+        assistHighlight = 0
     }
 
     private func insertWikiLink(for target: Item) {
@@ -347,20 +314,203 @@ struct RichMarkdownEditor: View {
                 _ = viewModel.createConnection(source: sourceItem, target: target, type: .related)
             }
         }
+    }
 
-        closeWikiPopover()
+    /// ⌘-click on a link in the text.
+    private func openLink(_ target: String) {
+        if target.hasPrefix("wiki:") {
+            let title = String(target.dropFirst(5))
+            if let item = ItemResolver.resolveExactTitle(title, in: allItems, excluding: sourceItem?.id) {
+                onNavigateToItem?(item)
+            }
+        } else if let url = URL(string: target), url.scheme != nil {
+            openURL(url)
+        }
+    }
+}
+
+// MARK: - Assist Popup
+
+struct EditorAssistRow: Identifiable {
+    enum Action {
+        case item(Item)
+        case command(EditorBlockCommand)
+    }
+
+    let id: String
+    let title: String
+    /// Mono, trailing: the item's kind, or the markdown a command stands for.
+    let hint: String
+    let action: Action
+}
+
+/// The list that opens at the caret for `[[` and `/`. Flat: a hairline box on
+/// the card colour, the highlighted row marked the way a selected row is
+/// everywhere else in the app.
+private struct EditorAssistPopup: View {
+    let rows: [EditorAssistRow]
+    let highlighted: Int
+    let emptyLabel: String
+    let rowHeight: CGFloat
+    let onPick: (EditorAssistRow) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if rows.isEmpty {
+                Text(emptyLabel)
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textTertiary)
+                    .padding(.horizontal, Spacing.md)
+                    .frame(height: rowHeight, alignment: .leading)
+            } else {
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                    Button {
+                        onPick(row)
+                    } label: {
+                        HStack(spacing: Spacing.sm) {
+                            Text(row.title)
+                                .font(.groveBodySecondary)
+                                .foregroundStyle(Color.textPrimary)
+                                .lineLimit(1)
+                            Spacer(minLength: Spacing.sm)
+                            Text(row.hint)
+                                .font(.groveFolio)
+                                .textCase(.uppercase)
+                                .foregroundStyle(Color.textMuted)
+                                .lineLimit(1)
+                        }
+                        .padding(.horizontal, Spacing.md)
+                        .frame(height: rowHeight)
+                        .contentShape(Rectangle())
+                        .selectedItemStyle(index == highlighted)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(index == highlighted ? .isSelected : [])
+                }
+            }
+        }
+        .padding(.vertical, Spacing.xs)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.bgPrimary)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.control))
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.control)
+                .stroke(Color.borderPrimary, lineWidth: 1)
+        )
+    }
+}
+
+// MARK: - Format Controls
+
+/// The formatting actions, set as type rather than icons: a bold B, an italic
+/// I, the markdown itself for code and links. Used as the bar over a
+/// selection, and as the fixed strip of the compact (boxed) editor.
+private struct EditorFormatControls: View {
+    let proxy: MarkdownEditingProxy
+
+    var body: some View {
+        HStack(spacing: Spacing.xs) {
+            control("B", font: .groveBodyMedium, name: "Bold", shortcut: "B") {
+                proxy.wrapSelection(prefix: "**", suffix: "**")
+            }
+            control("I", font: .groveGhostText, name: "Italic", shortcut: "I") {
+                proxy.wrapSelection(prefix: "*", suffix: "*")
+            }
+            Button {
+                proxy.wrapSelection(prefix: "~~", suffix: "~~")
+            } label: {
+                glyph(Text("S").strikethrough(), font: .groveBody)
+            }
+            .buttonStyle(.plain)
+            .help("Strikethrough")
+            .accessibilityLabel("Strikethrough")
+            control("<>", font: .groveMeta, name: "Code", shortcut: "E") {
+                proxy.wrapSelection(prefix: "`", suffix: "`")
+            }
+
+            separator
+
+            control("H1", font: .groveMeta, name: "Title") { proxy.setHeading(level: 1) }
+            control("H2", font: .groveMeta, name: "Heading") { proxy.setHeading(level: 2) }
+            control("H3", font: .groveMeta, name: "Subheading") { proxy.setHeading(level: 3) }
+            control("\u{00B6}", font: .groveMeta, name: "Body text") { proxy.setHeading(level: 0) }
+
+            separator
+
+            control("List", font: .groveMeta, name: "List") { proxy.toggleListItem() }
+            control("Quote", font: .groveMeta, name: "Quote") { proxy.toggleBlockQuote() }
+            control("Link", font: .groveMeta, name: "Link", shortcut: "K") { proxy.insertLink() }
+            control("[[ ]]", font: .groveMeta, name: "Link to an item") { proxy.insertWikiLink() }
+        }
+        .foregroundStyle(Color.textSecondary)
+    }
+
+    private var separator: some View {
+        Rectangle()
+            .fill(Color.borderPrimary)
+            .frame(width: 1, height: 14)
+            .padding(.horizontal, Spacing.xs)
+    }
+
+    private func glyph(_ text: Text, font: Font) -> some View {
+        text
+            .font(font)
+            .padding(.horizontal, Spacing.xs)
+            .frame(minWidth: 22, minHeight: 22)
+            .contentShape(Rectangle())
+    }
+
+    private func control(
+        _ label: String,
+        font: Font,
+        name: String,
+        shortcut: String? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            glyph(Text(label), font: font)
+        }
+        .buttonStyle(.plain)
+        .help(shortcut.map { "\(name) (\u{2318}\($0))" } ?? name)
+        .accessibilityLabel(name)
+    }
+}
+
+private extension View {
+    /// The one floating surface the editor uses: card colour, hairline, the
+    /// control radius, no shadow.
+    func editorFloatingPanel() -> some View {
+        self
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xs)
+            .background(Color.bgCard)
+            .clipShape(RoundedRectangle(cornerRadius: Radius.control))
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.control)
+                    .stroke(Color.borderPrimary, lineWidth: 1)
+            )
     }
 }
 
 // MARK: - NSTextView Representable
 
-/// NSViewRepresentable wrapping an NSTextView with live markdown syntax highlighting.
+/// NSViewRepresentable wrapping an NSTextView with live markdown rendering.
 struct MarkdownNSTextView: NSViewRepresentable {
     @Binding var text: String
     var minHeight: CGFloat
     var fontSize: CGFloat = 15
     var textInset: NSSize = NSSize(width: 8, height: 8)
-    var onWikiTrigger: ((String?) -> Void)?
+    /// The `[[` / `/` token at the caret (nil when there is none) and where it
+    /// starts, in this view's top-left coordinate space.
+    var onAssistTrigger: ((EditorAssistTrigger?, CGRect) -> Void)?
+    /// The first line of a non-empty selection, in the same space; nil when
+    /// the selection is a caret.
+    var onSelectionAnchor: ((CGRect?) -> Void)?
+    /// Offered navigation keys first while a popup is open. Return true to
+    /// consume the key.
+    var onAssistKey: ((EditorAssistKey) -> Bool)?
+    var onFocusChange: ((Bool) -> Void)?
+    var onOpenLink: ((String) -> Void)?
     var editorProxy: MarkdownEditingProxy? = nil
 
     func makeCoordinator() -> Coordinator {
@@ -391,6 +541,7 @@ struct MarkdownNSTextView: NSViewRepresentable {
         textView.autoresizingMask = [.width]
         textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = true
+        textView.insertionPointColor = EditorInk.primary
 
         // Set default font
         let defaultFont = NSFont(name: MarkdownTypeSpec.FontName.body, size: fontSize) ?? NSFont.systemFont(ofSize: fontSize)
@@ -398,7 +549,7 @@ struct MarkdownNSTextView: NSViewRepresentable {
         // Build typing attributes — add generous line spacing for prose mode
         var typingAttrs: [NSAttributedString.Key: Any] = [
             .font: defaultFont,
-            .foregroundColor: NSColor.labelColor
+            .foregroundColor: EditorInk.primary
         ]
         if fontSize >= 17 {
             let paragraphStyle = NSMutableParagraphStyle()
@@ -414,15 +565,22 @@ struct MarkdownNSTextView: NSViewRepresentable {
             textView.allowedWritingToolsResultOptions = [.plainText, .list]
         }
 
-        textView.delegate = context.coordinator
-        context.coordinator.textView = textView
-        context.coordinator.registerEditorProxy()
+        let coordinator = context.coordinator
+        textView.delegate = coordinator
+        textView.onFocusChange = { [weak coordinator] focused in
+            coordinator?.focusDidChange(focused)
+        }
+        textView.onOpenLink = { [weak coordinator] target in
+            coordinator?.parent.onOpenLink?(target)
+        }
+        coordinator.textView = textView
+        coordinator.registerEditorProxy()
 
         scrollView.documentView = textView
 
         // Set initial text
         textView.string = text
-        context.coordinator.applyHighlighting(textView)
+        coordinator.applyHighlighting(textView)
 
         return scrollView
     }
@@ -437,8 +595,16 @@ struct MarkdownNSTextView: NSViewRepresentable {
             let selectedRanges = textView.selectedRanges
             context.coordinator.beginProgrammaticUpdate()
             textView.string = text
+            // Replacing the string dropped every attribute, so nothing that
+            // was styled before can be assumed still styled.
+            context.coordinator.invalidateStyling()
             context.coordinator.applyHighlighting(textView)
-            textView.selectedRanges = selectedRanges
+            let length = (textView.string as NSString).length
+            textView.selectedRanges = selectedRanges.map { value in
+                let range = value.rangeValue
+                let location = min(range.location, length)
+                return NSValue(range: NSRange(location: location, length: min(range.length, length - location)))
+            }
             context.coordinator.endProgrammaticUpdate()
         }
     }
@@ -450,7 +616,14 @@ struct MarkdownNSTextView: NSViewRepresentable {
         var parent: MarkdownNSTextView
         weak var textView: HighlightingTextView?
         private var isUpdating = false
-        private var lastWikiQuery: String??
+        private var lastTrigger: EditorAssistTrigger?
+        private var lastSelectionAnchor: CGRect?
+        /// The parse of the text as last styled. A caret move leaves the text
+        /// alone, so it reuses this instead of parsing again.
+        private var styleCache: StyleCache?
+        /// The selection the storage's current attributes were styled for.
+        private var lastStyledSelection: NSRange?
+        private var fonts: EditorFonts?
 
         init(_ parent: MarkdownNSTextView) {
             self.parent = parent
@@ -462,6 +635,10 @@ struct MarkdownNSTextView: NSViewRepresentable {
 
         func endProgrammaticUpdate() {
             isUpdating = false
+        }
+
+        func invalidateStyling() {
+            lastStyledSelection = nil
         }
 
         func registerEditorProxy() {
@@ -493,6 +670,13 @@ struct MarkdownNSTextView: NSViewRepresentable {
                     },
                     replaceActiveWikiQuery: { [weak textView] title in
                         textView?.replaceActiveWikiQuery(with: title)
+                    },
+                    replaceActiveSlashQuery: { [weak textView] insertion, cursorOffset in
+                        textView?.replaceActiveSlashQuery(with: insertion, cursorOffset: cursorOffset)
+                    },
+                    focus: { [weak textView] in
+                        guard let textView else { return }
+                        textView.window?.makeFirstResponder(textView)
                     }
                 )
             )
@@ -503,7 +687,7 @@ struct MarkdownNSTextView: NSViewRepresentable {
             isUpdating = true
             parent.text = textView.string
             applyHighlighting(textView)
-            detectWikiLink(in: textView)
+            publishCaretState(for: textView)
             isUpdating = false
         }
 
@@ -511,249 +695,275 @@ struct MarkdownNSTextView: NSViewRepresentable {
             guard !isUpdating, let textView = notification.object as? NSTextView else { return }
             isUpdating = true
             applyHighlighting(textView)
-            detectWikiLink(in: textView)
+            publishCaretState(for: textView)
+            // Bullets and quote rails are drawn, not typeset, and step aside
+            // for the caret.
             textView.needsDisplay = true
             isUpdating = false
         }
 
-        // MARK: - Wiki Link Detection
-
-        private func detectWikiLink(in textView: NSTextView) {
-            let text = textView.string
-            let nsText = text as NSString
-            let safeCursorLocation = min(max(0, textView.selectedRange().location), nsText.length)
-            let prefix = nsText.substring(to: safeCursorLocation)
-            let prefixNSString = prefix as NSString
-
-            let openRange = prefixNSString.range(of: "[[", options: .backwards)
-            guard openRange.location != NSNotFound else {
-                emitWikiTrigger(nil)
-                return
+        func focusDidChange(_ focused: Bool) {
+            Task { @MainActor [weak self] in
+                self?.parent.onFocusChange?(focused)
             }
-
-            let queryStart = openRange.location + openRange.length
-            guard queryStart <= prefixNSString.length else {
-                emitWikiTrigger(nil)
-                return
-            }
-
-            let query = prefixNSString.substring(from: queryStart)
-
-            if query.contains("]]") || query.contains("\n") {
-                emitWikiTrigger(nil)
-                return
-            }
-
-            emitWikiTrigger(query)
         }
 
-        private func emitWikiTrigger(_ query: String?) {
-            guard lastWikiQuery != query else { return }
-            lastWikiQuery = query
-            parent.onWikiTrigger?(query)
+        // MARK: - Caret State (assist trigger, selection anchor)
+
+        /// Tells the SwiftUI side what the caret is typing and where, so the
+        /// popup and the selection bar can sit beside the text they act on.
+        /// Delivered a turn later: a delegate callback can arrive while
+        /// SwiftUI is mid-update.
+        private func publishCaretState(for textView: NSTextView) {
+            let nsText = textView.string as NSString
+            let selection = textView.selectedRange()
+            let caret = min(max(0, selection.location), nsText.length)
+
+            var trigger: EditorAssistTrigger?
+            var anchor = CGRect.zero
+            if selection.length == 0 {
+                let lineStart = nsText.lineRange(for: NSRange(location: caret, length: 0)).location
+                let linePrefix = nsText.substring(with: NSRange(location: lineStart, length: caret - lineStart))
+                if let detected = EditorAssistTrigger.detect(linePrefix: linePrefix) {
+                    trigger = detected.trigger
+                    let tokenStart = max(lineStart, caret - detected.tokenLength)
+                    anchor = editorRect(for: NSRange(location: tokenStart, length: 0), in: textView) ?? .zero
+                }
+            }
+            if trigger != lastTrigger {
+                lastTrigger = trigger
+                let reportedTrigger = trigger
+                let reportedAnchor = anchor
+                Task { @MainActor [weak self] in
+                    self?.parent.onAssistTrigger?(reportedTrigger, reportedAnchor)
+                }
+            }
+
+            let selectionAnchor = selection.length > 0 ? editorRect(for: selection, in: textView) : nil
+            if selectionAnchor != lastSelectionAnchor {
+                lastSelectionAnchor = selectionAnchor
+                Task { @MainActor [weak self] in
+                    self?.parent.onSelectionAnchor?(selectionAnchor)
+                }
+            }
         }
 
-        // MARK: - Syntax Highlighting
+        /// The first rect of a character range in the scroll view's top-left
+        /// coordinate space — the space the SwiftUI overlay is laid out in.
+        private func editorRect(for range: NSRange, in textView: NSTextView) -> CGRect? {
+            guard let window = textView.window, let scrollView = textView.enclosingScrollView else { return nil }
+            let screenRect = textView.firstRect(forCharacterRange: range, actualRange: nil)
+            guard screenRect != .zero else { return nil }
+            var rect = scrollView.convert(window.convertFromScreen(screenRect), from: nil)
+            if !scrollView.isFlipped {
+                rect.origin.y = scrollView.bounds.height - rect.maxY
+            }
+            return rect
+        }
 
+        // MARK: - Live Styling
+
+        /// Brings the storage's attributes in line with the markdown and the
+        /// caret.
+        ///
+        /// The styled text is built off to the side, then compared with the
+        /// storage one paragraph at a time; only paragraphs that differ are
+        /// written. Setting attributes on a range re-lays it out, so resetting
+        /// the whole note on every keystroke and every caret move — what this
+        /// used to do — re-laid out the whole note each time. A keystroke now
+        /// touches the paragraph it lands in, and a caret move touches the
+        /// lines whose markers it reveals or hides.
         func applyHighlighting(_ textView: NSTextView) {
-            let storage = textView.textStorage!
-            let fullRange = NSRange(location: 0, length: storage.length)
+            guard let storage = textView.textStorage else { return }
+            // An input method is mid-composition (Japanese, Chinese, accents
+            // by dead key). Rewriting attributes now would strip its marked
+            // text; the pass that follows the commit picks the styling up.
+            guard !textView.hasMarkedText() else { return }
             let text = storage.string
+            let nsText = text as NSString
+            let length = nsText.length
+
             let selectedRange = textView.selectedRange()
-            let maxLocation = (text as NSString).length
-            let clampedLocation = min(max(0, selectedRange.location), maxLocation)
-            let clampedLength = min(selectedRange.length, max(0, maxLocation - clampedLocation))
+            let location = min(max(0, selectedRange.location), length)
+            let selection = NSRange(location: location, length: min(selectedRange.length, length - location))
+
+            let textUnchanged = styleCache?.source == text
+            let cache: StyleCache
+            if textUnchanged, let styleCache {
+                cache = styleCache
+            } else {
+                cache = StyleCache(source: text)
+                styleCache = cache
+            }
+
+            let fonts = resolvedFonts()
             let selectionState = MarkdownDocument.SelectionState(
-                range: clampedLocation..<(clampedLocation + clampedLength)
+                range: cache.characterOffset(forUTF16: selection.location)
+                    ..< cache.characterOffset(forUTF16: NSMaxRange(selection))
             )
-            let document = MarkdownDocument(text)
+            let styled = styledText(cache: cache, selection: selectionState, fonts: fonts)
 
-            let size = parent.fontSize
-            let monoSize = MarkdownTypeSpec.monoSize(forBodySize: size)
-            let h1Size = MarkdownTypeSpec.headingSize(forLevel: 1, bodySize: size)
-            let h2Size = MarkdownTypeSpec.headingSize(forLevel: 2, bodySize: size)
-            let h3Size = MarkdownTypeSpec.headingSize(forLevel: 3, bodySize: size)
-            let defaultFont = NSFont(name: MarkdownTypeSpec.FontName.body, size: size) ?? NSFont.systemFont(ofSize: size)
-            let monoFont = NSFont(name: MarkdownTypeSpec.FontName.mono, size: monoSize) ?? NSFont.monospacedSystemFont(ofSize: monoSize, weight: .regular)
-            let headingFont = NSFont(name: MarkdownTypeSpec.FontName.heading, size: h1Size) ?? NSFont.systemFont(ofSize: h1Size, weight: .medium)
-            let headingSmallFont = NSFont(name: MarkdownTypeSpec.FontName.heading, size: h2Size) ?? NSFont.systemFont(ofSize: h2Size, weight: .medium)
-            let headingMidFont = NSFont(name: MarkdownTypeSpec.FontName.heading, size: h3Size) ?? NSFont.systemFont(ofSize: h3Size, weight: .medium)
-            let quoteColor = NSColor.labelColor.withAlphaComponent(0.92)
-
-            let primaryColor = NSColor.labelColor
-            let secondaryColor = NSColor.secondaryLabelColor
-            let tertiaryColor = NSColor.tertiaryLabelColor
-            let codeBackground = NSColor.quaternaryLabelColor.withAlphaComponent(0.15)
-
-            // Build paragraph style for prose mode (generous line spacing)
-            let proseParagraph: NSParagraphStyle? = {
-                guard size >= 17 else { return nil }
-                let style = NSMutableParagraphStyle()
-                style.lineSpacing = MarkdownTypeSpec.proseLineSpacing
-                style.paragraphSpacing = MarkdownTypeSpec.proseParagraphSpacing
-                return style
-            }()
-
-            storage.beginEditing()
-
-            // Reset to default
-            var defaultAttrs: [NSAttributedString.Key: Any] = [
-                .font: defaultFont,
-                .foregroundColor: primaryColor
-            ]
-            if let proseParagraph {
-                defaultAttrs[.paragraphStyle] = proseParagraph
+            // Same text as last time: only the lines the old and new
+            // selection touch can have changed (markers hide and reveal by
+            // line). Anything else — new text, or attributes that were wiped —
+            // compares the whole note.
+            var window = NSRange(location: 0, length: length)
+            if textUnchanged, let previous = lastStyledSelection, NSMaxRange(previous) <= length {
+                window = nsText.lineRange(for: NSUnionRange(previous, selection))
             }
-            if fullRange.length > 0 {
-                storage.setAttributes(defaultAttrs, range: fullRange)
-            }
-            textView.typingAttributes = defaultAttrs
-            storage.removeAttribute(.groveListPrefix, range: fullRange)
-            storage.removeAttribute(.groveQuotePrefix, range: fullRange)
 
-            guard fullRange.length > 0 else {
+            var dirty: [NSRange] = []
+            var cursor = window.location
+            let windowEnd = NSMaxRange(window)
+            while cursor < windowEnd {
+                let paragraph = nsText.paragraphRange(for: NSRange(location: cursor, length: 0))
+                guard paragraph.length > 0 else { break }
+                if !storage.attributedSubstring(from: paragraph)
+                    .isEqual(to: styled.attributedSubstring(from: paragraph)) {
+                    dirty.append(paragraph)
+                }
+                cursor = NSMaxRange(paragraph)
+            }
+
+            if !dirty.isEmpty {
+                storage.beginEditing()
+                for paragraph in dirty {
+                    styled.enumerateAttributes(in: paragraph, options: []) { attributes, range, _ in
+                        storage.setAttributes(attributes, range: range)
+                    }
+                }
                 storage.endEditing()
-                restoreSelectionIfNeeded(
-                    NSRange(location: clampedLocation, length: clampedLength),
-                    in: textView
-                )
-                textView.needsDisplay = true
-                return
             }
 
-            let hiddenDelimiterAttrs: [NSAttributedString.Key: Any] = [
+            lastStyledSelection = selection
+            textView.typingAttributes = fonts.defaultAttributes
+            if textView.selectedRange() != selection {
+                textView.setSelectedRange(selection)
+            }
+            textView.needsDisplay = true
+        }
+
+        private func resolvedFonts() -> EditorFonts {
+            if let fonts, fonts.size == parent.fontSize { return fonts }
+            let resolved = EditorFonts(size: parent.fontSize)
+            fonts = resolved
+            return resolved
+        }
+
+        /// The whole note with its attributes, detached from any layout.
+        private func styledText(
+            cache: StyleCache,
+            selection: MarkdownDocument.SelectionState,
+            fonts: EditorFonts
+        ) -> NSMutableAttributedString {
+            let document = cache.document
+            let styled = NSMutableAttributedString(string: cache.source, attributes: fonts.defaultAttributes)
+            guard styled.length > 0 else { return styled }
+
+            let primary = EditorInk.primary
+            let secondary = EditorInk.secondary
+            let tertiary = EditorInk.tertiary
+            let codeWash = EditorInk.codeWash
+
+            // Collapsed: inline delimiters and heading hashes take no room.
+            let collapsed: [NSAttributedString.Key: Any] = [
                 .foregroundColor: NSColor.clear,
-                .font: NSFont.systemFont(ofSize: 0.1)
+                .font: fonts.collapsed
             ]
-            let hiddenListPrefixAttrs: [NSAttributedString.Key: Any] = [
+            // Invisible but still occupying its width, so the text after a
+            // list or quote prefix does not jump when the caret reveals it.
+            let invisible: [NSAttributedString.Key: Any] = [
                 .foregroundColor: NSColor.clear
             ]
-            let hiddenQuotePrefixAttrs: [NSAttributedString.Key: Any] = [
-                .foregroundColor: NSColor.clear
-            ]
+            let visibleMarker: [NSAttributedString.Key: Any] = [.font: fonts.body, .foregroundColor: tertiary]
+            let visibleMonoMarker: [NSAttributedString.Key: Any] = [.font: fonts.mono, .foregroundColor: tertiary]
+
+            func apply(_ attributes: [NSAttributedString.Key: Any], to range: Range<Int>) {
+                guard let nsRange = cache.nsRange(for: range), nsRange.length > 0 else { return }
+                styled.addAttributes(attributes, range: nsRange)
+            }
+
+            func restyleParagraph(of lineRange: Range<Int>, _ transform: (NSParagraphStyle, Bool) -> NSParagraphStyle) {
+                guard let nsRange = cache.nsRange(for: lineRange), nsRange.length > 0 else { return }
+                let existing = (styled.attribute(.paragraphStyle, at: nsRange.location, effectiveRange: nil) as? NSParagraphStyle)
+                    ?? NSParagraphStyle.default
+                styled.addAttribute(.paragraphStyle, value: transform(existing, fonts.isProse), range: nsRange)
+            }
 
             for block in document.blocks {
                 switch block.kind {
                 case .heading(let heading):
-                    let revealMarkers = document.shouldRevealHeading(heading, for: selectionState)
-                    let markerAttrs = revealMarkers
-                        ? [.font: defaultFont, .foregroundColor: tertiaryColor]
-                        : hiddenDelimiterAttrs
-                    applyAttributes(markerAttrs, to: heading.markerRange, in: text, storage: storage)
-                    applyAttributes(markerAttrs, to: heading.spacingRange, in: text, storage: storage)
-
-                    let headingAttrs: [NSAttributedString.Key: Any]
-                    switch heading.level {
-                    case 1, 4, 5, 6:
-                        headingAttrs = [.font: headingFont, .foregroundColor: primaryColor]
-                    case 2:
-                        headingAttrs = [.font: headingSmallFont, .foregroundColor: primaryColor]
-                    default:
-                        headingAttrs = [.font: headingMidFont, .foregroundColor: primaryColor]
-                    }
-
-                    applyAttributes(headingAttrs, to: heading.contentRange, in: text, storage: storage)
-
-                    if let proseParagraph,
-                       let lineRange = nsRange(for: block.range, in: text) {
-                        storage.addAttribute(.paragraphStyle, value: proseParagraph, range: lineRange)
-                    }
+                    let markerAttrs = document.shouldRevealHeading(heading, for: selection) ? visibleMarker : collapsed
+                    apply(markerAttrs, to: heading.markerRange)
+                    apply(markerAttrs, to: heading.spacingRange)
+                    apply([.font: fonts.heading(level: heading.level), .foregroundColor: primary], to: heading.contentRange)
 
                 case .blockquote(let blockquote):
                     for line in blockquote.lines {
-                        let revealPrefix = document.shouldRevealPrefix(line.prefixRange, for: selectionState)
-                        let prefixAttrs = revealPrefix
-                            ? [.font: defaultFont, .foregroundColor: tertiaryColor]
-                            : hiddenQuotePrefixAttrs
-                        applyAttributes(prefixAttrs, to: line.prefixRange, in: text, storage: storage)
-                        applyAttributes(
-                            [.font: defaultFont, .foregroundColor: quoteColor],
-                            to: line.contentRange,
-                            in: text,
-                            storage: storage
-                        )
-                        applyAttributes([.groveQuotePrefix: true], to: line.prefixRange, in: text, storage: storage)
-
-                        if let lineRange = nsRange(for: line.lineRange, in: text) {
-                            let existingStyle = (storage.attribute(.paragraphStyle, at: lineRange.location, effectiveRange: nil) as? NSParagraphStyle)
-                                ?? NSParagraphStyle.default
-                            let updatedStyle = quoteParagraphStyle(from: existingStyle, isProse: proseParagraph != nil)
-                            storage.addAttribute(.paragraphStyle, value: updatedStyle, range: lineRange)
-                        }
+                        let reveal = document.shouldRevealPrefix(line.prefixRange, for: selection)
+                        apply(reveal ? visibleMarker : invisible, to: line.prefixRange)
+                        apply([.foregroundColor: secondary], to: line.contentRange)
+                        apply([.groveQuotePrefix: true], to: line.prefixRange)
+                        restyleParagraph(of: line.lineRange, quoteParagraphStyle)
                     }
 
                 case .bulletList(let list):
                     for item in list.items {
-                        let revealPrefix = document.shouldRevealPrefix(item.prefixRange, for: selectionState)
-                        let prefixAttrs = revealPrefix
-                            ? [.font: defaultFont, .foregroundColor: tertiaryColor]
-                            : hiddenListPrefixAttrs
-                        applyAttributes(prefixAttrs, to: item.prefixRange, in: text, storage: storage)
-                        applyAttributes(
-                            [.font: defaultFont, .foregroundColor: primaryColor],
-                            to: item.contentRange,
-                            in: text,
-                            storage: storage
-                        )
-                        applyAttributes([.groveListPrefix: true], to: item.prefixRange, in: text, storage: storage)
+                        let reveal = document.shouldRevealPrefix(item.prefixRange, for: selection)
+                        apply(reveal ? visibleMarker : invisible, to: item.prefixRange)
 
-                        if let lineRange = nsRange(for: item.lineRange, in: text) {
-                            let existingStyle = (storage.attribute(.paragraphStyle, at: lineRange.location, effectiveRange: nil) as? NSParagraphStyle)
-                                ?? NSParagraphStyle.default
-                            let updatedStyle = listParagraphStyle(from: existingStyle, isProse: proseParagraph != nil)
-                            storage.addAttribute(.paragraphStyle, value: updatedStyle, range: lineRange)
+                        if let task = item.taskMarker {
+                            // The brackets are the marker: no bullet is drawn.
+                            apply(
+                                [
+                                    .font: fonts.mono,
+                                    .foregroundColor: task.isChecked ? tertiary : secondary,
+                                    .groveTaskMarker: task.isChecked,
+                                ],
+                                to: task.range
+                            )
+                            if task.isChecked {
+                                apply(
+                                    [
+                                        .foregroundColor: tertiary,
+                                        .strikethroughStyle: NSUnderlineStyle.single.rawValue,
+                                    ],
+                                    to: item.textRange
+                                )
+                            }
+                        } else {
+                            apply([.groveListPrefix: true], to: item.prefixRange)
                         }
+                        restyleParagraph(of: item.lineRange, listParagraphStyle)
                     }
 
                 case .orderedList(let list):
                     // Numbers stay visible (they are the marker), but the line
                     // gets the same indent rhythm as a bullet line.
                     for item in list.items {
-                        applyAttributes(
-                            [.font: monoFont, .foregroundColor: secondaryColor],
-                            to: item.prefixRange,
-                            in: text,
-                            storage: storage
-                        )
-                        applyAttributes(
-                            [.font: defaultFont, .foregroundColor: primaryColor],
-                            to: item.contentRange,
-                            in: text,
-                            storage: storage
-                        )
-
-                        if let lineRange = nsRange(for: item.lineRange, in: text) {
-                            let existingStyle = (storage.attribute(.paragraphStyle, at: lineRange.location, effectiveRange: nil) as? NSParagraphStyle)
-                                ?? NSParagraphStyle.default
-                            let updatedStyle = listParagraphStyle(from: existingStyle, isProse: proseParagraph != nil)
-                            storage.addAttribute(.paragraphStyle, value: updatedStyle, range: lineRange)
-                        }
+                        apply([.font: fonts.mono, .foregroundColor: secondary], to: item.prefixRange)
+                        restyleParagraph(of: item.lineRange, listParagraphStyle)
                     }
 
                 case .codeBlock(let codeBlock):
-                    let openingAttrs = document.shouldRevealCodeFence(codeBlock.openingFenceRange, for: selectionState)
-                        ? [.font: monoFont, .foregroundColor: tertiaryColor]
-                        : hiddenDelimiterAttrs
-                    applyAttributes(openingAttrs, to: codeBlock.openingFenceRange, in: text, storage: storage)
-
+                    let opening = document.shouldRevealCodeFence(codeBlock.openingFenceRange, for: selection)
+                    apply(opening ? visibleMonoMarker : collapsed, to: codeBlock.openingFenceRange)
                     if let closingFenceRange = codeBlock.closingFenceRange {
-                        let closingAttrs = document.shouldRevealCodeFence(closingFenceRange, for: selectionState)
-                            ? [.font: monoFont, .foregroundColor: tertiaryColor]
-                            : hiddenDelimiterAttrs
-                        applyAttributes(closingAttrs, to: closingFenceRange, in: text, storage: storage)
+                        let closing = document.shouldRevealCodeFence(closingFenceRange, for: selection)
+                        apply(closing ? visibleMonoMarker : collapsed, to: closingFenceRange)
+                    }
+                    if let contentRange = codeBlock.contentRange {
+                        apply(
+                            [.font: fonts.mono, .foregroundColor: primary, .backgroundColor: codeWash],
+                            to: contentRange
+                        )
                     }
 
-                    if let contentRange = codeBlock.contentRange {
-                        applyAttributes(
-                            [
-                                .font: monoFont,
-                                .foregroundColor: primaryColor,
-                                .backgroundColor: codeBackground,
-                            ],
-                            to: contentRange,
-                            in: text,
-                            storage: storage
-                        )
+                case .divider:
+                    if selection.revealsLine(block.range) {
+                        apply(visibleMonoMarker, to: block.range)
+                    } else {
+                        apply([.foregroundColor: NSColor.clear, .groveDivider: true], to: block.range)
                     }
 
                 case .paragraph:
@@ -762,48 +972,55 @@ struct MarkdownNSTextView: NSViewRepresentable {
             }
 
             for span in document.inlineSpans {
-                let revealMarkers = document.shouldRevealInlineSpan(span, for: selectionState)
-                let visibleMarkerAttrs = delimiterAttributes(
-                    for: span.kind,
-                    defaultFont: defaultFont,
-                    monoFont: monoFont,
-                    tertiaryColor: tertiaryColor,
-                    codeBackground: codeBackground
-                )
-                let hiddenAttrs = hiddenDelimiterAttributes(
-                    for: span.kind,
-                    hiddenDelimiterAttrs: hiddenDelimiterAttrs
-                )
+                let reveal = document.shouldRevealInlineSpan(span, for: selection)
+                var isCode = false
+                if case .inlineCode = span.kind { isCode = true }
 
+                let markerAttrs: [NSAttributedString.Key: Any]
+                if reveal {
+                    markerAttrs = isCode
+                        ? [.font: fonts.mono, .foregroundColor: tertiary, .backgroundColor: codeWash]
+                        : visibleMarker
+                } else {
+                    markerAttrs = isCode
+                        ? collapsed.merging([.backgroundColor: NSColor.clear]) { _, new in new }
+                        : collapsed
+                }
                 for markerRange in span.markerRanges {
-                    applyAttributes(revealMarkers ? visibleMarkerAttrs : hiddenAttrs, to: markerRange, in: text, storage: storage)
+                    apply(markerAttrs, to: markerRange)
                 }
 
-                guard let contentRange = nsRange(for: span.contentRange, in: text) else { continue }
+                guard let contentRange = cache.nsRange(for: span.contentRange), contentRange.length > 0 else { continue }
 
                 switch span.kind {
                 case .bold:
-                    applyFontTraits(.boldFontMask, to: contentRange, in: storage)
+                    applyFontTraits(.boldFontMask, to: contentRange, in: styled, fonts: fonts)
                 case .italic:
-                    applyFontTraits(.italicFontMask, to: contentRange, in: storage)
+                    applyFontTraits(.italicFontMask, to: contentRange, in: styled, fonts: fonts)
                 case .boldItalic:
-                    applyFontTraits([.boldFontMask, .italicFontMask], to: contentRange, in: storage)
+                    applyFontTraits([.boldFontMask, .italicFontMask], to: contentRange, in: styled, fonts: fonts)
                 case .strikethrough:
-                    storage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: contentRange)
+                    styled.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: contentRange)
                 case .inlineCode:
-                    storage.addAttributes(
+                    styled.addAttributes(
+                        [.font: fonts.mono, .backgroundColor: codeWash, .foregroundColor: primary],
+                        range: contentRange
+                    )
+                case .wikiLink(let title):
+                    styled.addAttributes(
                         [
-                            .font: monoFont,
-                            .backgroundColor: codeBackground,
-                            .foregroundColor: primaryColor,
+                            .underlineStyle: NSUnderlineStyle.single.rawValue,
+                            .foregroundColor: secondary,
+                            .groveLink: "wiki:" + title,
                         ],
                         range: contentRange
                     )
-                case .wikiLink, .link:
-                    storage.addAttributes(
+                case .link(let url):
+                    styled.addAttributes(
                         [
                             .underlineStyle: NSUnderlineStyle.single.rawValue,
-                            .foregroundColor: secondaryColor,
+                            .foregroundColor: secondary,
+                            .groveLink: url,
                         ],
                         range: contentRange
                     )
@@ -814,91 +1031,25 @@ struct MarkdownNSTextView: NSViewRepresentable {
             // selection) match no span — dim them so they read as a pending
             // placeholder rather than four literal asterisks.
             for pair in document.emptyMarkerPairs {
-                let attrs: [NSAttributedString.Key: Any] = pair.kind == .inlineCode
-                    ? [.font: monoFont, .foregroundColor: tertiaryColor]
-                    : [.font: defaultFont, .foregroundColor: tertiaryColor]
-                applyAttributes(attrs, to: pair.range, in: text, storage: storage)
+                apply(pair.kind == .inlineCode ? visibleMonoMarker : visibleMarker, to: pair.range)
             }
 
-            storage.endEditing()
-            textView.typingAttributes = defaultAttrs
-            restoreSelectionIfNeeded(
-                NSRange(location: clampedLocation, length: clampedLength),
-                in: textView
-            )
-            textView.needsDisplay = true
-        }
-
-        private func restoreSelectionIfNeeded(_ range: NSRange, in textView: NSTextView) {
-            guard textView.selectedRange() != range else { return }
-            textView.setSelectedRange(range)
-        }
-
-        private func delimiterAttributes(
-            for kind: MarkdownDocument.InlineSpan.Kind,
-            defaultFont: NSFont,
-            monoFont: NSFont,
-            tertiaryColor: NSColor,
-            codeBackground: NSColor
-        ) -> [NSAttributedString.Key: Any] {
-            switch kind {
-            case .inlineCode:
-                return [
-                    .font: monoFont,
-                    .foregroundColor: tertiaryColor,
-                    .backgroundColor: codeBackground,
-                ]
-            default:
-                return [
-                    .font: defaultFont,
-                    .foregroundColor: tertiaryColor,
-                ]
-            }
-        }
-
-        private func hiddenDelimiterAttributes(
-            for kind: MarkdownDocument.InlineSpan.Kind,
-            hiddenDelimiterAttrs: [NSAttributedString.Key: Any]
-        ) -> [NSAttributedString.Key: Any] {
-            switch kind {
-            case .inlineCode:
-                return hiddenDelimiterAttrs.merging([.backgroundColor: NSColor.clear]) { _, new in new }
-            default:
-                return hiddenDelimiterAttrs
-            }
-        }
-
-        private func applyAttributes(
-            _ attributes: [NSAttributedString.Key: Any],
-            to characterRange: Range<Int>,
-            in text: String,
-            storage: NSTextStorage
-        ) {
-            guard let nsRange = nsRange(for: characterRange, in: text), nsRange.length > 0 else { return }
-            storage.addAttributes(attributes, range: nsRange)
-        }
-
-        private func nsRange(for characterRange: Range<Int>, in text: String) -> NSRange? {
-            guard characterRange.lowerBound >= 0,
-                  characterRange.upperBound >= characterRange.lowerBound,
-                  characterRange.upperBound <= text.count else {
-                return nil
-            }
-
-            let lower = text.index(text.startIndex, offsetBy: characterRange.lowerBound)
-            let upper = text.index(text.startIndex, offsetBy: characterRange.upperBound)
-            return NSRange(lower..<upper, in: text)
+            // The storage substitutes fonts for characters the chosen face
+            // lacks (emoji, CJK). Do the same here, or those paragraphs would
+            // never compare equal and would be rewritten on every pass.
+            styled.fixAttributes(in: NSRange(location: 0, length: styled.length))
+            return styled
         }
 
         private func applyFontTraits(
             _ traits: NSFontTraitMask,
             to nsRange: NSRange,
-            in storage: NSTextStorage
+            in styled: NSMutableAttributedString,
+            fonts: EditorFonts
         ) {
-            storage.enumerateAttribute(.font, in: nsRange, options: []) { value, range, _ in
-                let fallback = NSFont(name: MarkdownTypeSpec.FontName.body, size: self.parent.fontSize)
-                    ?? NSFont.systemFont(ofSize: self.parent.fontSize)
-                let baseFont = (value as? NSFont) ?? fallback
+            var replacements: [(NSFont, NSRange)] = []
+            styled.enumerateAttribute(.font, in: nsRange, options: []) { value, range, _ in
+                let baseFont = (value as? NSFont) ?? fonts.body
                 var font = NSFontManager.shared.convert(baseFont, toHaveTrait: traits)
 
                 // IBM Plex Sans ships no Bold member, so NSFontManager hands the
@@ -913,159 +1064,13 @@ struct MarkdownNSTextView: NSViewRepresentable {
                         : emphasis
                 }
 
-                storage.addAttribute(.font, value: font, range: range)
+                replacements.append((font, range))
+            }
+            for (font, range) in replacements {
+                styled.addAttribute(.font, value: font, range: range)
             }
         }
 
-        /// Apply regex pattern with distinct styles for delimiters and content.
-        private func applyPattern(
-            _ pattern: String,
-            in text: String,
-            storage: NSTextStorage,
-            contentAttributes: [NSAttributedString.Key: Any],
-            delimiterAttributes: [NSAttributedString.Key: Any],
-            hiddenDelimiterAttributes: [NSAttributedString.Key: Any],
-            cursorLocation: Int
-        ) {
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return }
-            let nsText = text as NSString
-            let fullRange = NSRange(location: 0, length: nsText.length)
-
-            regex.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
-                guard let match else { return }
-                let isEditingMatch = self.rangeContainsCursor(match.range, cursorLocation: cursorLocation)
-                let tokenAttributes = isEditingMatch ? delimiterAttributes : hiddenDelimiterAttributes
-
-                if match.numberOfRanges > 1 {
-                    let contentRange = match.range(at: 1)
-                    if contentRange.location != NSNotFound {
-                        let matchStart = match.range.location
-                        let matchEnd = match.range.location + match.range.length
-                        let contentStart = contentRange.location
-                        let contentEnd = contentRange.location + contentRange.length
-
-                        // Apply token style/hiding only to delimiter regions so content keeps normal glyph metrics.
-                        if contentStart > matchStart {
-                            storage.addAttributes(
-                                tokenAttributes,
-                                range: NSRange(location: matchStart, length: contentStart - matchStart)
-                            )
-                        }
-                        if contentEnd < matchEnd {
-                            storage.addAttributes(
-                                tokenAttributes,
-                                range: NSRange(location: contentEnd, length: matchEnd - contentEnd)
-                            )
-                        }
-
-                        // Group 1 (content) — apply content style on top.
-                        storage.addAttributes(contentAttributes, range: contentRange)
-                        return
-                    }
-                }
-
-                // Fallback for patterns without a captured content group.
-                storage.addAttributes(tokenAttributes, range: match.range)
-            }
-        }
-
-        /// Apply heading pattern — line-level with # prefix styling.
-        private func applyHeadingLinePattern(
-            in text: String,
-            storage: NSTextStorage,
-            cursorLocation: Int,
-            prefixAttributes: [NSAttributedString.Key: Any],
-            hiddenPrefixAttributes: [NSAttributedString.Key: Any],
-            h1Attributes: [NSAttributedString.Key: Any],
-            h2Attributes: [NSAttributedString.Key: Any],
-            h3Attributes: [NSAttributedString.Key: Any],
-            proseParagraph: NSParagraphStyle?
-        ) {
-            guard let regex = try? NSRegularExpression(pattern: #"^(#{1,6})(\s*)(.*)$"#, options: [.anchorsMatchLines]) else { return }
-            let nsText = text as NSString
-            let fullRange = NSRange(location: 0, length: nsText.length)
-
-            regex.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
-                guard let match, match.numberOfRanges >= 4 else { return }
-
-                let prefixRange = match.range(at: 1)
-                let spacingRange = match.range(at: 2)
-                let contentRange = match.range(at: 3)
-                let isEditingLine = self.rangeContainsCursor(match.range, cursorLocation: cursorLocation)
-                let effectivePrefixAttrs = isEditingLine ? prefixAttributes : hiddenPrefixAttributes
-
-                if prefixRange.location != NSNotFound {
-                    storage.addAttributes(effectivePrefixAttrs, range: prefixRange)
-                }
-                if spacingRange.location != NSNotFound {
-                    storage.addAttributes(effectivePrefixAttrs, range: spacingRange)
-                }
-
-                guard contentRange.location != NSNotFound else { return }
-                let prefix = nsText.substring(with: prefixRange)
-                let level = prefix.count
-                let contentAttrs: [NSAttributedString.Key: Any]
-                switch level {
-                case 1, 4, 5, 6: contentAttrs = h1Attributes
-                case 2: contentAttrs = h2Attributes
-                default: contentAttrs = h3Attributes
-                }
-                storage.addAttributes(contentAttrs, range: contentRange)
-
-                // Keep heading paragraph spacing even for empty heading lines.
-                if let proseParagraph {
-                    storage.addAttribute(.paragraphStyle, value: proseParagraph, range: match.range)
-                }
-            }
-        }
-
-        private func applyPrefixLinePattern(
-            _ pattern: String,
-            in text: String,
-            storage: NSTextStorage,
-            cursorLocation: Int,
-            prefixAttributes: [NSAttributedString.Key: Any],
-            hiddenPrefixAttributes: [NSAttributedString.Key: Any],
-            contentAttributes: [NSAttributedString.Key: Any],
-            prefixMarkerAttributes: [NSAttributedString.Key: Any] = [:],
-            lineTransform: (NSParagraphStyle, Bool) -> NSParagraphStyle
-        ) {
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines]) else { return }
-            let fullRange = NSRange(location: 0, length: (text as NSString).length)
-
-            regex.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
-                guard let match, match.numberOfRanges >= 3 else { return }
-
-                let prefixRange = match.range(at: 1)
-                let contentRange = match.range(at: 2)
-                let lineRange = match.range
-                let isEditingPrefix = prefixRange.location != NSNotFound
-                    && cursorLocation >= prefixRange.location
-                    && cursorLocation <= (prefixRange.location + prefixRange.length)
-                let effectivePrefixAttrs = isEditingPrefix ? prefixAttributes : hiddenPrefixAttributes
-
-                if prefixRange.location != NSNotFound {
-                    storage.addAttributes(effectivePrefixAttrs, range: prefixRange)
-                    if !prefixMarkerAttributes.isEmpty {
-                        storage.addAttributes(prefixMarkerAttributes, range: prefixRange)
-                    }
-                }
-                if contentRange.location != NSNotFound {
-                    storage.addAttributes(contentAttributes, range: contentRange)
-                }
-
-                let existingStyle = (storage.attribute(.paragraphStyle, at: lineRange.location, effectiveRange: nil) as? NSParagraphStyle)
-                    ?? NSParagraphStyle.default
-                let updatedStyle = lineTransform(existingStyle, isEditingPrefix)
-                storage.addAttribute(.paragraphStyle, value: updatedStyle, range: lineRange)
-            }
-        }
-
-        private func rangeContainsCursor(_ range: NSRange, cursorLocation: Int) -> Bool {
-            if range.location == NSNotFound { return false }
-            let upperBound = range.location + range.length
-            return cursorLocation >= range.location && cursorLocation <= upperBound
-        }
 
         private func quoteParagraphStyle(from baseStyle: NSParagraphStyle, isProse: Bool) -> NSParagraphStyle {
             let style = baseStyle.mutableCopy() as! NSMutableParagraphStyle
@@ -1088,9 +1093,15 @@ struct MarkdownNSTextView: NSViewRepresentable {
             return style
         }
 
-        // MARK: - Keyboard Shortcuts
+        // MARK: - Keyboard
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            // An open popup takes the navigation keys before the text does.
+            if let assistKey = assistKey(for: commandSelector),
+               parent.onAssistKey?(assistKey) == true {
+                return true
+            }
+
             guard commandSelector == #selector(NSResponder.insertNewline(_:)) else {
                 return false
             }
@@ -1102,20 +1113,25 @@ struct MarkdownNSTextView: NSViewRepresentable {
             let lineRange = nsText.lineRange(for: NSRange(location: safeLocation, length: 0))
             let lineWithLineBreak = nsText.substring(with: lineRange)
             let line = lineWithLineBreak.trimmingCharacters(in: .newlines)
+            // Return on an item with nothing in it ends the list: the marker
+            // goes, and the caret stays on the now-plain line.
+            let markerOnlyRange = NSRange(location: lineRange.location, length: (line as NSString).length)
 
-            if let listLine = parseListLine(line) {
-                let isEmptyItem = listLine.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                if isEmptyItem {
-                    textView.insertText("\n", replacementRange: selected)
+            if line.count > 1, let listLine = parseListLine(line) {
+                let task = taskMarkerPrefix(of: listLine.content)
+                let body = task.map { String(listLine.content.dropFirst($0.count)) } ?? listLine.content
+                if body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    textView.insertText("", replacementRange: markerOnlyRange)
                 } else {
-                    textView.insertText("\n\(listLine.marker)\(listLine.spacer)", replacementRange: selected)
+                    let nextTask = task == nil ? "" : "[ ] "
+                    textView.insertText("\n\(listLine.marker)\(listLine.spacer)\(nextTask)", replacementRange: selected)
                 }
                 return true
             }
             if let orderedLine = parseOrderedLine(line) {
                 let isEmptyItem = orderedLine.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 if isEmptyItem {
-                    textView.insertText("\n", replacementRange: selected)
+                    textView.insertText("", replacementRange: markerOnlyRange)
                 } else {
                     textView.insertText(
                         "\n\(orderedLine.indent)\(orderedLine.number + 1)\(orderedLine.delimiter)\(orderedLine.spacer)",
@@ -1127,13 +1143,34 @@ struct MarkdownNSTextView: NSViewRepresentable {
             if let quoteLine = parseQuoteLine(line) {
                 let isEmptyQuote = quoteLine.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 if isEmptyQuote {
-                    textView.insertText("\n", replacementRange: selected)
+                    textView.insertText("", replacementRange: markerOnlyRange)
                 } else {
                     textView.insertText("\n>\(quoteLine.spacer)", replacementRange: selected)
                 }
                 return true
             }
             return false
+        }
+
+        private func assistKey(for commandSelector: Selector) -> EditorAssistKey? {
+            if commandSelector == #selector(NSResponder.moveDown(_:)) { return .down }
+            if commandSelector == #selector(NSResponder.moveUp(_:)) { return .up }
+            if commandSelector == #selector(NSResponder.insertNewline(_:))
+                || commandSelector == #selector(NSResponder.insertTab(_:)) {
+                return .commit
+            }
+            if commandSelector == #selector(NSResponder.cancelOperation(_:)) { return .cancel }
+            return nil
+        }
+
+        /// `[ ] ` / `[x] ` at the start of a list item's content, or the bare
+        /// marker when nothing follows it yet.
+        private func taskMarkerPrefix(of content: String) -> String? {
+            for marker in ["[ ]", "[x]", "[X]"] {
+                if content == marker { return marker }
+                if content.hasPrefix(marker + " ") { return marker + " " }
+            }
+            return nil
         }
 
         private func parseOrderedLine(
@@ -1168,31 +1205,214 @@ struct MarkdownNSTextView: NSViewRepresentable {
     }
 }
 
+// MARK: - Style Cache
+
+/// A parse of the note plus the table that turns the parser's offsets into
+/// the text view's.
+///
+/// `MarkdownDocument` counts in characters; NSTextStorage counts in UTF-16
+/// units. They agree until the first emoji. Converting by walking the string
+/// from its start for every range made styling quadratic in the length of the
+/// note, so the table is built once per text change and each conversion is a
+/// lookup.
+private struct StyleCache {
+    let source: String
+    let document: MarkdownDocument
+    /// `utf16Offsets[i]` is the UTF-16 offset of character `i`; the final
+    /// entry is the length of the text.
+    private let utf16Offsets: [Int]
+
+    init(source: String) {
+        self.source = source
+        document = MarkdownDocument(source)
+
+        var offsets: [Int] = []
+        offsets.reserveCapacity(source.utf16.count + 1)
+        var offset = 0
+        for character in source {
+            offsets.append(offset)
+            offset += character.utf16.count
+        }
+        offsets.append(offset)
+        utf16Offsets = offsets
+    }
+
+    func nsRange(for characterRange: Range<Int>) -> NSRange? {
+        guard characterRange.lowerBound >= 0,
+              characterRange.upperBound < utf16Offsets.count else { return nil }
+        let lower = utf16Offsets[characterRange.lowerBound]
+        let upper = utf16Offsets[characterRange.upperBound]
+        return NSRange(location: lower, length: upper - lower)
+    }
+
+    /// The character a UTF-16 offset falls in (or sits in front of).
+    func characterOffset(forUTF16 location: Int) -> Int {
+        var low = 0
+        var high = utf16Offsets.count - 1
+        while low < high {
+            let mid = (low + high + 1) / 2
+            if utf16Offsets[mid] <= location {
+                low = mid
+            } else {
+                high = mid - 1
+            }
+        }
+        return low
+    }
+}
+
+// MARK: - Editor Fonts
+
+/// The faces and default attributes for one body size, resolved once: styling
+/// runs on every keystroke, and stable instances keep the attribute diff exact.
+private struct EditorFonts {
+    let size: CGFloat
+    let body: NSFont
+    let mono: NSFont
+    /// A 0.1pt face: hidden delimiters keep their characters but lose their width.
+    let collapsed: NSFont
+    let defaultAttributes: [NSAttributedString.Key: Any]
+    private let headingLarge: NSFont
+    private let headingMedium: NSFont
+    private let headingSmall: NSFont
+
+    /// The note writer and reflections set prose at 18pt with generous
+    /// leading; the boxed editor does not.
+    var isProse: Bool { size >= 17 }
+
+    @MainActor
+    init(size: CGFloat) {
+        self.size = size
+        let monoSize = MarkdownTypeSpec.monoSize(forBodySize: size)
+        let body = NSFont(name: MarkdownTypeSpec.FontName.body, size: size) ?? NSFont.systemFont(ofSize: size)
+        self.body = body
+        mono = NSFont(name: MarkdownTypeSpec.FontName.mono, size: monoSize)
+            ?? NSFont.monospacedSystemFont(ofSize: monoSize, weight: .regular)
+        collapsed = NSFont.systemFont(ofSize: 0.1)
+
+        func heading(_ level: Int) -> NSFont {
+            let headingSize = MarkdownTypeSpec.headingSize(forLevel: level, bodySize: size)
+            return NSFont(name: MarkdownTypeSpec.FontName.heading, size: headingSize)
+                ?? NSFont.systemFont(ofSize: headingSize, weight: .medium)
+        }
+        headingLarge = heading(1)
+        headingMedium = heading(2)
+        headingSmall = heading(3)
+
+        var attributes: [NSAttributedString.Key: Any] = [
+            .font: body,
+            .foregroundColor: EditorInk.primary,
+        ]
+        if size >= 17 {
+            let style = NSMutableParagraphStyle()
+            style.lineSpacing = MarkdownTypeSpec.proseLineSpacing
+            style.paragraphSpacing = MarkdownTypeSpec.proseParagraphSpacing
+            attributes[.paragraphStyle] = style
+        }
+        defaultAttributes = attributes
+    }
+
+    /// Levels 4–6 share the largest face, as they always have here.
+    func heading(level: Int) -> NSFont {
+        switch level {
+        case 2: return headingMedium
+        case 3: return headingSmall
+        default: return headingLarge
+        }
+    }
+}
+
 // MARK: - HighlightingTextView
 
-/// Custom NSTextView subclass that handles formatting keyboard shortcuts.
+/// Custom NSTextView subclass: formatting shortcuts, the drawn parts of the
+/// markdown (bullets, quote rails, dividers), and the clicks that act on it
+/// (task checkboxes, ⌘-click on links).
 class HighlightingTextView: NSTextView {
     static weak var focusedEditor: HighlightingTextView?
+
+    var onFocusChange: ((Bool) -> Void)?
+    /// ⌘-click on a link: `wiki:<title>` or a URL string.
+    var onOpenLink: ((String) -> Void)?
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         drawMarkdownQuoteRails(in: dirtyRect)
         drawMarkdownListBullets(in: dirtyRect)
+        drawMarkdownDividers(in: dirtyRect)
     }
 
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
         if accepted {
             Self.focusedEditor = self
+            onFocusChange?(true)
         }
         return accepted
     }
 
     override func resignFirstResponder() -> Bool {
-        if Self.focusedEditor === self {
-            Self.focusedEditor = nil
+        let resigned = super.resignFirstResponder()
+        if resigned {
+            if Self.focusedEditor === self {
+                Self.focusedEditor = nil
+            }
+            onFocusChange?(false)
         }
-        return super.resignFirstResponder()
+        return resigned
+    }
+
+    // MARK: - Clicks
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if let index = characterIndex(under: point), let storage = textStorage {
+            // A click on `[ ]` / `[x]` ticks the task instead of moving the caret.
+            var markerRange = NSRange(location: 0, length: 0)
+            if storage.attribute(
+                .groveTaskMarker,
+                at: index,
+                longestEffectiveRange: &markerRange,
+                in: NSRange(location: 0, length: storage.length)
+            ) is Bool, markerRange.length == 3 {
+                toggleTaskMarker(in: markerRange)
+                return
+            }
+
+            if event.modifierFlags.contains(.command),
+               let target = storage.attribute(.groveLink, at: index, effectiveRange: nil) as? String {
+                onOpenLink?(target)
+                return
+            }
+        }
+        super.mouseDown(with: event)
+    }
+
+    /// The character whose glyph is under `point`, or nil when the point is
+    /// in a margin or past the end of a line.
+    private func characterIndex(under point: NSPoint) -> Int? {
+        guard let layoutManager, let textContainer, let textStorage, textStorage.length > 0 else { return nil }
+        let origin = textContainerOrigin
+        let containerPoint = NSPoint(x: point.x - origin.x, y: point.y - origin.y)
+        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer)
+        guard glyphIndex < layoutManager.numberOfGlyphs else { return nil }
+        let glyphRect = layoutManager.boundingRect(
+            forGlyphRange: NSRange(location: glyphIndex, length: 1),
+            in: textContainer
+        )
+        guard glyphRect.contains(containerPoint) else { return nil }
+        let index = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        return index < textStorage.length ? index : nil
+    }
+
+    private func toggleTaskMarker(in markerRange: NSRange) {
+        guard let textStorage, markerRange.length == 3 else { return }
+        let stateRange = NSRange(location: markerRange.location + 1, length: 1)
+        let isChecked = (textStorage.string as NSString).substring(with: stateRange) != " "
+        let replacement = isChecked ? " " : "x"
+        if shouldChangeText(in: stateRange, replacementString: replacement) {
+            textStorage.replaceCharacters(in: stateRange, with: replacement)
+            didChangeText()
+        }
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -1244,7 +1464,7 @@ class HighlightingTextView: NSTextView {
 
         let selection = selectedRange()
         let textOrigin = textContainerOrigin
-        let markerColor = NSColor.secondaryLabelColor.withAlphaComponent(0.9)
+        let markerColor = EditorInk.secondary
         let baseSize = font?.pointSize ?? 15
         let bulletSize: CGFloat = baseSize >= 17 ? 5.4 : 4.6
         let fullRange = NSRange(location: 0, length: storage.length)
@@ -1289,9 +1509,10 @@ class HighlightingTextView: NSTextView {
         let nsText = storage.string as NSString
         let selection = selectedRange()
         let textOrigin = textContainerOrigin
-        let railColor = NSColor.tertiaryLabelColor.withAlphaComponent(0.72)
+        let railColor = EditorInk.rule
         let baseSize = font?.pointSize ?? 15
-        let railWidth: CGFloat = baseSize >= 17 ? 1.0 : 0.85
+        // Matches the 2pt rule the rendered view draws beside a quote.
+        let railWidth: CGFloat = baseSize >= 17 ? 2.0 : 1.5
         let fullRange = NSRange(location: 0, length: storage.length)
 
         struct QuoteLinePrefix {
@@ -1367,6 +1588,40 @@ class HighlightingTextView: NSTextView {
 
             railColor.setFill()
             NSBezierPath(roundedRect: railRect, xRadius: railWidth / 2, yRadius: railWidth / 2).fill()
+        }
+    }
+
+    /// A hidden `---` line is drawn as a hairline across the measure. With
+    /// the caret on the line the dashes show instead, so it can be edited.
+    private func drawMarkdownDividers(in dirtyRect: NSRect) {
+        guard
+            let storage = textStorage,
+            let layoutManager = layoutManager,
+            let textContainer = textContainer,
+            storage.length > 0
+        else { return }
+
+        let textOrigin = textContainerOrigin
+        let padding = textContainer.lineFragmentPadding
+        let fullRange = NSRange(location: 0, length: storage.length)
+
+        storage.enumerateAttribute(.groveDivider, in: fullRange, options: []) { value, range, _ in
+            guard let isDivider = value as? Bool, isDivider, range.length > 0 else { return }
+
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            guard glyphRange.length > 0, glyphRange.location != NSNotFound else { return }
+
+            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+            let ruleRect = NSRect(
+                x: textOrigin.x + lineRect.minX + padding,
+                y: (textOrigin.y + lineRect.midY).rounded() - 0.5,
+                width: max(0, lineRect.width - padding * 2),
+                height: 1
+            )
+            guard ruleRect.intersects(dirtyRect) else { return }
+
+            EditorInk.rule.setFill()
+            ruleRect.fill()
         }
     }
 
@@ -1603,6 +1858,32 @@ class HighlightingTextView: NSTextView {
         }
     }
 
+    /// Swaps the `/query` in front of the caret for the markdown a block
+    /// command stands for.
+    func replaceActiveSlashQuery(with insertion: String, cursorOffset: Int = 0) {
+        let selectedRange = selectedRange()
+        guard selectedRange.length == 0, let textStorage else { return }
+
+        let nsText = string as NSString
+        let caret = min(selectedRange.location, nsText.length)
+        let lineStart = nsText.lineRange(for: NSRange(location: caret, length: 0)).location
+        let linePrefix = nsText.substring(with: NSRange(location: lineStart, length: caret - lineStart))
+        guard let detected = EditorAssistTrigger.detect(linePrefix: linePrefix),
+              detected.trigger.isSlash,
+              detected.tokenLength <= caret - lineStart else { return }
+
+        let replacementRange = NSRange(location: caret - detected.tokenLength, length: detected.tokenLength)
+        let insertedLength = (insertion as NSString).length
+
+        if shouldChangeText(in: replacementRange, replacementString: insertion) {
+            textStorage.replaceCharacters(in: replacementRange, with: insertion)
+            didChangeText()
+            let end = replacementRange.location + insertedLength
+            let cursor = min(max(end + cursorOffset, replacementRange.location), end)
+            setSelectedRange(NSRange(location: cursor, length: 0))
+        }
+    }
+
     private func selectedLineBlockRange(in text: NSString, selection: NSRange) -> NSRange {
         let startLineRange = text.lineRange(for: NSRange(location: selection.location, length: 0))
         let endAnchor: Int
@@ -1646,11 +1927,19 @@ struct RichMarkdownEditor: View {
     var sourceItem: Item?
     var minHeight: CGFloat = 80
     var proseMode: Bool = false
+    /// A host that needs to reach the caret passes its own proxy.
+    var proxy: MarkdownEditingProxy? = nil
+    /// Accepted for parity with macOS, which shows it in a folio line; the
+    /// iOS editor has no such line.
+    var status: String? = nil
+    /// Accepted for parity with macOS (⌘-click on a wiki link).
+    var onNavigateToItem: ((Item) -> Void)? = nil
 
     @Environment(\.modelContext) private var modelContext
     @Query private var allItems: [Item]
 
-    @State private var editingProxy = MarkdownEditingProxy()
+    @State private var ownedProxy = MarkdownEditingProxy()
+    private var editingProxy: MarkdownEditingProxy { proxy ?? ownedProxy }
     @State private var showWikiPopover = false
     @State private var wikiSearchText = ""
 
@@ -1846,13 +2135,12 @@ struct RichMarkdownEditor: View {
                 .frame(maxHeight: 150)
             }
         }
-        .background(.background)
+        .background(Color.bgCard)
         .clipShape(RoundedRectangle(cornerRadius: Radius.control))
         .overlay(
             RoundedRectangle(cornerRadius: Radius.control)
                 .stroke(Color.borderPrimary, lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
     }
 
     private func insertWikiLink(for target: Item) {
