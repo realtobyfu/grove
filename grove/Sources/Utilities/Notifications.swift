@@ -4,8 +4,9 @@ import SwiftData
 extension Notification.Name {
     static let groveNewNote = Notification.Name("groveNewNote")
     static let groveNewBoard = Notification.Name("groveNewBoard")
-    /// Toggles the library-wide search overlay — always, wherever the user is.
-    /// ⌘⇧F and the sidebar's search field post it. ⌘F posts `groveFind`.
+    /// Goes to the Library and focuses its find field, wherever the user is.
+    /// ⌘⇧F and the sidebar's search field post it. ⌘F posts `groveFind`,
+    /// which outside a reader opens the quick search overlay instead.
     static let groveToggleSearch = Notification.Name("groveToggleSearch")
     static let groveToggleInspector = Notification.Name("groveToggleInspector")
     static let groveCaptureBar = Notification.Name("groveCaptureBar")

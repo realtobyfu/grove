@@ -50,17 +50,18 @@ struct ContentViewNotificationHandlers: ViewModifier {
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveFind)) { _ in
                 // ⌘F: the one place that decides between the open reader's
-                // find bar and library search.
+                // find bar and the quick search overlay.
                 switch viewModel.findShortcutTarget {
                 case .article:
                     NotificationCenter.default.post(name: .groveFindInArticle, object: nil)
                 case .library:
-                    toggleLibrarySearch()
+                    toggleSearchOverlay()
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveToggleSearch)) { _ in
-                // ⌘⇧F and the sidebar's search field: always the library.
-                toggleLibrarySearch()
+                // ⌘⇧F and the sidebar's search field: the Library's own find
+                // field, from wherever the window is.
+                focusLibraryFind()
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveToggleInspector)) { _ in
                 viewModel.toggleInspector()
@@ -134,11 +135,25 @@ struct ContentViewNotificationHandlers: ViewModifier {
             }
     }
 
-    private func toggleLibrarySearch() {
+    /// The quick search overlay: jump to an item, board or tag by keyboard.
+    private func toggleSearchOverlay() {
         withAnimation(.easeOut(duration: 0.2)) {
             if !viewModel.showSearch { viewModel.showCaptureOverlay = false }
             viewModel.showSearch.toggle()
         }
+    }
+
+    /// Go to the Library and put the keyboard in its find field. The request
+    /// is held briefly by the field, so it still lands when the Library is
+    /// only now coming on screen.
+    private func focusLibraryFind() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            viewModel.showSearch = false
+            viewModel.showCaptureOverlay = false
+        }
+        viewModel.selection = .library
+        viewModel.openedItem = nil
+        NotificationCenter.default.postFocusLibrarySearch()
     }
 
     /// "New Note": a blank note, open as a page, in the board being looked at.
