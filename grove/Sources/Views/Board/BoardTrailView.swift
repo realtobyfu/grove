@@ -27,6 +27,8 @@ struct BoardTrailView: View {
     /// Wide enough for the longest type label ("LECTURE") in the tracked
     /// section-header face.
     @ScaledMetric(relativeTo: .caption) private var typeColumnWidth: CGFloat = 60
+    /// The same column when the type is marked with a symbol (Grove).
+    @ScaledMetric(relativeTo: .caption) private var glyphColumnWidth: CGFloat = 20
 
     var body: some View {
         ScrollView {
@@ -89,10 +91,13 @@ struct BoardTrailView: View {
                     .foregroundStyle(Color.textMuted)
                     .frame(width: numberColumnWidth, alignment: .trailing)
 
-                Text(BoardTrail.typeLabel(for: item))
-                    .sectionHeaderStyle()
-                    .lineLimit(1)
-                    .frame(width: typeColumnWidth, alignment: .leading)
+                // A symbol in Grove, a word in Commonplace; the column is
+                // as wide as whichever the theme sets.
+                ItemTypeMark(type: item.type, label: BoardTrail.typeLabel(for: item))
+                    .frame(
+                        width: ThemeStore.shared.theme.usesGlyphs ? glyphColumnWidth : typeColumnWidth,
+                        alignment: .leading
+                    )
 
                 Text(item.title)
                     .font(.groveListTitle)
@@ -203,7 +208,8 @@ struct BoardTrailView: View {
         .padding(.vertical, Spacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
         .selectedItemStyle(selectedItem?.id == item.id)
-        .cardStyle()
+        // A card in Grove; between two rules in Commonplace.
+        .entryStyle()
         .contextMenu { itemContextMenu(item) }
         // Notes hang from the type column, clear of the running numbers.
         .padding(.leading, Spacing.sm + numberColumnWidth + Spacing.md)
