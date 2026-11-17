@@ -11,13 +11,18 @@ final class BoardViewModel {
         self.modelContext = modelContext
     }
 
-    func createBoard(title: String, icon: String?) {
+    /// `color` is a bare hex from `BoardColor`; `nil` leaves a new board in
+    /// plain ink and an existing board of the same name as it was.
+    func createBoard(title: String, icon: String?, color: String? = nil) {
         let cleanedTitle = BoardSuggestionEngine.cleanedBoardName(title)
         guard !cleanedTitle.isEmpty else { return }
 
         if let existingBoard = fetchBoard(withTitle: cleanedTitle) {
             if let icon, !icon.isEmpty {
                 existingBoard.icon = icon
+            }
+            if let color {
+                existingBoard.color = color
             }
             // A not-yet-migrated smart board keeps the items its rule matched.
             SmartBoardMigrationService.migrate(existingBoard, context: modelContext)
@@ -26,18 +31,24 @@ final class BoardViewModel {
         }
 
         let maxSortOrder = fetchMaxSortOrder()
-        let board = Board(title: cleanedTitle, icon: icon)
+        let board = Board(title: cleanedTitle, icon: icon, color: color)
         board.sortOrder = maxSortOrder + 1
         modelContext.insert(board)
         try? modelContext.save()
     }
 
-    func updateBoard(_ board: Board, title: String, icon: String?) {
+    /// `color` is the editor's choice and is stored as given: `nil` clears it.
+    func updateBoard(_ board: Board, title: String, icon: String?, color: String?) {
         let cleanedTitle = BoardSuggestionEngine.cleanedBoardName(title)
         guard !cleanedTitle.isEmpty else { return }
 
         board.title = cleanedTitle
         board.icon = icon
+        // An unchanged colour keeps its stored spelling, so saving an edit
+        // doesn't rewrite (and re-sync) a value the user never touched.
+        if BoardColor.normalized(board.color) != BoardColor.normalized(color) {
+            board.color = color
+        }
         // A not-yet-migrated smart board keeps the items its rule matched.
         SmartBoardMigrationService.migrate(board, context: modelContext)
         try? modelContext.save()

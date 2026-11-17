@@ -742,7 +742,7 @@ struct GroveTests {
         try context.save()
 
         let viewModel = BoardViewModel(modelContext: context)
-        viewModel.updateBoard(board, title: "Swift reading", icon: nil)
+        viewModel.updateBoard(board, title: "Swift reading", icon: nil, color: nil)
 
         #expect(board.title == "Swift reading")
         #expect(board.items.map(\.id) == [matched.id])

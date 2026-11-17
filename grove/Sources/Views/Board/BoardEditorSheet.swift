@@ -5,24 +5,29 @@ struct BoardEditorSheet: View {
 
     @State private var title: String
     @State private var selectedIcon: String
+    /// Bare hex from `BoardColor`, or `nil` for a plain ink icon.
+    @State private var selectedColorHex: String?
 
     private let isEditing: Bool
-    private let onSave: (String, String?) -> Void
+    /// Title, icon, colour.
+    private let onSave: (String, String?, String?) -> Void
 
     private static let defaultIcon = "folder"
 
     init(
         board: Board? = nil,
-        onSave: @escaping (String, String?) -> Void
+        onSave: @escaping (String, String?, String?) -> Void
     ) {
         if let board {
             self.isEditing = true
             _title = State(initialValue: board.title)
             _selectedIcon = State(initialValue: board.icon ?? Self.defaultIcon)
+            _selectedColorHex = State(initialValue: BoardColor.normalized(board.color))
         } else {
             self.isEditing = false
             _title = State(initialValue: "")
             _selectedIcon = State(initialValue: Self.defaultIcon)
+            _selectedColorHex = State(initialValue: nil)
         }
         self.onSave = onSave
     }
@@ -42,6 +47,10 @@ struct BoardEditorSheet: View {
                 Section("Icon") {
                     iconPicker
                 }
+
+                Section("Color") {
+                    colorPicker
+                }
             }
             .formStyle(.grouped)
             .scrollContentBackground(.hidden)
@@ -49,7 +58,7 @@ struct BoardEditorSheet: View {
             Divider()
             footer
         }
-        .frame(width: 420, height: 400)
+        .frame(width: 420, height: 500)
         #else
         NavigationStack {
             Form {
@@ -60,6 +69,10 @@ struct BoardEditorSheet: View {
 
                 Section("Icon") {
                     iconPicker
+                }
+
+                Section("Color") {
+                    colorPicker
                 }
             }
             .scrollContentBackground(.hidden)
@@ -111,7 +124,7 @@ struct BoardEditorSheet: View {
     private var confirmButton: some View {
         Button(isEditing ? "Save" : "Create") {
             let icon = selectedIcon.isEmpty ? nil : selectedIcon
-            onSave(title, icon)
+            onSave(title, icon, selectedColorHex)
             dismiss()
         }
         .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -141,9 +154,9 @@ struct BoardEditorSheet: View {
     private let iconColumns = [GridItem(.adaptive(minimum: LayoutDimensions.minTouchTarget), spacing: Spacing.xs)]
     #endif
 
-    /// Icons read in ink, never in color. The selected one steps up to full
-    /// ink inside a 3pt-radius outline — the same weight-and-rule hierarchy
-    /// the rest of the app uses instead of a tint.
+    /// The selected icon steps up inside a 3pt-radius outline — the same
+    /// weight-and-rule hierarchy the rest of the app uses — and previews the
+    /// board's colour; the others stay in secondary ink.
     private var iconPicker: some View {
         LazyVGrid(columns: iconColumns, spacing: iconGridSpacing) {
             ForEach(Self.iconOptions, id: \.self) { icon in
@@ -153,7 +166,7 @@ struct BoardEditorSheet: View {
                 } label: {
                     Image(systemName: icon)
                         .font(.system(size: 16, weight: isSelected ? .medium : .regular))
-                        .foregroundStyle(isSelected ? Color.textPrimary : Color.textSecondary)
+                        .foregroundStyle(isSelected ? (selectedTint ?? Color.textPrimary) : Color.textSecondary)
                         .frame(width: iconCellSize, height: iconCellSize)
                         .overlay(
                             RoundedRectangle(cornerRadius: Radius.tag)
@@ -166,5 +179,65 @@ struct BoardEditorSheet: View {
                 .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
             }
         }
+    }
+
+    // MARK: - Color Picker
+
+    private var selectedTint: Color? {
+        BoardColor.color(for: selectedColorHex)
+    }
+
+    /// The palette, plus the board's current colour when it isn't one of the
+    /// palette's (an imported board, say), so editing never drops it unasked.
+    private var colorOptions: [BoardColor.Option] {
+        guard let selectedColorHex,
+              !BoardColor.options.contains(where: { $0.hex == selectedColorHex }) else {
+            return BoardColor.options
+        }
+        return BoardColor.options + [BoardColor.Option(hex: selectedColorHex, name: "Custom")]
+    }
+
+    /// "None" first — plain ink, and what a new board starts with — then the
+    /// swatches. Selection uses the icon picker's outline.
+    private var colorPicker: some View {
+        LazyVGrid(columns: iconColumns, spacing: iconGridSpacing) {
+            colorCell(name: "None", isSelected: selectedColorHex == nil) {
+                selectedColorHex = nil
+            } swatch: {
+                Image(systemName: "circle.slash")
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(Color.textSecondary)
+            }
+
+            ForEach(colorOptions) { option in
+                colorCell(name: option.name, isSelected: selectedColorHex == option.hex) {
+                    selectedColorHex = option.hex
+                } swatch: {
+                    Circle()
+                        .fill(BoardColor.color(for: option.hex) ?? Color.textSecondary)
+                        .frame(width: 16, height: 16)
+                }
+            }
+        }
+    }
+
+    private func colorCell<Swatch: View>(
+        name: String,
+        isSelected: Bool,
+        action: @escaping () -> Void,
+        @ViewBuilder swatch: () -> Swatch
+    ) -> some View {
+        Button(action: action) {
+            swatch()
+                .frame(width: iconCellSize, height: iconCellSize)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Radius.tag)
+                        .stroke(Color.textPrimary, lineWidth: isSelected ? 1 : 0)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(name)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 }

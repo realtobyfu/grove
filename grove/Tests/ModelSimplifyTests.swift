@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import SwiftUI
 import Testing
 @testable import grove
 
@@ -125,15 +126,41 @@ struct ModelSimplifyTests {
 
     // MARK: - Board colour
 
-    @Test func editingABoardLeavesItsStoredColorAlone() throws {
+    @Test func editingABoardStoresTheChosenColor() throws {
+        let context = try makeContext()
+        let board = Board(title: "Moss", icon: "leaf", color: "34C759")
+        context.insert(board)
+
+        BoardViewModel(modelContext: context).updateBoard(board, title: "Lichen", icon: "star", color: "FF9500")
+
+        #expect(board.title == "Lichen")
+        #expect(board.icon == "star")
+        #expect(board.color == "FF9500")
+    }
+
+    @Test func editingABoardCanClearItsColor() throws {
+        let context = try makeContext()
+        let board = Board(title: "Moss", icon: "leaf", color: "34C759")
+        context.insert(board)
+
+        BoardViewModel(modelContext: context).updateBoard(board, title: "Moss", icon: "leaf", color: nil)
+
+        #expect(board.color == nil)
+    }
+
+    @Test func editingABoardWithTheSameColorKeepsItsStoredSpelling() throws {
         let context = try makeContext()
         let board = Board(title: "Moss", icon: "leaf", color: "#336644")
         context.insert(board)
 
-        BoardViewModel(modelContext: context).updateBoard(board, title: "Lichen", icon: "star")
+        // The editor hands back the normalized form of what it was given.
+        BoardViewModel(modelContext: context).updateBoard(
+            board,
+            title: "Lichen",
+            icon: "star",
+            color: BoardColor.normalized(board.color)
+        )
 
-        #expect(board.title == "Lichen")
-        #expect(board.icon == "star")
         #expect(board.color == "#336644")
     }
 
@@ -157,6 +184,26 @@ struct ModelSimplifyTests {
 
         let board = try #require(try context.fetch(FetchDescriptor<Board>()).first)
         #expect(board.color == nil)
+    }
+
+    @Test func newBoardStoresTheChosenColor() throws {
+        let context = try makeContext()
+
+        BoardViewModel(modelContext: context).createBoard(title: "Moss", icon: "leaf", color: "34C759")
+
+        let board = try #require(try context.fetch(FetchDescriptor<Board>()).first)
+        #expect(board.color == "34C759")
+    }
+
+    @Test func boardColorAcceptsBothStoredSpellingsAndRejectsNonColors() {
+        #expect(BoardColor.normalized("#336644") == "336644")
+        #expect(BoardColor.normalized("34c759") == "34C759")
+        #expect(BoardColor.normalized(nil) == nil)
+        #expect(BoardColor.normalized("") == nil)
+        #expect(BoardColor.normalized("green") == nil)
+        #expect(BoardColor.color(for: "34C759") != nil)
+        #expect(BoardColor.color(for: "not a color") == nil)
+        #expect(Board(title: "Moss").iconTint == nil)
     }
 
     // MARK: - Helpers

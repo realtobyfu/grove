@@ -83,16 +83,16 @@ struct SidebarView: View {
         }
         .sheet(isPresented: $showNewBoardSheet) {
             BoardEditorSheet(
-                onSave: { title, icon in
-                    viewModel.createBoard(title: title, icon: icon)
+                onSave: { title, icon, color in
+                    viewModel.createBoard(title: title, icon: icon, color: color)
                 }
             )
         }
         .sheet(item: $boardToEdit) { board in
             BoardEditorSheet(
                 board: board,
-                onSave: { title, icon in
-                    viewModel.updateBoard(board, title: title, icon: icon)
+                onSave: { title, icon, color in
+                    viewModel.updateBoard(board, title: title, icon: icon, color: color)
                 }
             )
         }
@@ -168,6 +168,7 @@ struct SidebarView: View {
     private func boardRow(_ board: Board) -> some View {
         SidebarRow(
             icon: board.icon ?? "folder",
+            iconTint: board.iconTint,
             title: board.title,
             tier: .board,
             isSelected: selection == .board(board.id)
@@ -277,6 +278,8 @@ private struct SidebarRow: View {
     }
 
     let icon: String
+    /// A board's chosen colour. Only the icon takes it; the label stays ink.
+    var iconTint: Color? = nil
     let title: String
     var count: Int = 0
     var tier: Tier = .primary
@@ -302,7 +305,7 @@ private struct SidebarRow: View {
             HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
                 Image(systemName: icon)
                     .font(.system(size: tier == .primary ? 13 : 12, weight: .medium))
-                    .foregroundStyle(inkColor)
+                    .foregroundStyle(iconTint ?? inkColor)
                     .frame(width: 20)
 
                 Text(title)
