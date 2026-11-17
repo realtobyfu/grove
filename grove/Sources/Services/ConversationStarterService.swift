@@ -9,29 +9,22 @@ import Observation
     var isLoading: Bool { get }
     func refresh(items: [Item]) async
     func forceRefresh(items: [Item]) async
-    func bubbles(for boardID: UUID, maxResults: Int) -> [PromptBubble]
-    func refreshBoard(_ boardID: UUID, items: [Item]) async
-    func forceRefreshBoard(_ boardID: UUID, items: [Item]) async
 }
 
 // MARK: - ConversationStarterService
 
 /// Generates up to `maxBubbleCount` contextual conversation starters for Home.
 /// Delegates to `StarterContextBuilder` and `StarterLLMGenerator` for the heavy
-/// lifting; board-scoped starters additionally fall back to
-/// `StarterHeuristicGenerator`.
+/// lifting.
 /// Results are persisted to UserDefaults (TTL: 8 hours) so they appear instantly on relaunch.
 @MainActor @Observable final class ConversationStarterService: ConversationStarterServiceProtocol {
     static let shared = ConversationStarterService()
 
     private(set) var bubbles: [PromptBubble] = []
-    private(set) var boardBubbles: [UUID: [PromptBubble]] = [:]
     private(set) var isLoading: Bool = false
 
     /// Whether this service has fetched starters for the current launch.
     private var hasLoaded: Bool = false
-    /// Track which boards have been loaded this launch.
-    private var loadedBoards: Set<UUID> = []
     /// Track if we already showed the unboarded-cluster bubble this launch (show at most once).
     private(set) var didShowClusterBubble: Bool = false
 
@@ -120,57 +113,6 @@ import Observation
         await refresh(items: items)
     }
 
-    func bubbles(for boardID: UUID, maxResults: Int) -> [PromptBubble] {
-        guard maxResults > 0 else { return [] }
-        if let cached = boardBubbles[boardID] {
-            return Array(cached.prefix(maxResults))
-        }
-        // Fall back to filtering global pool
-        return Array(
-            bubbles
-                .filter { $0.boardIDs.contains(boardID) }
-                .prefix(maxResults)
-        )
-    }
-
-    /// Lazily generates board-scoped starters. Returns cached results immediately if available.
-    func refreshBoard(_ boardID: UUID, items: [Item]) async {
-        guard !loadedBoards.contains(boardID) || (boardBubbles[boardID]?.isEmpty ?? true) else { return }
-        loadedBoards.insert(boardID)
-
-        // Try loading from disk cache first
-        if let cached = Self.loadCachedBoardBubbles(for: boardID), !cached.isEmpty {
-            boardBubbles[boardID] = cached
-            return
-        }
-
-        // Generate board-specific starters
-        let boardItems = items.filter { $0.boards.contains(where: { $0.id == boardID }) }
-        let context = StarterContextBuilder.buildContext(from: boardItems)
-
-        var result: [PromptBubble] = []
-        if let llmBubbles = await generateViaLLM(context: context) {
-            result = Array(llmBubbles.prefix(Self.maxBubbleCount))
-        } else {
-            result = Array(
-                StarterHeuristicGenerator.buildBoardHeuristics(context: context, boardID: boardID)
-                    .prefix(Self.maxBubbleCount)
-            )
-        }
-
-        boardBubbles[boardID] = result
-        if !result.isEmpty {
-            Self.saveCachedBoardBubbles(result, for: boardID)
-        }
-    }
-
-    func forceRefreshBoard(_ boardID: UUID, items: [Item]) async {
-        loadedBoards.remove(boardID)
-        boardBubbles[boardID] = nil
-        Self.clearCachedBoardBubbles(for: boardID)
-        await refreshBoard(boardID, items: items)
-    }
-
     // MARK: - LLM Delegation
 
     private func generateViaLLM(context: StarterContext) async -> [PromptBubble]? {
@@ -239,53 +181,5 @@ import Observation
                 }
                 .prefix(maxBubbleCount)
         )
-    }
-
-    // MARK: - Per-Board Cache
-
-    private static func boardCacheKey(for boardID: UUID) -> String {
-        "\(cacheKey).board.\(boardID.uuidString)"
-    }
-
-    private static func saveCachedBoardBubbles(_ bubbles: [PromptBubble], for boardID: UUID) {
-        let encoded = bubbles.map {
-            CachedBubble(
-                prompt: $0.prompt,
-                label: $0.label,
-                clusterTag: $0.clusterTag,
-                clusterItemIDs: $0.clusterItemIDs,
-                boardIDs: $0.boardIDs,
-                contextID: $0.contextID
-            )
-        }
-        guard let data = try? JSONEncoder().encode(encoded) else { return }
-        let entry: [String: Any] = ["data": data, "timestamp": Date().timeIntervalSince1970]
-        UserDefaults.standard.set(entry, forKey: boardCacheKey(for: boardID))
-    }
-
-    private static func loadCachedBoardBubbles(for boardID: UUID) -> [PromptBubble]? {
-        let key = boardCacheKey(for: boardID)
-        guard let entry = UserDefaults.standard.dictionary(forKey: key),
-              let data = entry["data"] as? Data,
-              let timestamp = entry["timestamp"] as? TimeInterval else { return nil }
-
-        let age = Date().timeIntervalSince1970 - timestamp
-        guard age < cacheTTLSeconds else { return nil }
-
-        guard let cached = try? JSONDecoder().decode([CachedBubble].self, from: data) else { return nil }
-        return cached.map {
-            PromptBubble(
-                prompt: $0.prompt,
-                label: $0.label,
-                clusterTag: $0.clusterTag,
-                clusterItemIDs: $0.clusterItemIDs,
-                boardIDs: $0.boardIDs ?? [],
-                contextID: $0.contextID
-            )
-        }
-    }
-
-    private static func clearCachedBoardBubbles(for boardID: UUID) {
-        UserDefaults.standard.removeObject(forKey: boardCacheKey(for: boardID))
     }
 }

@@ -390,57 +390,6 @@ struct GroveTests {
         #expect(PromptBubble(prompt: "P", label: "RESOLVE").label == "RESOLVE")
     }
 
-    @MainActor
-    @Test func conversationStarterServiceFiltersBubblesByBoardID() async {
-        UserDefaults.standard.removeObject(forKey: "grove.conversationStarters")
-
-        let provider = MockLLMProvider()
-        provider.responseContent = """
-        [
-          {"prompt":"P1","label":"EXPLORE","context_id":"recent_items"}
-        ]
-        """
-
-        let service = ConversationStarterService(provider: provider)
-
-        let board = Board(title: "Philosophy")
-        let item = Item(title: "Recent thought", type: .note)
-        item.status = .active
-        item.createdAt = .now
-        item.updatedAt = .now
-        item.summary = "A recent thought with enough substance to ground a starter."
-        item.boards.append(board)
-
-        await service.refresh(items: [item])
-
-        let scoped = service.bubbles(for: board.id, maxResults: 3)
-        #expect(scoped.count == 1)
-        #expect(scoped.first?.prompt == "P1")
-    }
-
-    @MainActor
-    @Test func conversationStarterServiceBoardRefreshRetriesAfterEmptyInitialLoad() async {
-        UserDefaults.standard.removeObject(forKey: "grove.conversationStarters")
-
-        let provider = MockLLMProvider()
-        provider.responseContent = nil
-        let service = ConversationStarterService(provider: provider)
-
-        let board = Board(title: "Board")
-
-        await service.refreshBoard(board.id, items: [])
-        #expect(service.bubbles(for: board.id, maxResults: 3).isEmpty)
-
-        let item = Item(title: "Board Item", type: .note)
-        item.status = .active
-        item.createdAt = .now
-        item.updatedAt = .now
-        item.boards.append(board)
-
-        await service.refreshBoard(board.id, items: [item])
-        #expect(!service.bubbles(for: board.id, maxResults: 3).isEmpty)
-    }
-
     @Test func conversationPromptPayloadParsesSeedItemIDsFromNotification() {
         let expectedPrompt = "Organize these notes into a coherent board."
         let expectedSeedIDs = [UUID(), UUID(), UUID()]

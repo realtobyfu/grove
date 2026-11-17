@@ -3,23 +3,16 @@ import AppKit
 #endif
 import SwiftUI
 
-/// Extracted from BoardDetailView — toolbar cluster, empty state, and suggestions bar.
+/// Extracted from BoardDetailView — toolbar cluster and empty state.
 @MainActor
 struct BoardDetailHeaderView {
     let board: Board
     /// The board's active items in the order they are currently displayed.
     let displayedItems: [Item]
-    let boardDiscussionSuggestions: [PromptBubble]
     let sortOption: BoardSortOption
 
     @Binding var viewMode: BoardViewMode
     @Binding var sortOptionBinding: BoardSortOption
-    @Binding var isSuggestionsCollapsed: Bool
-
-    let onOpenChat: (PromptBubble) -> Void
-    let onStartWriting: (PromptBubble) -> Void
-    let onRefreshSuggestions: () -> Void
-
 
     // MARK: - Empty State
 
@@ -95,21 +88,6 @@ struct BoardDetailHeaderView {
             sortPicker
             viewModeButton
             copyMarkdownButton
-        }
-    }
-
-    // MARK: - Suggestions Bar
-
-    @ViewBuilder
-    var suggestionsBar: some View {
-        if !boardDiscussionSuggestions.isEmpty {
-            BoardSuggestionsView(
-                suggestions: boardDiscussionSuggestions,
-                isSuggestionsCollapsed: $isSuggestionsCollapsed,
-                onOpenChat: onOpenChat,
-                onStartWriting: onStartWriting,
-                onRefresh: onRefreshSuggestions
-            )
         }
     }
 }
