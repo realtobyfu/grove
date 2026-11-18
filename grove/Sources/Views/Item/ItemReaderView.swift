@@ -17,8 +17,12 @@ struct ItemReaderView: View {
     var railYields: Bool = false
     /// Asks the host to clear its rail when the reader needs its own.
     var onClaimRail: (() -> Void)? = nil
+    /// Told whether the reader's own rail is on screen, so the window can
+    /// show Reflections as the active tab of its right page.
+    var isRailActive: Binding<Bool>? = nil
     var onNavigateToItem: ((Item) -> Void)?
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     // ViewModel created lazily per item
     @State private var vm: ItemReaderViewModel?
@@ -48,7 +52,7 @@ struct ItemReaderView: View {
                 // A document reads in PDFKit, in the pane the web view would
                 // have occupied — the rail beside it does not move for it.
                 readerPaneLayout(vm: vm) {
-                    PDFReaderPanel(item: vm.item) {
+                    PDFReaderPanel(item: vm.item, find: vm.find) {
                         withAnimation(.easeOut(duration: 0.2)) { vm.showPDFReader = false }
                     }
                 }
@@ -98,10 +102,24 @@ struct ItemReaderView: View {
         }
         .onChange(of: vm.showArticleWebView) {
             isWebViewActive = vm.showArticleWebView
-            if !vm.showArticleWebView { vm.closeFindBar() }
+            // The find bar belongs to the surface it was opened on.
+            if !vm.showArticleWebView { vm.find.dismiss() }
         }
         .onChange(of: vm.showPDFReader) {
             isPDFSurfaceActive?.wrappedValue = vm.showPDFReader
+            if !vm.showPDFReader { vm.find.dismiss() }
+        }
+        .onChange(of: shouldShowSplitLayout(vm) && !railYields, initial: true) { _, isShowing in
+            isRailActive?.wrappedValue = isShowing
+        }
+        .onDisappear {
+            isRailActive?.wrappedValue = false
+        }
+        // The window's Reflections tab (show) and closing its right page
+        // (put away). The panel and everything in it stay the reader's.
+        .onReceive(NotificationCenter.default.publisher(for: .groveSetReaderRailVisible)) { note in
+            guard let isVisible = note.object as? Bool else { return }
+            setRailVisible(isVisible, vm: vm)
         }
         .onChange(of: vm.isPDFItem) { _, isPDF in
             // The metadata enricher can discover a PDF after the reader has
@@ -116,9 +134,19 @@ struct ItemReaderView: View {
                 vm.showPDFReader = true
             }
         }
+        // ⌘F, already routed here by the window (see `ContentViewModel
+        // .findShortcutTarget`). It opens the bar or, with the bar already up,
+        // takes the keyboard back to its field; Esc is what closes it.
         .onReceive(NotificationCenter.default.publisher(for: .groveFindInArticle)) { _ in
-            vm.showFindBar.toggle()
-            if !vm.showFindBar { vm.closeFindBar() }
+            presentFindBar(vm)
+        }
+        // ⌘G / ⌘⇧G. With the bar closed there is no query to repeat, so the
+        // first press opens it.
+        .onReceive(NotificationCenter.default.publisher(for: .groveFindNext)) { _ in
+            stepFind(vm, forward: true)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .groveFindPrevious)) { _ in
+            stepFind(vm, forward: false)
         }
         .alert("Delete Reflection Block?", isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) {
@@ -132,6 +160,57 @@ struct ItemReaderView: View {
         }
         .onChange(of: vm.blockToDelete != nil) { _, hasBlock in
             if hasBlock { showDeleteConfirmation = true }
+        }
+    }
+
+    // MARK: - Find in Article
+
+    /// Only the web pane and the PDF pane can search themselves. The overview
+    /// is native text spread over several views and has no find of its own.
+    private func hasFindableSurface(_ vm: ItemReaderViewModel) -> Bool {
+        vm.showArticleWebView || vm.showPDFReader
+    }
+
+    private func presentFindBar(_ vm: ItemReaderViewModel) {
+        guard hasFindableSurface(vm) else { return }
+        withAnimation(ReaderFindBar.revealAnimation(reduceMotion: reduceMotion)) {
+            vm.find.present()
+        }
+    }
+
+    private func stepFind(_ vm: ItemReaderViewModel, forward: Bool) {
+        guard hasFindableSurface(vm) else { return }
+        guard vm.find.isPresented else {
+            presentFindBar(vm)
+            return
+        }
+        if forward {
+            vm.find.findNext()
+        } else {
+            vm.find.findPrevious()
+        }
+    }
+
+    /// Bring the reader's rail up or put it away, as the window asked.
+    private func setRailVisible(_ isVisible: Bool, vm: ItemReaderViewModel) {
+        if isVisible {
+            let hasPanelContent = alwaysShowReflectionPanel
+                || !vm.sortedReflections.isEmpty
+                || vm.showReflectionEditor
+                || vm.flashcardSelection != nil
+            if hasPanelContent {
+                vm.expandReflectionPanel()
+            } else {
+                // Nothing to list yet: Reflections opens on a new one.
+                vm.toggleReflectionEditor(focusTrigger: focusReflectionEditor)
+            }
+        } else {
+            // The same as dragging the rail shut.
+            vm.closeFlashcardEditor()
+            if vm.showReflectionEditor {
+                vm.closeReflectionEditor()
+            }
+            vm.isReflectionPanelCollapsed = true
         }
     }
 
@@ -494,7 +573,7 @@ struct ItemReaderView: View {
                         kicker: vm.articleURL != nil ? "From article" : "From source",
                         onJump: vm.articleURL != nil ? { vm.jumpToHighlight(highlight) } : nil
                     )
-                    .padding(.horizontal, 40)
+                    .padding(.horizontal, LayoutDimensions.writingGutter)
                     .padding(.bottom, Spacing.md)
                 }
 

@@ -5,11 +5,23 @@ import SwiftUI
 import SwiftData
 
 enum BoardViewMode: String, CaseIterable, Sendable {
+    /// The board as a route through its sources: the user's own order, with
+    /// their notes set in place between the sources. The macOS default.
+    case trail
     case grid
     case list
 
+    var title: String {
+        switch self {
+        case .trail: "Trail"
+        case .grid: "Grid"
+        case .list: "List"
+        }
+    }
+
     var iconName: String {
         switch self {
+        case .trail: "list.number"
         case .grid: "square.grid.2x2"
         case .list: "list.bullet"
         }
@@ -30,7 +42,7 @@ struct BoardDetailView: View {
     @Binding var openedItem: Item?
     @Environment(\.modelContext) private var modelContext
     @Query private var allItems: [Item]
-    @State private var viewMode: BoardViewMode = .grid
+    @State private var viewMode: BoardViewMode = .trail
     @State private var sortOption: BoardSortOption = .manual
     @State private var draggingItemID: UUID?
     @State private var itemToDelete: Item?
@@ -43,12 +55,19 @@ struct BoardDetailView: View {
         board.items.filter { $0.status == .active }
     }
 
+    /// The order the page is actually in. A trail is the user's own order, so
+    /// it reads the manual order whatever the sort menu was left on; the menu
+    /// is disabled there and its choice comes back with the grid and the list.
+    private var effectiveSortOption: BoardSortOption {
+        viewMode == .trail ? .manual : sortOption
+    }
+
     private var sortedFilteredItems: [Item] {
-        sortItems(effectiveItems)
+        sortItems(effectiveItems, by: effectiveSortOption)
     }
 
     private var weekSections: [WeekSection]? {
-        guard sortOption == .dateAdded, effectiveItems.count > 5 else { return nil }
+        guard effectiveSortOption == .dateAdded, effectiveItems.count > 5 else { return nil }
         return WeekSection.group(sortedFilteredItems)
     }
 
@@ -96,7 +115,7 @@ struct BoardDetailView: View {
                     board: board,
                     sortedFilteredItems: sortedFilteredItems,
                     weekSections: weekSections,
-                    canReorder: sortOption == .manual,
+                    canReorder: effectiveSortOption == .manual,
                     viewMode: viewMode,
                     selectedItem: $selectedItem,
                     openedItem: $openedItem,
@@ -250,8 +269,8 @@ struct BoardDetailView: View {
 
     // MARK: - Sort & Reorder
 
-    private func sortItems(_ items: [Item]) -> [Item] {
-        switch sortOption {
+    private func sortItems(_ items: [Item], by option: BoardSortOption) -> [Item] {
+        switch option {
         case .manual:
             let order = board.manualOrder()
             let orderedItems = order.compactMap { id in items.first(where: { $0.id == id }) }
@@ -265,11 +284,22 @@ struct BoardDetailView: View {
         }
     }
 
-    private func moveGridItem(fromID: UUID, toID: UUID) {
+    /// The stored order with every item it does not hold yet put in front,
+    /// newest first: where `sortItems` shows them. A drag then moves the
+    /// items in the order they are on screen, not the relationship's order.
+    private func completeManualOrder() -> [UUID] {
         var order = board.manualOrder()
-        let allIDs = board.items.map(\.id)
         let known = Set(order)
-        order.insert(contentsOf: allIDs.filter { !known.contains($0) }, at: 0)
+        let newcomers = board.items
+            .filter { !known.contains($0.id) }
+            .sorted { $0.createdAt > $1.createdAt }
+            .map(\.id)
+        order.insert(contentsOf: newcomers, at: 0)
+        return order
+    }
+
+    private func moveGridItem(fromID: UUID, toID: UUID) {
+        var order = completeManualOrder()
         guard let fromIndex = order.firstIndex(of: fromID),
               let toIndex = order.firstIndex(of: toID),
               fromIndex != toIndex else { return }
@@ -280,10 +310,7 @@ struct BoardDetailView: View {
     }
 
     private func moveListItems(from source: IndexSet, to destination: Int) {
-        var order = board.manualOrder()
-        let allIDs = board.items.map(\.id)
-        let known = Set(order)
-        order.insert(contentsOf: allIDs.filter { !known.contains($0) }, at: 0)
+        var order = completeManualOrder()
         order.move(fromOffsets: source, toOffset: destination)
         board.setManualOrder(order)
         try? modelContext.save()

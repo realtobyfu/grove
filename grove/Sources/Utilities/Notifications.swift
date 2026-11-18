@@ -4,6 +4,11 @@ import SwiftData
 extension Notification.Name {
     static let groveNewNote = Notification.Name("groveNewNote")
     static let groveNewBoard = Notification.Name("groveNewBoard")
+    /// Goes to the Library and focuses its find field, wherever the user is.
+    /// ⌘⇧F and the sidebar's search field post it. ⌘F posts `groveFind`,
+    /// which outside a reader opens the quick search overlay instead. On iOS
+    /// the root views (`TabRootView`, `iPadRootView`) still answer it by
+    /// opening their own search.
     static let groveToggleSearch = Notification.Name("groveToggleSearch")
     static let groveToggleInspector = Notification.Name("groveToggleInspector")
     static let groveCaptureBar = Notification.Name("groveCaptureBar")
@@ -18,8 +23,21 @@ extension Notification.Name {
     static let groveStartConversationWithPrompt = Notification.Name("groveStartConversationWithPrompt")
     static let groveDiscussItem = Notification.Name("groveDiscussItem")
     static let groveOpenReflectMode = Notification.Name("groveOpenReflectMode")
-    /// Posted to trigger find-in-page when an article WebView is active
+    /// Object: Bool — show (true) or put away (false) the open reader's own
+    /// rail. Posted by the window when the Reflections tab is picked or the
+    /// right page is closed; the reader owns that panel and its state.
+    static let groveSetReaderRailVisible = Notification.Name("groveSetReaderRailVisible")
+    /// ⌘F, from the menu. The menu does not know what is on screen, so it only
+    /// asks: the window decides whether that means the open reader's find bar
+    /// (`groveFindInArticle`) or library search (see
+    /// `ContentViewModel.findShortcutTarget`).
+    static let groveFind = Notification.Name("groveFind")
+    /// Opens the find bar of the reader on screen and focuses its field.
+    /// Posted by the window once it has routed `groveFind` to the reader.
     static let groveFindInArticle = Notification.Name("groveFindInArticle")
+    /// ⌘G / ⌘⇧G: step to the next / previous match in the open reader.
+    static let groveFindNext = Notification.Name("groveFindNext")
+    static let groveFindPrevious = Notification.Name("groveFindPrevious")
     /// Reader text size, from the View menu. The reader routes these to whatever
     /// is on screen: the Reader-mode type scale, or page zoom on the live page.
     static let groveReaderTextLarger = Notification.Name("groveReaderTextLarger")

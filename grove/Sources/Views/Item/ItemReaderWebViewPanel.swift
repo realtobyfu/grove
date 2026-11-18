@@ -11,6 +11,7 @@ struct ItemReaderWebViewPanel: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var focusTrigger: () -> Void
     /// Unified selection callback: fires with the selected text in EITHER
     /// mode (Reader or Original), nil when the selection is cleared.
@@ -123,7 +124,42 @@ struct ItemReaderWebViewPanel: View {
         ReaderStripLayout.isFoldedIntoMenu(control, in: stripTier)
     }
 
-    /// Non-empty trimmed selection from either web mode, or nil.
+    /// Whether the find bar is up. On macOS it serves both web modes: each has
+    /// its own web view, and whichever is on screen answers the query. The iOS
+    /// pane only drives find on the live page.
+    private var showsFindBar: Bool {
+        #if os(macOS)
+        return vm.find.isPresented
+        #else
+        return vm.find.isPresented && !showsReaderContent
+        #endif
+    }
+
+    /// The query the Reader-mode web view should be showing ("" for none).
+    /// Only the web view on screen searches; the other is told there is no
+    /// find, so it drops its match and stays quiet.
+    private var readerFindQuery: String {
+        showsReaderContent ? vm.find.activeQuery : ""
+    }
+
+    /// The query the live page should be showing ("" for none).
+    private var originalFindQuery: String {
+        showsReaderContent ? "" : vm.find.activeQuery
+    }
+
+    /// Routes a selection reported by either web view. WebKit's find shows a
+    /// match by selecting it; that selection belongs to the find bar, not to
+    /// the reader, and must not raise the Highlight bar.
+    private func reportSelection(_ text: String?) {
+        if vm.find.ownsSelection(text) {
+            vm.webSelectedText = nil
+            onTextSelected?(nil)
+            return
+        }
+        vm.webSelectedText = text
+        onTextSelected?(text)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Slim navigation bar
@@ -223,8 +259,11 @@ struct ItemReaderWebViewPanel: View {
             .animation(.easeOut(duration: 0.18), value: stripTier)
             Divider()
 
-            if vm.showFindBar && !showsReaderContent {
-                ItemReaderFindBar(vm: vm)
+            // Find lives in the panel, under its own strip: in full screen the
+            // window toolbar is gone and this strip is all the chrome there is.
+            if showsFindBar {
+                ReaderFindBar(find: vm.find)
+                    .transition(ReaderFindBar.revealTransition(reduceMotion: reduceMotion))
             }
 
             ZStack(alignment: .bottom) {
@@ -270,6 +309,9 @@ struct ItemReaderWebViewPanel: View {
         }
         .onChange(of: showsReaderContent) { _, isReader in
             if !isReader { hasMountedWebView = true }
+            // An open find bar follows the reader across the switch; the count
+            // it shows has to come from the web view now on screen.
+            vm.find.surfaceDidChange()
         }
         .onChange(of: capturePageURL) { _, _ in
             resolveCaptureState()
@@ -347,8 +389,7 @@ struct ItemReaderWebViewPanel: View {
             scrollToTextToken: vm.scrollToTextToken,
             highlights: pageHighlights,
             onTextSelected: { text in
-                vm.webSelectedText = text
-                onTextSelected?(text)
+                reportSelection(text)
             },
             onSelectionGeometry: { geometry in
                 vm.webSelectionGeometry = geometry
@@ -370,7 +411,16 @@ struct ItemReaderWebViewPanel: View {
                 vm.pendingNavigationToken += 1
             }
         )
-        #if os(iOS)
+        #if os(macOS)
+        .finding(
+            query: readerFindQuery,
+            forwardToken: vm.find.forwardToken,
+            backwardToken: vm.find.backwardToken,
+            onResult: { query, status in
+                vm.find.report(status, for: query)
+            }
+        )
+        #else
         .ignoresSafeArea(edges: .bottom)
         #endif
     }
@@ -381,18 +431,16 @@ struct ItemReaderWebViewPanel: View {
         ArticleWebView(
             url: url,
             onTextSelected: { text in
-                vm.webSelectedText = text
-                onTextSelected?(text)
+                reportSelection(text)
             },
             onSelectionGeometry: { geometry in
                 vm.webSelectionGeometry = geometry
             },
-            findQuery: vm.findQuery,
-            findForwardToken: vm.findForwardToken,
-            findBackwardToken: vm.findBackwardToken,
-            onFindResult: { current, total in
-                vm.findCurrentMatch = current
-                vm.findMatchCount = total
+            findQuery: originalFindQuery,
+            findForwardToken: vm.find.forwardToken,
+            findBackwardToken: vm.find.backwardToken,
+            onFindResult: { query, status in
+                vm.find.report(status, for: query)
             },
             zoomLevel: vm.webViewZoomLevel,
             goBackToken: goBackToken,
@@ -444,12 +492,15 @@ struct ItemReaderWebViewPanel: View {
             onSelectionGeometry: { geometry in
                 vm.webSelectionGeometry = geometry
             },
-            findQuery: vm.findQuery,
-            findForwardToken: vm.findForwardToken,
-            findBackwardToken: vm.findBackwardToken,
+            findQuery: originalFindQuery,
+            findForwardToken: vm.find.forwardToken,
+            findBackwardToken: vm.find.backwardToken,
             onFindResult: { current, total in
-                vm.findCurrentMatch = current
-                vm.findMatchCount = total
+                // This web view owns its match list, so the position is true.
+                let status: ReaderFind.Status = total > 0
+                    ? .matches(count: total, current: current)
+                    : .noMatches
+                vm.find.report(status, for: vm.find.activeQuery)
             },
             zoomLevel: vm.webViewZoomLevel,
             scrollToTextQuery: vm.scrollToTextQuery,
@@ -1277,82 +1328,5 @@ struct HighlightActionBar: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-    }
-}
-
-// MARK: - Find Bar
-
-struct ItemReaderFindBar: View {
-    @Bindable var vm: ItemReaderViewModel
-
-    var body: some View {
-        HStack(spacing: Spacing.sm) {
-            HStack(spacing: Spacing.xs) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color.textTertiary)
-                TextField("Find in article...", text: Binding(
-                    get: { vm.findQuery },
-                    set: { vm.findQuery = $0 }
-                ))
-                .textFieldStyle(.plain)
-                .font(.groveMeta)
-                .onSubmit { vm.findForwardToken += 1 }
-                #if os(macOS)
-                .onExitCommand { vm.closeFindBar() }
-                #endif
-                if !vm.findQuery.isEmpty {
-                    Text("\(vm.findCurrentMatch)/\(vm.findMatchCount)")
-                        .font(.groveMeta)
-                        .foregroundStyle(Color.textTertiary)
-                        .monospacedDigit()
-                }
-            }
-            .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, Spacing.xsm)
-            .background(Color.bgCard)
-            .clipShape(.rect(cornerRadius: Radius.control))
-            .overlay(
-                RoundedRectangle(cornerRadius: Radius.control)
-                    .stroke(Color.borderPrimary, lineWidth: 1)
-            )
-
-            Button {
-                vm.findBackwardToken += 1
-            } label: {
-                Image(systemName: "chevron.up")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.textSecondary)
-            }
-            .buttonStyle(.plain)
-            .help("Previous match")
-            .disabled(vm.findQuery.isEmpty)
-
-            Button {
-                vm.findForwardToken += 1
-            } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.textSecondary)
-            }
-            .buttonStyle(.plain)
-            .help("Next match")
-            .disabled(vm.findQuery.isEmpty)
-
-            Button {
-                vm.closeFindBar()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(Color.textTertiary)
-            }
-            .buttonStyle(.plain)
-            .help("Close find bar (Esc)")
-        }
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.xsm)
-        .background(Color.bgCard)
-
-        Divider()
     }
 }

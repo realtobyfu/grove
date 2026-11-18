@@ -7,17 +7,21 @@ import AppKit
 // NSViewRepresentable wrapping WKWebView for in-app article reading.
 // Intercepts link taps to open them in the browser rather than navigating away.
 // Reports text selection changes to the parent via onTextSelected callback.
-// Supports find-in-page via JavaScript highlight/scroll approach.
+// Find-in-article runs on WebKit's own find (see ReaderWebFindDriver), which
+// selects and reveals a match without touching the page's DOM.
 
 struct ArticleWebView: NSViewRepresentable {
     let url: URL
     var onTextSelected: ((String?) -> Void)?
     /// Geometry of the reported selection, for anchoring the highlight bar.
     var onSelectionGeometry: ((WebSelectionGeometry?) -> Void)?
+    /// Find-in-article: the query to show ("" for none) and the tokens that
+    /// step to the next / previous match. Results come back as
+    /// `(query, status)`.
     var findQuery: String = ""
     var findForwardToken: Int = 0
     var findBackwardToken: Int = 0
-    var onFindResult: ((Int, Int) -> Void)?
+    var onFindResult: ((String, ReaderFind.Status) -> Void)?
     var zoomLevel: CGFloat = 1.0
     var goBackToken: Int = 0
     var goForwardToken: Int = 0
@@ -36,7 +40,6 @@ struct ArticleWebView: NSViewRepresentable {
         Coordinator(
             onTextSelected: onTextSelected,
             onSelectionGeometry: onSelectionGeometry,
-            onFindResult: onFindResult,
             onNavigationChanged: onNavigationChanged
         )
     }
@@ -55,11 +58,6 @@ struct ArticleWebView: NSViewRepresentable {
         )
         userContentController.addUserScript(script)
         userContentController.add(context.coordinator, name: "selectionChanged")
-
-        // Inject find-in-page helper
-        let findScript = WKUserScript(source: Self.findHelperJS, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
-        userContentController.addUserScript(findScript)
-        userContentController.add(context.coordinator, name: "findResult")
 
         // Inject scroll-to-text helper (shared with Reader mode)
         let scrollToTextScript = WKUserScript(source: ReaderTemplate.scrollToTextJS, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
@@ -87,7 +85,7 @@ struct ArticleWebView: NSViewRepresentable {
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.onTextSelected = onTextSelected
         context.coordinator.onSelectionGeometry = onSelectionGeometry
-        context.coordinator.onFindResult = onFindResult
+        context.coordinator.findDriver.onResult = onFindResult
         context.coordinator.onNavigationChanged = onNavigationChanged
         context.coordinator.onPageFinished = onPageFinished
 
@@ -144,137 +142,20 @@ struct ArticleWebView: NSViewRepresentable {
         if url != context.coordinator.lastLoadedURL {
             context.coordinator.lastLoadedURL = url
             webView.load(URLRequest(url: url))
-            context.coordinator.lastFindQuery = ""
-            context.coordinator.lastForwardToken = 0
-            context.coordinator.lastBackwardToken = 0
+            // A query that is still up runs against the new page when it
+            // finishes loading (see `didFinish`).
             return
         }
 
-        let queryChanged = findQuery != context.coordinator.lastFindQuery
-        let forwardChanged = findForwardToken != context.coordinator.lastForwardToken
-        let backwardChanged = findBackwardToken != context.coordinator.lastBackwardToken
-
-        context.coordinator.lastFindQuery = findQuery
-        context.coordinator.lastForwardToken = findForwardToken
-        context.coordinator.lastBackwardToken = findBackwardToken
-
-        if queryChanged {
-            if findQuery.isEmpty {
-                webView.evaluateJavaScript("window.__groveFindClear();", completionHandler: nil)
-                onFindResult?(0, 0)
-            } else {
-                let escaped = findQuery.replacingOccurrences(of: "\\", with: "\\\\")
-                    .replacingOccurrences(of: "'", with: "\\'")
-                    .replacingOccurrences(of: "\n", with: "\\n")
-                webView.evaluateJavaScript("window.__groveFind('\(escaped)');", completionHandler: nil)
-            }
-        } else if forwardChanged && !findQuery.isEmpty {
-            webView.evaluateJavaScript("window.__groveFindNext();", completionHandler: nil)
-        } else if backwardChanged && !findQuery.isEmpty {
-            webView.evaluateJavaScript("window.__groveFindPrev();", completionHandler: nil)
-        }
+        // Find-in-article. The driver remembers what it was last asked, so a
+        // pass that returned early above is simply caught up on the next one.
+        context.coordinator.findDriver.update(
+            in: webView,
+            query: findQuery,
+            forwardToken: findForwardToken,
+            backwardToken: findBackwardToken
+        )
     }
-
-    // MARK: - Find Helper JavaScript
-
-    private static let findHelperJS: String = """
-    (function() {
-        var matches = [];
-        var currentIndex = -1;
-        var highlightStyle = 'background: #FFEB3B; color: #000;';
-        var activeStyle = 'background: #F57C00; color: #fff;';
-
-        function clearHighlights() {
-            var marks = document.querySelectorAll('mark[data-grove-find]');
-            marks.forEach(function(mark) {
-                var parent = mark.parentNode;
-                parent.replaceChild(document.createTextNode(mark.textContent), mark);
-                parent.normalize();
-            });
-            matches = [];
-            currentIndex = -1;
-        }
-
-        function highlightMatches(query) {
-            clearHighlights();
-            if (!query) { reportResult(); return; }
-            var lower = query.toLowerCase();
-            var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
-            var textNodes = [];
-            while (walker.nextNode()) {
-                var node = walker.currentNode;
-                if (node.parentElement && (node.parentElement.tagName === 'SCRIPT' ||
-                    node.parentElement.tagName === 'STYLE' || node.parentElement.tagName === 'NOSCRIPT')) continue;
-                if (node.textContent.toLowerCase().indexOf(lower) !== -1) {
-                    textNodes.push(node);
-                }
-            }
-            textNodes.forEach(function(node) {
-                var text = node.textContent;
-                var lowerText = text.toLowerCase();
-                var idx = 0;
-                var parts = [];
-                while (true) {
-                    var found = lowerText.indexOf(lower, idx);
-                    if (found === -1) break;
-                    if (found > idx) parts.push(document.createTextNode(text.substring(idx, found)));
-                    var mark = document.createElement('mark');
-                    mark.setAttribute('data-grove-find', 'true');
-                    mark.setAttribute('style', highlightStyle);
-                    mark.textContent = text.substring(found, found + query.length);
-                    parts.push(mark);
-                    matches.push(mark);
-                    idx = found + query.length;
-                }
-                if (parts.length > 0) {
-                    if (idx < text.length) parts.push(document.createTextNode(text.substring(idx)));
-                    var parent = node.parentNode;
-                    parts.forEach(function(p) { parent.insertBefore(p, node); });
-                    parent.removeChild(node);
-                }
-            });
-            if (matches.length > 0) {
-                currentIndex = 0;
-                activateCurrent();
-            }
-            reportResult();
-        }
-
-        function activateCurrent() {
-            matches.forEach(function(m, i) {
-                m.setAttribute('style', i === currentIndex ? activeStyle : highlightStyle);
-            });
-            if (currentIndex >= 0 && currentIndex < matches.length) {
-                matches[currentIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
-        }
-
-        function findNext() {
-            if (matches.length === 0) return;
-            currentIndex = (currentIndex + 1) % matches.length;
-            activateCurrent();
-            reportResult();
-        }
-
-        function findPrev() {
-            if (matches.length === 0) return;
-            currentIndex = (currentIndex - 1 + matches.length) % matches.length;
-            activateCurrent();
-            reportResult();
-        }
-
-        function reportResult() {
-            var current = matches.length > 0 ? currentIndex + 1 : 0;
-            var total = matches.length;
-            window.webkit.messageHandlers.findResult.postMessage({ current: current, total: total });
-        }
-
-        window.__groveFind = highlightMatches;
-        window.__groveFindNext = findNext;
-        window.__groveFindPrev = findPrev;
-        window.__groveFindClear = function() { clearHighlights(); reportResult(); };
-    })();
-    """
 
     // MARK: - Coordinator
 
@@ -282,12 +163,10 @@ struct ArticleWebView: NSViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
         var onTextSelected: ((String?) -> Void)?
         var onSelectionGeometry: ((WebSelectionGeometry?) -> Void)?
-        var onFindResult: ((Int, Int) -> Void)?
         var onNavigationChanged: ((Bool, Bool, URL?) -> Void)?
         var onPageFinished: ((WKWebView) -> Void)?
-        var lastFindQuery = ""
-        var lastForwardToken = 0
-        var lastBackwardToken = 0
+        /// Find-in-article, on WebKit's own find.
+        let findDriver = ReaderWebFindDriver()
         var lastGoBackToken = 0
         var lastGoForwardToken = 0
         var lastNavigateToken = 0
@@ -299,12 +178,10 @@ struct ArticleWebView: NSViewRepresentable {
         init(
             onTextSelected: ((String?) -> Void)?,
             onSelectionGeometry: ((WebSelectionGeometry?) -> Void)?,
-            onFindResult: ((Int, Int) -> Void)?,
             onNavigationChanged: ((Bool, Bool, URL?) -> Void)?
         ) {
             self.onTextSelected = onTextSelected
             self.onSelectionGeometry = onSelectionGeometry
-            self.onFindResult = onFindResult
             self.onNavigationChanged = onNavigationChanged
         }
 
@@ -367,6 +244,8 @@ struct ArticleWebView: NSViewRepresentable {
                 let escaped = ReaderTemplate.escapeForJSString(query)
                 webView.evaluateJavaScript("window.__groveScrollToText('\(escaped)');", completionHandler: nil)
             }
+            // The page under an open find bar changed: search the new one.
+            findDriver.documentDidFinish(in: webView)
         }
 
         // Handle messages from injected JS
@@ -378,12 +257,6 @@ struct ArticleWebView: NSViewRepresentable {
                 let selection = WebSelectionGeometry.decode(message.body)
                 onTextSelected?(selection.text)
                 onSelectionGeometry?(selection.geometry)
-            } else if message.name == "findResult" {
-                if let dict = message.body as? [String: Any],
-                   let current = dict["current"] as? Int,
-                   let total = dict["total"] as? Int {
-                    onFindResult?(current, total)
-                }
             }
         }
     }

@@ -12,6 +12,13 @@ final class MarkdownEditingProxy {
         var insertLink: (() -> Void)?
         var insertWikiLink: (() -> Void)?
         var replaceActiveWikiQuery: ((String) -> Void)?
+        /// Replaces the `/query` before the caret; the Int is the caret's
+        /// offset back from the end of the inserted text.
+        var replaceActiveSlashQuery: ((String, Int) -> Void)?
+        /// Nests (false) or un-nests (true) the list lines at the selection.
+        var shiftList: ((Bool) -> Void)?
+        /// Puts the caret in the editor.
+        var focus: (() -> Void)?
     }
 
     private var actions = Actions()
@@ -22,6 +29,12 @@ final class MarkdownEditingProxy {
 
     func clear() {
         actions = Actions()
+    }
+
+    /// True while a mounted editor is listening. A host that wants to insert
+    /// at the caret checks this before falling back to editing the string.
+    var isConnected: Bool {
+        actions.insertText != nil
     }
 
     func wrapSelection(prefix: String, suffix: String) {
@@ -58,5 +71,17 @@ final class MarkdownEditingProxy {
 
     func replaceActiveWikiQuery(with title: String) {
         actions.replaceActiveWikiQuery?(title)
+    }
+
+    func replaceActiveSlashQuery(with insertion: String, cursorOffset: Int) {
+        actions.replaceActiveSlashQuery?(insertion, cursorOffset)
+    }
+
+    func shiftList(outward: Bool) {
+        actions.shiftList?(outward)
+    }
+
+    func focus() {
+        actions.focus?()
     }
 }

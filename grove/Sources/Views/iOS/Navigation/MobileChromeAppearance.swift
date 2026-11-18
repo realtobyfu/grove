@@ -18,11 +18,11 @@ enum MobileChromeAppearance {
     }
 
     private static var ink: UIColor {
-        UIColor(named: "textPrimary") ?? UIColor(Color.textPrimary)
+        UIColor(named: ThemeStore.shared.theme.assetName("textPrimary")) ?? UIColor(Color.textPrimary)
     }
 
     private static var inverseInk: UIColor {
-        UIColor(named: "textInverse") ?? UIColor(Color.textInverse)
+        UIColor(named: ThemeStore.shared.theme.assetName("textInverse")) ?? UIColor(Color.textInverse)
     }
 
     private static func newsreader(size: CGFloat, textStyle: UIFont.TextStyle) -> UIFont {

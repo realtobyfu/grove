@@ -24,18 +24,12 @@ struct BoardDetailHeaderView {
     // MARK: - Empty State
 
     var emptyState: some View {
-        VStack(spacing: Spacing.md) {
-            Image(systemName: board.icon ?? "square.grid.2x2")
-                .font(.system(size: 48))
-                .foregroundStyle(Color.textTertiary)
-            Text(board.title)
-                .font(.groveItemTitle)
-                .foregroundStyle(Color.textPrimary)
-            Text("Add an item to this board.")
-                .font(.groveBody)
-                .foregroundStyle(Color.textSecondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        GroveEmptyState(
+            title: "Nothing on this board yet.",
+            detail: "Paste a link or type a note in the bar above."
+        )
+        .padding(.horizontal, LayoutDimensions.contentPaddingH)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     // MARK: - Toolbar Cluster
@@ -60,17 +54,28 @@ struct BoardDetailHeaderView {
         .menuStyle(.button)
         .menuIndicator(.hidden)
         .buttonStyle(.grove(.secondary, size: .compact))
-        .help("Sort items (\(sortOption.rawValue))")
+        // A trail is always the user's own order, so there is nothing to sort
+        // there. The choice is kept for the grid and the list.
+        .disabled(viewMode == .trail)
+        .help(viewMode == .trail
+            ? "Trail follows your own order"
+            : "Sort items (\(sortOption.rawValue))")
     }
 
-    var viewModeButton: some View {
-        Button {
-            viewMode = viewMode == .grid ? .list : .grid
-        } label: {
-            Label(viewMode == .grid ? "List" : "Grid", systemImage: viewMode.iconName)
+    /// Trail, Grid, List. The current view is the ink-filled button.
+    var viewModeSwitcher: some View {
+        HStack(spacing: Spacing.xs) {
+            ForEach(BoardViewMode.allCases, id: \.self) { mode in
+                Button {
+                    viewMode = mode
+                } label: {
+                    Text(mode.title)
+                }
+                .buttonStyle(.grove(viewMode == mode ? .primary : .secondary, size: .compact))
+                .help("Show this board as a \(mode.title.lowercased())")
+                .accessibilityAddTraits(viewMode == mode ? .isSelected : [])
+            }
         }
-        .buttonStyle(.grove(.secondary, size: .compact))
-        .help(viewMode == .grid ? "Switch to list view" : "Switch to grid view")
     }
 
     var copyMarkdownButton: some View {
@@ -93,7 +98,7 @@ struct BoardDetailHeaderView {
     var toolbarCluster: some View {
         HStack(spacing: Spacing.sm) {
             sortPicker
-            viewModeButton
+            viewModeSwitcher
             copyMarkdownButton
         }
     }

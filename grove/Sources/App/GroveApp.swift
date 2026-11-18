@@ -221,10 +221,29 @@ struct GroveMenuCommands: Commands {
 
             Divider()
 
-            Button("Search") {
-                NotificationCenter.default.post(name: .groveToggleSearch, object: nil)
+            // ⌘F belongs to whatever is in front: the article while a reader
+            // is open, the library otherwise. The menu only asks — the window
+            // decides (ContentViewNotificationHandlers).
+            Button("Find") {
+                NotificationCenter.default.post(name: .groveFind, object: nil)
             }
             .keyboardShortcut("f", modifiers: .command)
+
+            Button("Find Next") {
+                NotificationCenter.default.post(name: .groveFindNext, object: nil)
+            }
+            .keyboardShortcut("g", modifiers: .command)
+
+            Button("Find Previous") {
+                NotificationCenter.default.post(name: .groveFindPrevious, object: nil)
+            }
+            .keyboardShortcut("g", modifiers: [.command, .shift])
+
+            // Always the library, even with an article open.
+            Button("Search Library") {
+                NotificationCenter.default.post(name: .groveToggleSearch, object: nil)
+            }
+            .keyboardShortcut("f", modifiers: [.command, .shift])
 
             Divider()
 

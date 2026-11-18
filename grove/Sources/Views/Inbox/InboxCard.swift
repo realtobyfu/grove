@@ -111,7 +111,12 @@ struct InboxCard: View {
 
             // One-gesture filing: keep + assign, no modal.
             if onFileToBoard != nil || onMoreBoards != nil {
-                boardChipsRow
+                InboxFilingRow(
+                    item: item,
+                    suggestedBoards: suggestedBoards,
+                    onFileToBoard: onFileToBoard,
+                    onMoreBoards: onMoreBoards
+                )
             }
 
             Divider()
@@ -157,12 +162,383 @@ struct InboxCard: View {
         .clipShape(RoundedRectangle(cornerRadius: Radius.card))
         .selectedItemStyle(isSelected)
     }
+}
 
-    // MARK: - Board Chips
+// MARK: - Focus Card
 
-    /// Recommended board first, then up to two alternates, then "More…".
-    /// Tapping a chip keeps and files the item in one action.
-    private var boardChipsRow: some View {
+/// The inbox item being triaged on Today, set large: everything `InboxCard`
+/// shows, its place in the inbox, and Read now. The keys (named in each
+/// button's tooltip) are handled by `InboxTriageView`, which owns the focus.
+struct InboxFocusCard: View {
+    let item: Item
+    /// Boards offered as one-click "keep + file" chips, recommended first.
+    var suggestedBoards: [Board] = []
+    /// The card is wide enough for the cover to sit beside the text.
+    /// Otherwise the cover runs across the top.
+    var coverBeside = true
+    /// The item's place in the inbox ("1 of 3"), set at the trailing end of
+    /// the line with the source and time. Nil shows none.
+    var positionLabel: String? = nil
+    let onKeep: () -> Void
+    let onDrop: () -> Void
+    var onQueue: ((ReadLaterPreset) -> Void)?
+    /// Open the item in the reader.
+    var onOpen: (() -> Void)?
+    var onConfirmTag: ((Tag) -> Void)?
+    var onDismissTag: ((Tag) -> Void)?
+    /// Keep the item and file it into this board in a single gesture.
+    var onFileToBoard: ((Board) -> Void)?
+    /// Open the full board picker for this item.
+    var onMoreBoards: (() -> Void)?
+
+    /// How wide the cover runs when it sits beside the text.
+    private static let sideCoverWidth: CGFloat = 150
+
+    var body: some View {
+        if ThemeStore.shared.theme.usesRules {
+            ruledEntry
+        } else {
+            slip
+        }
+    }
+
+    // MARK: Slip (Grove)
+
+    /// The focused arrival as an index slip, in three bands: where it came
+    /// from, what it is, what to do with it. Its leading edge is an ink
+    /// spine — part of the slip, and what marks it as the one in hand. That
+    /// edge is square so the spine is a straight line; the other three sides
+    /// are a hairline with the card's rounded corners. The cover runs flush
+    /// to the trailing edge at the body's height.
+    private var slip: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            metaLine
+                .padding(.horizontal, Spacing.lg)
+                .padding(.vertical, Spacing.sm)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            SlipRule()
+
+            if !coverBeside, let thumbnailData = item.thumbnail {
+                CoverImageView(
+                    imageData: thumbnailData,
+                    height: TodayLayout.coverBannerHeight,
+                    showPlayOverlay: item.type == .video,
+                    cornerRadius: 0
+                )
+                SlipRule()
+            }
+
+            text
+                .padding(Spacing.lg)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                // Room for the cover, which is laid over this band so that it
+                // takes the band's height whatever the text comes to.
+                .padding(.trailing, hasSideCover ? Self.sideCoverWidth : 0)
+                .overlay(alignment: .trailing) { sideCover }
+
+            SlipRule()
+
+            actions
+                .padding(.horizontal, Spacing.lg)
+                .padding(.vertical, Spacing.sm + 2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.bgPrimary)
+        }
+        // The bands start clear of the spine.
+        .padding(.leading, Self.spineWidth)
+        .background(Color.bgCard)
+        .clipShape(Self.slipShape)
+        .overlay(
+            Self.slipShape
+                .stroke(Color.borderInput, lineWidth: 1)
+        )
+        // Over the outline, so the leading edge is ink from top to bottom.
+        .overlay(alignment: .leading) { spine(width: Self.spineWidth) }
+    }
+
+    private static let spineWidth: CGFloat = 3
+
+    /// Square on the spine's side, rounded on the other.
+    private static var slipShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            topLeadingRadius: 0,
+            bottomLeadingRadius: 0,
+            bottomTrailingRadius: Radius.card,
+            topTrailingRadius: Radius.card
+        )
+    }
+
+    /// The ink line down the entry's leading edge.
+    private func spine(width: CGFloat) -> some View {
+        Rectangle()
+            .fill(Color.accentSelection)
+            .frame(width: width)
+            .accessibilityHidden(true)
+    }
+
+    private var hasSideCover: Bool {
+        coverBeside && item.thumbnail != nil
+    }
+
+    @ViewBuilder
+    private var sideCover: some View {
+        if coverBeside, let thumbnailData = item.thumbnail {
+            GeometryReader { geometry in
+                CoverImageView(
+                    imageData: thumbnailData,
+                    height: geometry.size.height,
+                    showPlayOverlay: item.type == .video,
+                    cornerRadius: 0
+                )
+            }
+            .frame(width: Self.sideCoverWidth)
+            .overlay(alignment: .leading) {
+                Rectangle()
+                    .fill(Color.borderPrimary)
+                    .frame(width: 1)
+            }
+        }
+    }
+
+    // MARK: Ruled entry (Commonplace)
+
+    /// The same content with no box: set on the page, closed by a rule.
+    private var ruledEntry: some View {
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            if !coverBeside {
+                cover(width: nil, height: TodayLayout.coverBannerHeight)
+            }
+
+            HStack(alignment: .top, spacing: Spacing.lg) {
+                VStack(alignment: .leading, spacing: Spacing.xs) {
+                    metaLine
+                    text
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if coverBeside {
+                    cover(width: TodayLayout.coverSize.width, height: TodayLayout.coverSize.height)
+                }
+            }
+
+            actions
+        }
+        .padding(.vertical, Spacing.lg)
+        // Set in from the ink line that runs down the entry's leading edge.
+        .padding(.leading, Spacing.md + 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .bottom) { SlipRule() }
+        .overlay(alignment: .leading) { spine(width: 2) }
+    }
+
+    // MARK: Cover
+
+    @ViewBuilder
+    private func cover(width: CGFloat?, height: CGFloat) -> some View {
+        if let thumbnailData = item.thumbnail {
+            CoverImageView(
+                imageData: thumbnailData,
+                height: height,
+                showPlayOverlay: item.type == .video,
+                cornerRadius: Radius.control
+            )
+            .frame(width: width)
+        }
+    }
+
+    // MARK: Text
+
+    /// Title, summary, auto-tags and the filing chips.
+    private var text: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            titleBlock
+
+            if let summaryText {
+                Text(summaryText)
+                    .font(.groveBody)
+                    .foregroundStyle(Color.textSecondary)
+                    .lineLimit(4)
+                    .padding(.top, Spacing.xsm)
+            }
+
+            // Auto-tags with confirm/dismiss actions
+            if !item.tags.isEmpty {
+                FlowLayout(spacing: Spacing.xs) {
+                    ForEach(item.tags.prefix(5)) { tag in
+                        TagChip(tag: tag, mode: .autoTag(
+                            onConfirm: { onConfirmTag?(tag) },
+                            onDismiss: { onDismissTag?(tag) }
+                        ))
+                    }
+                    if item.tags.count > 5 {
+                        Text("+\(item.tags.count - 5)")
+                            .font(.groveTag)
+                            .foregroundStyle(Color.textTertiary)
+                    }
+                }
+                .padding(.top, Spacing.md)
+            }
+
+            // One-gesture filing: keep + assign, no modal.
+            if onFileToBoard != nil || onMoreBoards != nil {
+                InboxFilingRow(
+                    item: item,
+                    suggestedBoards: suggestedBoards,
+                    onFileToBoard: onFileToBoard,
+                    onMoreBoards: onMoreBoards
+                )
+                .padding(.top, Spacing.md)
+            }
+        }
+    }
+
+    /// Type, source and age on one mono line, and the item's place in the
+    /// inbox at its trailing end.
+    private var metaLine: some View {
+        HStack(spacing: Spacing.xsm) {
+            ItemTypeMark(type: item.type, label: item.type.displayName)
+
+            Text(metaText)
+                .font(.groveMeta)
+                .foregroundStyle(Color.textTertiary)
+                .lineLimit(1)
+
+            if let positionLabel {
+                Spacer(minLength: Spacing.sm)
+
+                Text(positionLabel)
+                    .font(.groveMeta)
+                    .monospacedDigit()
+                    .foregroundStyle(Color.textMuted)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+        }
+    }
+
+    private var metaText: String {
+        var parts: [String] = []
+        if let url = item.sourceURL, !url.isEmpty {
+            parts.append(domainFrom(url))
+        }
+        parts.append(item.createdAt.formatted(.relative(presentation: .named)))
+        return parts.joined(separator: " \u{00B7} ")
+    }
+
+    @ViewBuilder
+    private var titleBlock: some View {
+        if item.isFetchingMetadata {
+            // URL title not yet resolved — show raw URL in mono
+            Text(item.title)
+                .font(.groveMeta)
+                .foregroundStyle(Color.textSecondary)
+                .lineLimit(2)
+            HStack(spacing: Spacing.xs) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Fetching title\u{2026}")
+                    .font(.groveMeta)
+                    .foregroundStyle(Color.textTertiary)
+            }
+            .padding(.top, Spacing.xs)
+        } else {
+            Text(item.title)
+                .font(.groveTitleLarge)
+                .foregroundStyle(Color.textPrimary)
+                .lineLimit(3)
+        }
+    }
+
+    /// The one-line summary, or the content preview when there is none.
+    private var summaryText: String? {
+        if let summary = item.summary, !summary.isEmpty { return summary }
+        return item.previewText
+    }
+
+    // MARK: Actions
+
+    /// Keep, Later, Drop and Read now, labelled as the inbox card always
+    /// labelled them. The keys (1, 2, 3, Return) still work and are named in
+    /// each button's tooltip; they are not printed on the buttons. They wrap
+    /// onto a second line in a narrow column rather than truncate.
+    private var actions: some View {
+        FlowLayout(spacing: Spacing.sm) {
+            Button(action: onKeep) {
+                actionLabel("Keep unfiled", systemImage: "checkmark.circle")
+            }
+            .buttonStyle(.grove(.primary, size: .compact))
+            .help("Keep without filing to a board. Shortcut: 1")
+
+            Menu {
+                ForEach(ReadLaterPreset.allCases) { preset in
+                    Button {
+                        onQueue?(preset)
+                    } label: {
+                        Text(preset.label)
+                    }
+                }
+            } label: {
+                actionLabel("Later", systemImage: "clock")
+            }
+            .menuStyle(.button)
+            .menuIndicator(.hidden)
+            .buttonStyle(.grove(.secondary, size: .compact))
+            .disabled(onQueue == nil)
+            .fixedSize()
+            .help("Shortcut: 3 queues until tomorrow morning")
+
+            Button(action: onDrop) {
+                actionLabel("Drop", systemImage: "xmark.circle")
+            }
+            .buttonStyle(.grove(.secondary, size: .compact))
+            .help("Shortcut: 2")
+
+            if let onOpen {
+                Button(action: onOpen) {
+                    Text(item.type == .note ? "Open" : "Read now")
+                }
+                .buttonStyle(.grove(.secondary, size: .compact))
+                .help("Open in the reader. Shortcut: Return")
+            }
+        }
+    }
+
+    /// A button label with its symbol in Grove, the word alone in Commonplace.
+    @ViewBuilder
+    private func actionLabel(_ title: String, systemImage: String) -> some View {
+        if ThemeStore.shared.theme.usesGlyphs {
+            Label(title, systemImage: systemImage)
+        } else {
+            Text(title)
+        }
+    }
+}
+
+// MARK: - Slip Rule
+
+/// The hairline between a slip's bands.
+private struct SlipRule: View {
+    var body: some View {
+        Rectangle()
+            .fill(Color.borderPrimary)
+            .frame(height: 1)
+            .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Filing Row
+
+/// "File to" and the one-click board chips: the recommended board first,
+/// then up to two alternates, then "More…". Tapping a chip keeps and files
+/// the item in one action. Shared by `InboxCard` and `InboxFocusCard`.
+private struct InboxFilingRow: View {
+    let item: Item
+    let suggestedBoards: [Board]
+    let onFileToBoard: ((Board) -> Void)?
+    let onMoreBoards: (() -> Void)?
+
+    var body: some View {
         HStack(alignment: .center, spacing: Spacing.sm) {
             Text("File to")
                 .sectionHeaderStyle()

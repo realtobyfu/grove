@@ -805,13 +805,48 @@ enum ReaderTemplate {
     /// structure, not prose, and readers expect keywords, strings, and
     /// comments to separate. The hues are muted print inks rather than the
     /// saturated terminal palette, so a block still sits quietly on the page.
-    private static func paletteCSS(dark: Bool) -> String {
-        dark ? """
+    private static func paletteCSS(dark: Bool, theme: GroveTheme) -> String {
+        surfaceCSS(dark: dark, theme: theme) + "\n" + inkCSS(dark: dark)
+    }
+
+    /// Paper, ink and rules — the part of the palette a theme changes. The
+    /// values mirror the theme's asset colours (bgPrimary, textPrimary, …).
+    private static func surfaceCSS(dark: Bool, theme: GroveTheme) -> String {
+        switch (theme, dark) {
+        case (.grove, true): """
             --bg: #111111;
             --fg: #E8E8E8;
             --fg-secondary: #9E9E9E;
             --border: #222222;
             --code-bg: #1C1C1C;
+        """
+        case (.grove, false): """
+            --bg: #FAFAFA;
+            --fg: #1A1A1A;
+            --fg-secondary: #666666;
+            --border: #EBEBEB;
+            --code-bg: #F0F0EE;
+        """
+        case (.commonplace, true): """
+            --bg: #13110E;
+            --fg: #E7E5E0;
+            --fg-secondary: #A39F97;
+            --border: #25221E;
+            --code-bg: #1E1C18;
+        """
+        case (.commonplace, false): """
+            --bg: #F9F7F1;
+            --fg: #1C1A17;
+            --fg-secondary: #66625B;
+            --border: #E2DDD2;
+            --code-bg: #F0EDE5;
+        """
+        }
+    }
+
+    /// Highlight wash and syntax inks: the same in every theme.
+    private static func inkCSS(dark: Bool) -> String {
+        dark ? """
             --highlight-wash: rgba(255, 255, 255, 0.14);
             --tok-com: #7C8078;
             --tok-str: #A3C98C;
@@ -822,11 +857,6 @@ enum ReaderTemplate {
             --tok-attr: #C8B98F;
             --tok-meta: #B3A6E0;
         """ : """
-            --bg: #FAFAFA;
-            --fg: #1A1A1A;
-            --fg-secondary: #666666;
-            --border: #EBEBEB;
-            --code-bg: #F0F0EE;
             --highlight-wash: rgba(0, 0, 0, 0.08);
             --tok-com: #8C8C84;
             --tok-str: #4A7A3F;
@@ -861,7 +891,8 @@ enum ReaderTemplate {
         article: ReadableArticle,
         typography: ReaderTypographySettings,
         isDark: Bool,
-        readMinutes: Int
+        readMinutes: Int,
+        theme: GroveTheme = .grove
     ) -> String {
         let title = escapeHTML(article.title)
         let byline = article.byline.flatMap { $0.isEmpty ? nil : escapeHTML($0) }
@@ -883,18 +914,18 @@ enum ReaderTemplate {
             --reader-size: \(typography.fontSizePx)px;
             --reader-measure: \(typography.measureCh)ch;
             --reader-font: \(typography.bodyFontStack);
-        \(paletteCSS(dark: false))
+        \(paletteCSS(dark: false, theme: theme))
         }
         @media (prefers-color-scheme: dark) {
             :root {
-            \(paletteCSS(dark: true))
+            \(paletteCSS(dark: true, theme: theme))
             }
         }
         :root[data-grove-theme="light"] {
-        \(paletteCSS(dark: false))
+        \(paletteCSS(dark: false, theme: theme))
         }
         :root[data-grove-theme="dark"] {
-        \(paletteCSS(dark: true))
+        \(paletteCSS(dark: true, theme: theme))
         }
         * { box-sizing: border-box; }
         html { -webkit-text-size-adjust: 100%; }
@@ -1129,6 +1160,34 @@ struct ReaderModeWebView: NSViewRepresentable {
     var onSelectionGeometry: ((WebSelectionGeometry?) -> Void)?
     var onScrollProgress: ((Double) -> Void)?
     var onOpenExternalLink: ((URL) -> Void)?
+    /// Find-in-article, set through `finding(query:forwardToken:backwardToken:onResult:)`.
+    /// Not `private`: a private stored property would make the memberwise
+    /// initializer the panel calls private too.
+    var findQuery: String = ""
+    var findForwardToken: Int = 0
+    var findBackwardToken: Int = 0
+    var onFindResult: ((String, ReaderFind.Status) -> Void)?
+
+    /// Find-in-article for the reader page: `query` is what to show ("" for
+    /// none), the tokens step to the next / previous match, and results come
+    /// back as `(query, status)`.
+    ///
+    /// Unlike the iOS reader, which wraps its matches in `<mark>` elements,
+    /// this runs on WebKit's own find and leaves the document alone — the
+    /// saved-highlight marks are anchored by text offsets into this DOM.
+    func finding(
+        query: String,
+        forwardToken: Int,
+        backwardToken: Int,
+        onResult: @escaping (String, ReaderFind.Status) -> Void
+    ) -> ReaderModeWebView {
+        var copy = self
+        copy.findQuery = query
+        copy.findForwardToken = forwardToken
+        copy.findBackwardToken = backwardToken
+        copy.onFindResult = onResult
+        return copy
+    }
 
     func makeCoordinator() -> ReaderModeCoordinator {
         ReaderModeCoordinator(
@@ -1160,6 +1219,16 @@ struct ReaderModeWebView: NSViewRepresentable {
             onSelectionGeometry: onSelectionGeometry,
             onScrollProgress: onScrollProgress,
             onOpenExternalLink: onOpenExternalLink
+        )
+        // After the shared update, which may have just started loading a
+        // different article: the driver then holds the query until that
+        // document's didFinish.
+        context.coordinator.findDriver.onResult = onFindResult
+        context.coordinator.findDriver.update(
+            in: webView,
+            query: findQuery,
+            forwardToken: findForwardToken,
+            backwardToken: findBackwardToken
         )
     }
 }
@@ -1505,11 +1574,19 @@ enum ReaderModeSupport {
         // renders the saved highlights without the ink-in animation.
         coordinator.lastAppliedHighlights = nil
         coordinator.pendingRestoreProgress = restorableProgress(initialProgress)
+        #if os(macOS)
+        // A query under an open find bar waits for this document's didFinish
+        // rather than searching the one being replaced.
+        coordinator.findDriver.documentWillLoad()
+        #endif
         let html = ReaderTemplate.page(
             article: article,
             typography: typography,
             isDark: isDark,
-            readMinutes: article.readMinutes
+            readMinutes: article.readMinutes,
+            // The page takes the theme it is loaded under; an article already
+            // open keeps its paper until it is next loaded.
+            theme: ThemeStore.shared.theme
         )
         // Base URL comes from the <base> tag in the template, so relative
         // image paths in article HTML resolve against the original site
@@ -1645,10 +1722,14 @@ final class ReaderModeCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate,
     var lastAppliedHighlights: [String]? = nil
     #if os(iOS)
     /// Find-in-page bookkeeping for the iOS reader (driven from the iOS
-    /// `ReaderModeWebView`); macOS Reader mode has no find of its own.
+    /// `ReaderModeWebView`), which wraps its matches in `<mark>` elements.
     var findState = FindState()
     var onFindResult: ((Int, Int) -> Void)? = nil
     var lastClearSelectionToken = 0
+    #elseif os(macOS)
+    /// Find-in-article for the macOS reader, on WebKit's own find: it selects
+    /// and reveals a match without adding anything to the document.
+    let findDriver = ReaderWebFindDriver()
     #endif
 
     init(
@@ -1723,6 +1804,10 @@ final class ReaderModeCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate,
         ReaderModeSupport.applyHighlights(webView, coordinator: self, documentIsReady: true)
         #if os(iOS)
         readerDocumentDidFinish(webView)
+        #elseif os(macOS)
+        // After the highlight marks are in, so a waiting query searches the
+        // document in the shape it will keep.
+        findDriver.documentDidFinish(in: webView)
         #endif
     }
 

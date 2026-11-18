@@ -37,20 +37,31 @@ struct ContentViewNotificationHandlers: ViewModifier {
     func body(content: Content) -> some View {
         let step1 = content
             .onReceive(NotificationCenter.default.publisher(for: .groveNewNote)) { _ in
-                viewModel.openWritePanel()
+                // Beside a source being read, a new note is a quick one in
+                // the rail. Anywhere else it gets a page of its own.
+                if viewModel.isReadingSource {
+                    viewModel.openWritePanel()
+                } else {
+                    startNotePage()
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveNewNoteWithPrompt)) { notification in
                 viewModel.openWritePanel(prompt: notification.object as? String)
             }
-            .onReceive(NotificationCenter.default.publisher(for: .groveToggleSearch)) { _ in
-                if viewModel.isArticleWebViewActive {
+            .onReceive(NotificationCenter.default.publisher(for: .groveFind)) { _ in
+                // ⌘F: the one place that decides between the open reader's
+                // find bar and the quick search overlay.
+                switch viewModel.findShortcutTarget {
+                case .article:
                     NotificationCenter.default.post(name: .groveFindInArticle, object: nil)
-                } else {
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        if !viewModel.showSearch { viewModel.showCaptureOverlay = false }
-                        viewModel.showSearch.toggle()
-                    }
+                case .library:
+                    toggleSearchOverlay()
                 }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .groveToggleSearch)) { _ in
+                // ⌘⇧F and the sidebar's search field: the Library's own find
+                // field, from wherever the window is.
+                focusLibraryFind()
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveToggleInspector)) { _ in
                 viewModel.toggleInspector()
@@ -106,6 +117,10 @@ struct ContentViewNotificationHandlers: ViewModifier {
                 viewModel.enterFocusMode()
             }
             .onReceive(NotificationCenter.default.publisher(for: .groveExitFocusMode)) { _ in
+                // The reader posts this when a reflection or flashcard editor
+                // closes. While a source is still open the sidebar stays
+                // folded; leaving the reader is what unfolds it.
+                guard !viewModel.isReadingSource else { return }
                 viewModel.exitFocusMode()
             }
             .onAppear {
@@ -120,16 +135,61 @@ struct ContentViewNotificationHandlers: ViewModifier {
             }
     }
 
+    /// The quick search overlay: jump to an item, board or tag by keyboard.
+    private func toggleSearchOverlay() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            if !viewModel.showSearch { viewModel.showCaptureOverlay = false }
+            viewModel.showSearch.toggle()
+        }
+    }
+
+    /// Go to the Library and put the keyboard in its find field. The request
+    /// is held briefly by the field, so it still lands when the Library is
+    /// only now coming on screen.
+    private func focusLibraryFind() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            viewModel.showSearch = false
+            viewModel.showCaptureOverlay = false
+        }
+        viewModel.selection = .library
+        viewModel.openedItem = nil
+        NotificationCenter.default.postFocusLibrarySearch()
+    }
+
+    /// "New Note": a blank note, open as a page, in the board being looked at.
+    ///
+    /// The note is stored straight away so the page has something to write
+    /// to and autosave from the first keystroke; `NotePageView` removes it
+    /// again if it is left empty. If the store refuses, fall back to the rail
+    /// writer, which creates its note only once there is text.
+    private func startNotePage() {
+        let note = Item(title: NoteDraft.untitledTitle, type: .note)
+        note.status = .active
+        modelContext.insert(note)
+        if let board = searchScopeBoard {
+            note.boards.append(board)
+        }
+        do {
+            try modelContext.save()
+        } catch {
+            modelContext.delete(note)
+            viewModel.openWritePanel()
+            return
+        }
+        viewModel.openNotePage(note, isFresh: true)
+    }
+
     /// Drop every reference to an item that is about to be deleted.
     ///
-    /// `writePanelEditItem` is the load-bearing one: opening a note nils
-    /// `openedItem` right after handing the item to the write panel, so an
-    /// id-match against `openedItem` alone never fires and the panel would keep
-    /// rendering — and on dismiss, keep saving into — a deleted model.
+    /// A note opened for editing in the rail writer is held in
+    /// `writePanelEditItem`, not `openedItem`, so it is cleared on its own.
     private func clearPresentationState(forDeletedItemID id: UUID) {
         if viewModel.writePanelEditItem?.id == id {
             viewModel.writePanelEditItem = nil
             viewModel.showWritePanel = false
+        }
+        if viewModel.railNoteInProgress?.id == id {
+            viewModel.railNoteInProgress = nil
         }
         if viewModel.selectedItem?.id == id {
             viewModel.selectedItem = nil

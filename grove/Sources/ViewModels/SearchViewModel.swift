@@ -31,6 +31,19 @@ struct SearchResult: Identifiable {
     let reflection: ReflectionBlock?
 }
 
+/// How many hits of each kind a search keeps, best first.
+struct SearchResultLimits: Equatable, Sendable {
+    var items: Int
+    var reflections: Int
+    var tags: Int
+    var boards: Int
+    /// "Related by meaning" rows.
+    var related: Int
+
+    /// The search overlay's limits, and every view model's default.
+    static let overlay = SearchResultLimits(items: 15, reflections: 10, tags: 8, boards: 5, related: 8)
+}
+
 /// An embedding-index hit: an item ID and its cosine similarity to the query.
 struct SemanticCandidate: Sendable, Equatable {
     let id: UUID
@@ -63,10 +76,29 @@ final class SearchViewModel {
     /// Index hits requested before fuzzy/archived exclusions are applied.
     private nonisolated static let semanticCandidatePoolSize = 64
 
+    /// How many hits of each kind a search keeps. Defaults to the overlay's
+    /// limits; the Library raises them, because it lists every match inside
+    /// the scope its filters show. Read when a search runs.
+    var resultLimits = SearchResultLimits.overlay
+
     /// Optional board scope — when set, item/reflection results are restricted to this board
     var scopeBoard: Board? {
         didSet {
             if oldValue?.id != scopeBoard?.id {
+                cachedCorpus = nil
+                cancelSemanticSearch()
+            }
+        }
+    }
+
+    /// Optional item scope — when set, item/reflection results (semantic ones
+    /// included) are restricted to these items, and the result limits apply
+    /// inside that set. Nil, the default, searches everything: the search
+    /// overlay never sets it. The Library sets it to the items its filters
+    /// are showing.
+    var scopeItemIDs: Set<UUID>? {
+        didSet {
+            if oldValue != scopeItemIDs {
                 cachedCorpus = nil
                 cancelSemanticSearch()
             }
@@ -119,6 +151,17 @@ final class SearchViewModel {
         results = [:]
         isSearching = false
         clearSemanticResults()
+    }
+
+    /// Forgets the cached corpus, so the next search reads the store again.
+    ///
+    /// The corpus is loaded once and kept, which suits the search overlay: it
+    /// builds a new view model each time it opens and never calls this. A host
+    /// that stays on screen (the Library's find field) calls it before each
+    /// search, so that models added or deleted since the last one are not
+    /// searched from a stale list.
+    func invalidateCorpus() {
+        cachedCorpus = nil
     }
 
     /// Preserve compatibility for existing call sites that trigger an immediate search.
@@ -304,7 +347,7 @@ final class SearchViewModel {
             fuzzyIDs: fuzzyItemIDs,
             excludedIDs: excludedIDs,
             threshold: Self.semanticScoreThreshold,
-            limit: Self.semanticResultLimit
+            limit: resultLimits.related
         )
 
         semanticResults = matches.compactMap { match in
@@ -376,7 +419,7 @@ final class SearchViewModel {
             ))
         }
 
-        return scored.sorted { $0.score > $1.score }.prefix(15).map { $0 }
+        return scored.sorted { $0.score > $1.score }.prefix(max(0, resultLimits.items)).map { $0 }
     }
 
     private static func subtitle(for item: Item) -> String? {
@@ -412,7 +455,7 @@ final class SearchViewModel {
             ))
         }
 
-        return scored.sorted { $0.score > $1.score }.prefix(10).map { $0 }
+        return scored.sorted { $0.score > $1.score }.prefix(max(0, resultLimits.reflections)).map { $0 }
     }
 
     private func searchTags(query: String, tags: [Tag]) -> [SearchResult] {
@@ -435,7 +478,7 @@ final class SearchViewModel {
             ))
         }
 
-        return scored.sorted { $0.score > $1.score }.prefix(8).map { $0 }
+        return scored.sorted { $0.score > $1.score }.prefix(max(0, resultLimits.tags)).map { $0 }
     }
 
     private func searchBoards(query: String, boards: [Board]) -> [SearchResult] {
@@ -462,7 +505,7 @@ final class SearchViewModel {
             ))
         }
 
-        return scored.sorted { $0.score > $1.score }.prefix(5).map { $0 }
+        return scored.sorted { $0.score > $1.score }.prefix(max(0, resultLimits.boards)).map { $0 }
     }
 
     private func loadSearchCorpus() -> SearchCorpus {
@@ -483,6 +526,14 @@ final class SearchViewModel {
             reflections = reflections.filter { block in
                 guard let parentItem = block.item else { return false }
                 return parentItem.boards.contains(where: { $0.id == boardScopeID })
+            }
+        }
+
+        if let scopeItemIDs {
+            items = items.filter { scopeItemIDs.contains($0.id) }
+            reflections = reflections.filter { block in
+                guard let parentItem = block.item else { return false }
+                return scopeItemIDs.contains(parentItem.id)
             }
         }
 

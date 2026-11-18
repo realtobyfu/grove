@@ -4,7 +4,7 @@ import AppKit
 import SwiftUI
 import SwiftData
 
-/// Extracted from BoardDetailView — item list/grid display with sorting, reorder, and context menus.
+/// Extracted from BoardDetailView — item trail/grid/list display with sorting, reorder, and context menus.
 struct BoardItemListView: View {
     let board: Board
     let sortedFilteredItems: [Item]
@@ -25,6 +25,17 @@ struct BoardItemListView: View {
 
     var body: some View {
         switch viewMode {
+        case .trail:
+            BoardTrailView(
+                board: board,
+                trail: BoardTrail(orderedItems: sortedFilteredItems),
+                canReorder: canReorder,
+                selectedItem: $selectedItem,
+                openedItem: $openedItem,
+                draggingItemID: $draggingItemID,
+                itemContextMenu: { item in AnyView(itemContextMenu(for: item)) },
+                onReorder: onMoveGrid
+            )
         case .grid:
             BoardGridView(
                 items: sortedFilteredItems,

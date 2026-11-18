@@ -29,8 +29,8 @@ final class ItemReaderViewModel {
     var showArticleWebView = false
     /// Whether the native PDF pane is up. A separate flag from
     /// `showArticleWebView` on purpose: the two panes are mutually exclusive
-    /// surfaces, and everything keyed off the web flag (⌘F routing to
-    /// find-in-page, Reader mode, capture-on-write) means nothing here.
+    /// surfaces, and everything keyed off the web flag (Reader mode,
+    /// capture-on-write) means nothing here.
     var showPDFReader = false
     var isEditingSummary = false
     var editableSummary = ""
@@ -47,12 +47,10 @@ final class ItemReaderViewModel {
 
     // MARK: - Find State
 
-    var showFindBar = false
-    var findQuery = ""
-    var findMatchCount = 0
-    var findCurrentMatch = 0
-    var findForwardToken = 0
-    var findBackwardToken = 0
+    /// Find-in-article for whichever reading surface is up (Reader mode, the
+    /// live page, or the PDF pane). One session per reader, so the bar's state
+    /// follows the reader across a Reader ↔ Original switch.
+    let find = ReaderFindSession()
 
     // MARK: - Reader Mode State
 
@@ -443,15 +441,6 @@ final class ItemReaderViewModel {
         webSelectionGeometry = nil
     }
 
-    // MARK: - Find Bar
-
-    func closeFindBar() {
-        showFindBar = false
-        findQuery = ""
-        findMatchCount = 0
-        findCurrentMatch = 0
-    }
-
     // MARK: - Reflection Editor
 
     func openFlashcardEditor(quote: String? = nil, reflection: ReflectionBlock? = nil) {
@@ -670,7 +659,7 @@ final class ItemReaderViewModel {
         editableSummary = ""
         isReflectionPanelCollapsed = false
         webViewZoomLevel = 1.0
-        closeFindBar()
+        find.dismiss()
         readerArticle = nil
         navigatedReaderArticle = nil
         navigatedReaderArticleURL = nil

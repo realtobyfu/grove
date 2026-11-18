@@ -61,8 +61,10 @@ struct SidebarView: View {
                         .padding(.top, Spacing.xl)
                         .padding(.bottom, Spacing.xs)
 
-                    ForEach(boards) { board in
-                        boardRow(board)
+                    ForEach(Array(boards.enumerated()), id: \.element.id) { index, board in
+                        // The first nine boards carry the number of their
+                        // ⌘1–⌘9 shortcut; Commonplace shows it in the row.
+                        boardRow(board, ordinal: index < 9 ? index + 1 : nil)
                     }
                 }
                 .padding(.horizontal, Spacing.sm)
@@ -139,7 +141,14 @@ struct SidebarView: View {
             Text("Boards")
                 .sectionHeaderStyle()
 
-            Spacer()
+            if ThemeStore.shared.theme.usesRules {
+                Rectangle()
+                    .fill(Color.borderPrimary)
+                    .frame(height: 1)
+                    .accessibilityHidden(true)
+            } else {
+                Spacer()
+            }
 
             Button {
                 showNewBoardSheet = true
@@ -165,10 +174,11 @@ struct SidebarView: View {
         }
     }
 
-    private func boardRow(_ board: Board) -> some View {
+    private func boardRow(_ board: Board, ordinal: Int?) -> some View {
         SidebarRow(
             icon: board.icon ?? "folder",
             title: board.title,
+            ordinal: ordinal,
             tier: .board,
             isSelected: selection == .board(board.id)
         ) { selection = .board(board.id) }
@@ -224,20 +234,25 @@ private struct SidebarSearchField: View {
     let action: () -> Void
     @State private var isHovering = false
 
+    private var theme: GroveTheme { ThemeStore.shared.theme }
+
     var body: some View {
         Button(action: action) {
             HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color.textTertiary)
+                if theme.usesGlyphs {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color.textTertiary)
+                }
 
+                // Commonplace sets the prompt as ghost text on a ruled line.
                 Text("Search")
-                    .font(.groveBodySecondary)
+                    .font(theme.usesRules ? .groveGhostText : .groveBodySecondary)
                     .foregroundStyle(isHovering ? Color.textSecondary : Color.textTertiary)
 
                 Spacer(minLength: Spacing.sm)
 
-                Text("⌘F")
+                Text("⌘⇧F")
                     .font(.groveMeta)
                     .foregroundStyle(Color.textMuted)
             }
@@ -245,18 +260,27 @@ private struct SidebarSearchField: View {
             .frame(height: 30)
             .background(
                 RoundedRectangle(cornerRadius: Radius.control)
-                    .fill(Color.bgCard)
+                    .fill(theme.usesRules ? Color.clear : Color.bgCard)
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: Radius.control)
-                    .stroke(Color.borderPrimary, lineWidth: 1)
-            )
+            .overlay {
+                if !theme.usesRules {
+                    RoundedRectangle(cornerRadius: Radius.control)
+                        .stroke(Color.borderPrimary, lineWidth: 1)
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if theme.usesRules {
+                    Rectangle()
+                        .fill(Color.borderInput)
+                        .frame(height: 1)
+                }
+            }
             .contentShape(RoundedRectangle(cornerRadius: Radius.control))
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .animation(.easeInOut(duration: 0.12), value: isHovering)
-        .help("Search (⌘F)")
+        .help("Search (⌘⇧F)")
         .accessibilityLabel("Search")
     }
 }
@@ -278,6 +302,8 @@ private struct SidebarRow: View {
 
     let icon: String
     let title: String
+    /// A board's ⌘-number, shown in place of its icon in Commonplace.
+    var ordinal: Int? = nil
     var count: Int = 0
     var tier: Tier = .primary
     let isSelected: Bool
@@ -285,11 +311,16 @@ private struct SidebarRow: View {
 
     @State private var isHovering = false
 
+    private var theme: GroveTheme { ThemeStore.shared.theme }
+
     private var inkColor: Color {
         isSelected || isHovering ? Color.textPrimary : Color.textSecondary
     }
 
+    /// Grove selects with a soft card; Commonplace with ink alone (a rule at
+    /// the leading edge), so there is no fill to draw.
     private var fillColor: Color {
+        if theme.usesRules { return Color.clear }
         if isSelected { return Color.bgCard }
         if isHovering { return Color.bgCardHover.opacity(0.6) }
         return Color.clear
@@ -300,10 +331,18 @@ private struct SidebarRow: View {
             // Baseline alignment: symbols carry a text baseline, so icon,
             // label, and count sit on one line instead of box-centering.
             HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
-                Image(systemName: icon)
-                    .font(.system(size: tier == .primary ? 13 : 12, weight: .medium))
-                    .foregroundStyle(inkColor)
-                    .frame(width: 20)
+                if theme.usesGlyphs {
+                    Image(systemName: icon)
+                        .font(.system(size: tier == .primary ? 13 : 12, weight: .medium))
+                        .foregroundStyle(inkColor)
+                        .frame(width: 20)
+                } else if tier == .board {
+                    Text(ordinal.map { "\($0)" } ?? "")
+                        .font(.groveMeta)
+                        .monospacedDigit()
+                        .foregroundStyle(Color.textMuted)
+                        .frame(width: 12, alignment: .leading)
+                }
 
                 Text(title)
                     .font(tier == .primary ? .groveBodyMedium : .groveBodySecondary)
@@ -332,9 +371,17 @@ private struct SidebarRow: View {
                     .fill(fillColor)
             )
             .overlay {
-                if isSelected {
+                if isSelected && !theme.usesRules {
                     RoundedRectangle(cornerRadius: Radius.control)
                         .stroke(Color.borderPrimary, lineWidth: 1)
+                }
+            }
+            .overlay(alignment: .leading) {
+                if isSelected && theme.usesRules {
+                    Rectangle()
+                        .fill(Color.accentSelection)
+                        .frame(width: 2)
+                        .padding(.vertical, Spacing.xsm)
                 }
             }
             .contentShape(RoundedRectangle(cornerRadius: Radius.control))
@@ -377,22 +424,29 @@ private struct SettingsFooterRow: View {
     var body: some View {
         SettingsLink {
             HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 12, weight: .medium))
-                    .frame(width: 20)
+                if ThemeStore.shared.theme.usesGlyphs {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 12, weight: .medium))
+                        .frame(width: 20)
+                }
 
                 Text("Settings")
                     .font(.groveBodySecondary)
                     .lineLimit(1)
 
                 Spacer(minLength: 0)
+
+                if !ThemeStore.shared.theme.usesGlyphs {
+                    Text("\u{2318},")
+                        .font(.groveMeta)
+                }
             }
             .foregroundStyle(isHovering ? Color.textPrimary : Color.textTertiary)
             .padding(.horizontal, Spacing.sm + 2)
             .frame(minHeight: 30)
             .background(
                 RoundedRectangle(cornerRadius: Radius.control)
-                    .fill(isHovering ? Color.bgCardHover.opacity(0.6) : Color.clear)
+                    .fill(isHovering && !ThemeStore.shared.theme.usesRules ? Color.bgCardHover.opacity(0.6) : Color.clear)
             )
             .contentShape(RoundedRectangle(cornerRadius: Radius.control))
         }

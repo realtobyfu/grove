@@ -291,7 +291,7 @@ class HighlightingUITextView: UITextView {
 
         let selection = selectedRange
         let textOrigin = CGPoint(x: textContainerInset.left, y: textContainerInset.top)
-        let markerColor = UIColor.secondaryLabel.withAlphaComponent(0.9)
+        let markerColor = EditorInk.secondary
         let baseSize = font?.pointSize ?? 16
         let bulletSize: CGFloat = baseSize >= 17 ? 5.4 : 4.6
         let fullRange = NSRange(location: 0, length: storage.length)
@@ -334,7 +334,7 @@ class HighlightingUITextView: UITextView {
         let nsText = storage.string as NSString
         let selection = selectedRange
         let textOrigin = CGPoint(x: textContainerInset.left, y: textContainerInset.top)
-        let railColor = UIColor.tertiaryLabel.withAlphaComponent(0.72)
+        let railColor = EditorInk.rule
         let baseSize = font?.pointSize ?? 16
         let railWidth: CGFloat = baseSize >= 17 ? 1.0 : 0.85
         let fullRange = NSRange(location: 0, length: storage.length)

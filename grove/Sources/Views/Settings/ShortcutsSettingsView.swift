@@ -11,6 +11,7 @@ struct ShortcutsSettingsView: View {
 
             Section("Navigation") {
                 shortcutRow("Search", shortcut: "⌘F")
+                shortcutRow("Search Library (from anywhere)", shortcut: "⌘⇧F")
                 shortcutRow("Go to Today", shortcut: "⌘0")
                 shortcutRow("Go to Board 1–9", shortcut: "⌘1 – ⌘9")
                 shortcutRow("New Board", shortcut: "⌘⇧B")
@@ -27,6 +28,9 @@ struct ShortcutsSettingsView: View {
             }
 
             Section("Reader") {
+                shortcutRow("Find in Article", shortcut: "⌘F")
+                shortcutRow("Find Next", shortcut: "⌘G")
+                shortcutRow("Find Previous", shortcut: "⌘⇧G")
                 shortcutRow("Bigger Text", shortcut: "⌘+")
                 shortcutRow("Smaller Text", shortcut: "⌘−")
                 shortcutRow("Actual Size", shortcut: "⌘⇧0")

@@ -11,6 +11,22 @@ struct GeneralSettingsView: View {
 
     var body: some View {
         Form {
+            Section("Appearance") {
+                Picker("Theme", selection: Binding(
+                    get: { ThemeStore.shared.theme },
+                    set: { ThemeStore.shared.select($0) }
+                )) {
+                    ForEach(GroveTheme.allCases) { theme in
+                        Text(theme.displayName).tag(theme)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Text(ThemeStore.shared.theme.summary)
+                    .font(.groveBodySmall)
+                    .foregroundStyle(Color.textSecondary)
+            }
+
             Section("Cover Images") {
                 Toggle("Black and white images", isOn: $monochromeCoverImages)
                     .onChange(of: monochromeCoverImages) { _, newValue in

@@ -222,7 +222,9 @@ struct MobileBoardDetailView: View {
                 }
 
                 switch viewMode {
-                case .grid:
+                // Trail is a macOS view. Nothing here ever selects it; it is
+                // listed with the default so the switch stays exhaustive.
+                case .grid, .trail:
                     BoardGridView(
                         items: sortedFilteredItems,
                         sections: weekSections,

@@ -154,15 +154,23 @@ struct ContentView: View {
             modelContext: modelContext
         ))
         .onChange(of: viewModel.openedItem) {
-            if let item = viewModel.openedItem, item.type == .note {
-                viewModel.writePanelEditItem = item
-                viewModel.selectedItem = item
-                viewModel.openedItem = nil
-                withAnimation(RightRailMetrics.widthChange) {
-                    viewModel.showWritePanel = true
+            if viewModel.openedItem?.id != viewModel.freshNoteID {
+                viewModel.freshNoteID = nil
+            }
+            if viewModel.isNotePageOpen {
+                // A note opens as a page in the detail column (`NotePageView`),
+                // not in the rail: the rail stays free for chat or the
+                // inspector. Arriving from a reader in focus mode hands the
+                // sidebar and rail back first.
+                viewModel.isArticleWebViewActive = false
+                viewModel.isPDFReaderActive = false
+                viewModel.releaseRailNoteIfOpenAsPage()
+                if viewModel.savedColumnVisibility != nil {
+                    viewModel.exitFocusMode()
                 }
-            } else if let item = viewModel.openedItem, !item.reflections.isEmpty {
-                // Save current panel state and collapse for reader (only when item has reflections)
+            } else if viewModel.openedItem != nil {
+                // Any source in the reader: the sidebar folds to its spine so
+                // the article and the right page get the window's width.
                 viewModel.enterFocusMode()
             } else if viewModel.openedItem == nil {
                 viewModel.isArticleWebViewActive = false
@@ -181,12 +189,6 @@ struct ContentView: View {
         }
         .onChange(of: viewModel.selectedConversation) {
             if viewModel.selectedConversation != nil { closeWritePanelForRail() }
-        }
-        .onChange(of: viewModel.showWritePanel) {
-            if !viewModel.showWritePanel {
-                viewModel.writePanelPrompt = nil
-                viewModel.writePanelEditItem = nil
-            }
         }
         .onAppear {
             refreshOnboardingState()
@@ -216,13 +218,41 @@ struct ContentView: View {
         }
     }
 
+    /// The spine stands in for the sidebar whenever the sidebar is collapsed
+    /// — except in full-screen reading, which is the page and nothing else.
+    private var showsSidebarSpine: Bool {
+        #if os(macOS)
+        viewModel.columnVisibility == .detailOnly && !hidesWindowToolbar
+        #else
+        false
+        #endif
+    }
+
     private var mainContentArea: some View {
         GeometryReader { geo in
             HStack(spacing: 0) {
+                if showsSidebarSpine {
+                    SidebarSpine(
+                        selection: Binding(
+                            get: { viewModel.selection },
+                            set: { viewModel.selection = $0 }
+                        ),
+                        boards: boards,
+                        // Picking a destination leaves the reader, which is
+                        // also what brings the full sidebar back.
+                        onNavigate: { viewModel.openedItem = nil },
+                        onExpand: {
+                            withAnimation(RightRailMetrics.widthChange) {
+                                viewModel.columnVisibility = .all
+                            }
+                        }
+                    )
+                }
+
                 detailContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                sidePanel(availableWidth: geo.size.width)
+                sidePanel(availableWidth: geo.size.width - (showsSidebarSpine ? SidebarSpine.width : 0))
             }
         }
         .toolbar {
@@ -236,48 +266,20 @@ struct ContentView: View {
                     .help("Back to list")
                 }
             }
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    if viewModel.openedItem != nil {
-                        NotificationCenter.default.post(name: .groveOpenReflectMode, object: nil)
-                    } else {
-                        viewModel.toggleWritePanel()
-                    }
-                } label: {
-                    Image(systemName: viewModel.openedItem != nil
-                        ? "square.and.pencil"
-                        : (viewModel.showWritePanel ? "square.and.pencil.circle.fill" : "square.and.pencil"))
-                }
-                .help(viewModel.openedItem != nil ? "Reflect on this item" : viewModel.showWritePanel ? "Close Write Panel" : "Write a note")
-                chatToolbarButton
-                inspectorToolbarButton
+            // The right page's tabs, directly above the page they switch.
+            // One strip in place of the write, chat and inspector toggles.
+            ToolbarItem(placement: .primaryAction) {
+                RightPageTabStrip(
+                    tabs: viewModel.rightPageTabs,
+                    active: viewModel.activeRightPageTab,
+                    isAvailable: { viewModel.isRightPageTabAvailable($0) },
+                    onSelect: { viewModel.selectRightPageTab($0) }
+                )
             }
         }
         #if os(macOS)
         .toolbar(hidesWindowToolbar ? .hidden : .automatic, for: .windowToolbar)
         #endif
-    }
-
-    private var chatToolbarButton: some View {
-        let chatShown = viewModel.rightRailMode == .dialectics
-        return Button {
-            viewModel.toggleChatPanel()
-        } label: {
-            Image(systemName: chatShown ? "bubble.left.and.bubble.right.fill" : "bubble.left.and.bubble.right")
-        }
-        .help(chatShown ? "Hide Chat" : "Show Chat")
-    }
-
-    private var inspectorToolbarButton: some View {
-        Button {
-            viewModel.toggleInspector()
-        } label: {
-            Image(systemName: "sidebar.trailing")
-        }
-        // Nothing to inspect means no rail at all, so the toggle has nothing
-        // to show — don't offer it.
-        .disabled(viewModel.inspectorItem == nil)
-        .help(viewModel.rightRailMode == .inspector ? "Hide Inspector" : "Show Inspector")
     }
 
     // MARK: - Overlays
@@ -361,34 +363,61 @@ struct ContentView: View {
         return RightRailContainer(
             mode: viewModel.rightRailMode,
             availableWidth: availableWidth,
-            onCollapse: {
-                switch viewModel.rightRailMode {
-                case .writing: viewModel.showWritePanel = false
-                case .dialectics: viewModel.showChatPanel = false
-                default: viewModel.inspectorUserOverride = false
-                }
-            }
+            // Dragging the divider shut is the same as picking the active tab.
+            onCollapse: { viewModel.closeRightPage() }
         ) { mode in
             switch mode {
             case .writing:
                 NoteWriterPanelView(
-                    isPresented: $vm.showWritePanel,
+                    // The writer only ever closes itself (Done, Esc, ⌘↩), and
+                    // that ends the writing session. Another tab taking the
+                    // page goes through the view model and leaves the note
+                    // resumable.
+                    isPresented: Binding(
+                        get: { viewModel.showWritePanel },
+                        set: { isShown in
+                            if isShown {
+                                viewModel.showWritePanel = true
+                            } else {
+                                viewModel.endNoteSession()
+                            }
+                        }
+                    ),
                     currentBoardID: currentBoardID,
                     prompt: viewModel.writePanelPrompt,
                     editingItem: viewModel.writePanelEditItem,
-                    isSidePanel: true
-                ) { note in
-                    viewModel.writePanelPrompt = nil
-                    viewModel.writePanelEditItem = nil
-                    viewModel.selectedItem = note
-                }
+                    isSidePanel: true,
+                    onCreated: { note in
+                        // Beside a note page the selection belongs to the page.
+                        if !viewModel.isNotePageOpen {
+                            viewModel.selectedItem = note
+                        }
+                    },
+                    onOpenAsPage: { note in
+                        viewModel.openNotePage(note)
+                    },
+                    onDraftItemChange: { note in
+                        viewModel.railNoteInProgress = note
+                    }
+                )
                 // A different note or prompt is a different writing session:
                 // rebuild the editor so it picks up the new content.
                 .id(WriteSessionKey(editItemID: viewModel.writePanelEditItem?.id, prompt: viewModel.writePanelPrompt))
             case .dialectics:
                 DialecticalChatPanel(
                     selectedConversation: $vm.selectedConversation,
-                    isVisible: $vm.showChatPanel,
+                    // The panel's own close button closes the page, the same
+                    // as picking the Chat tab again.
+                    isVisible: Binding(
+                        get: { viewModel.showChatPanel },
+                        set: { isShown in
+                            if isShown {
+                                viewModel.showChatPanel = true
+                            } else {
+                                viewModel.closeRightPage()
+                            }
+                        }
+                    ),
                     currentBoard: searchScopeBoard,
                     onNavigateToItem: { item in
                         viewModel.selectedItem = item
@@ -418,13 +447,26 @@ struct ContentView: View {
     @ViewBuilder
     private var detailContent: some View {
         @Bindable var vm = viewModel
-        if let openedItemValue = viewModel.openedItem {
+        if let note = viewModel.openedItem, note.type == .note {
+            NotePageView(
+                item: note,
+                isFresh: viewModel.freshNoteID == note.id,
+                onNavigateToItem: { item in
+                    viewModel.selectedItem = item
+                    viewModel.openedItem = item
+                },
+                onShowLinks: { viewModel.showInspector() }
+            )
+            // One page per note: a different note is a different draft.
+            .id(note.id)
+        } else if let openedItemValue = viewModel.openedItem {
             ItemReaderView(
                 item: openedItemValue,
                 isWebViewActive: $vm.isArticleWebViewActive,
                 isPDFSurfaceActive: $vm.isPDFReaderActive,
                 railYields: viewModel.readerRailYields,
                 onClaimRail: { viewModel.claimRailForReader() },
+                isRailActive: $vm.isReaderRailActive,
                 onNavigateToItem: { item in
                     viewModel.selectedItem = item
                     viewModel.openedItem = item
