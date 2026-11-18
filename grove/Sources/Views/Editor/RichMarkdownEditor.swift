@@ -147,12 +147,14 @@ struct RichMarkdownEditor: View {
     private enum FloatingMetrics {
         static let popupWidth: CGFloat = 300
         static let rowHeight: CGFloat = 26
-        static let maxRows = 8
+        /// Enough for every block command: the popup does not scroll, so a
+        /// row past this count would be laid out below its frame and cut off.
+        static let maxRows = 10
         static let gap: CGFloat = 4
         static let edge: CGFloat = 8
         /// The selection bar sizes itself; this is only used to keep it on
         /// the page near the trailing edge.
-        static let barWidthEstimate: CGFloat = 400
+        static let barWidthEstimate: CGFloat = 440
         static let barHeight: CGFloat = 30
     }
 
@@ -1871,7 +1873,13 @@ class HighlightingTextView: NSTextView {
         let query = prefixNSString.substring(from: queryStart)
         guard !query.contains("]]"), !query.contains("\n") else { return }
 
-        let replacementRange = NSRange(location: openRange.location, length: safeCursor - openRange.location)
+        var replacementRange = NSRange(location: openRange.location, length: safeCursor - openRange.location)
+        // The format bar's "[[ ]]" control types the closing pair too and
+        // leaves the caret between the two. Take that pair with the query, or
+        // the pick would read `[[Title]]]]`.
+        if nsText.substring(from: safeCursor).hasPrefix("]]") {
+            replacementRange.length += 2
+        }
         let replacement = "[[\(title)]]"
         guard let textStorage = textStorage else { return }
         let replacementLength = (replacement as NSString).length
