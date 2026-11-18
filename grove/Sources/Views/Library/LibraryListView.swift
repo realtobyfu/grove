@@ -99,6 +99,7 @@ struct LibraryListView: View {
         if sections.isEmpty {
             emptyView
         } else {
+            let keyboardHighlightShown = hasKeyboardHighlight
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -118,7 +119,7 @@ struct LibraryListView: View {
                                 }
                             }
                             ForEach(section.rows) { row in
-                                selectableRow(for: row)
+                                selectableRow(for: row, keyboardHighlightShown: keyboardHighlightShown)
                                     .id(row.id)
                                 if row.id != section.rows.last?.id {
                                     rowRule
@@ -201,13 +202,14 @@ struct LibraryListView: View {
         return sections.rowIDs.contains(highlighted)
     }
 
-    private func selectableRow(for row: LibraryListRow) -> some View {
+    /// `keyboardHighlightShown`: `hasKeyboardHighlight`, read once per draw.
+    private func selectableRow(for row: LibraryListRow, keyboardHighlightShown: Bool) -> some View {
         let item = row.item
         let isItemSelected = selectedIDs.contains(item.id)
         let isHighlighted: Bool
         if isMultiSelectMode {
             isHighlighted = isItemSelected || cursor.highlightedRowID == row.id
-        } else if hasKeyboardHighlight {
+        } else if keyboardHighlightShown {
             isHighlighted = cursor.highlightedRowID == row.id
         } else {
             isHighlighted = selectedItem?.id == item.id

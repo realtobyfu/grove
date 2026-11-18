@@ -52,6 +52,21 @@ enum LibrarySortOption: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Search Limits
+
+extension SearchResultLimits {
+    /// The Library's limits: it is an index, so every title, text, tag and
+    /// board match inside the scope its filters show is listed. "Related in
+    /// meaning" keeps the overlay's limit; it is a suggestion, not a match.
+    static let library = SearchResultLimits(
+        items: .max,
+        reflections: .max,
+        tags: .max,
+        boards: .max,
+        related: SearchResultLimits.overlay.related
+    )
+}
+
 // MARK: - LibraryView
 
 /// The Library: the index of everything saved, and the place you search it.
@@ -60,6 +75,11 @@ enum LibrarySortOption: String, CaseIterable, Identifiable {
 /// under month headings for the two date sorts. With a query it lists what
 /// `SearchViewModel` finds, grouped by where the match is (`LibraryFind`).
 /// Boards act as filter chips on both.
+///
+/// The window takes this view down while an item is open, so the query and
+/// the filter chips are kept per scene (`@SceneStorage`) and are still there
+/// when the reader is closed. The sort order is kept for the app
+/// (`@AppStorage`).
 struct LibraryView: View {
     @Binding var selectedItem: Item?
     @Binding var openedItem: Item?
@@ -70,14 +90,18 @@ struct LibraryView: View {
     @Query(sort: \Item.updatedAt, order: .reverse) private var allItems: [Item]
     @Query(sort: \Board.sortOrder) private var allBoards: [Board]
 
-    @State private var searchQuery: String = ""
+    @SceneStorage("library.findQuery") private var searchQuery: String = ""
     /// The search behind the find field: the same view model the search
-    /// overlay drives, scoped to the items the filters show. Built when the
-    /// page appears.
+    /// overlay drives, scoped to the items the filters show and with the
+    /// Library's raised limits. Built when the page appears.
     @State private var searchViewModel: SearchViewModel?
-    @State private var selectedBoardID: UUID? = nil
-    @State private var showingArchived = false
+    /// The board chip, as a UUID string ("" for All): scene storage holds
+    /// strings, not UUIDs. Read through `selectedBoardID`.
+    @SceneStorage("library.boardID") private var storedBoardID: String = ""
+    @SceneStorage("library.showingArchived") private var showingArchived: Bool = false
     @State private var itemToDelete: Item?
+    /// The row Down and Up have moved to from the find field.
+    @State private var cursor = LibraryFindCursor()
 
     @AppStorage("librarySortOption") private var sortOption: LibrarySortOption = .recentlyUpdated
 
@@ -104,10 +128,23 @@ struct LibraryView: View {
         return searchViewModel.isSearching || searchViewModel.query != searchQuery
     }
 
-    /// The board the chips filter to, looked up live so a deleted board reads as none.
+    /// The board the chips filter to, looked up live so a deleted board (its
+    /// ID still in scene storage) reads as none.
     private var selectedBoard: Board? {
-        guard let selectedBoardID else { return nil }
-        return allBoards.first { $0.id == selectedBoardID }
+        guard let storedID = UUID(uuidString: storedBoardID) else { return nil }
+        return allBoards.first { $0.id == storedID }
+    }
+
+    /// The board chip's board ID; nil for All.
+    private var selectedBoardID: UUID? {
+        selectedBoard?.id
+    }
+
+    private var selectedBoardIDBinding: Binding<UUID?> {
+        Binding(
+            get: { selectedBoardID },
+            set: { storedBoardID = $0?.uuidString ?? "" }
+        )
     }
 
     /// Items scoped to the board filter (if any), before text search
@@ -182,6 +219,7 @@ struct LibraryView: View {
             id: item.id.uuidString,
             item: item,
             typeLabel: item.type.indexLabel,
+            typeSymbolName: nil,
             isOwn: item.type == .note,
             snippet: nil,
             date: date,
@@ -193,41 +231,103 @@ struct LibraryView: View {
     // MARK: - Find Results
 
     /// What the search found, under the Library's headings, kept to the items
-    /// the Library is showing (`scope`: board filter, archived toggle).
+    /// the Library is showing (`scope`: board filter, archived toggle). Boards
+    /// whose name matches come first, as rows that apply the board's chip.
     private func findSections(in scope: [Item]) -> [LibraryListSection] {
         guard let searchViewModel else { return [] }
 
         let exactResults = (searchViewModel.results[.item] ?? []) + (searchViewModel.results[.reflection] ?? [])
-        let exact = exactResults.compactMap { findCandidate(for: $0, readsBody: true) }
-        let related = searchViewModel.semanticResults.compactMap { findCandidate(for: $0, readsBody: false) }
+        let exact = exactResults.compactMap { findCandidate(for: $0, readsBody: true, idPrefix: "item") }
+        let tagged = (searchViewModel.results[.tag] ?? []).flatMap { taggedCandidates(for: $0) }
+        let related = searchViewModel.semanticResults.compactMap {
+            findCandidate(for: $0, readsBody: false, idPrefix: "related")
+        }
 
         let groups = LibraryFind.groups(
             query: searchViewModel.query,
             exact: exact,
+            tagged: tagged,
             related: related,
             allowedItemIDs: Set(scope.map(\.id))
         )
 
-        return groups.compactMap { group -> LibraryListSection? in
+        var sections: [LibraryListSection] = []
+
+        let boardHits = (searchViewModel.results[.board] ?? []).compactMap { result -> Board? in
+            guard let board = result.board, !board.isDeleted, board.modelContext != nil else { return nil }
+            return board
+        }
+        let offered = LibraryFind.offeredBoards(
+            boardHits,
+            query: searchViewModel.query,
+            excluding: selectedBoardID,
+            id: { $0.id },
+            title: { $0.title }
+        )
+        if !offered.isEmpty {
+            sections.append(LibraryListSection(
+                id: LibraryFind.boardsGroupID,
+                title: LibraryFind.boardsGroupTitle,
+                count: offered.count,
+                rows: [],
+                boardRows: offered.map { LibraryBoardRow(id: "board-\($0.id.uuidString)", board: $0) }
+            ))
+        }
+
+        for group in groups {
             let rows = group.rows.compactMap { findRow(for: $0) }
-            guard !rows.isEmpty else { return nil }
-            return LibraryListSection(id: group.id, title: group.kind.title, count: rows.count, rows: rows)
+            guard !rows.isEmpty else { continue }
+            sections.append(LibraryListSection(id: group.id, title: group.kind.title, count: rows.count, rows: rows))
+        }
+        return sections
+    }
+
+    /// A tag hit as one candidate per item carrying the tag, with the tag's
+    /// name as the body. Dropped, as other results are, once deleted.
+    private func taggedCandidates(for result: SearchResult) -> [LibraryFind.Candidate<SearchResult>] {
+        guard let tag = result.tag, !tag.isDeleted, tag.modelContext != nil else { return [] }
+        return tag.items.compactMap { item in
+            guard !item.isDeleted, item.modelContext != nil else { return nil }
+            return LibraryFind.Candidate(
+                id: "tag-\(item.id.uuidString)",
+                itemID: item.id,
+                source: .tag,
+                title: item.title,
+                isNote: item.type == .note,
+                body: tag.name,
+                score: result.score,
+                payload: SearchResult(
+                    type: .item,
+                    title: item.title,
+                    subtitle: nil,
+                    score: result.score,
+                    item: item,
+                    board: nil,
+                    tag: tag,
+                    reflection: nil
+                )
+            )
         }
     }
 
     /// A search result as a grouping candidate. Results outlive the search
     /// that made them, so one whose item or reflection has since been deleted
     /// is dropped before anything is read from it.
+    ///
+    /// The candidate's ID, which becomes the row's, is built from the model's
+    /// ID rather than the result's: every search makes new results, and the
+    /// keyboard highlight has to survive a search re-run for the same query.
     private func findCandidate(
         for result: SearchResult,
-        readsBody: Bool
+        readsBody: Bool,
+        idPrefix: String
     ) -> LibraryFind.Candidate<SearchResult>? {
         guard let item = result.item, !item.isDeleted, item.modelContext != nil else { return nil }
 
         if result.type == .reflection {
             guard let block = result.reflection, !block.isDeleted, block.modelContext != nil else { return nil }
             return LibraryFind.Candidate(
-                id: result.id.uuidString,
+                id: "reflection-\(block.id.uuidString)",
                 itemID: item.id,
                 source: .reflection,
                 title: item.title,
@@ -239,7 +339,7 @@ struct LibraryView: View {
         }
 
         return LibraryFind.Candidate(
-            id: result.id.uuidString,
+            id: "\(idPrefix)-\(item.id.uuidString)",
             itemID: item.id,
             source: .item,
             title: item.title,
@@ -259,17 +359,19 @@ struct LibraryView: View {
                 id: row.id,
                 item: item,
                 typeLabel: LibraryIndex.reflectionLabel,
+                typeSymbolName: LibraryIndex.reflectionSymbolName,
                 isOwn: false,
                 snippet: row.snippet,
                 date: row.payload.reflection?.createdAt ?? item.updatedAt,
                 dateCarriesYear: true,
                 showsBoard: false
             )
-        case .item:
+        case .item, .tag:
             return LibraryListRow(
                 id: row.id,
                 item: item,
                 typeLabel: item.type.indexLabel,
+                typeSymbolName: nil,
                 isOwn: item.type == .note,
                 snippet: row.snippet,
                 date: item.updatedAt,
@@ -303,7 +405,7 @@ struct LibraryView: View {
 
     private var libraryLayout: some View {
         let sections = listSections
-        let rowCount = sections.reduce(0) { $0 + $1.rows.count }
+        let rowCount = sections.reduce(0) { $0 + $1.rows.count + $1.boardRows.count }
         // Only "Related in meaning" has rows: say so before it, as the overlay does.
         let onlyRelated = isFinding && !isFindPending
             && sections.first?.id == LibraryFind.GroupKind.related.rawValue
@@ -327,6 +429,7 @@ struct LibraryView: View {
                     leadLine: onlyRelated ? LibraryEmptyState.nothingMatches(trimmedQuery) : nil,
                     isMultiSelectMode: isMultiSelectMode,
                     selectedIDs: selectedIDs,
+                    cursor: cursor,
                     selectedItem: $selectedItem,
                     openedItem: $openedItem,
                     onToggleSelection: { toggleSelection(for: $0) },
@@ -336,7 +439,8 @@ struct LibraryView: View {
                             selectedIDs.insert(item.id)
                         }
                     },
-                    onDeleteRequest: { itemToDelete = $0 }
+                    onDeleteRequest: { itemToDelete = $0 },
+                    onApplyBoard: { applyBoard($0) }
                 )
 
                 if isMultiSelectMode && !selectedIDs.isEmpty {
@@ -350,12 +454,15 @@ struct LibraryView: View {
             startFind()
         }
         .onChange(of: searchQuery) { _, _ in
+            cursor.highlightedRowID = nil
             runFind()
         }
-        .onChange(of: selectedBoardID) { _, _ in
+        .onChange(of: storedBoardID) { _, _ in
+            cursor.highlightedRowID = nil
             runFind()
         }
         .onChange(of: showingArchived) { _, _ in
+            cursor.highlightedRowID = nil
             runFind()
         }
         .onChange(of: allItems.count) { _, _ in
@@ -385,14 +492,15 @@ struct LibraryView: View {
             LibraryFindField(
                 query: $searchQuery,
                 resultCount: resultCount,
-                onSubmit: { searchViewModel?.flushPendingSearch() }
+                onSubmit: { submitFind() },
+                onMoveHighlight: { moveHighlight(by: $0) }
             )
             .padding(.top, Spacing.md)
 
             HStack(spacing: Spacing.md) {
                 LibraryBoardFilterBar(
                     boards: allBoards,
-                    selectedBoardID: $selectedBoardID,
+                    selectedBoardID: selectedBoardIDBinding,
                     showingArchived: $showingArchived
                 )
 
@@ -596,8 +704,15 @@ struct LibraryView: View {
 
     private func startFind() {
         guard searchViewModel == nil else { return }
-        searchViewModel = SearchViewModel(modelContext: modelContext)
+        let viewModel = SearchViewModel(modelContext: modelContext)
+        viewModel.resultLimits = .library
+        searchViewModel = viewModel
         runFind()
+        // A query kept from before the reader was opened: show its results
+        // at once rather than after the typing pause.
+        if isFinding {
+            viewModel.flushPendingSearch()
+        }
     }
 
     /// Hands the field's text to the search, inside the Library's current
@@ -608,6 +723,46 @@ struct LibraryView: View {
         searchViewModel.scopeItemIDs = Set(boardFilteredItems.map(\.id))
         searchViewModel.invalidateCorpus()
         searchViewModel.updateQuery(searchQuery)
+    }
+
+    // MARK: - Keyboard
+
+    /// Down / Up in the find field: move the highlight through the rows,
+    /// without selecting them (selection opens the Info tab).
+    private func moveHighlight(by step: Int) {
+        cursor.highlightedRowID = LibraryFind.movedHighlight(
+            from: cursor.highlightedRowID,
+            by: step,
+            in: listSections.rowIDs
+        )
+    }
+
+    /// Return in the find field: run the pending search now, then act on the
+    /// highlighted row, if any, as a click on it would.
+    private func submitFind() {
+        searchViewModel?.flushPendingSearch()
+        guard let highlighted = cursor.highlightedRowID else { return }
+        let sections = listSections
+
+        if let boardRow = sections.flatMap(\.boardRows).first(where: { $0.id == highlighted }) {
+            applyBoard(boardRow.board)
+            return
+        }
+        guard let row = sections.flatMap(\.rows).first(where: { $0.id == highlighted }) else { return }
+        if isMultiSelectMode {
+            toggleSelection(for: row.item)
+        } else {
+            selectedItem = row.item
+            openedItem = row.item
+        }
+    }
+
+    /// A board row was chosen: apply its chip. The query was the board's
+    /// name, so it is cleared, and the list shows the board.
+    private func applyBoard(_ board: Board) {
+        cursor.highlightedRowID = nil
+        storedBoardID = board.id.uuidString
+        searchQuery = ""
     }
 
     /// An item is about to be deleted. Results hold their items, so drop them

@@ -151,6 +151,79 @@ struct LibraryFindTests {
         #expect(LibraryFind.excerpt(of: "   \n ") == nil)
     }
 
+    // MARK: - Markdown
+
+    @Test func aLineOfMarkdownLosesItsMarksAndKeepsItsWords() {
+        #expect(LibraryFind.plainLine("## A heading") == "A heading")
+        #expect(LibraryFind.plainLine("> quoted words") == "quoted words")
+        #expect(LibraryFind.plainLine("> > nested quote") == "nested quote")
+        #expect(LibraryFind.plainLine("- a bullet") == "a bullet")
+        #expect(LibraryFind.plainLine("* another bullet") == "another bullet")
+        #expect(LibraryFind.plainLine("  + indented bullet") == "indented bullet")
+        #expect(LibraryFind.plainLine("- [x] done task") == "done task")
+        #expect(LibraryFind.plainLine("3. numbered") == "numbered")
+        #expect(LibraryFind.plainLine("> - quoted bullet") == "quoted bullet")
+        #expect(LibraryFind.plainLine("some **bold** and *italic* and `code`") == "some bold and italic and code")
+        #expect(LibraryFind.plainLine("~~struck~~ and _under_") == "struck and under")
+        #expect(LibraryFind.plainLine("see [the essay](https://example.com) now") == "see the essay now")
+        #expect(LibraryFind.plainLine("![a figure](fig.png)") == "a figure")
+        #expect(LibraryFind.plainLine("linked to [[As We May Think]]") == "linked to As We May Think")
+        #expect(LibraryFind.plainLine("[[As We May Think|Bush]] said") == "Bush said")
+    }
+
+    @Test func plainTextIsLeftAlone() {
+        #expect(LibraryFind.plainLine("A plain line, with commas.") == "A plain line, with commas.")
+        #expect(LibraryFind.plainLine("snake_case stays whole") == "snake_case stays whole")
+        #expect(LibraryFind.plainLine("2024 was a year") == "2024 was a year")
+        #expect(LibraryFind.plainLine("-not a bullet") == "-not a bullet")
+        #expect(LibraryFind.plainLine("```swift") == "")
+    }
+
+    @Test func aSnippetFromMarkdownReadsAsProse() {
+        let text = "# Notes\n\n- Engelbart's word was **augment**, not [automate](https://x.y)."
+
+        let snippet = LibraryFind.snippet(inMarkdown: text, matching: "augment")
+
+        #expect(snippet == Snippet(before: "Engelbart's word was ", match: "augment", after: ", not automate."))
+    }
+
+    @Test func marksInsideAWordDoNotHideTheMatch() {
+        let snippet = LibraryFind.snippet(inMarkdown: "**aug**ment", matching: "augment")
+
+        #expect(snippet == Snippet(before: "", match: "augment", after: ""))
+    }
+
+    @Test func aMarkdownSnippetFallsBackToTheEarliestWordAsThePlainOneDoes() {
+        let text = "> tools for the\n## human intellect"
+
+        #expect(LibraryFind.snippet(inMarkdown: text, matching: "human tools")
+            == Snippet(before: "", match: "tools", after: " for the"))
+        #expect(LibraryFind.snippet(inMarkdown: text, matching: "nothing") == nil)
+        #expect(LibraryFind.snippet(inMarkdown: "", matching: "tools") == nil)
+    }
+
+    @Test func aMarkdownExcerptSkipsLinesWithNoWords() {
+        let text = "```\n---\n## The first real line\nSecond."
+
+        #expect(LibraryFind.excerpt(ofMarkdown: text) == Snippet(before: "The first real line", match: "", after: ""))
+        #expect(LibraryFind.excerpt(ofMarkdown: "---\n***") == nil)
+    }
+
+    @Test func groupedTextMatchesAreCutFromThePlainText() {
+        let groups = LibraryFind.groups(
+            query: "augment",
+            exact: [
+                item("note", title: "Memex", isNote: true, body: "> a way to **augment** the mind"),
+                reflection("reflection", on: "Demos", body: "- [ ] _augment_ it"),
+            ],
+            related: []
+        )
+
+        let rows = groups.flatMap(\.rows)
+        #expect(rows.first { $0.id == "note" }?.snippet?.text == "a way to augment the mind")
+        #expect(rows.first { $0.id == "reflection" }?.snippet?.text == "augment it")
+    }
+
     // MARK: - Title match
 
     @Test func aTitleMatchesTheQueryAsTypedOrEveryWordOfIt() {
@@ -237,7 +310,9 @@ struct LibraryFindTests {
         #expect(LibraryFind.GroupKind.titles.title == "Titles")
         #expect(LibraryFind.GroupKind.notes.title == "In your notes and reflections")
         #expect(LibraryFind.GroupKind.text.title == "In the text")
+        #expect(LibraryFind.GroupKind.tagged.title == "Tagged")
         #expect(LibraryFind.GroupKind.related.title == "Related in meaning")
+        #expect(LibraryFind.boardsGroupTitle == "Boards")
     }
 
     @Test func titleAndRelatedRowsCarryNoSnippetAndTextMatchesDo() {
@@ -257,9 +332,9 @@ struct LibraryFindTests {
         let noteRow = rows.first { $0.id == "note" }
 
         #expect(rows.count == 3)
-        #expect(titleRow != nil)
+        #expect(titleRow?.id == "title")
         #expect(titleRow?.snippet == nil)
-        #expect(relatedRow != nil)
+        #expect(relatedRow?.id == "related")
         #expect(relatedRow?.snippet == nil)
         #expect(noteRow?.snippet == Snippet(
             before: "Engelbart's word was ",
@@ -384,6 +459,168 @@ struct LibraryFindTests {
         #expect(groups.flatMap(\.rows).map(\.source) == [.item, .item])
     }
 
+    // MARK: - Tagged
+
+    private func tagged(_ name: String, itemID: UUID, title: String = "Item", score: Double = 0.9) -> Candidate {
+        Candidate(
+            id: "tag-\(itemID.uuidString)",
+            itemID: itemID,
+            source: .tag,
+            title: title,
+            isNote: false,
+            body: name,
+            score: score,
+            payload: "tag-\(itemID.uuidString)"
+        )
+    }
+
+    @Test func itemsCarryingAMatchingTagAreListedUnderTagged() {
+        let first = UUID(), second = UUID()
+
+        let groups = LibraryFind.groups(
+            query: "typo",
+            exact: [],
+            tagged: [tagged("Typography", itemID: first), tagged("typography", itemID: second)],
+            related: []
+        )
+
+        #expect(kinds(groups) == [.tagged])
+        #expect(groups.first?.rows.map(\.itemID) == [first, second])
+        #expect(groups.first?.rows.map(\.source) == [.tag, .tag])
+        #expect(groups.first?.rows.first?.snippet == Snippet(before: "", match: "Typo", after: "graphy"))
+    }
+
+    @Test func anItemWithSeveralMatchingTagsIsListedOnceNamingThemAll() {
+        let itemID = UUID()
+
+        let groups = LibraryFind.groups(
+            query: "type",
+            exact: [],
+            tagged: [
+                tagged("Typefaces", itemID: itemID),
+                tagged("Type design", itemID: itemID),
+                tagged("Typefaces", itemID: itemID),
+            ],
+            related: []
+        )
+
+        #expect(ids(groups, .tagged).count == 1)
+        #expect(groups.first?.rows.first?.snippet?.text == "Typefaces, Type design")
+        #expect(groups.first?.rows.first?.snippet?.match == "Type")
+    }
+
+    @Test func aTaggedItemAlreadyListedIsNotRepeatedAndRelatedDoesNotRepeatIt() {
+        let listed = UUID(), taggedOnly = UUID()
+
+        let groups = LibraryFind.groups(
+            query: "typo",
+            exact: [item("title", itemID: listed, title: "Typography notes")],
+            tagged: [tagged("typography", itemID: listed), tagged("typography", itemID: taggedOnly)],
+            related: [item("again", itemID: taggedOnly, title: "Elsewhere")]
+        )
+
+        #expect(kinds(groups) == [.titles, .tagged])
+        #expect(groups.last?.rows.map(\.itemID) == [taggedOnly])
+    }
+
+    @Test func aTagThatOnlyLooselyMatchesIsLeftOut() {
+        // "agmnt" is in "augment" letter by letter, never as typed.
+        let groups = LibraryFind.groups(
+            query: "agmnt",
+            exact: [],
+            tagged: [tagged("augment", itemID: UUID())],
+            related: []
+        )
+
+        #expect(groups.isEmpty)
+    }
+
+    @Test func taggedItemsOutsideTheScopeAreDropped() {
+        let shown = UUID(), hidden = UUID()
+
+        let groups = LibraryFind.groups(
+            query: "typo",
+            exact: [],
+            tagged: [tagged("typography", itemID: hidden), tagged("typography", itemID: shown)],
+            related: [],
+            allowedItemIDs: [shown]
+        )
+
+        #expect(groups.flatMap(\.rows).map(\.itemID) == [shown])
+    }
+
+    @Test func taggedSitsBetweenTheTextAndRelated() {
+        let groups = LibraryFind.groups(
+            query: "augment",
+            exact: [
+                item("title", title: "Augment"),
+                item("article", title: "As We May Think", body: "to augment memory"),
+            ],
+            tagged: [tagged("augmentation", itemID: UUID())],
+            related: [item("related", title: "Demos")]
+        )
+
+        #expect(kinds(groups) == [.titles, .text, .tagged, .related])
+    }
+
+    // MARK: - Boards
+
+    private struct BoardStub {
+        let id: UUID
+        let title: String
+    }
+
+    private func offered(_ boards: [BoardStub], query: String, current: UUID? = nil) -> [String] {
+        LibraryFind.offeredBoards(boards, query: query, excluding: current, id: { $0.id }, title: { $0.title })
+            .map(\.title)
+    }
+
+    @Test func boardsWhoseNameHoldsTheQueryAreOfferedInOrder() {
+        let boards = [
+            BoardStub(id: UUID(), title: "Type design"),
+            BoardStub(id: UUID(), title: "Typography"),
+            BoardStub(id: UUID(), title: "Tools"),
+        ]
+
+        #expect(offered(boards, query: "typ") == ["Type design", "Typography"])
+        #expect(offered(boards, query: " TOOLS ") == ["Tools"])
+        // Letters in order are not enough.
+        #expect(offered(boards, query: "tpgr").isEmpty)
+        #expect(offered(boards, query: "  ").isEmpty)
+    }
+
+    @Test func theBoardAlreadyFilteredToIsNotOfferedAndNoBoardTwice() {
+        let current = BoardStub(id: UUID(), title: "Typography")
+        let other = BoardStub(id: UUID(), title: "Typefaces")
+
+        #expect(offered([current, other], query: "typ", current: current.id) == ["Typefaces"])
+        #expect(offered([other, other], query: "typ") == ["Typefaces"])
+    }
+
+    // MARK: - Keyboard highlight
+
+    @Test func downFromTheFieldLandsOnTheFirstRowAndStopsOnTheLast() {
+        let rows = ["a", "b", "c"]
+
+        #expect(LibraryFind.movedHighlight(from: nil, by: 1, in: rows) == "a")
+        #expect(LibraryFind.movedHighlight(from: "a", by: 1, in: rows) == "b")
+        #expect(LibraryFind.movedHighlight(from: "c", by: 1, in: rows) == "c")
+    }
+
+    @Test func upFromTheFirstRowGoesBackToTheField() {
+        let rows = ["a", "b", "c"]
+
+        #expect(LibraryFind.movedHighlight(from: "c", by: -1, in: rows) == "b")
+        #expect(LibraryFind.movedHighlight(from: "a", by: -1, in: rows) == nil)
+        #expect(LibraryFind.movedHighlight(from: nil, by: -1, in: rows) == nil)
+    }
+
+    @Test func aHighlightOnARowNoLongerListedStartsAgain() {
+        #expect(LibraryFind.movedHighlight(from: "gone", by: 1, in: ["a", "b"]) == "a")
+        #expect(LibraryFind.movedHighlight(from: "gone", by: -1, in: ["a", "b"]) == nil)
+        #expect(LibraryFind.movedHighlight(from: "a", by: 1, in: []) == nil)
+    }
+
     // MARK: - Count
 
     @Test func theCountReadsAsAPhrase() {
@@ -500,5 +737,56 @@ struct LibraryFindTests {
         viewModel.scopeItemIDs = [quiet.id]
         viewModel.flushPendingSearch()
         #expect(viewModel.results[.item]?.map(\.title) == ["Notes on being spaced out"])
+    }
+
+    // MARK: - Result limits
+
+    @Test func theOverlaysLimitsAreTheDefault() {
+        let overlay = SearchResultLimits.overlay
+
+        #expect(overlay.items == 15)
+        #expect(overlay.reflections == 10)
+        #expect(overlay.tags == 8)
+        #expect(overlay.boards == 5)
+        #expect(overlay.related == SearchViewModel.semanticResultLimit)
+    }
+
+    @Test func theLibraryListsEveryMatchButKeepsRelatedShort() {
+        let library = SearchResultLimits.library
+
+        #expect(library.items == .max)
+        #expect(library.reflections == .max)
+        #expect(library.tags == .max)
+        #expect(library.boards == .max)
+        #expect(library.related == SearchResultLimits.overlay.related)
+    }
+
+    @MainActor
+    @Test func aViewModelStartsWithTheOverlaysLimits() throws {
+        let viewModel = makeViewModel(try makeContext())
+
+        #expect(viewModel.resultLimits == .overlay)
+    }
+
+    @MainActor
+    @Test func raisedLimitsListEveryItemAndReflectionMatch() throws {
+        let context = try makeContext()
+        for index in 0..<20 {
+            let item = Item(title: "Spaced \(index)", type: .article)
+            context.insert(item)
+            context.insert(ReflectionBlock(item: item, blockType: .keyInsight, content: "spaced thought \(index)"))
+        }
+        try context.save()
+        let viewModel = makeViewModel(context)
+
+        viewModel.updateQuery("spaced")
+        viewModel.flushPendingSearch()
+        #expect(viewModel.results[.item]?.count == 15)
+        #expect(viewModel.results[.reflection]?.count == 10)
+
+        viewModel.resultLimits = .library
+        viewModel.flushPendingSearch()
+        #expect(viewModel.results[.item]?.count == 20)
+        #expect(viewModel.results[.reflection]?.count == 20)
     }
 }

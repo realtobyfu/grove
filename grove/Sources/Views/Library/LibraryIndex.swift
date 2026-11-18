@@ -109,6 +109,10 @@ enum LibraryIndex {
     /// The word set in the type column for a reflection found by the find
     /// field. Abbreviated to sit in the same column as the item types.
     static let reflectionLabel = "Reflect."
+
+    /// The glyph set in the type column for a reflection where the theme
+    /// marks types with glyphs: the one the search overlay gives reflections.
+    static let reflectionSymbolName = "text.alignleft"
 }
 
 // MARK: - Item Type Label
