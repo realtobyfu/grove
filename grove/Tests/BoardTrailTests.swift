@@ -116,6 +116,71 @@ struct BoardTrailTests {
         #expect(numbers(trail) == [1, nil, 2])
     }
 
+    /// A board that has never been reordered has no stored order. Its trail
+    /// runs oldest first by creation date, whatever order the relationship
+    /// hands the items back in, so the running numbers hold across launches.
+    @Test func aBoardNeverReorderedRunsOldestFirst() throws {
+        let context = try makeInMemoryModelContext()
+        let board = Board(title: "Never reordered")
+        context.insert(board)
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        let newest = add("Newest", .article, to: board, in: context)
+        newest.createdAt = start.addingTimeInterval(120)
+        let oldest = add("Oldest", .video, to: board, in: context)
+        oldest.createdAt = start
+        let middle = add("Middle", .note, to: board, in: context)
+        middle.createdAt = start.addingTimeInterval(60)
+
+        #expect(board.itemOrderData == nil)
+        #expect(board.manualOrder() == [oldest.id, middle.id, newest.id])
+
+        let ordered = MobileBoardDetailView.sortedItems(
+            MobileBoardDetailView.effectiveItems(for: board),
+            for: board,
+            sortOption: .manual
+        )
+        let trail = BoardTrail(orderedItems: ordered)
+
+        #expect(trail.entries.map(\.id) == [oldest.id, middle.id, newest.id])
+        #expect(numbers(trail) == [1, nil, 2])
+    }
+
+    @Test func itemsCreatedTogetherAreOrderedByID() throws {
+        let context = try makeInMemoryModelContext()
+        let board = Board(title: "Same moment")
+        context.insert(board)
+        let moment = Date(timeIntervalSince1970: 1_800_000_000)
+        let first = add("First", .article, to: board, in: context)
+        let second = add("Second", .article, to: board, in: context)
+        let third = add("Third", .article, to: board, in: context)
+        for item in [first, second, third] {
+            item.createdAt = moment
+        }
+
+        let byID = [first, second, third]
+            .map(\.id)
+            .sorted { $0.uuidString < $1.uuidString }
+        #expect(board.manualOrder() == byID)
+    }
+
+    /// A stored order is still the order, even where it disagrees with the
+    /// creation dates; items the stored order does not hold are left out.
+    @Test func aStoredOrderWinsOverCreationDates() throws {
+        let context = try makeInMemoryModelContext()
+        let board = Board(title: "Reordered")
+        context.insert(board)
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        let older = add("Older", .article, to: board, in: context)
+        older.createdAt = start
+        let newer = add("Newer", .article, to: board, in: context)
+        newer.createdAt = start.addingTimeInterval(60)
+        let unlisted = add("Added since", .article, to: board, in: context)
+        unlisted.createdAt = start.addingTimeInterval(120)
+        board.setManualOrder([newer.id, older.id])
+
+        #expect(board.manualOrder() == [newer.id, older.id])
+    }
+
     // MARK: - Counts line
 
     @Test func countsLineNamesSourcesAndNotes() {

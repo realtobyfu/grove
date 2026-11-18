@@ -167,8 +167,8 @@ struct InboxCard: View {
 // MARK: - Focus Card
 
 /// The inbox item being triaged on Today, set large: everything `InboxCard`
-/// shows, with the key that does each thing marked on its button. The keys
-/// themselves are handled by `InboxTriageView`, which owns the focus.
+/// shows, its place in the inbox, and Read now. The keys (named in each
+/// button's tooltip) are handled by `InboxTriageView`, which owns the focus.
 struct InboxFocusCard: View {
     let item: Item
     /// Boards offered as one-click "keep + file" chips, recommended first.
@@ -176,6 +176,9 @@ struct InboxFocusCard: View {
     /// The card is wide enough for the cover to sit beside the text.
     /// Otherwise the cover runs across the top.
     var coverBeside = true
+    /// The item's place in the inbox ("1 of 3"), set at the trailing end of
+    /// the line with the source and time. Nil shows none.
+    var positionLabel: String? = nil
     let onKeep: () -> Void
     let onDrop: () -> Void
     var onQueue: ((ReadLaterPreset) -> Void)?
@@ -390,7 +393,8 @@ struct InboxFocusCard: View {
         }
     }
 
-    /// Type, source and age on one mono line.
+    /// Type, source and age on one mono line, and the item's place in the
+    /// inbox at its trailing end.
     private var metaLine: some View {
         HStack(spacing: Spacing.xsm) {
             ItemTypeMark(type: item.type, label: item.type.displayName)
@@ -399,6 +403,17 @@ struct InboxFocusCard: View {
                 .font(.groveMeta)
                 .foregroundStyle(Color.textTertiary)
                 .lineLimit(1)
+
+            if let positionLabel {
+                Spacer(minLength: Spacing.sm)
+
+                Text(positionLabel)
+                    .font(.groveMeta)
+                    .monospacedDigit()
+                    .foregroundStyle(Color.textMuted)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
         }
     }
 

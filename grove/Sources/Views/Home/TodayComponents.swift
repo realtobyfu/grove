@@ -1,7 +1,7 @@
 import SwiftUI
 
 // The pieces the Today page is set from: its column measures, its section
-// labels, its one-line rows, and the keycaps on its buttons. Everything is
+// labels, its one-line rows, and the keycap on New note. Everything is
 // drawn with the shared colour, type, spacing and radius tokens, so a theme
 // restyles this page along with the rest.
 
@@ -48,7 +48,7 @@ enum TodayLayout {
 // MARK: - Section Header
 
 /// A section label on Today: tracked mono capitals, with an optional count
-/// ("1 of 3") in a badge beside it.
+/// in a badge beside it.
 struct TodaySectionHeader: View {
     let title: String
     var badge: String? = nil
@@ -147,41 +147,31 @@ struct TodayRow: View {
 /// a key does the same thing.
 struct Keycap: View {
     let key: String
-    /// On an ink-filled (primary) button, where the cap reads in reverse.
-    var onInk = false
 
     var body: some View {
         Text(key)
             // Mono Medium at the section-header size: the 11pt cap of the mockup.
             .font(.groveSectionHeader)
-            .foregroundStyle(onInk ? Color.textInverse : Color.textMuted)
+            .foregroundStyle(Color.textMuted)
             .padding(.horizontal, Spacing.xs)
             .overlay {
                 RoundedRectangle(cornerRadius: Radius.tag)
-                    .strokeBorder(onInk ? Color.textMuted : Color.borderInput, lineWidth: 1)
+                    .strokeBorder(Color.borderInput, lineWidth: 1)
             }
             // The button's own label names the action; the cap is a visual hint.
             .accessibilityHidden(true)
     }
 }
 
-/// A button label with its key beside it: the cap leads for the triage keys
-/// ("1 Keep") and trails for a menu shortcut ("New note ⌘⇧N").
+/// A button label with its menu shortcut after it ("New note ⌘⇧N").
 struct KeyHintLabel: View {
     let title: String
     let key: String
-    var onInk = false
-    var keyLeads = true
 
     var body: some View {
         HStack(spacing: Spacing.xsm) {
-            if keyLeads {
-                Keycap(key: key, onInk: onInk)
-            }
             Text(title)
-            if !keyLeads {
-                Keycap(key: key, onInk: onInk)
-            }
+            Keycap(key: key)
         }
     }
 }

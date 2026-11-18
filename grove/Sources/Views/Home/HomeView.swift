@@ -69,23 +69,32 @@ struct HomeView: View {
         let columns = isWide
             ? AnyLayout(HStackLayout(alignment: .top, spacing: 0))
             : AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
+        let coverBeside = TodayLayout.coverSitsBeside(contentWidth: arrivedWidth)
+        // The measures that differ between the arrangements, worked out here
+        // rather than as optional ternaries inside the modifier chain.
+        let arrivedBottom: CGFloat = isWide ? Spacing.xxxl : Spacing.xxl
+        let yoursMeasure: CGFloat? = isWide ? nil : TodayLayout.arrivedMeasure
+        let yoursGutter: CGFloat = isWide ? TodayLayout.yoursGutter : LayoutDimensions.contentPaddingH
+        let yoursTop: CGFloat = isWide ? LayoutDimensions.contentPaddingTop : 0
+        let yoursWidth: CGFloat? = isWide ? TodayLayout.yoursColumnWidth : nil
+        let yoursMaxWidth: CGFloat? = isWide ? nil : .infinity
 
         return ScrollView {
             columns {
-                arrivedColumn(coverBeside: TodayLayout.coverSitsBeside(contentWidth: arrivedWidth))
+                arrivedColumn(coverBeside: coverBeside)
                     .frame(maxWidth: TodayLayout.arrivedMeasure, alignment: .leading)
                     .padding(.horizontal, LayoutDimensions.contentPaddingH)
                     .padding(.top, LayoutDimensions.contentPaddingTop)
-                    .padding(.bottom, isWide ? Spacing.xxxl : Spacing.xxl)
+                    .padding(.bottom, arrivedBottom)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 yoursColumn
-                    .frame(maxWidth: isWide ? nil : TodayLayout.arrivedMeasure, alignment: .leading)
-                    .padding(.horizontal, isWide ? TodayLayout.yoursGutter : LayoutDimensions.contentPaddingH)
-                    .padding(.top, isWide ? LayoutDimensions.contentPaddingTop : 0)
+                    .frame(maxWidth: yoursMeasure, alignment: .leading)
+                    .padding(.horizontal, yoursGutter)
+                    .padding(.top, yoursTop)
                     .padding(.bottom, Spacing.xxxl)
-                    .frame(width: isWide ? TodayLayout.yoursColumnWidth : nil, alignment: .leading)
-                    .frame(maxWidth: isWide ? nil : CGFloat.infinity, alignment: .leading)
+                    .frame(width: yoursWidth, alignment: .leading)
+                    .frame(maxWidth: yoursMaxWidth, alignment: .leading)
             }
             // At least the height of the page, so the Yours column's wash
             // runs to the bottom of the window when there is little to show.

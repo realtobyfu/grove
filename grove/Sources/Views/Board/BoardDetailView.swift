@@ -284,11 +284,22 @@ struct BoardDetailView: View {
         }
     }
 
-    private func moveGridItem(fromID: UUID, toID: UUID) {
+    /// The stored order with every item it does not hold yet put in front,
+    /// newest first: where `sortItems` shows them. A drag then moves the
+    /// items in the order they are on screen, not the relationship's order.
+    private func completeManualOrder() -> [UUID] {
         var order = board.manualOrder()
-        let allIDs = board.items.map(\.id)
         let known = Set(order)
-        order.insert(contentsOf: allIDs.filter { !known.contains($0) }, at: 0)
+        let newcomers = board.items
+            .filter { !known.contains($0.id) }
+            .sorted { $0.createdAt > $1.createdAt }
+            .map(\.id)
+        order.insert(contentsOf: newcomers, at: 0)
+        return order
+    }
+
+    private func moveGridItem(fromID: UUID, toID: UUID) {
+        var order = completeManualOrder()
         guard let fromIndex = order.firstIndex(of: fromID),
               let toIndex = order.firstIndex(of: toID),
               fromIndex != toIndex else { return }
@@ -299,10 +310,7 @@ struct BoardDetailView: View {
     }
 
     private func moveListItems(from source: IndexSet, to destination: Int) {
-        var order = board.manualOrder()
-        let allIDs = board.items.map(\.id)
-        let known = Set(order)
-        order.insert(contentsOf: allIDs.filter { !known.contains($0) }, at: 0)
+        var order = completeManualOrder()
         order.move(fromOffsets: source, toOffset: destination)
         board.setManualOrder(order)
         try? modelContext.save()

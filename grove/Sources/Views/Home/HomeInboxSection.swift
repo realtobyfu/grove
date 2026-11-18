@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// The inbox on Today: one item at a time, with the rest waiting as one-line
-/// rows underneath. `InboxTriageView` draws the section's own label, because
-/// the "1 of 3" beside it is the position of the item it has in focus.
+/// rows underneath. `InboxTriageView` draws the section's own label, with
+/// the inbox's count; the focused item's place ("1 of 3") is on its card.
 struct HomeInboxSection: View {
     @Binding var selectedItem: Item?
     @Binding var openedItem: Item?

@@ -94,10 +94,23 @@ final class Board {
 }
 
 extension Board {
+    /// The board's own order of its items.
+    ///
+    /// A board that has never been reordered has no stored order. It then
+    /// reads oldest first by creation date, ties broken by id: the
+    /// relationship's own order is not guaranteed to survive a relaunch or a
+    /// sync, and a trail numbers its sources by this order.
     func manualOrder() -> [UUID] {
         guard let data = itemOrderData,
               let order = try? JSONDecoder().decode([UUID].self, from: data) else {
-            return items.map(\.id)
+            return items
+                .sorted { lhs, rhs in
+                    if lhs.createdAt != rhs.createdAt {
+                        return lhs.createdAt < rhs.createdAt
+                    }
+                    return lhs.id.uuidString < rhs.id.uuidString
+                }
+                .map(\.id)
         }
         let validIDs = Set(items.map(\.id))
         return order.filter { validIDs.contains($0) }

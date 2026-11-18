@@ -28,7 +28,7 @@ struct HomeContinueSection: View {
             }
 
             Button(action: onNewNote) {
-                KeyHintLabel(title: "New note", key: "\u{2318}\u{21E7}N", keyLeads: false)
+                KeyHintLabel(title: "New note", key: "\u{2318}\u{21E7}N")
             }
             .buttonStyle(.grove(.secondary, size: .compact))
             .padding(.top, Spacing.sm)

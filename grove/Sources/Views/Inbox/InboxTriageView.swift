@@ -24,8 +24,8 @@ struct InboxTriageView: View {
     /// it is lost with the view each time Today gives way to the reader. The
     /// id is what brings focus back to the item that was just read.
     @SceneStorage("grove.inbox.focusedItemID") private var focusedItemKey: String?
-    /// Embedded only: Today's inbox holds the keyboard, so the keys marked on
-    /// its buttons work without a click first.
+    /// Embedded only: Today's inbox holds the keyboard, so the triage keys
+    /// work without a click first.
     @FocusState private var isTriageFocused: Bool
     @State private var showQueuedSection = false
     @State private var showBoardPicker = false
@@ -132,20 +132,21 @@ struct InboxTriageView: View {
             handleTriageKeyPress(keyPress)
         }
         .onKeyPress(.return) {
-            guard canHandleTriageShortcuts else { return .ignored }
+            guard canHandleTriageShortcuts, !inboxItems.isEmpty else { return .ignored }
             openFocusedItem()
             return .handled
         }
         // The arrows move focus as J and K do. They arrive with modifier
         // flags of their own, so they are matched by key, not through the
-        // character handler above.
+        // character handler above. With the inbox empty they are left to
+        // the page, which scrolls with them.
         .onKeyPress(.downArrow) {
-            guard canHandleTriageShortcuts else { return .ignored }
+            guard canHandleTriageShortcuts, !inboxItems.isEmpty else { return .ignored }
             moveFocus(by: 1)
             return .handled
         }
         .onKeyPress(.upArrow) {
-            guard canHandleTriageShortcuts else { return .ignored }
+            guard canHandleTriageShortcuts, !inboxItems.isEmpty else { return .ignored }
             moveFocus(by: -1)
             return .handled
         }
@@ -237,14 +238,13 @@ struct InboxTriageView: View {
 
     // MARK: - Embedded Inbox (Today)
 
-    /// The section's label, with the focused item's place in the inbox.
+    /// The section's label, with how many items wait in the inbox. The
+    /// focused item's place ("1 of 3") is on its own card.
     private var embeddedHeader: some View {
-        let items = inboxItems
-        let count = items.count
-        let position = InboxFocus.clampedIndex(currentFocusIndex(in: items), count: count) + 1
+        let count = inboxItems.count
         return TodaySectionHeader(
             title: "Inbox",
-            badge: count == 0 ? nil : "\(position) of \(count)"
+            badge: count == 0 ? nil : "\(count)"
         )
     }
 
@@ -269,6 +269,7 @@ struct InboxTriageView: View {
                     item: focused,
                     suggestedBoards: suggestedBoards(for: focused),
                     coverBeside: focusCoverBeside,
+                    positionLabel: "\(index + 1) of \(items.count)",
                     onKeep: { keepItem(focused) },
                     onDrop: { dropItem(focused) },
                     onQueue: { preset in queueItem(focused, preset: preset) },
