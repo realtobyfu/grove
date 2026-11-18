@@ -359,7 +359,7 @@ enum LibraryFind {
 
         var plainLines: [String] = []
         for rawLine in text.split(whereSeparator: \.isNewline) {
-            let line = plainLine(rawLine)
+            let line = plainLine(String(rawLine))
             if line.range(of: needle, options: .caseInsensitive) != nil {
                 return snippet(in: line, matching: needle, lead: lead, trail: trail)
             }
@@ -382,7 +382,7 @@ enum LibraryFind {
     /// none (blank text, or only dividers and fences).
     static func excerpt(ofMarkdown text: String, length: Int = 128) -> Snippet? {
         for rawLine in text.split(whereSeparator: \.isNewline) {
-            let line = plainLine(rawLine)
+            let line = plainLine(String(rawLine))
             guard line.contains(where: { $0.isLetter || $0.isNumber }) else { continue }
             return excerpt(of: line, length: length)
         }
@@ -393,7 +393,7 @@ enum LibraryFind {
     /// task prefixes, link and image syntax, wiki-link brackets (an alias
     /// wins over the target), and emphasis, code and strikethrough marks are
     /// removed; the words are left alone. A code fence's own line is blank.
-    static func plainLine<S: StringProtocol>(_ line: S) -> String {
+    static func plainLine(_ line: String) -> String {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") { return "" }
 

@@ -83,14 +83,6 @@ struct LibraryFindField: View {
             .autocorrectionDisabled()
             #endif
             .onSubmit { onSubmit() }
-            .onKeyPress(.downArrow) {
-                onMoveHighlight(1)
-                return .handled
-            }
-            .onKeyPress(.upArrow) {
-                onMoveHighlight(-1)
-                return .handled
-            }
             #if os(macOS)
             // Esc empties the field; pressed again, it gives the keyboard back.
             .onExitCommand { handleEscape() }
@@ -129,6 +121,16 @@ struct LibraryFindField: View {
             RoundedRectangle(cornerRadius: Radius.card)
                 .stroke(isFocused ? Color.borderInput : Color.borderPrimary, lineWidth: 1)
         )
+        // Down and Up while the field has the keyboard, as in the search
+        // overlay: they move the list's highlight, and the text stays put.
+        .onKeyPress(.downArrow) {
+            onMoveHighlight(1)
+            return .handled
+        }
+        .onKeyPress(.upArrow) {
+            onMoveHighlight(-1)
+            return .handled
+        }
         .onReceive(NotificationCenter.default.publisher(for: .groveFocusLibrarySearch)) { _ in
             LibraryFindFocusRequest.madeAt = nil
             isFocused = true
