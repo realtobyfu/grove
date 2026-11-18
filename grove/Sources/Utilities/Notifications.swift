@@ -6,7 +6,9 @@ extension Notification.Name {
     static let groveNewBoard = Notification.Name("groveNewBoard")
     /// Goes to the Library and focuses its find field, wherever the user is.
     /// ⌘⇧F and the sidebar's search field post it. ⌘F posts `groveFind`,
-    /// which outside a reader opens the quick search overlay instead.
+    /// which outside a reader opens the quick search overlay instead. On iOS
+    /// the root views (`TabRootView`, `iPadRootView`) still answer it by
+    /// opening their own search.
     static let groveToggleSearch = Notification.Name("groveToggleSearch")
     static let groveToggleInspector = Notification.Name("groveToggleInspector")
     static let groveCaptureBar = Notification.Name("groveCaptureBar")
