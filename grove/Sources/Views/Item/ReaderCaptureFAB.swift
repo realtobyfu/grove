@@ -33,8 +33,8 @@ enum ReaderCaptureState: String, Equatable {
 /// Replaces the toolbar's "+" boards menu and its conditional save button —
 /// two affordances that answered the same question in different places.
 ///
-/// On a Mac, resting the pointer on it for a moment shows what it will do in
-/// a quiet label beside it. The label is a hint, not part of the button: it
+/// On a Mac, resting the pointer on it for a moment shows what it will do as
+/// plain text beside it. The label is a hint, not part of the button: it
 /// takes no clicks, and the button itself never changes shape. A press sinks
 /// the button slightly. On iOS there is no hover, so there is no label.
 struct ReaderCaptureFAB: View {
@@ -71,10 +71,6 @@ struct ReaderCaptureFAB: View {
                     .foregroundStyle(Color.textSecondary)
                     .lineLimit(1)
                     .fixedSize()
-                    .padding(.horizontal, Spacing.md)
-                    .frame(height: 26)
-                    .background(Capsule().fill(Color.bgCard))
-                    .overlay(Capsule().stroke(Color.borderPrimary, lineWidth: 1))
                     // A hint beside the button, not a second target: moving
                     // onto it leaves the button, and the hint goes with it.
                     .allowsHitTesting(false)
