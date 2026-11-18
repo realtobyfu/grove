@@ -94,8 +94,11 @@ enum MarkdownTypeSpec: Sendable {
         }
     }
 
-    /// One level of nesting only — deeper indents collapse onto level 1.
+    /// The deepest list nesting the editor and the rendered views draw.
+    static let maxNestingLevel = 4
+
+    /// Two spaces of indentation per level, up to `maxNestingLevel`.
     static func nestingLevel(forIndentation indentation: Int) -> Int {
-        indentation >= 2 ? 1 : 0
+        min(max(indentation, 0) / 2, maxNestingLevel)
     }
 }

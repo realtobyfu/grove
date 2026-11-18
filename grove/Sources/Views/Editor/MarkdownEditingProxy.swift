@@ -15,6 +15,8 @@ final class MarkdownEditingProxy {
         /// Replaces the `/query` before the caret; the Int is the caret's
         /// offset back from the end of the inserted text.
         var replaceActiveSlashQuery: ((String, Int) -> Void)?
+        /// Nests (false) or un-nests (true) the list lines at the selection.
+        var shiftList: ((Bool) -> Void)?
         /// Puts the caret in the editor.
         var focus: (() -> Void)?
     }
@@ -73,6 +75,10 @@ final class MarkdownEditingProxy {
 
     func replaceActiveSlashQuery(with insertion: String, cursorOffset: Int) {
         actions.replaceActiveSlashQuery?(insertion, cursorOffset)
+    }
+
+    func shiftList(outward: Bool) {
+        actions.shiftList?(outward)
     }
 
     func focus() {

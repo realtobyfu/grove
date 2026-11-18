@@ -419,6 +419,9 @@ private struct EditorToolbar: View {
 
             EditorToolbarMenu(symbol: "ellipsis", name: "More") {
                 Button("Task") { proxy.insertPrefix("- [ ] ") }
+                Button("Indent List Item (Tab)") { proxy.shiftList(outward: false) }
+                Button("Outdent List Item (\u{21E7}Tab)") { proxy.shiftList(outward: true) }
+                Divider()
                 Button("Code") { proxy.wrapSelection(prefix: "`", suffix: "`") }
                 Button("Strikethrough") { proxy.wrapSelection(prefix: "~~", suffix: "~~") }
                 Divider()
@@ -725,6 +728,9 @@ struct MarkdownNSTextView: NSViewRepresentable {
                     replaceActiveSlashQuery: { [weak textView] insertion, cursorOffset in
                         textView?.replaceActiveSlashQuery(with: insertion, cursorOffset: cursorOffset)
                     },
+                    shiftList: { [weak textView] outward in
+                        textView?.shiftListLines(outward: outward)
+                    },
                     focus: { [weak textView] in
                         guard let textView else { return }
                         textView.window?.makeFirstResponder(textView)
@@ -971,6 +977,13 @@ struct MarkdownNSTextView: NSViewRepresentable {
                     for item in list.items {
                         let reveal = document.shouldRevealPrefix(item.prefixRange, for: selection)
                         apply(reveal ? visibleMarker : invisible, to: item.prefixRange)
+                        // The paragraph style carries the nesting, so the
+                        // spaces that encode it take no width of their own.
+                        let level = MarkdownTypeSpec.nestingLevel(forIndentation: item.indentation)
+                        let markerStart = item.prefixRange.lowerBound + item.indentation
+                        if item.indentation > 0 {
+                            apply(collapsed, to: item.prefixRange.lowerBound..<markerStart)
+                        }
 
                         if let task = item.taskMarker {
                             // The brackets are the marker: no bullet is drawn.
@@ -991,18 +1004,22 @@ struct MarkdownNSTextView: NSViewRepresentable {
                                     to: item.textRange
                                 )
                             }
-                        } else {
-                            apply([.groveListPrefix: true], to: item.prefixRange)
+                        } else if markerStart < item.prefixRange.upperBound {
+                            apply([.groveListPrefix: level], to: markerStart..<item.prefixRange.upperBound)
                         }
-                        restyleParagraph(of: item.lineRange) { self.listParagraphStyle(from: $0, isProse: $1) }
+                        restyleParagraph(of: item.lineRange) { self.listParagraphStyle(from: $0, isProse: $1, level: level) }
                     }
 
                 case .orderedList(let list):
                     // Numbers stay visible (they are the marker), but the line
                     // gets the same indent rhythm as a bullet line.
                     for item in list.items {
+                        let level = MarkdownTypeSpec.nestingLevel(forIndentation: item.indentation)
                         apply([.font: fonts.mono, .foregroundColor: secondary], to: item.prefixRange)
-                        restyleParagraph(of: item.lineRange) { self.listParagraphStyle(from: $0, isProse: $1) }
+                        if item.indentation > 0 {
+                            apply(collapsed, to: item.prefixRange.lowerBound..<(item.prefixRange.lowerBound + item.indentation))
+                        }
+                        restyleParagraph(of: item.lineRange) { self.listParagraphStyle(from: $0, isProse: $1, level: level) }
                     }
 
                 case .codeBlock(let codeBlock):
@@ -1144,11 +1161,14 @@ struct MarkdownNSTextView: NSViewRepresentable {
             return style
         }
 
-        private func listParagraphStyle(from baseStyle: NSParagraphStyle, isProse: Bool) -> NSParagraphStyle {
+        private func listParagraphStyle(from baseStyle: NSParagraphStyle, isProse: Bool, level: Int) -> NSParagraphStyle {
             let style = baseStyle.mutableCopy() as! NSMutableParagraphStyle
             style.textLists = []
-            style.firstLineHeadIndent = 0
-            style.headIndent = isProse ? 14 : 12
+            let nest = (isProse ? MarkdownTypeSpec.Scale.prose : MarkdownTypeSpec.Scale.compact).listNestIndent
+            let inset = CGFloat(level) * nest
+            style.firstLineHeadIndent = inset
+            // Wrapped lines hang under the item's text, not its marker.
+            style.headIndent = inset + (isProse ? 14 : 12)
             style.paragraphSpacing = max(style.paragraphSpacing, isProse ? 8 : 6)
             return style
         }
@@ -1160,6 +1180,15 @@ struct MarkdownNSTextView: NSViewRepresentable {
             if let key = assistKey(for: commandSelector),
                parent.onAssistKey?(key) == true {
                 return true
+            }
+
+            // Tab and Shift-Tab nest and un-nest list items. Anywhere else
+            // they keep their usual meaning.
+            if commandSelector == #selector(NSResponder.insertTab(_:)) {
+                return (textView as? HighlightingTextView)?.shiftListLines(outward: false) ?? false
+            }
+            if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
+                return (textView as? HighlightingTextView)?.shiftListLines(outward: true) ?? false
             }
 
             guard commandSelector == #selector(NSResponder.insertNewline(_:)) else {
@@ -1177,27 +1206,19 @@ struct MarkdownNSTextView: NSViewRepresentable {
             // goes, and the caret stays on the now-plain line.
             let markerOnlyRange = NSRange(location: lineRange.location, length: (line as NSString).length)
 
-            if line.count > 1, let listLine = parseListLine(line) {
-                let task = taskMarkerPrefix(of: listLine.content)
-                let body = task.map { String(listLine.content.dropFirst($0.count)) } ?? listLine.content
-                if body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    textView.insertText("", replacementRange: markerOnlyRange)
-                } else {
-                    let nextTask = task == nil ? "" : "[ ] "
-                    textView.insertText("\n\(listLine.marker)\(listLine.spacer)\(nextTask)", replacementRange: selected)
-                }
+            // Lists, nested or not: continue at the same depth; an empty
+            // nested item steps out a level; an empty top-level item ends it.
+            switch MarkdownListEditing.returnAction(for: line) {
+            case .notAList:
+                break
+            case .continueWith(let prefix):
+                textView.insertText("\n" + prefix, replacementRange: selected)
                 return true
-            }
-            if let orderedLine = parseOrderedLine(line) {
-                let isEmptyItem = orderedLine.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                if isEmptyItem {
-                    textView.insertText("", replacementRange: markerOnlyRange)
-                } else {
-                    textView.insertText(
-                        "\n\(orderedLine.indent)\(orderedLine.number + 1)\(orderedLine.delimiter)\(orderedLine.spacer)",
-                        replacementRange: selected
-                    )
-                }
+            case .outdent(let newLine):
+                textView.insertText(newLine, replacementRange: markerOnlyRange)
+                return true
+            case .endList:
+                textView.insertText("", replacementRange: markerOnlyRange)
                 return true
             }
             if let quoteLine = parseQuoteLine(line) {
@@ -1221,37 +1242,6 @@ struct MarkdownNSTextView: NSViewRepresentable {
             }
             if commandSelector == #selector(NSResponder.cancelOperation(_:)) { return .cancel }
             return nil
-        }
-
-        /// `[ ] ` / `[x] ` at the start of a list item's content, or the bare
-        /// marker when nothing follows it yet.
-        private func taskMarkerPrefix(of content: String) -> String? {
-            for marker in ["[ ]", "[x]", "[X]"] {
-                if content == marker { return marker }
-                if content.hasPrefix(marker + " ") { return marker + " " }
-            }
-            return nil
-        }
-
-        private func parseOrderedLine(
-            _ line: String
-        ) -> (indent: String, number: Int, delimiter: String, spacer: String, content: String)? {
-            MarkdownLineParsing.orderedLine(line)
-        }
-
-        private func parseListLine(_ line: String) -> (marker: String, spacer: String, content: String)? {
-            guard let first = line.first, first == "-" || first == "*" else { return nil }
-            let afterMarker = line.dropFirst()
-            guard !afterMarker.isEmpty else {
-                return (String(first), " ", "")
-            }
-
-            let spacerPrefix = afterMarker.prefix { $0 == " " || $0 == "\t" }
-            guard !spacerPrefix.isEmpty else { return nil }
-
-            let spacer = String(spacerPrefix)
-            let content = String(afterMarker.dropFirst(spacerPrefix.count))
-            return (String(first), spacer, content)
         }
 
         private func parseQuoteLine(_ line: String) -> (spacer: String, content: String)? {
@@ -1530,7 +1520,7 @@ class HighlightingTextView: NSTextView {
         let fullRange = NSRange(location: 0, length: storage.length)
 
         storage.enumerateAttribute(.groveListPrefix, in: fullRange, options: []) { value, range, _ in
-            guard let isListPrefix = value as? Bool, isListPrefix, range.length > 0 else { return }
+            guard let level = value as? Int, range.length > 0 else { return }
 
             if selection.length > 0, NSIntersectionRange(selection, range).length > 0 { return }
             if selection.length == 0 {
@@ -1554,8 +1544,17 @@ class HighlightingTextView: NSTextView {
                 height: bulletSize
             )
 
-            markerColor.setFill()
-            NSBezierPath(ovalIn: bulletRect).fill()
+            // Alternate by depth so a nested list reads as nested even where
+            // its indent is small: a filled dot, then a ring.
+            if level % 2 == 0 {
+                markerColor.setFill()
+                NSBezierPath(ovalIn: bulletRect).fill()
+            } else {
+                let ring = NSBezierPath(ovalIn: bulletRect.insetBy(dx: 0.5, dy: 0.5))
+                ring.lineWidth = 1
+                markerColor.setStroke()
+                ring.stroke()
+            }
         }
     }
 
@@ -1948,6 +1947,33 @@ class HighlightingTextView: NSTextView {
             let cursor = min(max(end + cursorOffset, replacementRange.location), end)
             setSelectedRange(NSRange(location: cursor, length: 0))
         }
+    }
+
+    /// Nests (or un-nests) every list line the selection touches by one
+    /// level. Returns false, changing nothing, when no list line would move,
+    /// so the caller can let the key do what it normally does.
+    @discardableResult
+    func shiftListLines(outward: Bool) -> Bool {
+        let nsText = string as NSString
+        let selection = selectedRange()
+        let block = selectedLineBlockRange(in: nsText, selection: selection)
+        let lines = nsText.substring(with: block).components(separatedBy: "\n")
+        guard let shifted = MarkdownListEditing.shifted(lines, outward: outward),
+              let textStorage else { return false }
+
+        let replacement = shifted.lines.joined(separator: "\n")
+        guard shouldChangeText(in: block, replacementString: replacement) else { return false }
+        textStorage.replaceCharacters(in: block, with: replacement)
+        didChangeText()
+
+        // The caret moves with its own line's text; a longer selection grows
+        // or shrinks by everything shifted inside it.
+        let firstDelta = shifted.deltas.first ?? 0
+        let total = shifted.deltas.reduce(0, +)
+        let location = max(block.location, selection.location + firstDelta)
+        let length = max(0, selection.length + total - firstDelta)
+        setSelectedRange(NSRange(location: location, length: length))
+        return true
     }
 
     private func selectedLineBlockRange(in text: NSString, selection: NSRange) -> NSRange {

@@ -144,86 +144,62 @@ struct NoteWriterPanelView: View {
 
     // MARK: - Top Bar
 
+    /// No label: the right page's Note tab already says what this is, and a
+    /// prompt has its own callout below. What is left are the two things a
+    /// note can go on to be — a page, a flashcard — and the way out. The
+    /// page is one glyph, the rarer actions sit in a menu, and Done is the
+    /// one word, set as a button.
     private var topBar: some View {
-        HStack(spacing: Spacing.md) {
-            Text(editingItem != nil ? "EDIT" : prompt != nil ? "WRITE" : "NOTE")
-                .font(.groveMeta)
-                .foregroundStyle(Color.textTertiary)
-
-            Spacer()
-
-            if !referenceItems.isEmpty {
-                Menu {
-                    ForEach(referenceItems) { source in
-                        Button(source.title) {
-                            insertReference(to: source)
-                        }
-                    }
-                } label: {
-                    barLabel("Cite", systemImage: "link")
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .help("Insert a reference from this board at the cursor")
-                .accessibilityLabel("Insert a source reference")
-            }
-
-            Button {
-                guard let note = draft.save(syncLinks: true) else { return }
-                flashcardItem = note
-            } label: {
-                barLabel("Card", systemImage: "rectangle.on.rectangle")
-            }
-            .buttonStyle(.plain)
-            .disabled(draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .help("Save this note and make a flashcard from it")
-            .accessibilityLabel("Make a flashcard from this note")
+        HStack(spacing: Spacing.sm) {
+            Spacer(minLength: 0)
 
             if let onOpenAsPage {
                 Button {
                     guard let note = draft.save(syncLinks: true) else { return }
                     onOpenAsPage(note)
                 } label: {
-                    barLabel("Page", systemImage: "arrow.up.left.and.arrow.down.right")
+                    WriterBarGlyph(symbol: "arrow.up.left.and.arrow.down.right")
                 }
                 .buttonStyle(.plain)
                 .disabled(!draft.hasText && draft.item == nil)
-                .help("Continue this note as a full page")
+                .help("Open as a page")
                 .accessibilityLabel("Open this note as a page")
             }
 
-            Button {
-                dismiss()
+            Menu {
+                if !referenceItems.isEmpty {
+                    Menu("Cite a Source") {
+                        ForEach(referenceItems) { source in
+                            Button(source.title) {
+                                insertReference(to: source)
+                            }
+                        }
+                    }
+                }
+                Button("Make a Flashcard") {
+                    guard let note = draft.save(syncLinks: true) else { return }
+                    flashcardItem = note
+                }
+                .disabled(draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             } label: {
-                barLabel("Done", systemImage: "xmark")
+                WriterBarGlyph(symbol: "ellipsis")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close note writer")
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("More")
+            .accessibilityLabel("More actions for this note")
+
+            Button("Done") {
+                dismiss()
+            }
+            .buttonStyle(.grove(.secondary, size: .compact))
+            .help("Save and close (\u{2318}\u{21A9})")
             .accessibilityHint("Saves and closes this panel.")
         }
         .padding(.horizontal, LayoutDimensions.writingGutter)
-        .padding(.top, Spacing.xl)
-        .padding(.bottom, Spacing.sm)
-    }
-
-    /// In the rail the bar is set as words in the meta face, like the label
-    /// it shares a line with. The sheet keeps the icons its toolbar had.
-    @ViewBuilder
-    private func barLabel(_ word: String, systemImage: String) -> some View {
-        if isSidePanel {
-            Text(word.uppercased())
-                .font(.groveMeta)
-                .foregroundStyle(Color.textSecondary)
-                .lineLimit(1)
-                .fixedSize()
-                .contentShape(Rectangle())
-        } else {
-            Image(systemName: systemImage)
-                .font(.groveBody)
-                .foregroundStyle(Color.textSecondary)
-                .frame(minWidth: LayoutDimensions.minTouchTarget, minHeight: LayoutDimensions.minTouchTarget)
-                .contentShape(Rectangle())
-        }
+        .padding(.top, Spacing.lg)
+        .padding(.bottom, Spacing.xs)
     }
 
     /// Puts `[[Title]]` where the caret is. Appends only when no editor is
@@ -309,5 +285,34 @@ struct NoteWriterPanelView: View {
         withAnimation(.easeOut(duration: 0.2)) {
             isPresented = false
         }
+    }
+}
+
+// MARK: - Top Bar Glyph
+
+/// An icon control in the writer's top bar: the same square, ink and hover
+/// wash as the editor's toolbar, so the two strips read as one family. The
+/// iOS sheet gives it the full touch target.
+private struct WriterBarGlyph: View {
+    let symbol: String
+
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovering = false
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(isHovering && isEnabled ? Color.textPrimary : Color.textSecondary)
+            .frame(width: 24, height: 24)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.control)
+                    .fill(isHovering && isEnabled ? Color.bgCardHover.opacity(0.6) : Color.clear)
+            )
+            #if os(iOS)
+            .frame(minWidth: LayoutDimensions.minTouchTarget, minHeight: LayoutDimensions.minTouchTarget)
+            #endif
+            .contentShape(Rectangle())
+            .opacity(isEnabled ? 1 : 0.4)
+            .onHover { isHovering = $0 }
     }
 }
