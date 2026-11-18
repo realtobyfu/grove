@@ -149,8 +149,14 @@ final class ContentViewModel {
     private var resumableRailNote: Item? {
         guard let note = railNoteInProgress,
               !note.isDeleted,
-              note.modelContext != nil,
-              note.id != openedItem?.id else { return nil }
+              let context = note.modelContext else { return nil }
+        // `isDeleted` is only true until the deletion is saved, and a deleted
+        // model is not guaranteed to lose its context afterwards. Asking the
+        // store does not depend on either (pending inserts count as present).
+        let noteID = note.id
+        let descriptor = FetchDescriptor<Item>(predicate: #Predicate { $0.id == noteID })
+        guard ((try? context.fetchCount(descriptor)) ?? 0) > 0,
+              noteID != openedItem?.id else { return nil }
         return note
     }
 

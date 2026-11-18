@@ -24,13 +24,16 @@ struct GroveThemeTests {
     /// A token with no asset draws as nothing at all, silently. This is the
     /// check that every colour both themes name is really in the catalog.
     @Test func everyTokenHasAnAssetInBothThemes() {
-        // Only meaningful where the app's asset catalog is the main bundle's
-        // (tests hosted in the app). Elsewhere there is nothing to look in.
-        guard NSColor(named: "bgPrimary") != nil else { return }
+        // Look in the bundle that holds the app's code (and its asset
+        // catalog), not `Bundle.main`, which is only the app when the tests
+        // are hosted in it. If the catalog is not there at all, there is
+        // nothing to check against.
+        let bundle = Bundle(for: ThemeStore.self)
+        guard NSColor(named: "bgPrimary", bundle: bundle) != nil else { return }
         for theme in GroveTheme.allCases {
             for token in GroveTheme.colorTokens {
                 let name = theme.assetName(token)
-                #expect(NSColor(named: name) != nil, "missing colour asset \(name)")
+                #expect(NSColor(named: name, bundle: bundle) != nil, "missing colour asset \(name)")
             }
         }
     }

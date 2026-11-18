@@ -31,6 +31,19 @@ struct SearchResult: Identifiable {
     let reflection: ReflectionBlock?
 }
 
+/// How many hits of each kind a search keeps, best first.
+struct SearchResultLimits: Equatable, Sendable {
+    var items: Int
+    var reflections: Int
+    var tags: Int
+    var boards: Int
+    /// "Related by meaning" rows.
+    var related: Int
+
+    /// The search overlay's limits, and every view model's default.
+    static let overlay = SearchResultLimits(items: 15, reflections: 10, tags: 8, boards: 5, related: 8)
+}
+
 /// An embedding-index hit: an item ID and its cosine similarity to the query.
 struct SemanticCandidate: Sendable, Equatable {
     let id: UUID
@@ -62,6 +75,11 @@ final class SearchViewModel {
     nonisolated static let semanticMinimumQueryLength = 3
     /// Index hits requested before fuzzy/archived exclusions are applied.
     private nonisolated static let semanticCandidatePoolSize = 64
+
+    /// How many hits of each kind a search keeps. Defaults to the overlay's
+    /// limits; the Library raises them, because it lists every match inside
+    /// the scope its filters show. Read when a search runs.
+    var resultLimits = SearchResultLimits.overlay
 
     /// Optional board scope — when set, item/reflection results are restricted to this board
     var scopeBoard: Board? {
@@ -329,7 +347,7 @@ final class SearchViewModel {
             fuzzyIDs: fuzzyItemIDs,
             excludedIDs: excludedIDs,
             threshold: Self.semanticScoreThreshold,
-            limit: Self.semanticResultLimit
+            limit: resultLimits.related
         )
 
         semanticResults = matches.compactMap { match in
@@ -401,7 +419,7 @@ final class SearchViewModel {
             ))
         }
 
-        return scored.sorted { $0.score > $1.score }.prefix(15).map { $0 }
+        return scored.sorted { $0.score > $1.score }.prefix(max(0, resultLimits.items)).map { $0 }
     }
 
     private static func subtitle(for item: Item) -> String? {
@@ -437,7 +455,7 @@ final class SearchViewModel {
             ))
         }
 
-        return scored.sorted { $0.score > $1.score }.prefix(10).map { $0 }
+        return scored.sorted { $0.score > $1.score }.prefix(max(0, resultLimits.reflections)).map { $0 }
     }
 
     private func searchTags(query: String, tags: [Tag]) -> [SearchResult] {
@@ -460,7 +478,7 @@ final class SearchViewModel {
             ))
         }
 
-        return scored.sorted { $0.score > $1.score }.prefix(8).map { $0 }
+        return scored.sorted { $0.score > $1.score }.prefix(max(0, resultLimits.tags)).map { $0 }
     }
 
     private func searchBoards(query: String, boards: [Board]) -> [SearchResult] {
@@ -487,7 +505,7 @@ final class SearchViewModel {
             ))
         }
 
-        return scored.sorted { $0.score > $1.score }.prefix(5).map { $0 }
+        return scored.sorted { $0.score > $1.score }.prefix(max(0, resultLimits.boards)).map { $0 }
     }
 
     private func loadSearchCorpus() -> SearchCorpus {

@@ -51,6 +51,9 @@ struct LibraryFindField: View {
     let resultCount: Int?
     /// Return was pressed in the field.
     let onSubmit: () -> Void
+    /// Down (1) or Up (-1) was pressed in the field: move the highlight
+    /// through the rows. The field keeps the keyboard throughout.
+    let onMoveHighlight: (Int) -> Void
 
     @FocusState private var isFocused: Bool
     @ScaledMetric(relativeTo: .body) private var fieldHeight: CGFloat = LibraryMetrics.findFieldHeight
@@ -80,6 +83,14 @@ struct LibraryFindField: View {
             .autocorrectionDisabled()
             #endif
             .onSubmit { onSubmit() }
+            .onKeyPress(.downArrow) {
+                onMoveHighlight(1)
+                return .handled
+            }
+            .onKeyPress(.upArrow) {
+                onMoveHighlight(-1)
+                return .handled
+            }
             #if os(macOS)
             // Esc empties the field; pressed again, it gives the keyboard back.
             .onExitCommand { handleEscape() }

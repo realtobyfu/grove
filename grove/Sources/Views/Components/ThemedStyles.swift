@@ -13,13 +13,25 @@ struct ItemTypeMark: View {
     /// The word Commonplace sets, and what assistive technology reads in
     /// either theme ("Article", "PDF", "Note").
     let label: String
+    /// Sets the mark in primary ink rather than muted: for the user's own
+    /// writing, where a list sets it apart from what was saved.
+    var emphasized: Bool = false
+    /// A glyph to use in place of the type's own, for an entry that is not
+    /// an item of that type (a reflection on it). Nil uses `type.iconName`.
+    var symbolName: String? = nil
 
     var body: some View {
         if ThemeStore.shared.theme.usesGlyphs {
-            Image(systemName: type.iconName)
+            Image(systemName: symbolName ?? type.iconName)
                 .font(.groveMeta)
-                .foregroundStyle(Color.textMuted)
+                .foregroundStyle(emphasized ? Color.textPrimary : Color.textMuted)
                 .accessibilityLabel(label)
+        } else if emphasized {
+            // Text-level ink, which `sectionHeaderStyle`'s muted ink does not override.
+            Text(label)
+                .foregroundStyle(Color.textPrimary)
+                .sectionHeaderStyle()
+                .lineLimit(1)
         } else {
             Text(label)
                 .sectionHeaderStyle()

@@ -19,6 +19,8 @@ enum LibraryFind {
         case notes
         /// The query is in the saved text of something the user did not write.
         case text
+        /// The query is in the name of a tag the item carries.
+        case tagged
         /// Nothing matches literally; the embedding index places it nearby.
         case related
 
@@ -27,6 +29,7 @@ enum LibraryFind {
             case .titles: "Titles"
             case .notes: "In your notes and reflections"
             case .text: "In the text"
+            case .tagged: "Tagged"
             case .related: "Related in meaning"
             }
         }
@@ -36,7 +39,15 @@ enum LibraryFind {
     enum Source: Sendable {
         case item
         case reflection
+        /// An item carrying a tag the search found. Its candidate's `body`
+        /// is the tag's name.
+        case tag
     }
+
+    /// The heading and identity of the board rows, which offer a board's
+    /// filter chip rather than an item, and so sit outside `GroupKind`.
+    static let boardsGroupID = "boards"
+    static let boardsGroupTitle = "Boards"
 
     /// One search hit, reduced to what grouping needs. `payload` is carried
     /// through untouched (the Library passes the `SearchResult`).
@@ -52,7 +63,9 @@ enum LibraryFind {
         /// under `.notes` rather than `.text`.
         let isNote: Bool
         /// The text a snippet is cut from: a reflection's content, or an
-        /// item's note body / saved text. Empty when there is none.
+        /// item's note body / saved text, as stored (Markdown marks are
+        /// taken off here). Empty when there is none. For a `.tag` hit, the
+        /// tag's name.
         let body: String
         let score: Double
         let payload: Payload
@@ -77,6 +90,8 @@ enum LibraryFind {
     /// Sorts search hits under the Library's headings.
     ///
     /// - `exact`: the fuzzy pass's item and reflection hits, best first.
+    /// - `tagged`: one candidate per item and tag the search found, best tag
+    ///   first, with the tag's name as `body`.
     /// - `related`: the semantic hits, best first.
     /// - `allowedItemIDs`: the items the Library is showing (board filter,
     ///   archived toggle). A hit on any other item is dropped. Nil allows all.
@@ -84,11 +99,15 @@ enum LibraryFind {
     /// An item hit goes under Titles when the query is in its title, and
     /// otherwise under the heading for its text with a snippet around the
     /// match. Reflections always carry a snippet and sit with the user's
-    /// notes, the two merged best score first. A related item already listed
-    /// under another heading is not repeated. Empty groups are left out.
+    /// notes, the two merged best score first. An item carrying a tag whose
+    /// name holds the query (as `titleContains` reads it; loose matches are
+    /// left out) is listed under Tagged, once, with the matching tag names as
+    /// its snippet. A tagged or related item already listed under an earlier
+    /// heading is not repeated. Empty groups are left out.
     static func groups<Payload>(
         query: String,
         exact: [Candidate<Payload>],
+        tagged: [Candidate<Payload>] = [],
         related: [Candidate<Payload>],
         allowedItemIDs: Set<UUID>? = nil
     ) -> [ResultGroup<Payload>] {
@@ -122,6 +141,31 @@ enum LibraryFind {
             .sorted { $0.score != $1.score ? $0.score > $1.score : $0.offset < $1.offset }
             .map { $0.row }
 
+        // One row per item, naming every matching tag it carries.
+        var taggedOrder: [UUID] = []
+        var taggedFirst: [UUID: Candidate<Payload>] = [:]
+        var taggedNames: [UUID: [String]] = [:]
+        for candidate in tagged where isAllowed(candidate) && titleContains(candidate.body, query: query) {
+            guard !listedItemIDs.contains(candidate.itemID) else { continue }
+            if taggedFirst[candidate.itemID] == nil {
+                taggedOrder.append(candidate.itemID)
+                taggedFirst[candidate.itemID] = candidate
+            }
+            var names = taggedNames[candidate.itemID] ?? []
+            if !names.contains(candidate.body) {
+                names.append(candidate.body)
+            }
+            taggedNames[candidate.itemID] = names
+        }
+        var taggedRows: [Row<Payload>] = []
+        for itemID in taggedOrder {
+            guard let first = taggedFirst[itemID] else { continue }
+            let names = (taggedNames[itemID] ?? []).joined(separator: ", ")
+            let line = snippet(in: names, matching: query, lead: names.count, trail: names.count)
+            taggedRows.append(makeRow(for: first, line: line))
+            listedItemIDs.insert(itemID)
+        }
+
         var relatedRows: [Row<Payload>] = []
         for candidate in related where isAllowed(candidate) {
             guard listedItemIDs.insert(candidate.itemID).inserted else { continue }
@@ -132,6 +176,7 @@ enum LibraryFind {
             (.titles, titles),
             (.notes, rankedNotes),
             (.text, text),
+            (.tagged, taggedRows),
             (.related, relatedRows),
         ]
         var result: [ResultGroup<Payload>] = []
@@ -148,12 +193,12 @@ enum LibraryFind {
 
     private static func placement<Payload>(of candidate: Candidate<Payload>, query: String) -> Placement {
         if candidate.source == .reflection {
-            return .body(snippet(in: candidate.body, matching: query) ?? excerpt(of: candidate.body))
+            return .body(snippet(inMarkdown: candidate.body, matching: query) ?? excerpt(ofMarkdown: candidate.body))
         }
         if titleContains(candidate.title, query: query) {
             return .title
         }
-        if let found = snippet(in: candidate.body, matching: query) {
+        if let found = snippet(inMarkdown: candidate.body, matching: query) {
             return .body(found)
         }
         // Neither holds the query as typed, so the fuzzy pass matched loosely
@@ -166,7 +211,7 @@ enum LibraryFind {
         if titleScore > 0 {
             return .title
         }
-        guard let opening = excerpt(of: candidate.body) else { return .title }
+        guard let opening = excerpt(ofMarkdown: candidate.body) else { return .title }
         return .body(opening)
     }
 
@@ -294,6 +339,139 @@ enum LibraryFind {
 
         let opening = collapsingWhitespace(text[first..<end], trimmingEnd: true)
         return Snippet(before: opening + (isCut ? ellipsis : ""), match: "", after: "")
+    }
+
+    // MARK: - Markdown
+
+    /// `snippet(in:matching:)` for stored text that may be Markdown: each
+    /// line has its marks taken off (`plainLine`) before it is searched, so
+    /// the snippet reads as prose and "**augment**" still matches "augment".
+    /// The snippet keeps to its match's line, so lines are stripped one at a
+    /// time and only as far as the first that matches.
+    static func snippet(
+        inMarkdown text: String,
+        matching query: String,
+        lead: Int = 32,
+        trail: Int = 96
+    ) -> Snippet? {
+        let needle = normalized(query)
+        guard !needle.isEmpty, !text.isEmpty else { return nil }
+
+        var plainLines: [String] = []
+        for rawLine in text.split(whereSeparator: \.isNewline) {
+            let line = plainLine(rawLine)
+            if line.range(of: needle, options: .caseInsensitive) != nil {
+                return snippet(in: line, matching: needle, lead: lead, trail: trail)
+            }
+            plainLines.append(line)
+        }
+
+        // No line holds the query as typed: the first line holding any one
+        // of its words, as `snippet(in:matching:)` falls back.
+        let words = needle.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard words.count > 1 else { return nil }
+        for line in plainLines
+        where words.contains(where: { line.range(of: $0, options: .caseInsensitive) != nil }) {
+            return snippet(in: line, matching: needle, lead: lead, trail: trail)
+        }
+        return nil
+    }
+
+    /// `excerpt(of:)` for stored text that may be Markdown: the first line
+    /// with a letter or digit left once its marks are off. Nil when there is
+    /// none (blank text, or only dividers and fences).
+    static func excerpt(ofMarkdown text: String, length: Int = 128) -> Snippet? {
+        for rawLine in text.split(whereSeparator: \.isNewline) {
+            let line = plainLine(rawLine)
+            guard line.contains(where: { $0.isLetter || $0.isNumber }) else { continue }
+            return excerpt(of: line, length: length)
+        }
+        return nil
+    }
+
+    /// One line of Markdown as plain prose: heading hashes, quote, list and
+    /// task prefixes, link and image syntax, wiki-link brackets (an alias
+    /// wins over the target), and emphasis, code and strikethrough marks are
+    /// removed; the words are left alone. A code fence's own line is blank.
+    static func plainLine<S: StringProtocol>(_ line: S) -> String {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") { return "" }
+
+        // Most lines of saved text carry no mark at all: every pattern below
+        // needs one of these characters, or a line opening with "-", "+" or
+        // a digit, so such a line is returned without running them.
+        let marks: Set<Character> = ["#", ">", "*", "_", "`", "[", "~"]
+        let opensLikeAList = trimmed.first.map { $0 == "-" || $0 == "+" || $0.isNumber } ?? false
+        if !opensLikeAList, !trimmed.contains(where: { marks.contains($0) }) {
+            return trimmed
+        }
+
+        var text = trimmed
+        let replacements: [(pattern: String, template: String)] = [
+            // Quote prefixes, nested or not.
+            (#"^(>\s?)+"#, ""),
+            // Heading, bullet (with or without a task box), numbered item.
+            (#"^\s*(#{1,6}\s+|[-*+]\s+(\[[ xX]\]\s+)?|\d+[.)]\s+)"#, ""),
+            // [[Target|alias]] keeps its alias; [[Target]] its target.
+            (#"\[\[([^\]|]+)\|([^\]]+)\]\]"#, "$2"),
+            (#"\[\[(.+?)\]\]"#, "$1"),
+            // [text](url) and ![alt](url) keep their text.
+            (#"!?\[([^\]]*)\]\([^)]*\)"#, "$1"),
+            // Emphasis, code and strikethrough marks.
+            (#"[*`]|~~"#, ""),
+            // Underscores that open or close emphasis, not ones inside a word.
+            (#"(?<![\p{L}\p{N}])_+|_+(?![\p{L}\p{N}])"#, ""),
+        ]
+        for replacement in replacements {
+            text = text.replacingOccurrences(
+                of: replacement.pattern,
+                with: replacement.template,
+                options: .regularExpression
+            )
+        }
+        return text
+    }
+
+    // MARK: - Boards
+
+    /// The boards offered as rows above the results: those whose name holds
+    /// the query (as `titleContains` reads it), in the order given, without
+    /// the board the list is already filtered to, each once.
+    static func offeredBoards<Element>(
+        _ boards: [Element],
+        query: String,
+        excluding currentID: UUID?,
+        id: (Element) -> UUID,
+        title: (Element) -> String
+    ) -> [Element] {
+        var seen = Set<UUID>()
+        var offered: [Element] = []
+        for board in boards {
+            let boardID = id(board)
+            guard boardID != currentID, titleContains(title(board), query: query) else { continue }
+            if seen.insert(boardID).inserted {
+                offered.append(board)
+            }
+        }
+        return offered
+    }
+
+    // MARK: - Keyboard Highlight
+
+    /// Where Down (`step` 1) or Up (`step` -1) moves the keyboard highlight
+    /// through `rowIDs`, the rows in display order.
+    ///
+    /// Down from no highlight (or from a row no longer listed) lands on the
+    /// first row; Up from there stays in the field, with no highlight. Up
+    /// from the first row returns to the field; Down on the last row stays.
+    static func movedHighlight(from current: String?, by step: Int, in rowIDs: [String]) -> String? {
+        guard !rowIDs.isEmpty else { return nil }
+        guard let current, let index = rowIDs.firstIndex(of: current) else {
+            return step > 0 ? rowIDs.first : nil
+        }
+        let target = index + step
+        guard target >= 0 else { return nil }
+        return rowIDs[min(target, rowIDs.count - 1)]
     }
 
     // MARK: - Count

@@ -466,8 +466,9 @@ private struct NewsletterIssueRow: View {
 
     var body: some View {
         HStack(spacing: Spacing.sm) {
-            // Same gutter as LibraryRowView: type icon, 20pt column. Unread
-            // reads through ink weight on the title, not a separate marker.
+            // Type icon in a 20pt column (the width LibraryRowView gives its
+            // type glyph in the Grove theme). Unread reads through ink weight
+            // on the title, not a separate marker.
             Image(systemName: item.type.iconName)
                 .font(.groveMeta)
                 .foregroundStyle(isUnread ? Color.textSecondary : Color.textMuted)

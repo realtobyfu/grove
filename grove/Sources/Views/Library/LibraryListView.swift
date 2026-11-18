@@ -11,8 +11,12 @@ struct LibraryListRow: Identifiable {
     let id: String
     /// The item the row selects and opens.
     let item: Item
-    /// The word in the type column ("Article", "Note", "Reflect.").
+    /// The word in the type column ("Article", "Note", "Reflect."), and
+    /// what assistive technology reads for the type in either theme.
     let typeLabel: String
+    /// The glyph the type column shows in the Grove theme, in place of the
+    /// item type's own. Set for reflection rows; nil for item rows.
+    let typeSymbolName: String?
     /// A note the user wrote: its type is set in stronger ink.
     let isOwn: Bool
     /// The line under the title, around the match. Nil in the index.
@@ -24,14 +28,45 @@ struct LibraryListRow: Identifiable {
     let showsBoard: Bool
 }
 
+/// A board the find field matched, offered as a row that applies that
+/// board's filter chip.
+struct LibraryBoardRow: Identifiable {
+    /// Unique among all rows of the list.
+    let id: String
+    let board: Board
+}
+
 /// A run of rows under one heading: a month of the index, or a group of
 /// find results. With no title the rows are listed without a heading.
+/// The Boards group has `boardRows` and no `rows`; every other section the
+/// reverse.
 struct LibraryListSection: Identifiable {
     let id: String
     let title: String?
     /// Set beside the heading as a badge. Nil for months.
     let count: Int?
     let rows: [LibraryListRow]
+    var boardRows: [LibraryBoardRow] = []
+}
+
+extension Array where Element == LibraryListSection {
+    /// Every row's ID in display order: what the keyboard highlight moves through.
+    var rowIDs: [String] {
+        flatMap { section in section.boardRows.map(\.id) + section.rows.map(\.id) }
+    }
+}
+
+// MARK: - Keyboard Highlight
+
+/// The row Down and Up have moved to from the find field, if any.
+///
+/// A reference, so that moving the highlight redraws the list and not the
+/// whole page: `LibraryView` writes it from its key handlers without reading
+/// it in its body, and only `LibraryListView` reads it.
+@MainActor
+@Observable
+final class LibraryFindCursor {
+    var highlightedRowID: String?
 }
 
 // MARK: - Library List View
@@ -50,39 +85,63 @@ struct LibraryListView: View {
     let leadLine: String?
     let isMultiSelectMode: Bool
     let selectedIDs: Set<UUID>
+    /// The keyboard highlight the find field moves.
+    let cursor: LibraryFindCursor
     @Binding var selectedItem: Item?
     @Binding var openedItem: Item?
     let onToggleSelection: (Item) -> Void
     let onEnterMultiSelect: (Item) -> Void
     let onDeleteRequest: (Item) -> Void
+    /// A board row was chosen: apply that board's filter chip.
+    let onApplyBoard: (Board) -> Void
 
     var body: some View {
         if sections.isEmpty {
             emptyView
         } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if let leadLine {
-                        quietLine(leadLine)
-                            .padding(.top, Spacing.lg)
-                    }
-                    ForEach(sections) { section in
-                        if let title = section.title {
-                            sectionHeader(title: title, count: section.count)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        if let leadLine {
+                            quietLine(leadLine)
+                                .padding(.top, Spacing.lg)
                         }
-                        ForEach(section.rows) { row in
-                            selectableRow(for: row)
-                            if row.id != section.rows.last?.id {
-                                rowRule
+                        ForEach(sections) { section in
+                            if let title = section.title {
+                                sectionHeader(title: title, count: section.count)
+                            }
+                            ForEach(section.boardRows) { boardRow in
+                                boardRowView(for: boardRow)
+                                    .id(boardRow.id)
+                                if boardRow.id != section.boardRows.last?.id {
+                                    rowRule
+                                }
+                            }
+                            ForEach(section.rows) { row in
+                                selectableRow(for: row)
+                                    .id(row.id)
+                                if row.id != section.rows.last?.id {
+                                    rowRule
+                                }
                             }
                         }
                     }
+                    .padding(.horizontal, LayoutDimensions.contentPaddingH)
+                    .padding(.top, Spacing.xs)
+                    .padding(.bottom, Spacing.lg)
+                    if isMultiSelectMode && !selectedIDs.isEmpty {
+                        Spacer().frame(height: LibraryMetrics.actionBarClearance)
+                    }
                 }
-                .padding(.horizontal, LayoutDimensions.contentPaddingH)
-                .padding(.top, Spacing.xs)
-                .padding(.bottom, Spacing.lg)
-                if isMultiSelectMode && !selectedIDs.isEmpty {
-                    Spacer().frame(height: LibraryMetrics.actionBarClearance)
+                .onChange(of: cursor.highlightedRowID) { _, newValue in
+                    guard let newValue else { return }
+                    if reduceMotion {
+                        proxy.scrollTo(newValue)
+                    } else {
+                        withAnimation(.easeInOut(duration: 0.12)) {
+                            proxy.scrollTo(newValue)
+                        }
+                    }
                 }
             }
         }
@@ -135,10 +194,24 @@ struct LibraryListView: View {
 
     // MARK: - Selectable Row
 
+    /// True when the keyboard highlight is on a row of the list. While it
+    /// is, it alone is lit, rather than the selected item as well.
+    private var hasKeyboardHighlight: Bool {
+        guard let highlighted = cursor.highlightedRowID else { return false }
+        return sections.rowIDs.contains(highlighted)
+    }
+
     private func selectableRow(for row: LibraryListRow) -> some View {
         let item = row.item
         let isItemSelected = selectedIDs.contains(item.id)
-        let isHighlighted = isMultiSelectMode ? isItemSelected : selectedItem?.id == item.id
+        let isHighlighted: Bool
+        if isMultiSelectMode {
+            isHighlighted = isItemSelected || cursor.highlightedRowID == row.id
+        } else if hasKeyboardHighlight {
+            isHighlighted = cursor.highlightedRowID == row.id
+        } else {
+            isHighlighted = selectedItem?.id == item.id
+        }
 
         return HStack(spacing: 0) {
             if isMultiSelectMode {
@@ -176,6 +249,24 @@ struct LibraryListView: View {
         #endif
         selectedItem = item
         openedItem = item
+    }
+
+    // MARK: - Board Row
+
+    private func boardRowView(for boardRow: LibraryBoardRow) -> some View {
+        LibraryBoardRowView(board: boardRow.board)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                onApplyBoard(boardRow.board)
+            }
+            .selectedItemStyle(cursor.highlightedRowID == boardRow.id)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Board \(boardRow.board.title)")
+            .accessibilityHint("Shows only this board's items.")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction {
+                onApplyBoard(boardRow.board)
+            }
     }
 
     @ViewBuilder
@@ -242,6 +333,7 @@ struct LibraryRowView: View {
     let row: LibraryListRow
     @State private var isHovered = false
     @ScaledMetric(relativeTo: .caption) private var typeColumnWidth: CGFloat = LibraryMetrics.typeColumnWidth
+    @ScaledMetric(relativeTo: .caption) private var typeGlyphColumnWidth: CGFloat = LibraryMetrics.typeGlyphColumnWidth
     @ScaledMetric(relativeTo: .caption) private var dateColumnMinWidth: CGFloat = LibraryMetrics.dateColumnMinWidth
 
     private var item: Item { row.item }
@@ -270,16 +362,19 @@ struct LibraryRowView: View {
         }
     }
 
-    /// The type as a word in mono capitals. A note of the user's own is set
-    /// apart by weight and ink.
+    /// The type, marked the theme's way: a glyph in Grove, a word in mono
+    /// capitals in Commonplace. A note of the user's own is set in stronger ink.
     private var typeLabel: some View {
-        Text(row.typeLabel)
-            .font(row.isOwn ? .groveBadge : .groveFolio)
-            .tracking(LibraryMetrics.typeLabelTracking)
-            .textCase(.uppercase)
-            .foregroundStyle(row.isOwn ? Color.textPrimary : Color.textMuted)
-            .lineLimit(1)
-            .frame(width: typeColumnWidth, alignment: .leading)
+        ItemTypeMark(
+            type: item.type,
+            label: row.typeLabel,
+            emphasized: row.isOwn,
+            symbolName: row.typeSymbolName
+        )
+        .frame(
+            width: ThemeStore.shared.theme.usesGlyphs ? typeGlyphColumnWidth : typeColumnWidth,
+            alignment: .leading
+        )
     }
 
     private var titleAndSnippet: some View {
@@ -351,6 +446,51 @@ struct LibraryRowView: View {
             .lineLimit(1)
             .fixedSize()
             .frame(minWidth: dateColumnMinWidth, alignment: .trailing)
+    }
+}
+
+// MARK: - Library Board Row View
+
+/// A board the find field matched: its mark, its name, and what choosing it
+/// does. Set on the same columns as an item row.
+struct LibraryBoardRowView: View {
+    let board: Board
+    @ScaledMetric(relativeTo: .caption) private var typeColumnWidth: CGFloat = LibraryMetrics.typeColumnWidth
+    @ScaledMetric(relativeTo: .caption) private var typeGlyphColumnWidth: CGFloat = LibraryMetrics.typeGlyphColumnWidth
+
+    var body: some View {
+        let usesGlyphs = ThemeStore.shared.theme.usesGlyphs
+
+        HStack(alignment: .firstTextBaseline, spacing: Spacing.md) {
+            Group {
+                if usesGlyphs {
+                    Image(systemName: "folder")
+                        .font(.groveMeta)
+                        .foregroundStyle(Color.textMuted)
+                } else {
+                    Text("Board")
+                        .sectionHeaderStyle()
+                        .lineLimit(1)
+                }
+            }
+            .frame(width: usesGlyphs ? typeGlyphColumnWidth : typeColumnWidth, alignment: .leading)
+            .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: Spacing.xs / 2) {
+                Text(board.title)
+                    .font(.groveListTitle)
+                    .foregroundStyle(Color.textPrimary)
+                    .lineLimit(1)
+
+                Text("Show only this board")
+                    .font(.groveBodySecondary)
+                    .foregroundStyle(Color.textSecondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
     }
 }
 

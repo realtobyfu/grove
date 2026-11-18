@@ -27,9 +27,13 @@ extension Font {
 enum LibraryMetrics {
     /// Height of the find field.
     static let findFieldHeight: CGFloat = 40
-    /// Width of the type column: room for the longest type word in tracked
-    /// 11pt mono capitals ("REFLECT.").
-    static let typeColumnWidth: CGFloat = 64
+    /// Width of the type column where types are set as words (Commonplace):
+    /// room for the longest type word in tracked 11pt mono capitals
+    /// ("REFLECT.").
+    static let typeColumnWidth: CGFloat = 72
+    /// Width of the type column where types are set as glyphs (Grove): the
+    /// 20pt gutter the inbox rows give their type icon.
+    static let typeGlyphColumnWidth: CGFloat = 20
     /// Least width of the date column, so dates share a right edge and a
     /// left one for the common case ("Nov 11").
     static let dateColumnMinWidth: CGFloat = 52
@@ -37,8 +41,6 @@ enum LibraryMetrics {
     static let boardColumnMaxWidth: CGFloat = 180
     /// Vertical inset of a count badge and of the hover action's chip.
     static let badgeInsetV: CGFloat = 3
-    /// Letter-spacing of the type column's capitals.
-    static let typeLabelTracking: CGFloat = 0.8
     /// Clearance kept under the list for the multi-select action bar.
     static let actionBarClearance: CGFloat = 52
 }

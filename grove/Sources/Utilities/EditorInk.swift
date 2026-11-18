@@ -21,6 +21,9 @@ typealias PlatformInkColor = UIColor
 /// chosen theme's ink the next time it restyles.
 @MainActor
 enum EditorInk {
+    /// `@MainActor` of its own: a nested type does not inherit the enclosing
+    /// enum's isolation, and its init calls the main-actor helpers below.
+    @MainActor
     private struct Palette {
         let primary: PlatformInkColor
         let secondary: PlatformInkColor
