@@ -9,7 +9,7 @@ import SwiftData
 /// note's connections and backlinks live.
 ///
 /// Nothing here is "saved" by the reader: the page writes itself to the store
-/// a moment after typing pauses, and says so in the folio line.
+/// a moment after typing pauses, and says so beside the word count.
 struct NotePageView: View {
     let item: Item
     /// The note was created empty a moment ago by "New Note". Leaving it with

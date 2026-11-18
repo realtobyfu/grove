@@ -20,10 +20,11 @@ private extension NSAttributedString.Key {
 /// it live (bold, italic, code, headings, lists, tasks, dividers, wiki-links)
 /// in an NSTextView.
 ///
-/// Formatting is reached three ways, none of them a permanent strip in prose
-/// mode: the keyboard (⌘B/I/E/K), a bar that appears over a selection, and a
-/// `/` menu at the start of a line. `[[` opens a link picker at the caret.
-/// Both popups are driven from the keyboard without leaving the text.
+/// Formatting sits in one quiet strip of SF Symbol buttons: under the page in
+/// prose mode, over the box in the compact editor. The keyboard (⌘B/I/E/K)
+/// and a `/` menu at the start of a line reach the same actions, and `[[`
+/// opens a link picker at the caret; both popups are driven from the keyboard
+/// without leaving the text.
 struct RichMarkdownEditor: View {
     @Binding var text: String
     var sourceItem: Item?
@@ -32,7 +33,7 @@ struct RichMarkdownEditor: View {
     /// A host that needs to reach the caret (insert a reference, move focus
     /// into the body) passes its own proxy; otherwise the editor keeps one.
     var proxy: MarkdownEditingProxy? = nil
-    /// Shown in the folio line beside the word count ("Saved", "Edited").
+    /// Shown in the toolbar beside the word count ("Saved", "Edited").
     var status: String? = nil
     /// Called when a `[[wiki link]]` is ⌘-clicked and resolves to an item.
     var onNavigateToItem: ((Item) -> Void)? = nil
@@ -49,7 +50,6 @@ struct RichMarkdownEditor: View {
     /// Escape closes the popup for the token being typed; it stays closed
     /// until that token ends.
     @State private var assistDismissed = false
-    @State private var selectionAnchor: CGRect?
     @State private var isFocused = false
 
     private var editingProxy: MarkdownEditingProxy { proxy ?? ownedProxy }
@@ -68,13 +68,32 @@ struct RichMarkdownEditor: View {
                     textSurface
                         .frame(minHeight: minHeight, maxHeight: .infinity, alignment: .top)
                         .overlay(alignment: .topLeading) { floatingLayer }
-                    folio
+                    EditorToolbar(
+                        proxy: editingProxy,
+                        layout: .prose,
+                        wordCount: wordCountLabel,
+                        status: status
+                    )
+                    .padding(.horizontal, LayoutDimensions.writingGutter)
+                    .padding(.vertical, Spacing.sm)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else {
                 VStack(alignment: .leading, spacing: Spacing.xs) {
-                    EditorFormatControls(proxy: editingProxy)
-                        .editorFloatingPanel()
+                    EditorToolbar(
+                        proxy: editingProxy,
+                        layout: .boxed,
+                        wordCount: wordCountLabel,
+                        status: status
+                    )
+                    .padding(.horizontal, Spacing.sm)
+                    .padding(.vertical, Spacing.xs)
+                    .background(Color.bgCard)
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.control))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Radius.control)
+                            .stroke(Color.borderInput, lineWidth: 1)
+                    )
 
                     textSurface
                         .frame(minHeight: minHeight)
@@ -102,7 +121,6 @@ struct RichMarkdownEditor: View {
                 ? NSSize(width: LayoutDimensions.writingGutter, height: Spacing.sm)
                 : NSSize(width: Spacing.sm, height: Spacing.sm),
             onAssistTrigger: { applyAssist($0, anchor: $1) },
-            onSelectionAnchor: { selectionAnchor = $0 },
             onAssistKey: { handleAssistKey($0) },
             onFocusChange: { isFocused = $0 },
             onOpenLink: { openLink($0) },
@@ -110,39 +128,7 @@ struct RichMarkdownEditor: View {
         )
     }
 
-    // MARK: - Folio
-
-    /// The line under the page: word count and saved state on the left, the
-    /// two things worth remembering on the right. Set like a folio — small,
-    /// mono, out of the way.
-    private var folio: some View {
-        HStack(spacing: Spacing.lg) {
-            Text(wordCountLabel)
-            if let status {
-                Text(status)
-                    .accessibilityLabel("Note \(status)")
-            }
-            Spacer(minLength: Spacing.sm)
-            Text("/ blocks")
-                .help("Type / at the start of a line for headings, lists, tasks, quotes, code and dividers")
-            Text("[[ link")
-                .help("Type [[ to link to another item")
-        }
-        .font(.groveFolio)
-        .textCase(.uppercase)
-        .tracking(0.8)
-        .lineLimit(1)
-        .foregroundStyle(Color.textMuted)
-        .padding(.vertical, Spacing.sm)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(Color.borderPrimary)
-                .frame(height: 1)
-        }
-        .padding(.horizontal, LayoutDimensions.writingGutter)
-    }
-
-    // MARK: - Floating Layer (assist popup, selection bar)
+    // MARK: - Floating Layer (assist popup)
 
     private enum FloatingMetrics {
         static let popupWidth: CGFloat = 300
@@ -152,10 +138,6 @@ struct RichMarkdownEditor: View {
         static let maxRows = 10
         static let gap: CGFloat = 4
         static let edge: CGFloat = 8
-        /// The selection bar sizes itself; this is only used to keep it on
-        /// the page near the trailing edge.
-        static let barWidthEstimate: CGFloat = 440
-        static let barHeight: CGFloat = 30
     }
 
     private var isAssistVisible: Bool {
@@ -180,12 +162,6 @@ struct RichMarkdownEditor: View {
                 )
                 .frame(width: FloatingMetrics.popupWidth, height: height)
                 .offset(popupOffset(anchor: assistAnchor, height: height, in: geo.size))
-            } else if proseMode, isFocused, let selectionAnchor {
-                // The boxed editor keeps its fixed strip instead.
-                EditorFormatControls(proxy: editingProxy)
-                    .editorFloatingPanel()
-                    .fixedSize()
-                    .offset(barOffset(anchor: selectionAnchor, in: geo.size))
             }
         }
     }
@@ -198,17 +174,6 @@ struct RichMarkdownEditor: View {
         let above = anchor.minY - FloatingMetrics.gap - height
         if y + height > size.height, above >= 0 {
             y = above
-        }
-        return CGSize(width: x, height: y)
-    }
-
-    /// Over the selection; under its first line when it starts at the top.
-    private func barOffset(anchor: CGRect, in size: CGSize) -> CGSize {
-        let maxX = max(FloatingMetrics.edge, size.width - FloatingMetrics.barWidthEstimate - FloatingMetrics.edge)
-        let x = min(max(anchor.minX, FloatingMetrics.edge), maxX)
-        var y = anchor.minY - FloatingMetrics.gap - FloatingMetrics.barHeight
-        if y < 0 {
-            y = anchor.maxY + FloatingMetrics.gap
         }
         return CGSize(width: x, height: y)
     }
@@ -407,95 +372,162 @@ private struct EditorAssistPopup: View {
     }
 }
 
-// MARK: - Format Controls
+// MARK: - Toolbar
 
-/// The formatting actions, set as type rather than icons: a bold B, an italic
-/// I, the markdown itself for code and links. Used as the bar over a
-/// selection, and as the fixed strip of the compact (boxed) editor.
-private struct EditorFormatControls: View {
+/// The editor's formatting strip: SF Symbol buttons in secondary ink, a
+/// heading menu and a "more" menu, with the word count and saved state at the
+/// trailing end. One implementation for both editors — spaced out under the
+/// page in prose mode, packed into groups over the compact (boxed) editor.
+private struct EditorToolbar: View {
+    enum Layout { case prose, boxed }
+
     let proxy: MarkdownEditingProxy
+    let layout: Layout
+    let wordCount: String
+    var status: String?
+
+    private var spacing: CGFloat {
+        layout == .prose ? Spacing.md : 2
+    }
 
     var body: some View {
-        HStack(spacing: Spacing.xs) {
-            control("B", font: .groveBodyMedium, name: "Bold", shortcut: "B") {
+        HStack(spacing: spacing) {
+            EditorToolbarButton(symbol: "bold", name: "Bold", shortcut: "B") {
                 proxy.wrapSelection(prefix: "**", suffix: "**")
             }
-            control("I", font: .groveGhostText, name: "Italic", shortcut: "I") {
+            EditorToolbarButton(symbol: "italic", name: "Italic", shortcut: "I") {
                 proxy.wrapSelection(prefix: "*", suffix: "*")
             }
-            Button {
-                proxy.wrapSelection(prefix: "~~", suffix: "~~")
-            } label: {
-                glyph(Text("S").strikethrough(), font: .groveBody)
+
+            groupBreak
+
+            EditorToolbarMenu(symbol: "number", name: "Heading") {
+                Button("Title") { proxy.setHeading(level: 1) }
+                Button("Heading") { proxy.setHeading(level: 2) }
+                Button("Subheading") { proxy.setHeading(level: 3) }
+                Divider()
+                Button("Body Text") { proxy.setHeading(level: 0) }
             }
-            .buttonStyle(.plain)
-            .help("Strikethrough")
-            .accessibilityLabel("Strikethrough")
-            control("<>", font: .groveMeta, name: "Code", shortcut: "E") {
-                proxy.wrapSelection(prefix: "`", suffix: "`")
+            EditorToolbarButton(symbol: "list.bullet", name: "List") {
+                proxy.toggleListItem()
+            }
+            EditorToolbarButton(symbol: "text.quote", name: "Quote") {
+                proxy.toggleBlockQuote()
             }
 
-            separator
+            groupBreak
 
-            control("H1", font: .groveMeta, name: "Title") { proxy.setHeading(level: 1) }
-            control("H2", font: .groveMeta, name: "Heading") { proxy.setHeading(level: 2) }
-            control("H3", font: .groveMeta, name: "Subheading") { proxy.setHeading(level: 3) }
-            control("\u{00B6}", font: .groveMeta, name: "Body text") { proxy.setHeading(level: 0) }
+            EditorToolbarMenu(symbol: "ellipsis", name: "More") {
+                Button("Task") { proxy.insertPrefix("- [ ] ") }
+                Button("Code") { proxy.wrapSelection(prefix: "`", suffix: "`") }
+                Button("Strikethrough") { proxy.wrapSelection(prefix: "~~", suffix: "~~") }
+                Divider()
+                Button("Link") { proxy.insertLink() }
+                Button("Link to an Item") { proxy.insertWikiLink() }
+            }
 
-            separator
+            Spacer(minLength: Spacing.sm)
 
-            control("List", font: .groveMeta, name: "List") { proxy.toggleListItem() }
-            control("Quote", font: .groveMeta, name: "Quote") { proxy.toggleBlockQuote() }
-            control("Link", font: .groveMeta, name: "Link", shortcut: "K") { proxy.insertLink() }
-            control("[[ ]]", font: .groveMeta, name: "Link to an item") { proxy.insertWikiLink() }
+            HStack(spacing: Spacing.xsm) {
+                Text(wordCount)
+                if let status {
+                    Text("\u{00B7}")
+                        .accessibilityHidden(true)
+                    Text(status)
+                        .accessibilityLabel("Note \(status)")
+                }
+            }
+            .font(.groveMeta)
+            .foregroundStyle(Color.textTertiary)
+            .monospacedDigit()
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.trailing, layout == .boxed ? Spacing.xs : 0)
         }
-        .foregroundStyle(Color.textSecondary)
     }
 
-    private var separator: some View {
-        Rectangle()
-            .fill(Color.borderPrimary)
-            .frame(width: 1, height: 14)
-            .padding(.horizontal, Spacing.xs)
+    /// Prose mode separates groups with space alone; the packed strip needs
+    /// a hairline to show where one group ends.
+    @ViewBuilder
+    private var groupBreak: some View {
+        if layout == .boxed {
+            Rectangle()
+                .fill(Color.borderPrimary)
+                .frame(width: 1, height: 14)
+                .padding(.horizontal, Spacing.xs)
+        }
     }
+}
 
-    private func glyph(_ text: Text, font: Font) -> some View {
-        text
-            .font(font)
-            .padding(.horizontal, Spacing.xs)
-            .frame(minWidth: 22, minHeight: 22)
+/// The square every toolbar control sits on: secondary ink at rest; primary
+/// ink on a soft wash under the pointer, darker while pressed.
+private struct EditorToolbarGlyph: View {
+    let symbol: String
+    let isHovering: Bool
+    var isPressed = false
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(isHovering || isPressed ? Color.textPrimary : Color.textSecondary)
+            .frame(width: 24, height: 24)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.control)
+                    .fill(isPressed ? Color.bgCardHover : (isHovering ? Color.bgCardHover.opacity(0.6) : Color.clear))
+            )
             .contentShape(Rectangle())
     }
+}
 
-    private func control(
-        _ label: String,
-        font: Font,
-        name: String,
-        shortcut: String? = nil,
-        action: @escaping () -> Void
-    ) -> some View {
+private struct EditorToolbarButton: View {
+    let symbol: String
+    let name: String
+    var shortcut: String? = nil
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
         Button(action: action) {
-            glyph(Text(label), font: font)
+            EditorToolbarGlyph(symbol: symbol, isHovering: isHovering)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(EditorToolbarPressStyle(symbol: symbol, isHovering: isHovering))
+        .onHover { isHovering = $0 }
         .help(shortcut.map { "\(name) (\u{2318}\($0))" } ?? name)
         .accessibilityLabel(name)
     }
 }
 
-private extension View {
-    /// The one floating surface the editor uses: card colour, hairline, the
-    /// control radius, no shadow.
-    func editorFloatingPanel() -> some View {
-        self
-            .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, Spacing.xs)
-            .background(Color.bgCard)
-            .clipShape(RoundedRectangle(cornerRadius: Radius.control))
-            .overlay(
-                RoundedRectangle(cornerRadius: Radius.control)
-                    .stroke(Color.borderPrimary, lineWidth: 1)
-            )
+/// Swaps in the pressed look; the label above is only used for its layout.
+private struct EditorToolbarPressStyle: ButtonStyle {
+    let symbol: String
+    let isHovering: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        EditorToolbarGlyph(symbol: symbol, isHovering: isHovering, isPressed: configuration.isPressed)
+    }
+}
+
+private struct EditorToolbarMenu<Content: View>: View {
+    let symbol: String
+    let name: String
+    @ViewBuilder var content: Content
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Menu {
+            content
+        } label: {
+            EditorToolbarGlyph(symbol: symbol, isHovering: isHovering)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
+        .fixedSize()
+        .onHover { isHovering = $0 }
+        .help(name)
+        .accessibilityLabel(name)
     }
 }
 
@@ -585,8 +617,8 @@ struct MarkdownNSTextView: NSViewRepresentable {
 
         scrollView.documentView = textView
 
-        // The popup and the selection bar are placed in this view's space, so
-        // they have to follow the text when it scrolls.
+        // The popup is placed in this view's space, so it has to follow the
+        // text when it scrolls.
         scrollView.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(
             coordinator,
@@ -735,7 +767,7 @@ struct MarkdownNSTextView: NSViewRepresentable {
         // MARK: - Caret State (assist trigger, selection anchor)
 
         /// Tells the SwiftUI side what the caret is typing and where, so the
-        /// popup and the selection bar can sit beside the text they act on.
+        /// popup can sit beside the text it acts on.
         /// Delivered a turn later: a delegate callback can arrive while
         /// SwiftUI is mid-update.
         private func publishCaretState(for textView: NSTextView, force: Bool = false) {
@@ -1874,7 +1906,7 @@ class HighlightingTextView: NSTextView {
         guard !query.contains("]]"), !query.contains("\n") else { return }
 
         var replacementRange = NSRange(location: openRange.location, length: safeCursor - openRange.location)
-        // The format bar's "[[ ]]" control types the closing pair too and
+        // The toolbar's "Link to an Item" types the closing pair too and
         // leaves the caret between the two. Take that pair with the query, or
         // the pick would read `[[Title]]]]`.
         if nsText.substring(from: safeCursor).hasPrefix("]]") {
@@ -1963,8 +1995,8 @@ struct RichMarkdownEditor: View {
     var proseMode: Bool = false
     /// A host that needs to reach the caret passes its own proxy.
     var proxy: MarkdownEditingProxy? = nil
-    /// Accepted for parity with macOS, which shows it in a folio line; the
-    /// iOS editor has no such line.
+    /// Accepted for parity with macOS, which shows it in the toolbar; the
+    /// iOS editor has no such toolbar.
     var status: String? = nil
     /// Accepted for parity with macOS (⌘-click on a wiki link).
     var onNavigateToItem: ((Item) -> Void)? = nil
