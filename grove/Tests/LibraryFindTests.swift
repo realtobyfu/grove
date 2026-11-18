@@ -763,7 +763,8 @@ struct LibraryFindTests {
 
     @MainActor
     @Test func aViewModelStartsWithTheOverlaysLimits() throws {
-        let viewModel = makeViewModel(try makeContext())
+        let context = try makeContext()
+        let viewModel = makeViewModel(context)
 
         #expect(viewModel.resultLimits == .overlay)
     }
