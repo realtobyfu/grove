@@ -202,9 +202,11 @@ struct InboxFocusCard: View {
     // MARK: Slip (Grove)
 
     /// The focused arrival as an index slip, in three bands: where it came
-    /// from, what it is, what to do with it. A hairline outlines it and an
-    /// ink line in the margin marks it as the one in hand. The cover runs
-    /// flush to the slip's edge at the body's height.
+    /// from, what it is, what to do with it. Its leading edge is an ink
+    /// spine — part of the slip, and what marks it as the one in hand. That
+    /// edge is square so the spine is a straight line; the other three sides
+    /// are a hairline with the card's rounded corners. The cover runs flush
+    /// to the trailing edge at the body's height.
     private var slip: some View {
         VStack(alignment: .leading, spacing: 0) {
             metaLine
@@ -240,25 +242,35 @@ struct InboxFocusCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color.bgPrimary)
         }
+        // The bands start clear of the spine.
+        .padding(.leading, Self.spineWidth)
         .background(Color.bgCard)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.card))
+        .clipShape(Self.slipShape)
         .overlay(
-            RoundedRectangle(cornerRadius: Radius.card)
+            Self.slipShape
                 .stroke(Color.borderInput, lineWidth: 1)
         )
-        .overlay(alignment: .leading) { emphasisMark(inset: Radius.card) }
+        // Over the outline, so the leading edge is ink from top to bottom.
+        .overlay(alignment: .leading) { spine(width: Self.spineWidth) }
     }
 
-    /// The mark that says "this one": a straight ink line standing in the
-    /// margin beside the slip. It is drawn outside the slip, clear of its
-    /// rounded corners, so it stays a line rather than bending into a
-    /// coloured border.
-    private func emphasisMark(inset: CGFloat) -> some View {
+    private static let spineWidth: CGFloat = 3
+
+    /// Square on the spine's side, rounded on the other.
+    private static var slipShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            topLeadingRadius: 0,
+            bottomLeadingRadius: 0,
+            bottomTrailingRadius: Radius.card,
+            topTrailingRadius: Radius.card
+        )
+    }
+
+    /// The ink line down the entry's leading edge.
+    private func spine(width: CGFloat) -> some View {
         Rectangle()
             .fill(Color.accentSelection)
-            .frame(width: 2)
-            .padding(.vertical, inset)
-            .offset(x: -Spacing.md)
+            .frame(width: width)
             .accessibilityHidden(true)
     }
 
@@ -310,9 +322,11 @@ struct InboxFocusCard: View {
             actions
         }
         .padding(.vertical, Spacing.lg)
+        // Set in from the ink line that runs down the entry's leading edge.
+        .padding(.leading, Spacing.md + 2)
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(alignment: .bottom) { SlipRule() }
-        .overlay(alignment: .leading) { emphasisMark(inset: Spacing.lg) }
+        .overlay(alignment: .leading) { spine(width: 2) }
     }
 
     // MARK: Cover
